@@ -5017,18 +5017,17 @@ fn function(
                 const generic_identifier_token = self.current_token.? - 1;
                 const generic_identifier = try self.gc.copyString(self.ast.tokens.items(.lexeme)[generic_identifier_token]);
                 if ((self.current.?.generics == null or self.current.?.generics.?.get(generic_identifier) == null) and (self.current_object == null or self.current_object.?.generics == null or self.current_object.?.generics.?.get(generic_identifier) == null)) {
-                    const generic = obj.ObjTypeDef.GenericDef{
-                        .origin = self.ast.nodes.items(.type_def)[function_node].?.resolved_type.?.Function.id,
-                        .index = i,
-                    };
-                    const resolved_type = obj.ObjTypeDef.TypeUnion{ .Generic = generic };
-
                     try function_typedef.resolved_type.?.Function.generic_types.put(
                         generic_identifier,
                         try self.gc.type_registry.getTypeDef(
                             obj.ObjTypeDef{
                                 .def_type = .Generic,
-                                .resolved_type = resolved_type,
+                                .resolved_type = .{
+                                    .Generic = .{
+                                        .origin = self.ast.nodes.items(.type_def)[function_node].?.resolved_type.?.Function.id,
+                                        .index = i,
+                                    },
+                                },
                             },
                         ),
                     );
@@ -6454,19 +6453,17 @@ fn protocolDeclaration(self: *Self) Error!Ast.Node.Index {
     const placeholder_index = try self.declarePlaceholder(protocol_name, null);
     const protocol_placeholder = self.globals.items[placeholder_index].type_def;
 
-    const protocol_def = obj.ObjObject.ProtocolDef.init(
-        self.gc.allocator,
-        self.ast.tokens.get(protocol_name),
-        try self.gc.copyString(self.ast.tokens.items(.lexeme)[protocol_name]),
-        try self.gc.copyString(qualified_protocol_name.items),
-    );
-
-    const resolved_type = obj.ObjTypeDef.TypeUnion{ .Protocol = protocol_def };
-
     // Create type
     var protocol_type: obj.ObjTypeDef = .{
         .def_type = .Protocol,
-        .resolved_type = resolved_type,
+        .resolved_type = .{
+            .Protocol = obj.ObjObject.ProtocolDef.init(
+                self.gc.allocator,
+                self.ast.tokens.get(protocol_name),
+                try self.gc.copyString(self.ast.tokens.items(.lexeme)[protocol_name]),
+                try self.gc.copyString(qualified_protocol_name.items),
+            ),
+        },
     };
 
     try self.beginScope(null);

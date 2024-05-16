@@ -180,6 +180,7 @@ pub const Type = enum {
     Range, // range
 };
 
+// FIXME if case had the same name as the actual token we could simply use @tagName
 pub const keywords = std.StaticStringMap(Type).initComptime(
     .{
         .{ "and", .And },
