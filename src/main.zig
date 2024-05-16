@@ -218,8 +218,6 @@ pub fn main() u8 {
         \\-h, --help             Show help and exit
         \\-t, --test             Run test blocks in provided script
         \\-c, --check            Check script for error without running it
-        \\-f, --fmt              Format script
-        \\-a, --tree             Dump AST as JSON
         \\-v, --version          Print version and exit
         \\-L, --library <str>... Add search path for external libraries
         \\<str>...
@@ -301,10 +299,6 @@ pub fn main() u8 {
         .Check
     else if (res.args.@"test" == 1)
         .Test
-    else if (res.args.fmt == 1)
-        .Fmt
-    else if (res.args.tree == 1)
-        .Ast
     else if (res.positionals.len == 0)
         .Repl
     else

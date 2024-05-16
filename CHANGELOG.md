@@ -1,9 +1,10 @@
 # Unreleased
 
 ## Added
-- Tail call optimization (https://github.com/buzz-language/buzz/issues/9)
 - REPL (https://github.com/buzz-language/buzz/issues/17) available by running buzz without any argument
 - WASM build (https://github.com/buzz-language/buzz/issues/142) and [web REPL](https://buzz-lang.dev/repl.html)
+- Tracing JIT (https://github.com/buzz-language/buzz/issues/134): will look for hot loops and compile them
+- Tail call optimization (https://github.com/buzz-language/buzz/issues/9)
 - Function argument names and object property names can be omitted if the provided value is a named variable with the same name (https://github.com/buzz-language/buzz/issues/204)
 ```buzz
 object Person {
@@ -48,7 +49,6 @@ var value = from {
     - `myrange.toList()` transforms a range into a list of integers
     - `myrange.low` and `myrange.high` to get a range bounds
     - works with `foreach`
-- Tracing JIT (https://github.com/buzz-language/buzz/issues/134): will look for hot loops and compile them
 - `list.fill`
 - `std.panic` will panic and print current stack trace
 - Loop can have _labels_ that you can `break` or `continue` to (https://github.com/buzz-language/buzz/issues/199)
