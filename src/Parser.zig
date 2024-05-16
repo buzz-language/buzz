@@ -15,6 +15,7 @@ const Reporter = @import("Reporter.zig");
 const StringParser = @import("string_parser.zig").StringParser;
 const pcre = if (!is_wasm) @import("pcre.zig") else void;
 const buzz_api = @import("lib/buzz_api.zig");
+const io = @import("io.zig");
 
 // In the wasm build, libraries are statically linked
 const std_lib = if (is_wasm) @import("lib/buzz_std.zig") else void;
@@ -109,7 +110,7 @@ const debug_api = if (is_wasm) std.StaticStringMap(buzz_api.NativeFn).initCompti
 const serialize_lib = if (is_wasm) @import("lib/buzz_serialize.zig") else void;
 const serialize_api = if (is_wasm) std.StaticStringMap(buzz_api.NativeFn).initComptime(
     .{
-        .{ "serialize", &serialize_lib.serialize },
+        .{ "serialize", &serialize_lib.serializeValue },
     },
 ) else void;
 
@@ -477,7 +478,7 @@ const rules = [_]ParseRule{
     .{ .prefix = null, .infix = null, .precedence = .None }, // var
     .{ .prefix = null, .infix = null, .precedence = .None }, // out
     .{ .prefix = null, .infix = null, .precedence = .None }, // namespace
-    .{ .prefix = null, .infix = null, .precedence = .None }, // range
+    .{ .prefix = null, .infix = null, .precedence = .None }, // rg
 };
 
 ast: Ast,
@@ -846,7 +847,7 @@ pub fn parse(self: *Self, source: []const u8, file_name: []const u8) !?Ast {
             // When running in REPL, global scope is allowed to run statements since the global scope becomes procedural
             if (self.declarationOrStatement(null) catch |err| {
                 if (BuildOptions.debug) {
-                    std.debug.print("Parsing failed with error {}\n", .{err});
+                    io.print("Parsing failed with error {}\n", .{err});
                 }
                 return null;
             }) |decl| {
@@ -867,7 +868,7 @@ pub fn parse(self: *Self, source: []const u8, file_name: []const u8) !?Ast {
                 }
 
                 if (BuildOptions.debug) {
-                    std.debug.print("Parsing failed with error {}\n", .{err});
+                    io.print("Parsing failed with error {}\n", .{err});
                 }
                 return null;
             }) |decl| {
@@ -1691,7 +1692,7 @@ fn resolvePlaceholderWithRelation(
     const child_placeholder = child.resolved_type.?.Placeholder;
 
     if (BuildOptions.debug_placeholders) {
-        std.debug.print(
+        io.print(
             "Attempts to resolve @{} child placeholder @{} ({s}) with relation {}\n",
             .{
                 @intFromPtr(resolved_type),
@@ -2013,7 +2014,7 @@ pub fn resolvePlaceholder(self: *Self, placeholder: *obj.ObjTypeDef, resolved_ty
     std.debug.assert(placeholder.def_type == .Placeholder);
 
     if (BuildOptions.debug_placeholders) {
-        std.debug.print("Attempts to resolve @{} ({s}) with @{} a {}({})\n", .{
+        io.print("Attempts to resolve @{} ({s}) with @{} a {}({})\n", .{
             @intFromPtr(placeholder),
             if (placeholder.resolved_type.?.Placeholder.name) |name| name.string else "unknown",
             @intFromPtr(resolved_type),
@@ -2025,7 +2026,7 @@ pub fn resolvePlaceholder(self: *Self, placeholder: *obj.ObjTypeDef, resolved_ty
     // Both placeholders, we have to connect the child placeholder to a root placeholder so its not orphan
     if (resolved_type.def_type == .Placeholder) {
         if (BuildOptions.debug_placeholders) {
-            std.debug.print(
+            io.print(
                 "Replaced linked placeholder @{} ({s}) with rooted placeholder @{} ({s})\n",
                 .{
                     @intFromPtr(placeholder),
@@ -2064,7 +2065,7 @@ pub fn resolvePlaceholder(self: *Self, placeholder: *obj.ObjTypeDef, resolved_ty
     const placeholder_def = placeholder.resolved_type.?.Placeholder;
 
     if (BuildOptions.debug_placeholders) {
-        std.debug.print(
+        io.print(
             "Resolved placeholder @{} {s}({}) with @{}.{}({})\n",
             .{
                 @intFromPtr(placeholder),
@@ -2185,7 +2186,7 @@ fn declareVariable(self: *Self, variable_type: *obj.ObjTypeDef, name_token: ?Ast
                         // The placeholder resolution occurs after we parsed the functions body in `funDeclaration`
                         if (variable_type.resolved_type != null or @intFromEnum(variable_type.def_type) < @intFromEnum(obj.ObjTypeDef.Type.ObjectInstance)) {
                             if (BuildOptions.debug_placeholders) {
-                                std.debug.print(
+                                io.print(
                                     "Global placeholder @{} resolve with @{} {s} (opt {})\n",
                                     .{
                                         @intFromPtr(global.type_def),
@@ -2271,7 +2272,7 @@ fn declarePlaceholder(self: *Self, name: Ast.TokenIndex, placeholder: ?*obj.ObjT
     self.globals.items[global].initialized = true;
 
     if (BuildOptions.debug_placeholders) {
-        std.debug.print(
+        io.print(
             "global placeholder @{} for `{s}` at {}\n",
             .{
                 @intFromPtr(placeholder_type),
@@ -4127,7 +4128,7 @@ fn dot(self: *Self, can_assign: bool, callee: Ast.Node.Index) Error!Ast.Node.Ind
                     );
 
                     if (BuildOptions.debug_placeholders) {
-                        std.debug.print(
+                        io.print(
                             "static placeholder @{} for `{s}`\n",
                             .{
                                 @intFromPtr(placeholder),
@@ -4235,7 +4236,7 @@ fn dot(self: *Self, can_assign: bool, callee: Ast.Node.Index) Error!Ast.Node.Ind
                     );
 
                     if (BuildOptions.debug_placeholders) {
-                        std.debug.print(
+                        io.print(
                             "property placeholder @{} for `{s}.{s}`\n",
                             .{
                                 @intFromPtr(placeholder),
@@ -5443,7 +5444,7 @@ fn asyncCall(self: *Self, _: bool) Error!Ast.Node.Index {
         );
     } else {
         if (function_type.def_type != .Function) {
-            std.debug.print(
+            io.print(
                 "function_type.def_type {}\ncall_components.Call.callee {}\ncallable.tag {}\ncall_node tag {}\n",
                 .{
                     function_type.def_type,
@@ -6197,7 +6198,7 @@ fn objectDeclaration(self: *Self) Error!Ast.Node.Index {
 
                     // Now we know the placeholder was a method
                     if (BuildOptions.debug_placeholders) {
-                        std.debug.print(
+                        io.print(
                             "resolved static method for `{s}`\n",
                             .{
                                 method_name,
@@ -6212,7 +6213,7 @@ fn objectDeclaration(self: *Self) Error!Ast.Node.Index {
 
                     // Now we know the placeholder was a method
                     if (BuildOptions.debug_placeholders) {
-                        std.debug.print(
+                        io.print(
                             "resolved method placeholder for `{s}`\n",
                             .{
                                 method_name,
@@ -6271,7 +6272,7 @@ fn objectDeclaration(self: *Self) Error!Ast.Node.Index {
 
                     // Now we know the placeholder was a field
                     if (BuildOptions.debug_placeholders) {
-                        std.debug.print(
+                        io.print(
                             "resolved static property placeholder for `{s}`\n",
                             .{
                                 property_name.lexeme,
@@ -6286,7 +6287,7 @@ fn objectDeclaration(self: *Self) Error!Ast.Node.Index {
 
                     // Now we know the placeholder was a field
                     if (BuildOptions.debug_placeholders) {
-                        std.debug.print(
+                        io.print(
                             "resolved property placeholder for `{s}`\n",
                             .{
                                 property_name.lexeme,
@@ -7184,7 +7185,7 @@ fn readStaticScript(self: *Self, file_name: []const u8) ?[2][]const u8 {
         }
     else if (std.mem.eql(u8, file_name, "test"))
         [_][]const u8{
-            @embedFile("lib/test.buzz"),
+            @embedFile("lib/testing.buzz"),
             file_name,
         }
     else if (std.mem.eql(u8, file_name, "crypto"))

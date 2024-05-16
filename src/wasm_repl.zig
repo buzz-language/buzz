@@ -18,6 +18,7 @@ const disassembler = @import("disassembler.zig");
 const DumpState = disassembler.DumpState;
 const Scanner = @import("Scanner.zig");
 const printBanner = @import("repl.zig").printBanner;
+const io = @import("io.zig");
 
 pub const ReplCtx = extern struct {
     vm: *VM,
@@ -64,7 +65,7 @@ pub export fn initRepl() *ReplCtx {
         null,
     );
 
-    printBanner(std.io.getStdOut().writer(), true);
+    printBanner(io.stdOutWriter, true);
 
     // Import std and debug as commodity
     _ = runSource(
@@ -74,7 +75,7 @@ pub export fn initRepl() *ReplCtx {
         codegen,
         parser,
     ) catch |err| {
-        std.debug.print("Failed with error: {}\n", .{err});
+        io.print("Failed with error: {}\n", .{err});
 
         unreachable;
     };
@@ -90,9 +91,9 @@ pub export fn initRepl() *ReplCtx {
 }
 
 pub export fn runLine(ctx: *ReplCtx) void {
-    var stdout = std.io.getStdOut().writer();
-    var stderr = std.io.getStdErr().writer();
-    var stdin = std.io.getStdIn().reader();
+    var stdout = io.stdOutWriter;
+    var stderr = io.stdErrWriter;
+    var stdin = io.stdInReader;
 
     var previous_global_top = ctx.vm.globals_count;
     var previous_parser_globals = ctx.parser.globals.clone() catch unreachable;

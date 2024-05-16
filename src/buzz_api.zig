@@ -19,6 +19,7 @@ const dumpStack = @import("disassembler.zig").dumpStack;
 const ZigType = @import("zigtypes.zig").Type;
 const Token = @import("Token.zig");
 const Ast = @import("Ast.zig");
+const io = @import("io.zig");
 
 pub const os = if (is_wasm)
     @import("wasm.zig")
@@ -143,17 +144,17 @@ export fn bz_valueToCString(value: Value) ?[*:0]const u8 {
 
 fn valueDump(value: Value, vm: *VM, seen: *std.AutoHashMap(*_obj.Obj, void), depth: usize) void {
     if (depth > 50) {
-        std.debug.print("...", .{});
+        io.print("...", .{});
         return;
     }
 
     if (value.isNull()) {
-        std.debug.print("null", .{});
+        io.print("null", .{});
     } else if (!value.isObj() or seen.get(value.obj()) != null) {
         const string = value.toStringAlloc(vm.gc.allocator) catch std.ArrayList(u8).init(vm.gc.allocator);
         defer string.deinit();
 
-        std.debug.print("{s}", .{string.items});
+        io.print("{s}", .{string.items});
     } else {
         seen.put(value.obj(), {}) catch unreachable;
 
@@ -170,7 +171,7 @@ fn valueDump(value: Value, vm: *VM, seen: *std.AutoHashMap(*_obj.Obj, void), dep
                 const string = value.toStringAlloc(vm.gc.allocator) catch std.ArrayList(u8).init(vm.gc.allocator);
                 defer string.deinit();
 
-                std.debug.print("{s}", .{string.items});
+                io.print("{s}", .{string.items});
             },
 
             .UpValue => {
@@ -182,94 +183,94 @@ fn valueDump(value: Value, vm: *VM, seen: *std.AutoHashMap(*_obj.Obj, void), dep
             .String => {
                 const string = ObjString.cast(value.obj()).?;
 
-                std.debug.print("\"{s}\"", .{string.string});
+                io.print("\"{s}\"", .{string.string});
             },
 
             .Pattern => {
                 const pattern = ObjPattern.cast(value.obj()).?;
 
-                std.debug.print("$\"{s}\"", .{pattern.source});
+                io.print("$\"{s}\"", .{pattern.source});
             },
 
             .List => {
                 const list = ObjList.cast(value.obj()).?;
 
-                std.debug.print("[ ", .{});
+                io.print("[ ", .{});
                 for (list.items.items) |item| {
                     valueDump(item, vm, seen, depth + 1);
-                    std.debug.print(", ", .{});
+                    io.print(", ", .{});
                 }
-                std.debug.print("]", .{});
+                io.print("]", .{});
             },
 
             .Range => {
                 const range = ObjRange.cast(value.obj()).?;
 
-                std.debug.print("{}..{}", .{ range.low, range.high });
+                io.print("{}..{}", .{ range.low, range.high });
             },
 
             .Map => {
                 const map = ObjMap.cast(value.obj()).?;
 
-                std.debug.print("{{ ", .{});
+                io.print("{{ ", .{});
                 var it = map.map.iterator();
                 while (it.next()) |kv| {
                     const key = kv.key_ptr.*;
 
                     valueDump(key, vm, seen, depth + 1);
-                    std.debug.print(": ", .{});
+                    io.print(": ", .{});
                     valueDump(kv.value_ptr.*, vm, seen, depth + 1);
-                    std.debug.print(", ", .{});
+                    io.print(", ", .{});
                 }
-                std.debug.print("}}", .{});
+                io.print("}}", .{});
             },
 
             .Enum => {
                 const enumeration = ObjEnum.cast(value.obj()).?;
                 const enum_type_def = enumeration.type_def.resolved_type.?.Enum;
 
-                std.debug.print("enum({s}) {s} {{ ", .{ enum_type_def.name.string, enumeration.name.string });
+                io.print("enum({s}) {s} {{ ", .{ enum_type_def.name.string, enumeration.name.string });
                 for (enum_type_def.cases.items, 0..) |case, i| {
-                    std.debug.print("{s} -> ", .{case});
+                    io.print("{s} -> ", .{case});
                     valueDump(enumeration.cases[i], vm, seen, depth);
-                    std.debug.print(", ", .{});
+                    io.print(", ", .{});
                 }
-                std.debug.print("}}", .{});
+                io.print("}}", .{});
             },
 
             .Object => {
                 const object = ObjObject.cast(value.obj()).?;
                 const object_def = object.type_def.resolved_type.?.Object;
 
-                std.debug.print("object", .{});
+                io.print("object", .{});
                 if (object_def.conforms_to.count() > 0) {
-                    std.debug.print("(", .{});
+                    io.print("(", .{});
                     var it = object_def.conforms_to.iterator();
                     while (it.next()) |kv| {
-                        std.debug.print("{s}, ", .{kv.key_ptr.*.resolved_type.?.Protocol.name.string});
+                        io.print("{s}, ", .{kv.key_ptr.*.resolved_type.?.Protocol.name.string});
                     }
-                    std.debug.print(")", .{});
+                    io.print(")", .{});
                 }
 
-                std.debug.print(" {s} {{ ", .{object_def.name.string});
+                io.print(" {s} {{ ", .{object_def.name.string});
 
                 var it = object_def.static_fields.iterator();
                 while (it.next()) |kv| {
                     const static_field_type_str = kv.value_ptr.*.toStringAlloc(vm.gc.allocator) catch std.ArrayList(u8).init(vm.gc.allocator);
                     defer static_field_type_str.deinit();
 
-                    std.debug.print("static {s} {s}", .{ static_field_type_str.items, kv.key_ptr.* });
+                    io.print("static {s} {s}", .{ static_field_type_str.items, kv.key_ptr.* });
 
                     var static_it = object.static_fields.iterator();
                     while (static_it.next()) |static_kv| {
                         if (std.mem.eql(u8, static_kv.key_ptr.*.string, kv.key_ptr.*)) {
-                            std.debug.print(" = ", .{});
+                            io.print(" = ", .{});
                             valueDump(static_kv.value_ptr.*, vm, seen, depth + 1);
                             break;
                         }
                     }
 
-                    std.debug.print(", ", .{});
+                    io.print(", ", .{});
                 }
 
                 it = object_def.fields.iterator();
@@ -277,14 +278,14 @@ fn valueDump(value: Value, vm: *VM, seen: *std.AutoHashMap(*_obj.Obj, void), dep
                     const field_type_str = kv.value_ptr.*.toStringAlloc(vm.gc.allocator) catch std.ArrayList(u8).init(vm.gc.allocator);
                     defer field_type_str.deinit();
 
-                    std.debug.print("{s} {s}", .{ field_type_str.items, kv.key_ptr.* });
+                    io.print("{s} {s}", .{ field_type_str.items, kv.key_ptr.* });
 
                     if (object.fields.get(vm.gc.copyString(kv.key_ptr.*) catch unreachable)) |v| {
-                        std.debug.print(" = ", .{});
+                        io.print(" = ", .{});
                         valueDump(v, vm, seen, depth + 1);
                     }
 
-                    std.debug.print(", ", .{});
+                    io.print(", ", .{});
                 }
 
                 it = object_def.methods.iterator();
@@ -292,16 +293,16 @@ fn valueDump(value: Value, vm: *VM, seen: *std.AutoHashMap(*_obj.Obj, void), dep
                     const method_type_str = kv.value_ptr.*.toStringAlloc(vm.gc.allocator) catch std.ArrayList(u8).init(vm.gc.allocator);
                     defer method_type_str.deinit();
 
-                    std.debug.print("{s}, ", .{method_type_str.items});
+                    io.print("{s}, ", .{method_type_str.items});
                 }
 
-                std.debug.print("}}", .{});
+                io.print("}}", .{});
             },
 
             .ObjectInstance => {
                 const object_instance = ObjObjectInstance.cast(value.obj()).?;
 
-                std.debug.print(
+                io.print(
                     "{s}{{ ",
                     .{
                         if (object_instance.object) |object|
@@ -312,25 +313,25 @@ fn valueDump(value: Value, vm: *VM, seen: *std.AutoHashMap(*_obj.Obj, void), dep
                 );
                 var it = object_instance.fields.iterator();
                 while (it.next()) |kv| {
-                    std.debug.print("{s} = ", .{kv.key_ptr.*.string});
+                    io.print("{s} = ", .{kv.key_ptr.*.string});
                     valueDump(kv.value_ptr.*, vm, seen, depth + 1);
-                    std.debug.print(", ", .{});
+                    io.print(", ", .{});
                 }
-                std.debug.print("}}", .{});
+                io.print("}}", .{});
             },
 
             .ForeignContainer => {
                 const foreign = ObjForeignContainer.cast(value.obj()).?;
                 const foreign_def = foreign.type_def.resolved_type.?.ForeignContainer;
 
-                std.debug.print(
+                io.print(
                     "{s}{{ ",
                     .{foreign_def.name.string},
                 );
 
                 var it = foreign_def.fields.iterator();
                 while (it.next()) |kv| {
-                    std.debug.print("{s} = ", .{kv.key_ptr.*});
+                    io.print("{s} = ", .{kv.key_ptr.*});
                     valueDump(
                         kv.value_ptr.*.getter(
                             vm,
@@ -340,9 +341,9 @@ fn valueDump(value: Value, vm: *VM, seen: *std.AutoHashMap(*_obj.Obj, void), dep
                         seen,
                         depth + 1,
                     );
-                    std.debug.print(", ", .{});
+                    io.print(", ", .{});
                 }
-                std.debug.print("}}", .{});
+                io.print("}}", .{});
             },
         }
 
@@ -1326,8 +1327,8 @@ export fn bz_closure(
 }
 
 export fn bz_dumpStack(ctx: *NativeCtx, off: usize) void {
-    std.debug.print("base is {}, top is {}\n", .{ @intFromPtr(ctx.base), @intFromPtr(ctx.vm.current_fiber.stack_top) });
-    std.debug.print("#{}:\n", .{off});
+    io.print("base is {}, top is {}\n", .{ @intFromPtr(ctx.base), @intFromPtr(ctx.vm.current_fiber.stack_top) });
+    io.print("#{}:\n", .{off});
     dumpStack(ctx.vm);
 }
 
@@ -1510,7 +1511,7 @@ export fn bz_clone(vm: *VM, value: Value) Value {
 }
 
 export fn dumpInt(value: u64) void {
-    std.debug.print("-> {x}\n", .{value});
+    io.print("-> {x}\n", .{value});
 }
 
 export fn bz_zigType(vm: *VM, ztype: [*]const u8, len: usize, expected_type: *Value) ?*const ZigType {

@@ -510,10 +510,6 @@ pub fn build(b: *Build) !void {
     run_tests.setEnvironmentVariable("BUZZ_PATH", try getBuzzPrefix(b));
     run_tests.step.dependOn(install_step); // wait for libraries to be installed
     test_step.dependOn(&run_tests.step);
-
-    if (is_wasm) {
-        buildWasmReplDemo(b, exe);
-    }
 }
 
 pub fn buildPcre2(b: *Build, target: Build.ResolvedTarget, optimize: std.builtin.OptimizeMode) !*Build.Step.Compile {

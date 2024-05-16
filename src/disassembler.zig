@@ -1,5 +1,6 @@
 const std = @import("std");
-const print = std.debug.print;
+const io = @import("io.zig");
+const print = io.print;
 const Chunk = @import("Chunk.zig");
 const Value = @import("value.zig").Value;
 const obj = @import("obj.zig");

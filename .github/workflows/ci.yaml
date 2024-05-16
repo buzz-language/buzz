@@ -93,6 +93,21 @@ jobs:
         run: zig build -Doptimize=ReleaseFast -Djit_always_on test
       - name: Cleanup
         run: rm -rf zig-out zig-cache
+  wasm-build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout project
+        uses: actions/checkout@v3.0.0
+      - name: Checkout submodules
+        run: git submodule update --init --recursive
+      - name: Setup nightly Zig
+        uses: goto-bus-stop/setup-zig@v1
+        with:
+          version: master
+      - name: Build for wasm
+        run: zig build -Dtarget=wasm32-freestanding -freference-trace -Doptimize=ReleaseSmall
+      - name: Cleanup
+        run: rm -rf zig-out zig-cache
   lint:
     runs-on: macos-latest
     steps:

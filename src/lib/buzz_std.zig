@@ -2,6 +2,7 @@ const std = @import("std");
 const api = @import("buzz_api.zig");
 const builtin = @import("builtin");
 const is_wasm = builtin.cpu.arch.isWasm();
+const io = @import("io.zig");
 
 pub const os = if (is_wasm)
     @import("wasm.zig")
@@ -44,8 +45,8 @@ pub export fn print(ctx: *api.NativeCtx) c_int {
         return 0;
     }
 
-    _ = std.io.getStdOut().write(string.?[0..len]) catch return 0;
-    _ = std.io.getStdOut().write("\n") catch return 0;
+    _ = io.stdOutWriter.write(string.?[0..len]) catch return 0;
+    _ = io.stdOutWriter.write("\n") catch return 0;
 
     return 0;
 }
@@ -210,14 +211,14 @@ pub export fn assert(ctx: *api.NativeCtx) c_int {
         if (message_value.isObj()) {
             var len: usize = 0;
             const message = api.Value.bz_valueToString(message_value, &len).?;
-            std.io.getStdOut().writer().print(
+            io.stdOutWriter.print(
                 "Assert failed: {s}\n",
                 .{
                     message[0..len],
                 },
             ) catch unreachable;
         } else {
-            std.io.getStdOut().writer().print("Assert failed\n", .{}) catch unreachable;
+            io.stdOutWriter.print("Assert failed\n", .{}) catch unreachable;
         }
 
         if (!is_wasm) {

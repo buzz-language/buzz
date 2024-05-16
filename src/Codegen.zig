@@ -15,6 +15,7 @@ const Reporter = @import("Reporter.zig");
 const BuildOptions = @import("build_options");
 const JIT = if (!is_wasm) @import("Jit.zig") else void;
 const disassembler = @import("disassembler.zig");
+const io = @import("io.zig");
 
 const Self = @This();
 
@@ -162,7 +163,7 @@ pub fn generate(self: *Self, ast: Ast) anyerror!?*obj.ObjFunction {
 
     //     try root.node.toJson(&root.node, &out.writer());
 
-    //     try std.io.getStdOut().writer().print("\n{s}", .{out.items});
+    //     try io.stdOutWriter.print("\n{s}", .{out.items});
     // }
 
     const function = self.generateNode(self.ast.root.?, null);
@@ -1770,8 +1771,8 @@ fn generateFor(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.
     }
 
     const loop_start = self.currentCode();
-    const jit_jump = try self.emitJump(locations[node], .OP_HOTSPOT);
-    try self.emit(locations[node], node);
+    const jit_jump = if (!is_wasm) try self.emitJump(locations[node], .OP_HOTSPOT) else {};
+    if (!is_wasm) try self.emit(locations[node], node);
 
     const condition_type_def = type_defs[components.condition].?;
     if (condition_type_def.def_type == .Placeholder) {
@@ -1831,7 +1832,7 @@ fn generateFor(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.
     try self.patchOptJumps(node);
     try self.endScope(node);
 
-    self.patchTryOrJit(jit_jump);
+    if (!is_wasm) self.patchTryOrJit(jit_jump);
 
     return null;
 }
@@ -2038,8 +2039,8 @@ fn generateForEach(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*
     _ = try self.generateNode(components.iterable, breaks);
 
     const loop_start: usize = self.currentCode();
-    const jit_jump = try self.emitJump(locations[node], .OP_HOTSPOT);
-    try self.emit(locations[node], node);
+    const jit_jump = if (!is_wasm) try self.emitJump(locations[node], .OP_HOTSPOT) else {};
+    if (!is_wasm) try self.emit(locations[node], node);
 
     // Calls `next` and update key and value locals
     try self.emitOpCode(
@@ -2105,7 +2106,7 @@ fn generateForEach(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*
     );
     try self.endScope(node);
 
-    self.patchTryOrJit(jit_jump);
+    if (!is_wasm) self.patchTryOrJit(jit_jump);
 
     return null;
 }
@@ -2285,7 +2286,7 @@ fn generateFunction(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?
 
     if (BuildOptions.debug) {
         disassembler.disassembleChunk(&current_function.chunk, current_function.name.string);
-        std.debug.print("\n\n", .{});
+        io.print("\n\n", .{});
     }
 
     self.current = frame.enclosing;
@@ -3059,7 +3060,7 @@ fn generateObjectInit(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error
                 self.reporter.reportPlaceholder(self.ast, value_type_def.resolved_type.?.Placeholder);
             } else if (!prop.eql(value_type_def)) {
                 if (BuildOptions.debug_placeholders) {
-                    std.debug.print(
+                    io.print(
                         "prop {}({}), value {}({})\n",
                         .{
                             @intFromPtr(prop.resolved_type.?.ObjectInstance),
@@ -3852,8 +3853,8 @@ fn generateWhile(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*ob
 
     const loop_start: usize = self.currentCode();
 
-    const jit_jump = try self.emitJump(locations[node], .OP_HOTSPOT);
-    try self.emit(locations[node], node);
+    const jit_jump = if (!is_wasm) try self.emitJump(locations[node], .OP_HOTSPOT) else {};
+    if (!is_wasm) try self.emit(locations[node], node);
 
     if (condition_type_def.def_type == .Placeholder) {
         self.reporter.reportPlaceholder(self.ast, condition_type_def.resolved_type.?.Placeholder);
@@ -3893,7 +3894,7 @@ fn generateWhile(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*ob
     try self.patchOptJumps(node);
     try self.endScope(node);
 
-    self.patchTryOrJit(jit_jump);
+    if (!is_wasm) self.patchTryOrJit(jit_jump);
 
     return null;
 }

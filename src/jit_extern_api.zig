@@ -4,6 +4,7 @@ const m = @import("mir.zig");
 const api = @import("lib/buzz_api.zig");
 const JIT = @import("Jit.zig");
 const jmp = @import("jmp.zig").jmp;
+const io = @import("io.zig");
 
 export fn bz_exit(code: c_int) noreturn {
     std.process.exit(@truncate(@as(c_uint, @bitCast(code))));
@@ -1054,7 +1055,7 @@ pub const ExternApi = enum {
             .dumpInt => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.dumpInt))),
             .bz_valueDump => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.Value.bz_valueDump))),
             else => {
-                std.debug.print("{s}\n", .{self.name()});
+                io.print("{s}\n", .{self.name()});
                 unreachable;
             },
         };

@@ -1,5 +1,6 @@
 const std = @import("std");
 const api = @import("buzz_api.zig");
+const io = @import("io.zig");
 
 const builtin = @import("builtin");
 const is_wasm = builtin.cpu.arch.isWasm();
@@ -12,7 +13,7 @@ else
 pub export fn dump(ctx: *api.NativeCtx) c_int {
     ctx.vm.bz_peek(0).bz_valueDump(ctx.vm);
 
-    std.debug.print("\n", .{});
+    io.print("\n", .{});
 
     return 0;
 }
