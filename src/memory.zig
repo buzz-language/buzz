@@ -52,10 +52,14 @@ pub const TypeRegistry = struct {
     ud_type: *ObjTypeDef,
     rg_type: *ObjTypeDef,
 
+    // Buffer resused when we build a type key
+    type_def_key_buffer: std.ArrayList(u8),
+
     pub fn init(gc: *GarbageCollector) !Self {
         var self = Self{
             .gc = gc,
             .registry = std.StringHashMap(*ObjTypeDef).init(gc.allocator),
+            .type_def_key_buffer = std.ArrayList(u8).init(gc.allocator),
             .void_type = undefined,
             .str_type = undefined,
             .int_type = undefined,
@@ -82,19 +86,16 @@ pub const TypeRegistry = struct {
 
     pub fn deinit(self: *Self) void {
         self.registry.deinit();
+        self.type_def_key_buffer.deinit();
     }
 
     pub fn getTypeDef(self: *Self, type_def: ObjTypeDef) !*ObjTypeDef {
-        // FIXME: we don't need a new string everytime we come here!!
-        var type_def_buf = std.ArrayList(u8).init(self.gc.allocator);
-        try type_def.toString(&type_def_buf.writer());
-        type_def_buf.shrinkAndFree(type_def_buf.items.len);
-        const type_def_str: []const u8 = type_def_buf.items;
+        self.type_def_key_buffer.shrinkRetainingCapacity(0);
+        try type_def.toString(&self.type_def_key_buffer.writer());
 
         // We don't return a cached version of a placeholder since they all maintain a particular state (link)
         if (type_def.def_type != .Placeholder) {
-            if (self.registry.get(type_def_str)) |type_def_ptr| {
-                type_def_buf.deinit(); // If already in map, we don't need this string anymore
+            if (self.registry.get(self.type_def_key_buffer.items)) |type_def_ptr| {
                 return type_def_ptr;
             }
         }
@@ -102,9 +103,23 @@ pub const TypeRegistry = struct {
         const type_def_ptr = try self.gc.allocateObject(ObjTypeDef, type_def);
 
         if (BuildOptions.debug_placeholders) {
-            io.print("`{s}` @{}\n", .{ type_def_str, @intFromPtr(type_def_ptr) });
+            io.print(
+                "`{s}` @{}\n",
+                .{
+                    self.type_def_key_buffer.items,
+                    @intFromPtr(type_def_ptr),
+                },
+            );
         }
-        _ = try self.registry.put(type_def_str, type_def_ptr);
+
+        // Since the key buffer is reused, we clone the key
+        var copy = try self.type_def_key_buffer.clone();
+        copy.shrinkAndFree(copy.items.len);
+
+        _ = try self.registry.put(
+            copy.items,
+            type_def_ptr,
+        );
 
         return type_def_ptr;
     }
