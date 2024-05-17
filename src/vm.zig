@@ -268,7 +268,7 @@ pub const Fiber = struct {
         }
     }
 
-    pub fn resolve_(self: *Self, vm: *VM) !void {
+    pub fn resolve(self: *Self, vm: *VM) !void {
         self.resolved = true;
 
         switch (self.status) {
@@ -290,7 +290,7 @@ pub const Fiber = struct {
         }
     }
 
-    pub fn finish(self: *Self, vm: *VM, result: Value) !void {
+    pub fn finish(self: *Self, vm: *VM, result: Value) void {
         // Fiber is now over
         self.status = .Over;
         const resolved = self.resolved;
@@ -1305,9 +1305,14 @@ pub const VM = struct {
 
     fn OP_RESUME(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
         const obj_fiber = self.pop().obj().access(ObjFiber, .Fiber, self.gc).?;
-        obj_fiber.fiber.@"resume"(self) catch {
-            self.panic("Out of memory");
-            unreachable;
+        obj_fiber.fiber.@"resume"(self) catch |err| {
+            switch (err) {
+                Error.RuntimeError => return,
+                else => {
+                    self.panic("Out of memory");
+                    unreachable;
+                },
+            }
         };
 
         const next_full_instruction: u32 = self.readInstruction();
@@ -1326,9 +1331,14 @@ pub const VM = struct {
 
     fn OP_RESOLVE(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
         const obj_fiber = self.pop().obj().access(ObjFiber, .Fiber, self.gc).?;
-        obj_fiber.fiber.resolve_(self) catch {
-            self.panic("Out of memory");
-            unreachable;
+        obj_fiber.fiber.resolve(self) catch |err| {
+            switch (err) {
+                Error.RuntimeError => return,
+                else => {
+                    self.panic("Out of memory");
+                    unreachable;
+                },
+            }
         };
 
         const next_full_instruction: u32 = self.readInstruction();
@@ -1374,9 +1384,14 @@ pub const VM = struct {
             arg_count,
             catch_value,
             false,
-        ) catch {
-            self.panic("Out of memory");
-            unreachable;
+        ) catch |err| {
+            switch (err) {
+                Error.RuntimeError => return,
+                else => {
+                    self.panic("Out of memory");
+                    unreachable;
+                },
+            }
         };
 
         const next_full_instruction: u32 = self.readInstruction();
@@ -1405,9 +1420,14 @@ pub const VM = struct {
             arg_count,
             catch_value,
             false,
-        ) catch {
-            self.panic("Out of memory");
-            unreachable;
+        ) catch |err| {
+            switch (err) {
+                Error.RuntimeError => return,
+                else => {
+                    self.panic("Out of memory");
+                    unreachable;
+                },
+            }
         };
 
         const next_full_instruction: u32 = self.readInstruction();
@@ -1438,9 +1458,19 @@ pub const VM = struct {
         if (instance.fields.get(method)) |field| {
             (self.current_fiber.stack_top - arg_count - 1)[0] = field;
 
-            self.callValue(field, arg_count, catch_value, false) catch {
-                self.panic("Out of memory");
-                unreachable;
+            self.callValue(
+                field,
+                arg_count,
+                catch_value,
+                false,
+            ) catch |err| {
+                switch (err) {
+                    Error.RuntimeError => return,
+                    else => {
+                        self.panic("Out of memory");
+                        unreachable;
+                    },
+                }
             };
         } else {
             _ = self.invokeFromObject(
@@ -1450,9 +1480,14 @@ pub const VM = struct {
                 catch_value,
                 false,
                 false,
-            ) catch {
-                self.panic("Out of memory");
-                unreachable;
+            ) catch |err| {
+                switch (err) {
+                    Error.RuntimeError => return,
+                    else => {
+                        self.panic("Out of memory");
+                        unreachable;
+                    },
+                }
             };
         }
 
@@ -1484,9 +1519,19 @@ pub const VM = struct {
         if (instance.fields.get(method)) |field| {
             (self.current_fiber.stack_top - arg_count - 1)[0] = field;
 
-            self.tailCall(field, arg_count, catch_value, false) catch {
-                self.panic("Out of memory");
-                unreachable;
+            self.tailCall(
+                field,
+                arg_count,
+                catch_value,
+                false,
+            ) catch |err| {
+                switch (err) {
+                    Error.RuntimeError => return,
+                    else => {
+                        self.panic("Out of memory");
+                        unreachable;
+                    },
+                }
             };
         } else {
             _ = self.invokeFromObject(
@@ -1496,9 +1541,14 @@ pub const VM = struct {
                 catch_value,
                 false,
                 true,
-            ) catch {
-                self.panic("Out of memory");
-                unreachable;
+            ) catch |err| {
+                switch (err) {
+                    Error.RuntimeError => return,
+                    else => {
+                        self.panic("Out of memory");
+                        unreachable;
+                    },
+                }
             };
         }
 
@@ -1530,9 +1580,19 @@ pub const VM = struct {
         const member_value: Value = member.toValue();
         (self.current_fiber.stack_top - arg_count - 1)[0] = member_value;
 
-        self.callValue(member_value, arg_count, catch_value, false) catch {
-            self.panic("Out of memory");
-            unreachable;
+        self.callValue(
+            member_value,
+            arg_count,
+            catch_value,
+            false,
+        ) catch |err| {
+            switch (err) {
+                Error.RuntimeError => return,
+                else => {
+                    self.panic("Out of memory");
+                    unreachable;
+                },
+            }
         };
 
         const next_full_instruction: u32 = self.readInstruction();
@@ -1563,9 +1623,19 @@ pub const VM = struct {
         const member_value: Value = member.toValue();
         (self.current_fiber.stack_top - arg_count - 1)[0] = member_value;
 
-        self.callValue(member_value, arg_count, catch_value, false) catch {
-            self.panic("Out of memory");
-            unreachable;
+        self.callValue(
+            member_value,
+            arg_count,
+            catch_value,
+            false,
+        ) catch |err| {
+            switch (err) {
+                Error.RuntimeError => return,
+                else => {
+                    self.panic("Out of memory");
+                    unreachable;
+                },
+            }
         };
 
         const next_full_instruction: u32 = self.readInstruction();
@@ -1596,9 +1666,19 @@ pub const VM = struct {
         const member_value: Value = member.toValue();
         (self.current_fiber.stack_top - arg_count - 1)[0] = member_value;
 
-        self.callValue(member_value, arg_count, catch_value, false) catch {
-            self.panic("Out of memory");
-            unreachable;
+        self.callValue(
+            member_value,
+            arg_count,
+            catch_value,
+            false,
+        ) catch |err| {
+            switch (err) {
+                Error.RuntimeError => return,
+                else => {
+                    self.panic("Out of memory");
+                    unreachable;
+                },
+            }
         };
 
         const next_full_instruction: u32 = self.readInstruction();
@@ -1628,9 +1708,19 @@ pub const VM = struct {
         }).?;
         const member_value: Value = member.toValue();
         (self.current_fiber.stack_top - arg_count - 1)[0] = member_value;
-        self.callValue(member_value, arg_count, catch_value, false) catch {
-            self.panic("Out of memory");
-            unreachable;
+        self.callValue(
+            member_value,
+            arg_count,
+            catch_value,
+            false,
+        ) catch |err| {
+            switch (err) {
+                Error.RuntimeError => return,
+                else => {
+                    self.panic("Out of memory");
+                    unreachable;
+                },
+            }
         };
 
         const next_full_instruction: u32 = self.readInstruction();
@@ -1662,9 +1752,19 @@ pub const VM = struct {
 
         const member_value: Value = member.toValue();
         (self.current_fiber.stack_top - arg_count - 1)[0] = member_value;
-        self.callValue(member_value, arg_count, catch_value, false) catch {
-            self.panic("Out of memory");
-            unreachable;
+        self.callValue(
+            member_value,
+            arg_count,
+            catch_value,
+            false,
+        ) catch |err| {
+            switch (err) {
+                Error.RuntimeError => return,
+                else => {
+                    self.panic("Out of memory");
+                    unreachable;
+                },
+            }
         };
 
         const next_full_instruction: u32 = self.readInstruction();
@@ -1696,9 +1796,19 @@ pub const VM = struct {
 
         const member_value: Value = member.toValue();
         (self.current_fiber.stack_top - arg_count - 1)[0] = member_value;
-        self.callValue(member_value, arg_count, catch_value, false) catch {
-            self.panic("Out of memory");
-            unreachable;
+        self.callValue(
+            member_value,
+            arg_count,
+            catch_value,
+            false,
+        ) catch |err| {
+            switch (err) {
+                Error.RuntimeError => return,
+                else => {
+                    self.panic("Out of memory");
+                    unreachable;
+                },
+            }
         };
 
         const next_full_instruction: u32 = self.readInstruction();
@@ -1730,10 +1840,7 @@ pub const VM = struct {
         if (self.current_fiber.frame_count == 0) {
             // We're in a fiber
             if (self.current_fiber.parent_fiber != null) {
-                self.current_fiber.finish(self, result) catch {
-                    self.panic("Out of memory");
-                    unreachable;
-                };
+                self.current_fiber.finish(self, result);
 
                 // Don't stop the VM
                 return false;
@@ -1835,9 +1942,14 @@ pub const VM = struct {
             //     defer gn.deinit();
             // }
 
-            vm.interpret(self.current_ast, closure.function, null) catch {
-                self.panic("Out of memory");
-                unreachable;
+            vm.interpret(self.current_ast, closure.function, null) catch |err| {
+                switch (err) {
+                    Error.RuntimeError => return,
+                    else => {
+                        self.panic("Out of memory");
+                        unreachable;
+                    },
+                }
             };
 
             // Top of stack is how many export we got
@@ -1927,9 +2039,14 @@ pub const VM = struct {
             self.pop(),
             null,
             null,
-        ) catch {
-            self.panic("Out of memory");
-            unreachable;
+        ) catch |err| {
+            switch (err) {
+                Error.RuntimeError => return,
+                else => {
+                    self.panic("Out of memory");
+                    unreachable;
+                },
+            }
         };
 
         const next_full_instruction: u32 = self.readInstruction();
@@ -2107,9 +2224,14 @@ pub const VM = struct {
                 }).toValue(),
                 null,
                 null,
-            ) catch {
-                self.panic("Out of memory");
-                unreachable;
+            ) catch |err| {
+                switch (err) {
+                    Error.RuntimeError => return,
+                    else => {
+                        self.panic("Out of memory");
+                        unreachable;
+                    },
+                }
             };
         }
 
@@ -2124,9 +2246,14 @@ pub const VM = struct {
                 }).toValue(),
                 null,
                 null,
-            ) catch {
-                self.panic("Out of memory");
-                unreachable;
+            ) catch |err| {
+                switch (err) {
+                    Error.RuntimeError => return,
+                    else => {
+                        self.panic("Out of memory");
+                        unreachable;
+                    },
+                }
             };
 
             return;
@@ -2197,9 +2324,14 @@ pub const VM = struct {
                 }).toValue(),
                 null,
                 null,
-            ) catch {
-                self.panic("Out of memory");
-                unreachable;
+            ) catch |err| {
+                switch (err) {
+                    Error.RuntimeError => return,
+                    else => {
+                        self.panic("Out of memory");
+                        unreachable;
+                    },
+                }
             };
         }
 
@@ -2226,9 +2358,14 @@ pub const VM = struct {
                 }).toValue(),
                 null,
                 null,
-            ) catch {
-                self.panic("Out of memory");
-                unreachable;
+            ) catch |err| {
+                switch (err) {
+                    Error.RuntimeError => return,
+                    else => {
+                        self.panic("Out of memory");
+                        unreachable;
+                    },
+                }
             };
         }
 
@@ -2260,9 +2397,14 @@ pub const VM = struct {
                 }).toValue(),
                 null,
                 null,
-            ) catch {
-                self.panic("Out of memory");
-                unreachable;
+            ) catch |err| {
+                switch (err) {
+                    Error.RuntimeError => return,
+                    else => {
+                        self.panic("Out of memory");
+                        unreachable;
+                    },
+                }
             };
         }
 
@@ -2290,9 +2432,14 @@ pub const VM = struct {
                 }).toValue(),
                 null,
                 null,
-            ) catch {
-                self.panic("Out of memory");
-                unreachable;
+            ) catch |err| {
+                switch (err) {
+                    Error.RuntimeError => return,
+                    else => {
+                        self.panic("Out of memory");
+                        unreachable;
+                    },
+                }
             };
         }
 
@@ -3808,9 +3955,14 @@ pub const VM = struct {
                 }).toValue(),
                 null,
                 null,
-            ) catch {
-                self.panic("Out of memory");
-                unreachable;
+            ) catch |err| {
+                switch (err) {
+                    Error.RuntimeError => return,
+                    else => {
+                        self.panic("Out of memory");
+                        unreachable;
+                    },
+                }
             };
         }
 
@@ -4062,7 +4214,7 @@ pub const VM = struct {
                     stack.items,
                 );
 
-                if (!is_wasm) {
+                if (!is_wasm and self.flavor != .Repl) {
                     std.process.exit(1);
                 } else {
                     return Error.RuntimeError;
