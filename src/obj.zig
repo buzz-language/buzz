@@ -3511,6 +3511,7 @@ pub const ObjBoundMethod = struct {
 pub const ObjTypeDef = struct {
     const Self = @This();
 
+    // WARN: order is important
     pub const Type = enum(u8) {
         Any,
         Bool,

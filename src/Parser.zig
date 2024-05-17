@@ -784,20 +784,6 @@ pub fn parse(self: *Self, source: []const u8, file_name: []const u8) !?Ast {
         else => "???",
     };
 
-    const function_def = obj.ObjFunction.FunctionDef{
-        .id = obj.ObjFunction.FunctionDef.nextId(),
-        .name = try self.gc.copyString(function_name),
-        .script_name = try self.gc.copyString(file_name),
-        .return_type = self.gc.type_registry.void_type,
-        .yield_type = self.gc.type_registry.void_type,
-        .parameters = std.AutoArrayHashMap(*obj.ObjString, *obj.ObjTypeDef).init(self.gc.allocator),
-        .defaults = std.AutoArrayHashMap(*obj.ObjString, Value).init(self.gc.allocator),
-        .function_type = function_type,
-        .generic_types = std.AutoArrayHashMap(*obj.ObjString, *obj.ObjTypeDef).init(self.gc.allocator),
-    };
-
-    const function_type_def = obj.ObjTypeDef.TypeUnion{ .Function = function_def };
-
     const body_node = try self.ast.appendNode(
         .{
             .tag = .Block,
@@ -817,7 +803,19 @@ pub fn parse(self: *Self, source: []const u8, file_name: []const u8) !?Ast {
             .type_def = try self.gc.type_registry.getTypeDef(
                 .{
                     .def_type = .Function,
-                    .resolved_type = function_type_def,
+                    .resolved_type = .{
+                        .Function = .{
+                            .id = obj.ObjFunction.FunctionDef.nextId(),
+                            .name = try self.gc.copyString(function_name),
+                            .script_name = try self.gc.copyString(file_name),
+                            .return_type = self.gc.type_registry.void_type,
+                            .yield_type = self.gc.type_registry.void_type,
+                            .parameters = std.AutoArrayHashMap(*obj.ObjString, *obj.ObjTypeDef).init(self.gc.allocator),
+                            .defaults = std.AutoArrayHashMap(*obj.ObjString, Value).init(self.gc.allocator),
+                            .function_type = function_type,
+                            .generic_types = std.AutoArrayHashMap(*obj.ObjString, *obj.ObjTypeDef).init(self.gc.allocator),
+                        },
+                    },
                 },
             ),
             .components = .{
@@ -985,17 +983,15 @@ fn beginFrame(self: *Self, function_type: obj.ObjFunction.FunctionType, function
         },
         .EntryPoint, .ScriptEntryPoint => {
             // `args` is [str]
-            const list_def = obj.ObjList.ListDef.init(
-                self.gc.allocator,
-                self.gc.type_registry.str_type,
-            );
-
-            const list_union: obj.ObjTypeDef.TypeUnion = .{ .List = list_def };
-
             local.type_def = try self.gc.type_registry.getTypeDef(
-                obj.ObjTypeDef{
+                .{
                     .def_type = .List,
-                    .resolved_type = list_union,
+                    .resolved_type = .{
+                        .List = obj.ObjList.ListDef.init(
+                            self.gc.allocator,
+                            self.gc.type_registry.str_type,
+                        ),
+                    },
                 },
             );
         },
@@ -1409,7 +1405,7 @@ fn declaration(self: *Self) Error!?Ast.Node.Index {
                     // `prefix.Type variable`
                     or try self.checkSequenceAhead(&[_]?Token.Type{ .Identifier, .Dot, .Identifier, .Identifier }, 4)
                     // `prefix.Type? variable`
-                    or try self.checkSequenceAhead(&[_]?Token.Type{ .Identifier, .Dot, .Identifier, .Question, .Identifier }, 4)
+                    or try self.checkSequenceAhead(&[_]?Token.Type{ .Identifier, .Dot, .Identifier, .Question, .Identifier }, 5)
                     // `Type? variable`
                     or try self.checkSequenceAhead(&[_]?Token.Type{ .Identifier, .Question, .Identifier }, 3)
                     // `Type::<...> variable`
@@ -1575,7 +1571,7 @@ fn addGlobal(self: *Self, name: Ast.TokenIndex, global_type: *obj.ObjTypeDef, co
     }
 
     try self.globals.append(
-        Global{
+        .{
             .prefix = self.namespace,
             .name_token = name,
             .name = try self.gc.copyString(lexemes[name]),
@@ -2618,14 +2614,6 @@ fn parseFiberType(self: *Self, generic_types: ?std.AutoArrayHashMap(*obj.ObjStri
 
     try self.consume(.Greater, "Expected `>` after fiber yield type");
 
-    const fiber_def = obj.ObjFiber.FiberDef{
-        .return_type = self.ast.nodes.items(.type_def)[return_type].?,
-        .yield_type = self.ast.nodes.items(.type_def)[yield_type].?,
-    };
-    const resolved_type = obj.ObjTypeDef.TypeUnion{
-        .Fiber = fiber_def,
-    };
-
     return self.ast.appendNode(
         .{
             .tag = .FiberType,
@@ -2635,7 +2623,12 @@ fn parseFiberType(self: *Self, generic_types: ?std.AutoArrayHashMap(*obj.ObjStri
                 obj.ObjTypeDef{
                     .optional = try self.match(.Question),
                     .def_type = .Fiber,
-                    .resolved_type = resolved_type,
+                    .resolved_type = .{
+                        .Fiber = .{
+                            .return_type = self.ast.nodes.items(.type_def)[return_type].?,
+                            .yield_type = self.ast.nodes.items(.type_def)[yield_type].?,
+                        },
+                    },
                 },
             ),
             .components = .{
@@ -2654,15 +2647,16 @@ fn parseListType(self: *Self, generic_types: ?std.AutoArrayHashMap(*obj.ObjStrin
 
     try self.consume(.RightBracket, "Expected `]` after list type.");
 
-    const list_def = obj.ObjList.ListDef.init(self.gc.allocator, self.ast.nodes.items(.type_def)[item_type].?);
-    const resolved_type = obj.ObjTypeDef.TypeUnion{
-        .List = list_def,
-    };
     const list_type_def = try self.gc.type_registry.getTypeDef(
         .{
             .optional = try self.match(.Question),
             .def_type = .List,
-            .resolved_type = resolved_type,
+            .resolved_type = .{
+                .List = obj.ObjList.ListDef.init(
+                    self.gc.allocator,
+                    self.ast.nodes.items(.type_def)[item_type].?,
+                ),
+            },
         },
     );
 
@@ -2693,24 +2687,25 @@ fn parseMapType(self: *Self, generic_types: ?std.AutoArrayHashMap(*obj.ObjString
     try self.consume(.RightBrace, "Expected `}` after value type.");
 
     const type_defs = self.ast.nodes.items(.type_def);
-    const map_def = obj.ObjMap.MapDef.init(self.gc.allocator, type_defs[key_type].?, type_defs[value_type].?);
-    const resolved_type = obj.ObjTypeDef.TypeUnion{
-        .Map = map_def,
-    };
-    const map_type_def = try self.gc.type_registry.getTypeDef(
-        .{
-            .optional = try self.match(.Question),
-            .def_type = .Map,
-            .resolved_type = resolved_type,
-        },
-    );
 
     return try self.ast.appendNode(
         .{
             .tag = .MapType,
             .location = start_location,
             .end_location = self.current_token.? - 1,
-            .type_def = map_type_def,
+            .type_def = try self.gc.type_registry.getTypeDef(
+                .{
+                    .optional = try self.match(.Question),
+                    .def_type = .Map,
+                    .resolved_type = .{
+                        .Map = obj.ObjMap.MapDef.init(
+                            self.gc.allocator,
+                            type_defs[key_type].?,
+                            type_defs[value_type].?,
+                        ),
+                    },
+                },
+            ),
             .components = .{
                 .MapType = .{
                     .key_type = key_type,
