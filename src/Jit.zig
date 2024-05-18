@@ -2702,8 +2702,24 @@ fn generateBinary(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
                 },
                 .Percent => {
                     if (left_type_def == .Float or right_type_def == .Float) {
-                        // FIXME: mir doesn't seem to have a mod/rem for floats?
-                        unreachable;
+                        const f_res = m.MIR_new_reg_op(
+                            self.ctx,
+                            try self.REG("f_res", m.MIR_T_D),
+                        );
+
+                        const pdt = m.MIR_new_reg_op(
+                            self.ctx,
+                            try self.REG("p", m.MIR_T_D),
+                        );
+
+                        // quotient
+                        self.DDIV(f_res, left, right);
+                        // product
+                        self.DMUL(pdt, f_res, right);
+                        // remainder
+                        self.DSUB(f_res, f_res, pdt);
+
+                        self.wrap(.Float, f_res, res);
                     } else {
                         self.MODS(res, left, right);
 
