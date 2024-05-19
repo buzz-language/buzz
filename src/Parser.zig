@@ -5200,7 +5200,7 @@ fn function(
 
         const end_token: Token.Type = if (function_type.canOmitBody()) .Semicolon else .LeftBrace;
 
-        while (!self.check(end_token) and !self.check(.Eof)) {
+        while (!self.check(end_token) and !self.check(.Arrow) and !self.check(.Eof)) {
             const error_type_node = try self.parseTypeDef(
                 self.ast.nodes.items(.type_def)[function_node].?.resolved_type.?.Function.generic_types,
                 true,
@@ -5214,7 +5214,7 @@ fn function(
                 self.reportError(.error_type, "Error type can't be optional");
             }
 
-            if (!self.check(end_token)) {
+            if (!self.check(end_token) and !self.check(.Arrow)) {
                 try self.consume(.Comma, "Expected `,` after error type");
             }
         }
