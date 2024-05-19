@@ -230,7 +230,7 @@ pub fn compileFunction(self: *Self, ast: Ast, closure: *o.ObjClosure) Error!void
     self.reset();
 }
 
-pub fn compileHotSpot(self: *Self, ast: Ast, hotspot_node: Ast.Node.Index) Error!*anyopaque {
+pub fn compileHotSpot(self: *Self, ast: Ast, closure: *o.ObjClosure, hotspot_node: Ast.Node.Index) Error!*anyopaque {
     var seen = std.AutoHashMap(Ast.Node.Index, void).init(self.vm.gc.allocator);
     defer seen.deinit();
     if (try ast.usesFiber(
@@ -253,7 +253,11 @@ pub fn compileHotSpot(self: *Self, ast: Ast, hotspot_node: Ast.Node.Index) Error
     }
 
     // Build function surrounding the node
-    try self.buildFunction(ast, null, hotspot_node);
+    try self.buildFunction(
+        ast,
+        closure,
+        hotspot_node,
+    );
 
     // Did we encounter other functions to compile?
     try self.buildCollateralFunctions(ast);

@@ -4020,7 +4020,11 @@ pub const VM = struct {
         if (self.shouldCompileHotspot(node)) {
             var timer = std.time.Timer.start() catch unreachable;
 
-            if (self.jit.?.compileHotSpot(self.current_ast, node) catch null) |native| {
+            if (self.jit.?.compileHotSpot(
+                self.current_ast,
+                self.currentFrame().?.closure,
+                node,
+            ) catch null) |native| {
                 const obj_native = self.gc.allocateObject(
                     ObjNative,
                     .{
