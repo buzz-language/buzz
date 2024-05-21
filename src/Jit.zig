@@ -2706,24 +2706,14 @@ fn generateBinary(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
                 },
                 .Percent => {
                     if (left_type_def == .Float or right_type_def == .Float) {
-                        const f_res = m.MIR_new_reg_op(
-                            self.ctx,
-                            try self.REG("f_res", m.MIR_T_D),
+                        try self.buildExternApiCall(
+                            .fmod,
+                            res,
+                            &[_]m.MIR_op_t{
+                                left,
+                                right,
+                            },
                         );
-
-                        const pdt = m.MIR_new_reg_op(
-                            self.ctx,
-                            try self.REG("p", m.MIR_T_D),
-                        );
-
-                        // quotient
-                        self.DDIV(f_res, left, right);
-                        // product
-                        self.DMUL(pdt, f_res, right);
-                        // remainder
-                        self.DSUB(f_res, f_res, pdt);
-
-                        self.wrap(.Float, f_res, res);
                     } else {
                         self.MODS(res, left, right);
 
@@ -6525,4 +6515,8 @@ fn outputModule(self: *Self, name: []const u8, module: m.MIR_module_t) void {
         debug_file,
         module,
     );
+}
+
+pub fn fmod(lhs: f64, rhs: f64) Value {
+    return Value.fromFloat(@mod(lhs, rhs));
 }

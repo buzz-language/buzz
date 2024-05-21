@@ -3481,9 +3481,20 @@ pub const VM = struct {
         const left_i: ?i32 = if (left.isInteger()) left.integer() else null;
 
         if (right_f != null or left_f != null) {
-            self.push(Value.fromFloat(@mod((left_f orelse @as(f64, @floatFromInt(left_i.?))), (right_f orelse @as(f64, @floatFromInt(right_i.?))))));
+            self.push(
+                Value.fromFloat(
+                    @mod(
+                        (left_f orelse @as(f64, @floatFromInt(left_i.?))),
+                        (right_f orelse @as(f64, @floatFromInt(right_i.?))),
+                    ),
+                ),
+            );
         } else {
-            self.push(Value.fromInteger(@mod(left_i.?, right_i.?)));
+            self.push(
+                Value.fromInteger(
+                    @mod(left_i.?, right_i.?),
+                ),
+            );
         }
 
         const next_full_instruction: u32 = self.readInstruction();

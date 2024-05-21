@@ -80,6 +80,7 @@ pub const ExternApi = enum {
 
     dumpInt,
     bz_valueDump,
+    fmod,
 
     pub fn declare(self: ExternApi, jit: *JIT) !m.MIR_item_t {
         const prototype = jit.state.?.prototypes.get(self) orelse self.proto(jit.ctx);
@@ -982,6 +983,25 @@ pub const ExternApi = enum {
                     },
                 },
             ),
+            .fmod => m.MIR_new_proto_arr(
+                ctx,
+                self.pname(),
+                1,
+                &[_]m.MIR_type_t{m.MIR_T_I64},
+                2,
+                &[_]m.MIR_var_t{
+                    .{
+                        .type = m.MIR_T_D,
+                        .name = "lhs",
+                        .size = undefined,
+                    },
+                    .{
+                        .type = m.MIR_T_D,
+                        .name = "rhs",
+                        .size = undefined,
+                    },
+                },
+            ),
         };
     }
 
@@ -1054,6 +1074,7 @@ pub const ExternApi = enum {
 
             .dumpInt => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.dumpInt))),
             .bz_valueDump => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.Value.bz_valueDump))),
+            .fmod => @as(*anyopaque, @ptrFromInt(@intFromPtr(&JIT.fmod))),
             else => {
                 io.print("{s}\n", .{self.name()});
                 unreachable;
@@ -1061,6 +1082,7 @@ pub const ExternApi = enum {
         };
     }
 
+    // FIXME: no need for this we can return @tagName
     pub fn name(self: ExternApi) [*:0]const u8 {
         return switch (self) {
             .nativefn => "NativeFn",
@@ -1130,6 +1152,7 @@ pub const ExternApi = enum {
 
             .dumpInt => "dumpInt",
             .bz_valueDump => "bz_valueDump",
+            .fmod => "fmod",
         };
     }
 
@@ -1202,6 +1225,7 @@ pub const ExternApi = enum {
 
             .dumpInt => "p_dumpInt",
             .bz_valueDump => "p_bz_valueDump",
+            .fmod => "p_fmod",
         };
     }
 };
