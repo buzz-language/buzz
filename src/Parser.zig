@@ -2827,9 +2827,14 @@ fn parseFunctionType(self: *Self, parent_generic_types: ?std.AutoArrayHashMap(*o
                 self.reportErrorAtCurrent(.arguments_count, "Can't have more than 255 arguments.");
             }
 
-            const arg_type = try self.parseTypeDef(merged_generic_types, true);
+            const arg_type = try self.parseTypeDef(
+                merged_generic_types,
+                true,
+            );
             const arg_type_def = self.ast.nodes.items(.type_def)[arg_type];
+
             try self.consume(.Identifier, "Expected argument name");
+
             const arg_name_token = self.current_token.? - 1;
             const arg_name = self.ast.tokens.items(.lexeme)[self.current_token.? - 1];
 
@@ -2863,14 +2868,18 @@ fn parseFunctionType(self: *Self, parent_generic_types: ?std.AutoArrayHashMap(*o
                     .type = arg_type,
                 },
             );
-
-            try defaults.put(
-                try self.gc.copyString(arg_name),
-                if (default) |def|
-                    try self.ast.toValue(def, self.gc)
-                else
-                    Value.Null,
-            );
+            if (if (default) |dflt|
+                try self.ast.toValue(dflt, self.gc)
+            else if (arg_type_def.?.optional)
+                Value.Null
+            else
+                null) |dflt|
+            {
+                try defaults.put(
+                    try self.gc.copyString(arg_name),
+                    dflt,
+                );
+            }
             try parameters.put(try self.gc.copyString(arg_name), arg_type_def.?);
 
             if (!try self.match(.Comma)) break;
@@ -5091,7 +5100,7 @@ fn function(
                     false,
                     argument_type,
                     true, // function arguments are constant
-                    "Expected parameter name",
+                    "Expected argument name",
                 );
 
                 std.debug.assert(self.current.?.scope_depth > 0);
