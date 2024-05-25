@@ -158,6 +158,7 @@ object Connection {
 export object Client {
     || @private
     ud client,
+    || @private
     bool collected = false,
 
     static fun init() > Client {
@@ -187,6 +188,8 @@ export object Client {
         );
 
         request.request = requestPtr;
+        | In case we're reusing the request object
+        request.response = null;
 
         return request;
     }
@@ -223,6 +226,12 @@ export object Request {
 
             const response = HttpRequestRead(request);
 
+            | - we don't need the request anymore
+            | - also this allows to properly reuse the Request object
+            | - finally the client can't be collected if there's opened connections
+            HttpRequestDeinit(request);
+
+            this.request = null;
             this.response = response;
 
             return response;
@@ -248,18 +257,6 @@ export object Request {
         } catch {}
 
         return "";
-    }
-
-    fun collect() > void {
-        if (this.collected) {
-            return;
-        }
-
-        this.collected = true;
-
-        if (this.request -> request) {
-            HttpRequestDeinit(request);
-        }
     }
 }
 
