@@ -211,7 +211,7 @@ export object Request {
 
     fun wait() > Response !> HttpError, errors.InvalidArgumentError, HttpParseError {
         if (this.collected) {
-            return error.RequestCollected;
+            throw HttpError.RequestCollected;
         }
     
         if (this.response != null) {
@@ -254,6 +254,8 @@ export object Request {
         if (this.collected) {
             return;
         }
+
+        this.collected = true;
 
         if (this.request -> request) {
             HttpRequestDeinit(request);

@@ -39,7 +39,7 @@ pub export fn HttpClientDeinit(ctx: *api.NativeCtx) c_int {
 
 pub export fn HttpClientSend(ctx: *api.NativeCtx) c_int {
     const userdata = ctx.vm.bz_peek(3).bz_valueToUserData();
-    const client = @as(*http.Client, @ptrCast(@alignCast(@as(*anyopaque, @ptrFromInt(userdata)))));
+    const client: *http.Client = @ptrCast(@alignCast(@as(*anyopaque, @ptrFromInt(userdata))));
 
     var len: usize = 0;
     const method_str = api.ObjEnumInstance.bz_getEnumCaseValue(ctx.vm.bz_peek(2)).bz_valueToString(&len);
@@ -55,8 +55,16 @@ pub export fn HttpClientSend(ctx: *api.NativeCtx) c_int {
     const header_values = ctx.vm.bz_peek(0);
     var headers = std.ArrayList(http.Header).init(api.VM.allocator);
     var next_header_key = api.Value.Null;
-    var next_header_value = api.ObjMap.bz_mapNext(ctx.vm, header_values, &next_header_key);
-    while (next_header_key.val != api.Value.Null.val) : (next_header_value = api.ObjMap.bz_mapNext(ctx.vm, header_values, &next_header_key)) {
+    var next_header_value = api.ObjMap.bz_mapNext(
+        ctx.vm,
+        header_values,
+        &next_header_key,
+    );
+    while (next_header_key.val != api.Value.Null.val) : (next_header_value = api.ObjMap.bz_mapNext(
+        ctx.vm,
+        header_values,
+        &next_header_key,
+    )) {
         var key_len: usize = 0;
         const key = next_header_key.bz_valueToString(&key_len);
         var value_len: usize = 0;

@@ -4510,8 +4510,10 @@ fn dot(self: *Self, can_assign: bool, callee: Ast.Node.Index) Error!Ast.Node.Ind
 
                 if (can_assign and try self.match(.Equal)) {
                     components[dot_node].Dot.member_kind = .Value;
+                    const expr = try self.expression(false);
+                    components = self.ast.nodes.items(.components); // ptr might have been invalidated
                     components[dot_node].Dot.value_or_call_or_enum = .{
-                        .Value = try self.expression(false),
+                        .Value = expr,
                     };
                 } else if (try self.match(.LeftParen)) {
                     // `call` will look to the parent node for the function definition
