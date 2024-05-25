@@ -1,6 +1,5 @@
 namespace http;
 
-import "std";
 import "buffer";
 import "errors";
 
@@ -46,6 +45,8 @@ export enum HttpError {
     UnsupportedTransferEncoding,
     UnsupportedUriScheme,
     UriMissingHost,
+    ClientCollected,
+    RequestCollected,
 }
 
 | https://datatracker.ietf.org/doc/html/rfc2616
@@ -174,6 +175,10 @@ export object Client {
     }
 
     fun start(Request request) > Request !> HttpError {
+        if (this.collected) {
+            throw HttpError.ClientCollected;
+        }
+    
         var requestPtr = HttpClientSend(
             client: this.client,
             method: request.method,
@@ -188,6 +193,8 @@ export object Client {
 
     fun collect() > void {
         if (!this.collected) {
+            this.collected = true;
+
             HttpClientDeinit(this.client);
         }
     }
@@ -203,6 +210,10 @@ export object Request {
     bool collected = false,
 
     fun wait() > Response !> HttpError, errors.InvalidArgumentError, HttpParseError {
+        if (this.collected) {
+            return error.RequestCollected;
+        }
+    
         if (this.response != null) {
             throw errors.InvalidArgumentError{};
         }
@@ -210,7 +221,11 @@ export object Request {
         if (this.request -> request) {
             HttpRequestWait(request);
 
-            return HttpRequestRead(request);
+            const response = HttpRequestRead(request);
+
+            this.response = response;
+
+            return response;
         }
 
         throw errors.InvalidArgumentError{};

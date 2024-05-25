@@ -1,7 +1,6 @@
 namespace buffer;
 
 import "ffi";
-import "std";
 
 export object WriteWhileReadingError {}
 export object OutOfBoundError {}

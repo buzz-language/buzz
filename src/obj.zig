@@ -3358,11 +3358,9 @@ pub const ObjEnum = struct {
 
     name: *ObjString,
     cases: []Value,
-    allocator: Allocator,
 
-    pub fn init(allocator: Allocator, def: *ObjTypeDef) Self {
+    pub fn init(def: *ObjTypeDef) Self {
         return Self{
-            .allocator = allocator,
             .type_def = def,
             .name = def.resolved_type.?.Enum.name,
             .cases = undefined,
@@ -3395,10 +3393,6 @@ pub const ObjEnum = struct {
                 .case = 0,
             });
         }
-    }
-
-    pub fn deinit(self: *Self) void {
-        self.allocator.free(self.cases);
     }
 
     pub inline fn toObj(self: *Self) *Obj {

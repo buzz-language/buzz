@@ -708,8 +708,8 @@ pub const GarbageCollector = struct {
                 free(self, ObjMap, obj_map);
             },
             .Enum => {
-                var obj_enum = ObjEnum.cast(obj).?;
-                obj_enum.deinit();
+                const obj_enum = ObjEnum.cast(obj).?;
+                self.allocator.free(obj_enum.cases);
 
                 free(self, ObjEnum, obj_enum);
             },

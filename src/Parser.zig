@@ -5637,11 +5637,6 @@ fn range(self: *Self, _: bool, low: Ast.Node.Index) Error!Ast.Node.Index {
 
     self.markInitialized();
 
-    const list_def = obj.ObjList.ListDef.init(self.gc.allocator, self.gc.type_registry.int_type);
-    const resolved_type = obj.ObjTypeDef.TypeUnion{
-        .List = list_def,
-    };
-
     return try self.ast.appendNode(
         .{
             .tag = .Range,
@@ -5651,7 +5646,12 @@ fn range(self: *Self, _: bool, low: Ast.Node.Index) Error!Ast.Node.Index {
                 .{
                     .optional = false,
                     .def_type = .Range,
-                    .resolved_type = resolved_type,
+                    .resolved_type = .{
+                        .List = obj.ObjList.ListDef.init(
+                            self.gc.allocator,
+                            self.gc.type_registry.int_type,
+                        ),
+                    },
                 },
             ),
             .components = .{
@@ -6725,7 +6725,7 @@ fn enumDeclaration(self: *Self) Error!Ast.Node.Index {
     // Generate the enum constant
     var @"enum" = try self.gc.allocateObject(
         obj.ObjEnum,
-        obj.ObjEnum.init(self.gc.allocator, enum_type),
+        obj.ObjEnum.init(enum_type),
     );
 
     var obj_cases = std.ArrayList(Value).init(self.gc.allocator);

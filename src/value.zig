@@ -34,6 +34,7 @@ pub const Value = packed struct {
     pub const TrueBitMask: u64 = 1;
     pub const TrueMask: u64 = BooleanMask | TrueBitMask;
 
+    // FIXME: Their's room to have a bigger integer. How would MIR handle it?
     pub const IntegerMask: u64 = TaggedValueMask | (@as(u64, TagInteger) << 32);
     pub const NullMask: u64 = TaggedValueMask | (@as(u64, TagNull) << 32);
     pub const VoidMask: u64 = TaggedValueMask | (@as(u64, TagVoid) << 32);

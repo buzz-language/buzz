@@ -155,7 +155,6 @@ pub export fn HttpRequestDeinit(ctx: *api.NativeCtx) c_int {
         ),
     );
 
-    api.VM.allocator.free(request.response.parser.header_bytes_buffer);
     request.deinit();
     api.VM.allocator.destroy(request);
 
