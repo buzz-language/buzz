@@ -191,13 +191,12 @@ pub const Value = packed struct {
     }
 
     pub fn eql(a: Value, b: Value) bool {
-        // zig fmt: off
-        if (a.isObj() != b.isObj()
-            or a.isNumber() != b.isNumber()
-            or (!a.isNumber() and !b.isNumber() and a.getTag() != b.getTag())) {
+        if (a.isObj() != b.isObj() or
+            a.isNumber() != b.isNumber() or
+            (!a.isNumber() and !b.isNumber() and a.getTag() != b.getTag()))
+        {
             return false;
         }
-        // zig fmt: on
 
         if (a.isObj()) {
             return a.obj().eql(b.obj());

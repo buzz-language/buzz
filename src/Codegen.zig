@@ -693,19 +693,18 @@ fn generateBinary(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*o
             try self.emitOpCode(locations[node], .OP_EQUAL);
         },
         .Plus => {
-            // zig fmt: off
-                if (left_type.def_type != .Integer
-                    and left_type.def_type != .Float
-                    and left_type.def_type != .String
-                    and left_type.def_type != .List
-                    and left_type.def_type != .Map) {
-                    self.reporter.reportErrorAt(
-                        .arithmetic_operand_type,
-                        self.ast.tokens.get(locations[components.left]),
-                        "Expected a `int`, `float`, `str`, list or map.",
-                    );
-                }
-                // zig fmt: on
+            if (left_type.def_type != .Integer and
+                left_type.def_type != .Float and
+                left_type.def_type != .String and
+                left_type.def_type != .List and
+                left_type.def_type != .Map)
+            {
+                self.reporter.reportErrorAt(
+                    .arithmetic_operand_type,
+                    self.ast.tokens.get(locations[components.left]),
+                    "Expected a `int`, `float`, `str`, list or map.",
+                );
+            }
 
             _ = try self.generateNode(components.left, breaks);
             _ = try self.generateNode(components.right, breaks);
@@ -1714,13 +1713,11 @@ fn generateExpression(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error
 
     try self.emitOpCode(locations[node], .OP_POP);
 
-    // zig fmt: off
-    const lone_expr = (expr_node_type != .NamedVariable or components[expr].NamedVariable.value == null)
-        and (expr_node_type != .Subscript or components[expr].Subscript.value == null)
-        and (expr_node_type != .Dot or components[expr].Dot.member_kind != .Value)
-        and expr_type_def != null
-        and expr_type_def.?.def_type != .Void;
-    // zig fmt: on
+    const lone_expr = (expr_node_type != .NamedVariable or components[expr].NamedVariable.value == null) and
+        (expr_node_type != .Subscript or components[expr].Subscript.value == null) and
+        (expr_node_type != .Dot or components[expr].Dot.member_kind != .Value) and
+        expr_type_def != null and
+        expr_type_def.?.def_type != .Void;
 
     if (self.flavor != .Repl and lone_expr and expr_type_def.?.def_type != .Placeholder) {
         const type_def_str = expr_type_def.?.toStringAlloc(self.gc.allocator) catch unreachable;
@@ -2256,13 +2253,12 @@ fn generateFunction(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?
                 try self.emitOpCode(locations[node], .OP_RETURN);
                 self.current.?.return_emitted = true;
             }
-            // zig fmt: off
-        } else if (function_type == .Repl
-            and components.body != null
-            and self.ast.nodes.items(.tag)[components.body.?] == .Block
-            and node_components[components.body.?].Block.len > 0
-            and self.ast.nodes.items(.tag)[node_components[components.body.?].Block[node_components[components.body.?].Block.len - 1]] == .Expression) {
-            // zig fmt: on
+        } else if (function_type == .Repl and
+            components.body != null and
+            self.ast.nodes.items(.tag)[components.body.?] == .Block and
+            node_components[components.body.?].Block.len > 0 and
+            self.ast.nodes.items(.tag)[node_components[components.body.?].Block[node_components[components.body.?].Block.len - 1]] == .Expression)
+        {
             // Repl and last expression is a lone statement, remove OP_POP, add OP_RETURN
             std.debug.assert(vm.VM.getCode(self.current.?.function.?.chunk.code.pop()) == .OP_POP);
             _ = self.current.?.function.?.chunk.lines.pop();
@@ -2894,12 +2890,11 @@ fn generateObjectDeclaration(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks
             if (std.mem.eql(u8, member_name, "collect")) {
                 const collect_def = member_type_def.resolved_type.?.Function;
 
-                // zig fmt: off
-                if (collect_def.parameters.count() > 0
-                    or collect_def.return_type.def_type != .Void
-                    or collect_def.yield_type.def_type != .Void
-                    or collect_def.error_types != null) {
-                    // zig fmt: on
+                if (collect_def.parameters.count() > 0 or
+                    collect_def.return_type.def_type != .Void or
+                    collect_def.yield_type.def_type != .Void or
+                    collect_def.error_types != null)
+                {
                     const collect_def_str = member_type_def.toStringAlloc(self.gc.allocator) catch @panic("Out of memory");
                     defer collect_def_str.deinit();
                     self.reporter.reportErrorFmt(
@@ -2914,13 +2909,12 @@ fn generateObjectDeclaration(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks
             } else if (std.mem.eql(u8, member_name, "toString")) { // Enforce "toString" method signature
                 const tostring_def = member_type_def.resolved_type.?.Function;
 
-                // zig fmt: off
-                if (tostring_def.parameters.count() > 0
-                    or tostring_def.return_type.def_type != .String
-                    or tostring_def.yield_type.def_type != .Void
-                    or tostring_def.error_types != null
-                    or tostring_def.generic_types.count() > 0) {
-                    // zig fmt: on
+                if (tostring_def.parameters.count() > 0 or
+                    tostring_def.return_type.def_type != .String or
+                    tostring_def.yield_type.def_type != .Void or
+                    tostring_def.error_types != null or
+                    tostring_def.generic_types.count() > 0)
+                {
                     const tostring_def_str = member_type_def.toStringAlloc(self.gc.allocator) catch @panic("Out of memory");
                     defer tostring_def_str.deinit();
                     self.reporter.reportErrorFmt(

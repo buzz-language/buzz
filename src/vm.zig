@@ -4899,13 +4899,10 @@ pub const VM = struct {
 
         const count = self.hotspots.get(node) orelse 0;
 
-        // zig fmt: off
-        return BuildOptions.jit_always_on
-            or BuildOptions.jit_hotspot_always_on
-                or (count > 10
-                    and (@as(f128, @floatFromInt(count)) / @as(f128, @floatFromInt(self.hotspots_count))) 
-                    > BuildOptions.jit_prof_threshold);
-        // zig fmt: on
+        return BuildOptions.jit_always_on or
+            BuildOptions.jit_hotspot_always_on or
+            (count > 10 and
+            (@as(f128, @floatFromInt(count)) / @as(f128, @floatFromInt(self.hotspots_count))) > BuildOptions.jit_prof_threshold);
     }
 
     fn patchHotspot(

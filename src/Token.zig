@@ -17,14 +17,12 @@ column: usize,
 offset: usize = 0,
 
 pub fn eql(self: Self, other: Self) bool {
-    // zig fmt: off
-    return self.tag == other.tag
-        and self.line == other.line
-        and self.column == other.column
-        and self.offset == other.offset
-        and std.mem.eql(u8, self.source, other.source)
-        and std.mem.eql(u8, self.script_name, other.script_name);
-        // zig fmt: on
+    return self.tag == other.tag and
+        self.line == other.line and
+        self.column == other.column and
+        self.offset == other.offset and
+        std.mem.eql(u8, self.source, other.source) and
+        std.mem.eql(u8, self.script_name, other.script_name);
 }
 
 pub fn identifier(name: []const u8) Self {

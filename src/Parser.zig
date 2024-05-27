@@ -178,13 +178,11 @@ pub const Local = struct {
     referenced: bool = false,
 
     pub fn isReferenced(self: Local) bool {
-        // zig fmt: off
-        return self.referenced
-            or self.type_def.def_type == .Void
-            or self.type_def.def_type == .Placeholder
-            or self.name.string[0] == '$'
-            or (self.name.string[0] == '_' and self.name.string.len == 1);
-        // zig fmt: on
+        return self.referenced or
+            self.type_def.def_type == .Void or
+            self.type_def.def_type == .Placeholder or
+            self.name.string[0] == '$' or
+            (self.name.string[0] == '_' and self.name.string.len == 1);
     }
 };
 
@@ -209,15 +207,13 @@ pub const Global = struct {
         else
             null;
 
-        // zig fmt: off
-        return self.referenced
-            or self.type_def.def_type == .Void
-            or self.type_def.def_type == .Placeholder
-            or (function_type != null and (function_type == .Extern or function_type == .Abstract or function_type == .EntryPoint or function_type == .ScriptEntryPoint or function_type != .Repl))
-            or self.name.string[0] == '$'
-            or (self.name.string[0] == '_' and self.name.string.len == 1)
-            or self.exported;
-        // zig fmt: on
+        return self.referenced or
+            self.type_def.def_type == .Void or
+            self.type_def.def_type == .Placeholder or
+            (function_type != null and (function_type == .Extern or function_type == .Abstract or function_type == .EntryPoint or function_type == .ScriptEntryPoint or function_type != .Repl)) or
+            self.name.string[0] == '$' or
+            (self.name.string[0] == '_' and self.name.string.len == 1) or
+            self.exported;
     }
 };
 
@@ -1347,12 +1343,10 @@ fn declaration(self: *Self) Error!?Ast.Node.Index {
                 constant,
                 true,
             )
-            // zig fmt: off
-        else if (self.current_token.? > 0 and self.current_token.? - 1 < self.ast.tokens.len - 1
-            and self.ast.tokens.items(.tag)[self.current_token.?] == .Identifier
-            and self.ast.tokens.items(.lexeme)[self.current_token.?].len == 1
-            and self.ast.tokens.items(.lexeme)[self.current_token.?][0] == '_')
-            // zig fmt: on
+        else if (self.current_token.? > 0 and self.current_token.? - 1 < self.ast.tokens.len - 1 and
+            self.ast.tokens.items(.tag)[self.current_token.?] == .Identifier and
+            self.ast.tokens.items(.lexeme)[self.current_token.?].len == 1 and
+            self.ast.tokens.items(.lexeme)[self.current_token.?][0] == '_')
             try self.varDeclaration(
                 false,
                 try self.simpleType(.Any),
@@ -1397,27 +1391,25 @@ fn declaration(self: *Self) Error!?Ast.Node.Index {
         else if (global_scope and !constant and try self.match(.Export))
             try self.exportStatement()
         else if (self.check(.Identifier)) user_decl: {
-            if ( // zig fmt: off
-                 // As of now this is the only place where we need to check more than one token ahead
-                 // Note that we would not have to do this if type were given **after** the identifier. But changing this is a pretty big left turn.
-                    // `Type variable`
-                    try self.checkSequenceAhead(&[_]?Token.Type{ .Identifier, .Identifier }, 2)
-                    // `prefix.Type variable`
-                    or try self.checkSequenceAhead(&[_]?Token.Type{ .Identifier, .Dot, .Identifier, .Identifier }, 4)
-                    // `prefix.Type? variable`
-                    or try self.checkSequenceAhead(&[_]?Token.Type{ .Identifier, .Dot, .Identifier, .Question, .Identifier }, 5)
-                    // `Type? variable`
-                    or try self.checkSequenceAhead(&[_]?Token.Type{ .Identifier, .Question, .Identifier }, 3)
-                    // `Type::<...> variable`
-                    or try self.checkSequenceAhead(&[_]?Token.Type{ .Identifier, .DoubleColon, .Less, null, .Greater, .Identifier }, 255 * 2)
-                    // - Type::<...>? variable
-                    or try self.checkSequenceAhead(&[_]?Token.Type{ .Identifier, .DoubleColon, .Less, null, .Greater, .Question, .Identifier }, 255 * 2)
-                    // - prefix.Type::<...> variable
-                    or try self.checkSequenceAhead(&[_]?Token.Type{ .Identifier, .Dot, .Identifier, .DoubleColon, .Less, null, .Greater, .Identifier }, 255 * 2)
-                    // - prefix.Type::<...>? variable
-                    or try self.checkSequenceAhead(&[_]?Token.Type{ .Identifier, .Dot, .Identifier, .DoubleColon, .Less, null, .Greater, .Question, .Identifier }, 255 * 2)
-                ) {
-                    // zig fmt: on
+            if ( // As of now this is the only place where we need to check more than one token ahead
+            // Note that we would not have to do this if type were given **after** the identifier. But changing this is a pretty big left turn.
+            // `Type variable`
+            try self.checkSequenceAhead(&[_]?Token.Type{ .Identifier, .Identifier }, 2) or
+                // `prefix.Type variable`
+                try self.checkSequenceAhead(&[_]?Token.Type{ .Identifier, .Dot, .Identifier, .Identifier }, 4) or
+                // `prefix.Type? variable`
+                try self.checkSequenceAhead(&[_]?Token.Type{ .Identifier, .Dot, .Identifier, .Question, .Identifier }, 5) or
+                // `Type? variable`
+                try self.checkSequenceAhead(&[_]?Token.Type{ .Identifier, .Question, .Identifier }, 3) or
+                // `Type::<...> variable`
+                try self.checkSequenceAhead(&[_]?Token.Type{ .Identifier, .DoubleColon, .Less, null, .Greater, .Identifier }, 255 * 2) or
+                // - Type::<...>? variable
+                try self.checkSequenceAhead(&[_]?Token.Type{ .Identifier, .DoubleColon, .Less, null, .Greater, .Question, .Identifier }, 255 * 2) or
+                // - prefix.Type::<...> variable
+                try self.checkSequenceAhead(&[_]?Token.Type{ .Identifier, .Dot, .Identifier, .DoubleColon, .Less, null, .Greater, .Identifier }, 255 * 2) or
+                // - prefix.Type::<...>? variable
+                try self.checkSequenceAhead(&[_]?Token.Type{ .Identifier, .Dot, .Identifier, .DoubleColon, .Less, null, .Greater, .Question, .Identifier }, 255 * 2))
+            {
                 _ = try self.advance(); // consume first identifier
                 break :user_decl try self.userVarDeclaration(false, constant);
             }
@@ -1638,17 +1630,14 @@ pub fn resolveGlobal(self: *Self, prefix: ?[]const u8, name: []const u8) Error!?
     var i: usize = self.globals.items.len - 1;
     while (i >= 0) : (i -= 1) {
         const global: *Global = &self.globals.items[i];
-        // zig fmt: off
-        if (
-            (
-                global.prefix == null // Not prefixed
-                or (prefix != null and std.mem.eql(u8, prefix.?, global.prefix.?)) // Same prefix as provided
-                or (self.namespace != null and std.mem.eql(u8, global.prefix.?, self.namespace.?)) // Prefix is the current namespace
-            )
-            and std.mem.eql(u8, name, global.name.string)
-            and !global.hidden
-        ) {
-        // zig fmt: on
+
+        if ((global.prefix == null or // Not prefixed
+            (prefix != null and std.mem.eql(u8, prefix.?, global.prefix.?)) or // Same prefix as provided
+            (self.namespace != null and std.mem.eql(u8, global.prefix.?, self.namespace.?)) // Prefix is the current namespace
+        ) and
+            std.mem.eql(u8, name, global.name.string) and
+            !global.hidden)
+        {
             if (!global.initialized) {
                 self.reportErrorFmt(
                     .global_initializer,

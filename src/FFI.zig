@@ -701,14 +701,12 @@ fn ptrType(self: *Self, tag: Ast.Node.Tag, decl_index: Ast.Node.Index) anyerror!
     const sentinel_node = self.state.?.ast.nodes.get(ptr_type.ast.sentinel);
 
     // Is it a null terminated string?
-    // zig fmt: off
     const zdef = try self.gc.allocator.create(Zdef);
-    zdef.* =  if (ptr_type.const_token != null
-        and child_type.zig_type == .Int
-        and child_type.zig_type.Int.bits == 8
-        and sentinel_node.tag == .number_literal
-        and std.mem.eql(u8, self.state.?.ast.tokenSlice(sentinel_node.main_token), "0"))
-        // zig fmt: on
+    zdef.* = if (ptr_type.const_token != null and
+        child_type.zig_type == .Int and
+        child_type.zig_type.Int.bits == 8 and
+        sentinel_node.tag == .number_literal and
+        std.mem.eql(u8, self.state.?.ast.tokenSlice(sentinel_node.main_token), "0"))
         .{
             .type_def = self.gc.type_registry.str_type,
             .zig_type = ZigType{

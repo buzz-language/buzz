@@ -4903,11 +4903,10 @@ fn buildBuzzValueToZigValue(self: *Self, buzz_type: *o.ObjTypeDef, zig_type: Zig
         .Bool => self.buildValueToBoolean(buzz_value, dest),
         .Pointer => {
             // Is it a [*:0]const u8
-            // zig fmt: off
-            if (zig_type.Pointer.child.* == .Int
-                and zig_type.Pointer.child.Int.bits == 8
-                and zig_type.Pointer.child.Int.signedness == .unsigned) {
-                // zig fmt: on
+            if (zig_type.Pointer.child.* == .Int and
+                zig_type.Pointer.child.Int.bits == 8 and
+                zig_type.Pointer.child.Int.signedness == .unsigned)
+            {
                 try self.buildValueToCString(buzz_value, dest);
             } else if (zig_type.Pointer.child.* == .Struct or zig_type.Pointer.child.* == .Union) {
                 try self.buildValueToForeignContainerPtr(buzz_value, dest);
@@ -4917,11 +4916,10 @@ fn buildBuzzValueToZigValue(self: *Self, buzz_type: *o.ObjTypeDef, zig_type: Zig
         },
         .Optional => {
             // Is it a [*:0]const u8
-            // zig fmt: off
-            if (zig_type.Optional.child.Pointer.child.* == .Int
-                and zig_type.Optional.child.Pointer.child.Int.bits == 8
-                and zig_type.Optional.child.Pointer.child.Int.signedness == .unsigned) {
-                // zig fmt: on
+            if (zig_type.Optional.child.Pointer.child.* == .Int and
+                zig_type.Optional.child.Pointer.child.Int.bits == 8 and
+                zig_type.Optional.child.Pointer.child.Int.signedness == .unsigned)
+            {
                 try self.buildValueToOptionalCString(buzz_value, dest);
             } else if (zig_type.Optional.child.Pointer.child.* == .Struct) {
                 try self.buildValueToOptionalForeignContainerPtr(buzz_value, dest);
@@ -4969,11 +4967,10 @@ fn buildZigValueToBuzzValue(self: *Self, buzz_type: *o.ObjTypeDef, zig_type: Zig
         .Union, .Struct => unreachable, // FIXME: should call an api function build a ObjForeignContainer
         .Pointer => {
             // Is it a [*:0]const u8
-            // zig fmt: off
-            if (zig_type.Pointer.child.* == .Int
-                and zig_type.Pointer.child.Int.bits == 8
-                and zig_type.Pointer.child.Int.signedness == .unsigned) {
-                    // zig fmt: on
+            if (zig_type.Pointer.child.* == .Int and
+                zig_type.Pointer.child.Int.bits == 8 and
+                zig_type.Pointer.child.Int.signedness == .unsigned)
+            {
                 try self.buildValueFromCString(zig_value, dest);
             } else if (zig_type.Pointer.child.* == .Struct) {
                 try self.buildValueFromForeignContainerPtr(buzz_type, zig_value, dest);
@@ -4983,11 +4980,10 @@ fn buildZigValueToBuzzValue(self: *Self, buzz_type: *o.ObjTypeDef, zig_type: Zig
         },
         .Optional => {
             // Is it a [*:0]const u8
-            // zig fmt: off
-            if (zig_type.Optional.child.Pointer.child.* == .Int
-                and zig_type.Optional.child.Pointer.child.Int.bits == 8
-                and zig_type.Optional.child.Pointer.child.Int.signedness == .unsigned) {
-                    // zig fmt: on
+            if (zig_type.Optional.child.Pointer.child.* == .Int and
+                zig_type.Optional.child.Pointer.child.Int.bits == 8 and
+                zig_type.Optional.child.Pointer.child.Int.signedness == .unsigned)
+            {
                 try self.buildValueFromOptionalCString(zig_value, dest);
             } else if (zig_type.Optional.child.Pointer.child.* == .Struct) {
                 try self.buildValueFromOptionalForeignContainerPtr(buzz_type, zig_value, dest);
