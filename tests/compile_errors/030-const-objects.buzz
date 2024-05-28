@@ -1,0 +1,19 @@
+| `age` is constant
+object Constant {
+	const str name,
+	const int age,
+}
+
+object PartiallyConstant {
+	const str name,
+	int age,
+}
+
+test "Constant object" {
+	var constant = Constant{
+		name = "Joe",
+		age = 35,
+	};
+
+	constant.age = 38;
+}

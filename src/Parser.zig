@@ -1851,11 +1851,11 @@ fn resolvePlaceholderWithRelation(
                     // Search for a field matching the placeholder
                     if (object_def.fields.get(child_placeholder.name.?.string)) |field| {
                         // TODO: remove? should only resolve with a field if field accessing an object instance?
-                        try self.resolvePlaceholder(child, field, false);
-                    } else if (object_def.methods.get(child_placeholder.name.?.string)) |method_def| {
-                        try self.resolvePlaceholder(child, method_def, true);
-                    } else if (object_def.static_fields.get(child_placeholder.name.?.string)) |static_def| {
-                        try self.resolvePlaceholder(child, static_def, false);
+                        try self.resolvePlaceholder(
+                            child,
+                            field.type_def,
+                            field.constant,
+                        );
                     } else {
                         self.reportErrorFmt(
                             .property_does_not_exists,
@@ -1875,9 +1875,11 @@ fn resolvePlaceholderWithRelation(
 
                     // Search for a field matching the placeholder
                     if (object_def.fields.get(child_placeholder.name.?.string)) |field| {
-                        try self.resolvePlaceholder(child, field, false);
-                    } else if (object_def.methods.get(child_placeholder.name.?.string)) |method_def| {
-                        try self.resolvePlaceholder(child, method_def, true);
+                        try self.resolvePlaceholder(
+                            child,
+                            field.type_def,
+                            field.constant,
+                        );
                     } else {
                         self.reportErrorFmt(
                             .property_does_not_exists,
@@ -2990,6 +2992,7 @@ fn parseObjType(self: *Self, generic_types: ?std.AutoArrayHashMap(*obj.ObjString
     while (!self.check(.RightBrace) and !self.check(.Eof)) {
         const property_type = try self.parseTypeDef(generic_types, true);
 
+        const constant = try self.match(.Const);
         try self.consume(.Identifier, "Expected property name.");
         const property_name = self.current_token.? - 1;
         const property_name_lexeme = self.ast.tokens.items(.lexeme)[property_name];
@@ -3003,7 +3006,15 @@ fn parseObjType(self: *Self, generic_types: ?std.AutoArrayHashMap(*obj.ObjString
         }
         try object_type.resolved_type.?.Object.fields.put(
             property_name_lexeme,
-            self.ast.nodes.items(.type_def)[property_type].?,
+            .{
+                .name = property_name_lexeme,
+                .type_def = self.ast.nodes.items(.type_def)[property_type].?,
+                .location = self.ast.tokens.get(property_name),
+                .constant = constant,
+                .static = false,
+                .method = false,
+                .has_default = false,
+            },
         );
         try field_names.put(property_name_lexeme, {});
         try fields.append(
@@ -3874,7 +3885,15 @@ fn anonymousObjectInit(self: *Self, _: bool) Error!Ast.Node.Index {
         );
         try object_type.resolved_type.?.Object.fields.put(
             property_name_lexeme,
-            self.ast.nodes.items(.type_def)[expr].?,
+            .{
+                .name = property_name_lexeme,
+                .type_def = self.ast.nodes.items(.type_def)[expr].?,
+                .location = self.ast.tokens.get(property_name),
+                .static = false,
+                .method = false,
+                .constant = false,
+                .has_default = false,
+            },
         );
 
         if (!self.check(.RightBrace) or self.check(.Comma)) {
@@ -4098,7 +4117,8 @@ fn dot(self: *Self, can_assign: bool, callee: Ast.Node.Index) Error!Ast.Node.Ind
             },
             .Object => {
                 const obj_def: obj.ObjObject.ObjectDef = callee_type_def.?.resolved_type.?.Object;
-                var property_type = obj_def.static_fields.get(member_name) orelse obj_def.static_placeholders.get(member_name);
+                const property_field = obj_def.fields.get(member_name);
+                var property_type = if (property_field) |field| field.type_def else null;
 
                 // Not found, create a placeholder, this is a root placeholder not linked to anything
                 // TODO: test with something else than a name
@@ -4214,7 +4234,8 @@ fn dot(self: *Self, can_assign: bool, callee: Ast.Node.Index) Error!Ast.Node.Ind
                 const object = callee_type_def.?.resolved_type.?.ObjectInstance;
                 const obj_def = object.resolved_type.?.Object;
 
-                var property_type = obj_def.methods.get(member_name) orelse obj_def.fields.get(member_name) orelse obj_def.placeholders.get(member_name);
+                const property_field = obj_def.fields.get(member_name);
+                var property_type = (if (property_field) |field| field.type_def else null) orelse obj_def.placeholders.get(member_name);
 
                 // Else create placeholder
                 if (property_type == null and self.current_object != null and std.mem.eql(u8, self.current_object.?.name.lexeme, obj_def.name.string)) {
@@ -6222,22 +6243,18 @@ fn objectDeclaration(self: *Self) Error!Ast.Node.Index {
                 }
             }
 
-            if (static) {
-                try object_type.resolved_type.?.Object.static_fields.put(method_name, method_type_def.?);
-                try object_type.resolved_type.?.Object.static_fields_locations.put(
-                    method_name,
-                    self.ast.tokens.get(method_token),
-                );
-            } else {
-                try object_type.resolved_type.?.Object.methods.put(
-                    method_name,
-                    method_type_def.?,
-                );
-                try object_type.resolved_type.?.Object.methods_locations.put(
-                    method_name,
-                    self.ast.tokens.get(method_token),
-                );
-            }
+            try object_type.resolved_type.?.Object.fields.put(
+                method_name,
+                .{
+                    .name = method_name,
+                    .type_def = method_type_def.?,
+                    .constant = true,
+                    .static = static,
+                    .location = self.ast.tokens.get(method_token),
+                    .method = true,
+                    .has_default = false,
+                },
+            );
 
             try members.append(
                 .{
@@ -6250,8 +6267,7 @@ fn objectDeclaration(self: *Self) Error!Ast.Node.Index {
             try fields.put(method_name, {});
             try properties_type.put(method_name, self.ast.nodes.items(.type_def)[method_node].?);
         } else {
-            // TODO: constant object properties
-            // const constant = try self.match(.Const);
+            const constant = try self.match(.Const);
             const property_type = try self.parseTypeDef(null, true);
             const property_type_def = self.ast.nodes.items(.type_def)[property_type];
 
@@ -6331,31 +6347,18 @@ fn objectDeclaration(self: *Self) Error!Ast.Node.Index {
                 }
             }
 
-            if (static) {
-                try object_type.resolved_type.?.Object.static_fields.put(
-                    property_name.lexeme,
-                    self.ast.nodes.items(.type_def)[property_type].?,
-                );
-
-                try object_type.resolved_type.?.Object.static_fields_locations.put(
-                    property_name.lexeme,
-                    property_name,
-                );
-            } else {
-                std.debug.assert(!object_type.optional);
-                try object_type.resolved_type.?.Object.fields.put(
-                    property_name.lexeme,
-                    self.ast.nodes.items(.type_def)[property_type].?,
-                );
-                try object_type.resolved_type.?.Object.fields_locations.put(
-                    property_name.lexeme,
-                    property_name,
-                );
-
-                if (default != null) {
-                    try object_type.resolved_type.?.Object.fields_defaults.put(property_name.lexeme, {});
-                }
-            }
+            try object_type.resolved_type.?.Object.fields.put(
+                property_name.lexeme,
+                .{
+                    .name = property_name.lexeme,
+                    .type_def = self.ast.nodes.items(.type_def)[property_type].?,
+                    .constant = constant,
+                    .static = static,
+                    .location = property_name,
+                    .method = false,
+                    .has_default = default != null,
+                },
+            );
 
             try members.append(
                 .{

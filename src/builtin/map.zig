@@ -138,8 +138,8 @@ pub fn map(ctx: *NativeCtx) c_int {
                     .resolved_type = .{
                         .Map = ObjMap.MapDef.init(
                             ctx.vm.gc.allocator,
-                            mapped_type.fields.get("key").?,
-                            mapped_type.fields.get("value").?,
+                            mapped_type.fields.get("key").?.type_def,
+                            mapped_type.fields.get("value").?.type_def,
                         ),
                     },
                 },

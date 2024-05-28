@@ -93,7 +93,7 @@ export object Tester {
     fun reset() > void {
         this.tests = [<bool>];
         this.asserts = [<bool>];
-        this.elapsed = 0;
+        this.elapsed = 0.0;
     }
 
     fun failedAsserts() > int {

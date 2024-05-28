@@ -110,6 +110,7 @@ pub const Error = enum(u8) {
     code_after_return = 93,
     unused_import = 94,
     label_does_not_exists = 95,
+    constant_property = 96,
 };
 
 // Inspired by https://github.com/zesterer/ariadne
