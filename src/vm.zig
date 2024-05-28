@@ -2730,14 +2730,18 @@ pub const VM = struct {
         const name = self.readString(arg);
         const property = self.peek(0);
         var object = self.peek(1).obj().access(ObjObject, .Object, self.gc).?;
+        const field = object.type_def.resolved_type.?.Object.fields.get(name.string).?;
 
-        if (object.type_def.resolved_type.?.Object.fields.contains(name.string)) {
+        if (!field.static) {
             object.setField(self.gc, name, property) catch {
                 self.panic("Out of memory");
                 unreachable;
             };
         } else {
-            assert(object.type_def.resolved_type.?.Object.static_fields.contains(name.string));
+            assert(
+                object.type_def.resolved_type.?.Object.fields.contains(name.string) and
+                    object.type_def.resolved_type.?.Object.fields.get(name.string).?.static,
+            );
             object.setStaticField(self.gc, name, property) catch {
                 self.panic("Out of memory");
                 unreachable;

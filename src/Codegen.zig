@@ -1473,6 +1473,67 @@ fn generateDot(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.
                         self.reporter.reportPlaceholder(self.ast, value_type_def.resolved_type.?.Placeholder);
                     }
 
+                    // Type check value
+                    const field_name = self.ast.tokens.items(.lexeme)[components.identifier];
+                    switch (callee_type.def_type) {
+                        .ForeignContainer => {
+                            const field_type = callee_type.resolved_type.?.ForeignContainer.buzz_type.get(field_name).?;
+
+                            if (!field_type.eql(value_type_def)) {
+                                self.reporter.reportTypeCheck(
+                                    .assignment_value_type,
+                                    callee_type.resolved_type.?.ForeignContainer.location,
+                                    field_type,
+                                    self.ast.tokens.get(locations[value]),
+                                    value_type_def,
+                                    "Bad property type",
+                                );
+                            }
+                        },
+                        .ObjectInstance, .Object => {
+                            const field = if (callee_type.def_type == .ObjectInstance)
+                                callee_type.resolved_type.?.ObjectInstance
+                                    .resolved_type.?.Object.fields.get(field_name).?
+                            else
+                                callee_type.resolved_type.?.Object.fields.get(field_name).?;
+
+                            if (field.method or
+                                (callee_type.def_type == .ObjectInstance and field.static) or
+                                (callee_type.def_type == .Object and !field.static))
+                            {
+                                self.reporter.reportErrorFmt(
+                                    .assignable,
+                                    self.ast.tokens.get(locations[value]),
+                                    "`{s}` is not assignable",
+                                    .{
+                                        field_name,
+                                    },
+                                );
+                            } else if (field.constant) {
+                                self.reporter.reportErrorFmt(
+                                    .constant_property,
+                                    self.ast.tokens.get(locations[value]),
+                                    "`{s}` is constant",
+                                    .{
+                                        field_name,
+                                    },
+                                );
+                            }
+
+                            if (!field.type_def.eql(value_type_def)) {
+                                self.reporter.reportTypeCheck(
+                                    .assignment_value_type,
+                                    field.location,
+                                    field.type_def,
+                                    self.ast.tokens.get(locations[value]),
+                                    value_type_def,
+                                    "Bad property type",
+                                );
+                            }
+                        },
+                        else => unreachable,
+                    }
+
                     _ = try self.generateNode(value, breaks);
 
                     try self.emitCodeArg(
@@ -2880,7 +2941,8 @@ fn generateObjectDeclaration(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks
         const member_name_constant = try self.identifierConstant(member_name);
 
         if (member.method) {
-            const member_type_def = object_def.methods.get(member_name) orelse object_def.static_fields.get(member_name).?;
+            const member_field = object_def.fields.get(member_name).?;
+            const member_type_def = member_field.type_def;
 
             if (member_type_def.def_type == .Placeholder) {
                 self.reporter.reportPlaceholder(self.ast, member_type_def.resolved_type.?.Placeholder);
@@ -2928,45 +2990,41 @@ fn generateObjectDeclaration(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks
                 }
             }
 
-            const is_static = object_def.static_fields.get(member_name) != null;
-
             _ = try self.generateNode(member.method_or_default_value.?, breaks);
             try self.emitCodeArg(
                 location,
-                if (is_static) .OP_PROPERTY else .OP_METHOD,
+                if (member_field.static) .OP_PROPERTY else .OP_METHOD,
                 member_name_constant,
             );
         } else {
             // Properties
-            const property_type = object_def.fields.get(member_name) orelse object_def.static_fields.get(member_name);
-            const is_static = object_def.static_fields.get(member_name) != null;
-
-            std.debug.assert(property_type != null);
+            const property_field = object_def.fields.get(member_name).?;
+            const property_type = property_field.type_def;
 
             // Create property default value
             if (member.method_or_default_value) |default| {
                 const default_type_def = type_defs[default].?;
                 if (default_type_def.def_type == .Placeholder) {
                     self.reporter.reportPlaceholder(self.ast, default_type_def.resolved_type.?.Placeholder);
-                } else if (!property_type.?.eql(default_type_def)) {
+                } else if (!property_type.eql(default_type_def)) {
                     self.reporter.reportTypeCheck(
                         .property_default_value,
                         object_def.location,
-                        property_type.?,
+                        property_type,
                         self.ast.tokens.get(locations[default]),
                         default_type_def,
                         "Wrong property default value type",
                     );
                 }
 
-                if (is_static) {
+                if (property_field.static) {
                     try self.emitOpCode(location, .OP_COPY);
                 }
 
                 _ = try self.generateNode(default, breaks);
 
                 // Create property default value
-                if (is_static) {
+                if (property_field.static) {
                     try self.emitCodeArg(location, .OP_SET_OBJECT_PROPERTY, member_name_constant);
                     try self.emitOpCode(location, .OP_POP);
                 } else {
@@ -3023,20 +3081,27 @@ fn generateObjectInit(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error
             .OP_FCONTAINER_INSTANCE,
     );
 
-    const fields = if (node_type_def.def_type == .ObjectInstance)
-        node_type_def.resolved_type.?.ObjectInstance.resolved_type.?.Object.fields
-    else
-        node_type_def.resolved_type.?.ForeignContainer.buzz_type;
+    var fields = if (node_type_def.def_type == .ObjectInstance) inst: {
+        const fields = node_type_def.resolved_type.?.ObjectInstance.resolved_type.?.Object.fields;
+        var fields_type_defs = std.StringArrayHashMap(*obj.ObjTypeDef).init(self.gc.allocator);
+        var it = fields.iterator();
+        while (it.next()) |kv| {
+            try fields_type_defs.put(
+                kv.value_ptr.*.name,
+                kv.value_ptr.*.type_def,
+            );
+        }
+        break :inst fields_type_defs;
+    } else node_type_def.resolved_type.?.ForeignContainer.buzz_type;
+
+    defer if (node_type_def.def_type == .ObjectInstance) {
+        fields.deinit();
+    };
 
     const object_location = if (node_type_def.def_type == .ObjectInstance)
         node_type_def.resolved_type.?.ObjectInstance.resolved_type.?.Object.location
     else
         node_type_def.resolved_type.?.ForeignContainer.location;
-
-    const fields_location = if (node_type_def.def_type == .ObjectInstance)
-        node_type_def.resolved_type.?.ObjectInstance.resolved_type.?.Object.fields_locations
-    else
-        null;
 
     // Keep track of what's been initialized or not by this statement
     var init_properties = std.StringHashMap(void).init(self.gc.allocator);
@@ -3066,8 +3131,8 @@ fn generateObjectInit(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error
                 }
                 self.reporter.reportTypeCheck(
                     .property_type,
-                    if (fields_location) |floc|
-                        floc.get(property_name)
+                    if (node_type_def.def_type == .ObjectInstance)
+                        node_type_def.resolved_type.?.ObjectInstance.resolved_type.?.Object.fields.get(property_name).?.location
                     else
                         object_location,
                     prop,
@@ -3105,15 +3170,18 @@ fn generateObjectInit(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error
     // Did we initialized all properties without a default value?
     // If union we're statisfied with only on field initialized
     if (node_type_def.def_type != .ForeignContainer or node_type_def.resolved_type.?.ForeignContainer.zig_type != .Union or init_properties.count() == 0) {
-        const fields_defaults = if (node_type_def.def_type == .ObjectInstance)
-            node_type_def.resolved_type.?.ObjectInstance.resolved_type.?.Object.fields_defaults
+        const field_defs = if (node_type_def.def_type == .ObjectInstance)
+            node_type_def.resolved_type.?.ObjectInstance.resolved_type.?.Object.fields
         else
             null;
 
         var it = fields.iterator();
         while (it.next()) |kv| {
+            const field = if (field_defs) |fd| fd.get(kv.key_ptr.*) else null;
             // If ommitted in initialization and doesn't have default value
-            if (init_properties.get(kv.key_ptr.*) == null and (fields_defaults == null or fields_defaults.?.get(kv.key_ptr.*) == null)) {
+            if (init_properties.get(kv.key_ptr.*) == null and
+                (field == null or (!field.?.has_default and !field.?.method and !field.?.static)))
+            {
                 self.reporter.reportErrorFmt(
                     .property_not_initialized,
                     self.ast.tokens.get(location),

@@ -551,66 +551,42 @@ pub const DumpState = struct {
                     out.print(" {s} {{\n", .{object_def.name.string}) catch unreachable;
                     state.tab += 1;
 
-                    var it = object_def.static_fields.iterator();
+                    var it = object_def.fields.iterator();
                     while (it.next()) |kv| {
-                        const static_field_type_str = kv.value_ptr.*.toStringAlloc(state.vm.gc.allocator) catch std.ArrayList(u8).init(state.vm.gc.allocator);
-                        defer static_field_type_str.deinit();
+                        const field = kv.value_ptr.*;
+                        const field_type_str = field.type_def.toStringAlloc(state.vm.gc.allocator) catch std.ArrayList(u8).init(state.vm.gc.allocator);
+                        defer field_type_str.deinit();
 
-                        out.print(
-                            "    static {s} {s}",
-                            .{
-                                static_field_type_str.items,
-                                kv.key_ptr.*,
-                            },
-                        ) catch unreachable;
+                        if (!field.method) {
+                            out.print(
+                                "    {s}{s}{s} {s}",
+                                .{
+                                    if (kv.value_ptr.*.static) "static " else "",
+                                    if (kv.value_ptr.*.constant) "const " else "",
+                                    field_type_str.items,
+                                    kv.key_ptr.*,
+                                },
+                            ) catch unreachable;
 
-                        var static_it = object.static_fields.iterator();
-                        while (static_it.next()) |static_kv| {
-                            if (std.mem.eql(u8, static_kv.key_ptr.*.string, kv.key_ptr.*)) {
+                            if (object.fields.get(state.vm.gc.copyString(kv.key_ptr.*) catch unreachable)) |v| {
                                 out.print(" = ", .{}) catch unreachable;
                                 state.valueDump(
-                                    static_kv.value_ptr.*,
+                                    v,
                                     out,
                                     true,
                                 );
-                                break;
                             }
+
+                            out.print(",\n", .{}) catch unreachable;
+                        } else {
+                            out.print(
+                                "    {s}{s}\n",
+                                .{
+                                    if (field.static) "static" else "",
+                                    field_type_str.items,
+                                },
+                            ) catch unreachable;
                         }
-
-                        out.print(";\n", .{}) catch unreachable;
-                    }
-
-                    it = object_def.fields.iterator();
-                    while (it.next()) |kv| {
-                        const field_type_str = kv.value_ptr.*.toStringAlloc(state.vm.gc.allocator) catch std.ArrayList(u8).init(state.vm.gc.allocator);
-                        defer field_type_str.deinit();
-
-                        out.print(
-                            "    {s} {s}",
-                            .{
-                                field_type_str.items,
-                                kv.key_ptr.*,
-                            },
-                        ) catch unreachable;
-
-                        if (object.fields.get(state.vm.gc.copyString(kv.key_ptr.*) catch unreachable)) |v| {
-                            out.print(" = ", .{}) catch unreachable;
-                            state.valueDump(
-                                v,
-                                out,
-                                true,
-                            );
-                        }
-
-                        out.print(",\n", .{}) catch unreachable;
-                    }
-
-                    it = object_def.methods.iterator();
-                    while (it.next()) |kv| {
-                        const method_type_str = kv.value_ptr.*.toStringAlloc(state.vm.gc.allocator) catch std.ArrayList(u8).init(state.vm.gc.allocator);
-                        defer method_type_str.deinit();
-
-                        out.print("    {s}\n", .{method_type_str.items}) catch unreachable;
                     }
 
                     state.tab -= 1;

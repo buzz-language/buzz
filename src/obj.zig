@@ -1411,18 +1411,21 @@ pub const ObjObject = struct {
     pub const ObjectDef = struct {
         var next_id: usize = 0;
 
+        pub const Field = struct {
+            name: []const u8,
+            type_def: *ObjTypeDef,
+            constant: bool,
+            method: bool,
+            static: bool,
+            location: Token,
+            has_default: bool,
+        };
+
         id: usize,
         location: Token,
         name: *ObjString,
         qualified_name: *ObjString,
-        // TODO: Do i need to have two maps ?
-        fields: std.StringArrayHashMap(*ObjTypeDef),
-        fields_locations: std.StringArrayHashMap(Token),
-        fields_defaults: std.StringArrayHashMap(void),
-        static_fields: std.StringArrayHashMap(*ObjTypeDef),
-        static_fields_locations: std.StringArrayHashMap(Token),
-        methods: std.StringArrayHashMap(*ObjTypeDef),
-        methods_locations: std.StringArrayHashMap(Token),
+        fields: std.StringArrayHashMap(Field),
         // When we have placeholders we don't know if they are properties or methods
         // That information is available only when the placeholder is resolved
         placeholders: std.StringHashMap(*ObjTypeDef),
@@ -1451,13 +1454,7 @@ pub const ObjObject = struct {
                 .name = name,
                 .location = location,
                 .qualified_name = qualified_name,
-                .fields = std.StringArrayHashMap(*ObjTypeDef).init(allocator),
-                .fields_locations = std.StringArrayHashMap(Token).init(allocator),
-                .static_fields = std.StringArrayHashMap(*ObjTypeDef).init(allocator),
-                .static_fields_locations = std.StringArrayHashMap(Token).init(allocator),
-                .fields_defaults = std.StringArrayHashMap(void).init(allocator),
-                .methods = std.StringArrayHashMap(*ObjTypeDef).init(allocator),
-                .methods_locations = std.StringArrayHashMap(Token).init(allocator),
+                .fields = std.StringArrayHashMap(Field).init(allocator),
                 .placeholders = std.StringHashMap(*ObjTypeDef).init(allocator),
                 .static_placeholders = std.StringHashMap(*ObjTypeDef).init(allocator),
                 .anonymous = anonymous,
@@ -1468,12 +1465,6 @@ pub const ObjObject = struct {
 
         pub fn deinit(self: *ObjectDef) void {
             self.fields.deinit();
-            self.fields_locations.deinit();
-            self.static_fields.deinit();
-            self.static_fields_locations.deinit();
-            self.fields_defaults.deinit();
-            self.methods.deinit();
-            self.methods_locations.deinit();
             self.placeholders.deinit();
             self.static_placeholders.deinit();
             self.conforms_to.deinit();
@@ -1498,17 +1489,7 @@ pub const ObjObject = struct {
 
             var it = self.fields.iterator();
             while (it.next()) |kv| {
-                try gc.markObj(@constCast(kv.value_ptr.*.toObj()));
-            }
-
-            var it3 = self.static_fields.iterator();
-            while (it3.next()) |kv| {
-                try gc.markObj(@constCast(kv.value_ptr.*.toObj()));
-            }
-
-            var it4 = self.methods.iterator();
-            while (it4.next()) |kv| {
-                try gc.markObj(@constCast(kv.value_ptr.*.toObj()));
+                try gc.markObj(@constCast(kv.value_ptr.*.type_def.toObj()));
             }
 
             var it5 = self.placeholders.iterator();
@@ -3095,8 +3076,30 @@ pub const ObjMap = struct {
                     true,
                 );
 
-                try entry_def.fields.put("key", generic_key_type);
-                try entry_def.fields.put("value", generic_value_type);
+                try entry_def.fields.put(
+                    "key",
+                    .{
+                        .name = "key",
+                        .type_def = generic_key_type,
+                        .constant = false,
+                        .method = false,
+                        .static = false,
+                        .has_default = false,
+                        .location = Token.identifier("key"),
+                    },
+                );
+                try entry_def.fields.put(
+                    "value",
+                    .{
+                        .name = "value",
+                        .type_def = generic_value_type,
+                        .constant = false,
+                        .method = false,
+                        .static = false,
+                        .has_default = false,
+                        .location = Token.identifier("value"),
+                    },
+                );
 
                 const entry_type_def = try parser.gc.type_registry.getTypeDef(
                     .{
@@ -3740,18 +3743,26 @@ pub const ObjTypeDef = struct {
                 resolved.resolved_generics = generics;
 
                 {
-                    var fields = std.StringArrayHashMap(*ObjTypeDef).init(type_registry.gc.allocator);
+                    var fields = std.StringArrayHashMap(ObjObject.ObjectDef.Field).init(type_registry.gc.allocator);
                     var it = old_object_def.fields.iterator();
                     while (it.next()) |kv| {
                         try fields.put(
                             kv.key_ptr.*,
-                            try kv.value_ptr.*.populateGenerics(
-                                where,
-                                origin,
-                                generics,
-                                type_registry,
-                                visited_ptr,
-                            ),
+                            .{
+                                .name = kv.value_ptr.*.name,
+                                .constant = kv.value_ptr.*.constant,
+                                .static = kv.value_ptr.*.static,
+                                .location = kv.value_ptr.*.location,
+                                .method = kv.value_ptr.*.method,
+                                .type_def = try kv.value_ptr.*.type_def.populateGenerics(
+                                    where,
+                                    origin,
+                                    generics,
+                                    type_registry,
+                                    visited_ptr,
+                                ),
+                                .has_default = kv.value_ptr.*.has_default,
+                            },
                         );
                     }
                     resolved.fields = fields;
@@ -4040,7 +4051,7 @@ pub const ObjTypeDef = struct {
                     const count = object_def.fields.count();
                     var i: usize = 0;
                     while (it.next()) |kv| {
-                        try kv.value_ptr.*.toStringRaw(writer, qualified);
+                        try kv.value_ptr.*.type_def.toStringRaw(writer, qualified);
                         try writer.print(" {s}", .{kv.key_ptr.*});
 
                         if (i < count - 1) {
@@ -4106,7 +4117,7 @@ pub const ObjTypeDef = struct {
                     const count = object_def.fields.count();
                     var i: usize = 0;
                     while (it.next()) |kv| {
-                        try kv.value_ptr.*.toStringRaw(writer, qualified);
+                        try kv.value_ptr.*.type_def.toStringRaw(writer, qualified);
                         try writer.print(" {s}", .{kv.key_ptr.*});
 
                         if (i < count - 1) {
@@ -4484,6 +4495,44 @@ pub const ObjTypeDef = struct {
             (expected.optional and actual.def_type == .Void) or // Void is equal to any optional type
             ((type_eql or actual.def_type == .Placeholder or expected.def_type == .Placeholder) and (expected.optional or !actual.optional));
     }
+
+    pub fn isConstant(self: *Self) bool {
+        return switch (self.def_type) {
+            .Bool,
+            .Float,
+            .Integer,
+            .Pattern,
+            .String,
+            .Type,
+            .UserData,
+            .Void,
+            .Range,
+            .Enum,
+            .EnumInstance,
+            .Function,
+            .Generic,
+            .Object,
+            .Placeholder,
+            .Protocol,
+            => true,
+
+            .Any, .Protocol => false,
+
+            .ObjectInstance => inst: {
+                // All properties must be const and of const type
+                const object_def = self.resolved_type.?.ObjectInstance.resolved_type.?.Object;
+
+                var it = object_def.fields.iterator();
+                while (it.next()) |kv| {
+                    if ((!kv.value_ptr.?.constant and !kv.value_ptr.*.static) or !kv.value_ptr.*.type_def.isConstant()) {
+                        break :inst false;
+                    }
+                }
+
+                break :inst true;
+            },
+        };
+    }
 };
 
 pub fn cloneObject(obj: *Obj, vm: *VM) !Value {
@@ -4598,7 +4647,16 @@ pub fn objToString(writer: *const std.ArrayList(u8).Writer, obj: *Obj) (Allocato
                 var it = instance.fields.iterator();
                 while (it.next()) |kv| {
                     // This line is awesome
-                    try instance.type_def.resolved_type.?.ObjectInstance.resolved_type.?.Object.fields.get(kv.key_ptr.*.string).?.toString(writer);
+                    try instance
+                        .type_def
+                        .resolved_type.?
+                        .ObjectInstance
+                        .resolved_type.?
+                        .Object
+                        .fields
+                        .get(kv.key_ptr.*.string).?
+                        .type_def
+                        .toString(writer);
                     try writer.print(" {s}, ", .{kv.key_ptr.*.string});
                 }
                 try writer.writeAll("}");

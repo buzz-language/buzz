@@ -254,46 +254,39 @@ fn valueDump(value: Value, vm: *VM, seen: *std.AutoHashMap(*_obj.Obj, void), dep
 
                 io.print(" {s} {{ ", .{object_def.name.string});
 
-                var it = object_def.static_fields.iterator();
-                while (it.next()) |kv| {
-                    const static_field_type_str = kv.value_ptr.*.toStringAlloc(vm.gc.allocator) catch std.ArrayList(u8).init(vm.gc.allocator);
-                    defer static_field_type_str.deinit();
+                {
+                    var it = object_def.fields.iterator();
+                    while (it.next()) |kv| {
+                        const field = kv.value_ptr.*;
+                        const field_type_str = field
+                            .type_def
+                            .toStringAlloc(vm.gc.allocator) catch std.ArrayList(u8).init(vm.gc.allocator);
+                        defer field_type_str.deinit();
 
-                    io.print("static {s} {s}", .{ static_field_type_str.items, kv.key_ptr.* });
+                        if (!field.method) {
+                            io.print(
+                                "{s}{s}{s} {s}",
+                                .{
+                                    if (field.static) "static" else "",
+                                    if (field.constant) "const" else "",
+                                    field_type_str.items,
+                                    field.name,
+                                },
+                            );
 
-                    var static_it = object.static_fields.iterator();
-                    while (static_it.next()) |static_kv| {
-                        if (std.mem.eql(u8, static_kv.key_ptr.*.string, kv.key_ptr.*)) {
-                            io.print(" = ", .{});
-                            valueDump(static_kv.value_ptr.*, vm, seen, depth + 1);
-                            break;
+                            if (object.fields.get(vm.gc.copyString(kv.key_ptr.*) catch unreachable)) |v| {
+                                io.print(" = ", .{});
+                                valueDump(v, vm, seen, depth + 1);
+                            }
+
+                            io.print(", ", .{});
+                        } else {
+                            io.print(
+                                "{s}, ",
+                                .{field_type_str.items},
+                            );
                         }
                     }
-
-                    io.print(", ", .{});
-                }
-
-                it = object_def.fields.iterator();
-                while (it.next()) |kv| {
-                    const field_type_str = kv.value_ptr.*.toStringAlloc(vm.gc.allocator) catch std.ArrayList(u8).init(vm.gc.allocator);
-                    defer field_type_str.deinit();
-
-                    io.print("{s} {s}", .{ field_type_str.items, kv.key_ptr.* });
-
-                    if (object.fields.get(vm.gc.copyString(kv.key_ptr.*) catch unreachable)) |v| {
-                        io.print(" = ", .{});
-                        valueDump(v, vm, seen, depth + 1);
-                    }
-
-                    io.print(", ", .{});
-                }
-
-                it = object_def.methods.iterator();
-                while (it.next()) |kv| {
-                    const method_type_str = kv.value_ptr.*.toStringAlloc(vm.gc.allocator) catch std.ArrayList(u8).init(vm.gc.allocator);
-                    defer method_type_str.deinit();
-
-                    io.print("{s}, ", .{method_type_str.items});
                 }
 
                 io.print("}}", .{});
