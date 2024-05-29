@@ -738,6 +738,7 @@ pub fn isConstant(self: Self, node: Node.Index) bool {
         .Void,
         .Namespace,
         => true,
+
         .AsyncCall,
         .Block,
         .Break,
@@ -767,6 +768,7 @@ pub fn isConstant(self: Self, node: Node.Index) bool {
         .BlockExpression,
         .Out,
         => false,
+
         .As => self.isConstant(self.nodes.items(.components)[node].As.left),
         .Is => self.isConstant(self.nodes.items(.components)[node].Is.left),
         .Range => self.isConstant(self.nodes.items(.components)[node].Range.low) and self.isConstant(self.nodes.items(.components)[node].Range.high),
