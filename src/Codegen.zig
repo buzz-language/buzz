@@ -1702,7 +1702,14 @@ fn generateEnum(self: *Self, node: Ast.Node.Index, _: ?*Breaks) Error!?*obj.ObjF
     }
 
     switch (enum_type.def_type) {
-        .String, .Integer, .Float => {},
+        .String,
+        .Integer,
+        .Float,
+        .Pattern,
+        .UserData,
+        .Void,
+        .Range,
+        => {},
         else => {
             self.reporter.reportErrorAt(
                 .syntax,
