@@ -714,7 +714,11 @@ fn generateBinary(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*o
                 .Map => .OP_ADD_MAP,
                 .Integer => .OP_ADD_I,
                 .Float => .OP_ADD_F,
-                else => unreachable,
+                else => other: {
+                    std.debug.assert(self.reporter.had_error);
+
+                    break :other .OP_ADD_I;
+                },
             });
         },
         .Minus => {
