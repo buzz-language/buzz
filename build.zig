@@ -98,7 +98,7 @@ fn getBuzzPrefix(b: *Build) ![]const u8 {
 pub fn build(b: *Build) !void {
     // Check minimum zig version
     const current_zig = builtin.zig_version;
-    const min_zig = std.SemanticVersion.parse("0.13.0-dev.211+6a65561e3") catch return;
+    const min_zig = std.SemanticVersion.parse("0.13.0-dev.347+30a35a897") catch return;
     if (current_zig.order(min_zig).compare(.lt)) {
         @panic(b.fmt("Your Zig version v{} does not meet the minimum build requirement of v{}", .{ current_zig, min_zig }));
     }
@@ -116,7 +116,7 @@ pub fn build(b: *Build) !void {
         .sha = std.posix.getenv("GIT_SHA") orelse
             std.posix.getenv("GITHUB_SHA") orelse std.mem.trim(
             u8,
-            (std.ChildProcess.run(.{
+            (std.process.Child.run(.{
                 .allocator = b.allocator,
                 .argv = &.{
                     "git",

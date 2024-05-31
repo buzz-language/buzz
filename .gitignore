@@ -106,6 +106,7 @@ target/
 
 # zig
 zig-cache/
+\.zig-cache/
 zig-out/
 zig-test/
 dist/
