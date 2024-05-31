@@ -71,3 +71,17 @@ pub fn invert(ctx: *obj.NativeCtx) c_int {
 
     return 1;
 }
+
+pub fn subsetOf(ctx: *obj.NativeCtx) c_int {
+    const rangeA = ctx.vm.peek(1).obj().access(obj.ObjRange, .Range, ctx.vm.gc).?;
+    const rangeB = ctx.vm.peek(0).obj().access(obj.ObjRange, .Range, ctx.vm.gc).?;
+
+    ctx.vm.push(
+        Value.fromBoolean(
+            @min(rangeA.low, rangeA.high) >= @min(rangeB.low, rangeB.high) and
+                @max(rangeA.low, rangeA.high) <= @max(rangeB.low, rangeB.high),
+        ),
+    );
+
+    return 1;
+}

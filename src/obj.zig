@@ -2499,6 +2499,7 @@ pub const ObjRange = struct {
             .{ "toList", buzz_builtin.range.toList },
             .{ "len", buzz_builtin.range.len },
             .{ "invert", buzz_builtin.range.invert },
+            .{ "subsetOf", buzz_builtin.range.subsetOf },
         },
     );
 
@@ -2507,6 +2508,7 @@ pub const ObjRange = struct {
             .{ "toList", "extern Function toList() > [int]" },
             .{ "len", "extern Function len() > int" },
             .{ "invert", "extern Function invert() > rg" },
+            .{ "subsetOf", "extern Function subsetOf(rg other) > bool" },
         },
     );
 
