@@ -171,7 +171,7 @@ pub export fn execute(ctx: *api.NativeCtx) c_int {
         };
     }
 
-    var child_process = std.ChildProcess.init(command.items, api.VM.allocator);
+    var child_process = std.process.Child.init(command.items, api.VM.allocator);
     child_process.disable_aslr = builtin.target.isDarwin();
 
     const term = child_process.spawnAndWait() catch |err| {

@@ -398,7 +398,7 @@ test "Testing behavior" {
                 ) catch unreachable;
                 defer allocator.free(arg0);
 
-                const result = try std.ChildProcess.run(
+                const result = try std.process.Child.run(
                     .{
                         .allocator = allocator,
                         .argv = ([_][]const u8{
