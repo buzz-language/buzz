@@ -85,3 +85,29 @@ pub fn subsetOf(ctx: *obj.NativeCtx) c_int {
 
     return 1;
 }
+
+pub fn intersect(ctx: *obj.NativeCtx) c_int {
+    const rangeA = ctx.vm.peek(1).obj().access(obj.ObjRange, .Range, ctx.vm.gc).?;
+    const rangeB = ctx.vm.peek(0).obj().access(obj.ObjRange, .Range, ctx.vm.gc).?;
+
+    ctx.vm.push(
+        Value.fromObj((ctx.vm.gc.allocateObject(
+            obj.ObjRange,
+            obj.ObjRange{
+                .high = @max(
+                    @min(rangeB.low, rangeB.high),
+                    @min(rangeA.low, rangeA.high),
+                ),
+                .low = @min(
+                    @max(rangeB.low, rangeB.high),
+                    @max(rangeA.low, rangeA.high),
+                ),
+            },
+        ) catch {
+            ctx.vm.panic("Out of memory");
+            unreachable;
+        }).toObj()),
+    );
+
+    return 1;
+}

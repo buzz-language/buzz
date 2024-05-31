@@ -2500,6 +2500,7 @@ pub const ObjRange = struct {
             .{ "len", buzz_builtin.range.len },
             .{ "invert", buzz_builtin.range.invert },
             .{ "subsetOf", buzz_builtin.range.subsetOf },
+            .{ "intersect", buzz_builtin.range.intersect },
         },
     );
 
@@ -2509,6 +2510,7 @@ pub const ObjRange = struct {
             .{ "len", "extern Function len() > int" },
             .{ "invert", "extern Function invert() > rg" },
             .{ "subsetOf", "extern Function subsetOf(rg other) > bool" },
+            .{ "intersect", "extern Function intersect(rg other) > rg" },
         },
     );
 
