@@ -1,0 +1,25 @@
+import "std";
+
+fun fibonacci(int n) > void *> int? {
+    var n1 = 0;
+    var n2 = 1;
+    int? next = null;
+
+    foreach (int _ in 0..n) {
+        _ = yield n1;
+        next = n1 + n2;
+        n1 = n2;
+        n2 = next!;
+    }
+}
+
+fun main([str] args) > void {
+    const N = if (args.len() > 0)
+            std.parseInt(args[0]) ?? 10
+        else
+            10;
+
+    foreach (int? n in &fibonacci(N)) {
+        std.print("{n}");
+    }
+}

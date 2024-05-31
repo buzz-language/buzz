@@ -1,6 +1,6 @@
 import "std";
 
-fun fibonnaci(int n) > void *> int? {
+fun fibonacci(int n) > void *> int? {
     int n1 = 0;
     int n2 = 1;
     int? next = null;
@@ -16,7 +16,7 @@ fun fibonnaci(int n) > void *> int? {
 test "finobacci generator" {
     [int] suite = [0, 1, 1, 2, 3, 5, 8, 13, 21, 34];
     int i = 0;
-    foreach (int n in &fibonnaci(10)) {
+    foreach (int n in &fibonacci(10)) {
         std.assert(suite[i] == n, message: "could iterate over fiber");
 
         i = i + 1;
