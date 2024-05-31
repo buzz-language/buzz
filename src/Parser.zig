@@ -6725,6 +6725,16 @@ fn enumDeclaration(self: *Self) Error!Ast.Node.Index {
     var obj_cases = std.ArrayList(Value).init(self.gc.allocator);
     defer obj_cases.shrinkAndFree(obj_cases.items.len);
     for (cases.items, 0..) |case, idx| {
+        if (case.value != null and !self.ast.isConstant(case.value.?)) {
+            self.reporter.reportErrorAt(
+                .enum_case,
+                self.ast.tokens.get(self.ast.nodes.items(.location)[case.value.?]),
+                "Case value must be constant",
+            );
+
+            continue;
+        }
+
         try obj_cases.append(
             if (case.value) |case_value|
                 try self.ast.toValue(case_value, self.gc)
