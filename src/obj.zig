@@ -2501,6 +2501,7 @@ pub const ObjRange = struct {
             .{ "invert", buzz_builtin.range.invert },
             .{ "subsetOf", buzz_builtin.range.subsetOf },
             .{ "intersect", buzz_builtin.range.intersect },
+            .{ "union", buzz_builtin.range.@"union" },
         },
     );
 
@@ -2511,6 +2512,7 @@ pub const ObjRange = struct {
             .{ "invert", "extern Function invert() > rg" },
             .{ "subsetOf", "extern Function subsetOf(rg other) > bool" },
             .{ "intersect", "extern Function intersect(rg other) > rg" },
+            .{ "union", "extern Function union(rg other) > rg" },
         },
     );
 
