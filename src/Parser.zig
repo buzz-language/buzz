@@ -1270,6 +1270,7 @@ fn declaration(self: *Self) Error!?Ast.Node.Index {
                 .Semicolon,
                 false,
                 true,
+                false,
             )
         else if (try self.match(.Pat))
             try self.varDeclaration(
@@ -1278,6 +1279,7 @@ fn declaration(self: *Self) Error!?Ast.Node.Index {
                 .Semicolon,
                 constant,
                 true,
+                false,
             )
         else if (try self.match(.Ud))
             try self.varDeclaration(
@@ -1286,6 +1288,7 @@ fn declaration(self: *Self) Error!?Ast.Node.Index {
                 .Semicolon,
                 constant,
                 true,
+                false,
             )
         else if (try self.match(.Str))
             try self.varDeclaration(
@@ -1294,6 +1297,7 @@ fn declaration(self: *Self) Error!?Ast.Node.Index {
                 .Semicolon,
                 constant,
                 true,
+                false,
             )
         else if (try self.match(.Int))
             try self.varDeclaration(
@@ -1302,6 +1306,7 @@ fn declaration(self: *Self) Error!?Ast.Node.Index {
                 .Semicolon,
                 constant,
                 true,
+                false,
             )
         else if (try self.match(.Float))
             try self.varDeclaration(
@@ -1310,6 +1315,7 @@ fn declaration(self: *Self) Error!?Ast.Node.Index {
                 .Semicolon,
                 constant,
                 true,
+                false,
             )
         else if (try self.match(.Bool))
             try self.varDeclaration(
@@ -1318,6 +1324,7 @@ fn declaration(self: *Self) Error!?Ast.Node.Index {
                 .Semicolon,
                 constant,
                 true,
+                false,
             )
         else if (try self.match(.Range))
             try self.varDeclaration(
@@ -1326,6 +1333,7 @@ fn declaration(self: *Self) Error!?Ast.Node.Index {
                 .Semicolon,
                 constant,
                 true,
+                false,
             )
         else if (try self.match(.Type))
             try self.varDeclaration(
@@ -1334,6 +1342,7 @@ fn declaration(self: *Self) Error!?Ast.Node.Index {
                 .Semicolon,
                 constant,
                 true,
+                false,
             )
         else if (try self.match(.Any))
             try self.varDeclaration(
@@ -1342,6 +1351,7 @@ fn declaration(self: *Self) Error!?Ast.Node.Index {
                 .Semicolon,
                 constant,
                 true,
+                false,
             )
         else if (self.current_token.? > 0 and self.current_token.? - 1 < self.ast.tokens.len - 1 and
             self.ast.tokens.items(.tag)[self.current_token.?] == .Identifier and
@@ -1353,6 +1363,7 @@ fn declaration(self: *Self) Error!?Ast.Node.Index {
                 .Semicolon,
                 constant,
                 true,
+                false,
             )
         else if (try self.match(.Fib))
             try self.varDeclaration(
@@ -1361,6 +1372,7 @@ fn declaration(self: *Self) Error!?Ast.Node.Index {
                 .Semicolon,
                 constant,
                 true,
+                false,
             )
         else if (try self.match(.Obj))
             try self.varDeclaration(
@@ -1369,6 +1381,7 @@ fn declaration(self: *Self) Error!?Ast.Node.Index {
                 .Semicolon,
                 constant,
                 true,
+                false,
             )
         else if (try self.match(.LeftBracket))
             try self.listDeclaration(constant)
@@ -1383,6 +1396,7 @@ fn declaration(self: *Self) Error!?Ast.Node.Index {
                 .Semicolon,
                 constant,
                 true,
+                false,
             )
         else if (global_scope and try self.match(.Import))
             try self.importStatement()
@@ -1429,6 +1443,7 @@ fn declaration(self: *Self) Error!?Ast.Node.Index {
                 .Semicolon,
                 true,
                 true,
+                false,
             );
         }
 
@@ -6762,6 +6777,7 @@ fn varDeclaration(
     terminator: DeclarationTerminator,
     constant: bool,
     should_assign: bool,
+    type_provided_later: bool,
 ) Error!Ast.Node.Index {
     var var_type = if (parsed_type) |ptype|
         try self.ast.nodes.items(.type_def)[ptype].?.toInstance(
@@ -6810,7 +6826,7 @@ fn varDeclaration(
         } else {
             self.current.?.locals[slot].type_def = var_type;
         }
-    } else if (parsed_type == null) {
+    } else if (parsed_type == null and !type_provided_later) {
         self.reporter.reportErrorAt(
             .inferred_type,
             self.ast.tokens.get(start_location),
@@ -6903,6 +6919,7 @@ fn listDeclaration(self: *Self, constant: bool) Error!Ast.Node.Index {
         .Semicolon,
         constant,
         true,
+        false,
     );
 }
 
@@ -6920,6 +6937,7 @@ fn mapDeclaration(self: *Self, constant: bool) Error!Ast.Node.Index {
         .Semicolon,
         constant,
         true,
+        false,
     );
 }
 
@@ -7928,6 +7946,7 @@ fn userVarDeclaration(self: *Self, _: bool, constant: bool) Error!Ast.Node.Index
         .Semicolon,
         constant,
         true,
+        false,
     );
 }
 
@@ -7945,10 +7964,14 @@ fn forStatement(self: *Self) Error!Ast.Node.Index {
         try init_declarations.append(
             try self.varDeclaration(
                 false,
-                try self.parseTypeDef(null, true),
+                if (try self.match(.Var))
+                    null
+                else
+                    try self.parseTypeDef(null, true),
                 .Nothing,
                 false,
                 true,
+                false,
             ),
         );
 
@@ -8026,27 +8049,37 @@ fn forEachStatement(self: *Self) Error!Ast.Node.Index {
 
     try self.beginScope(null);
 
+    const infer_key_type = try self.match(.Var);
     var key = try self.varDeclaration(
         false,
-        try self.parseTypeDef(null, true),
+        if (infer_key_type)
+            null
+        else
+            try self.parseTypeDef(null, true),
         .Nothing,
         false,
         false,
+        infer_key_type,
     );
 
-    var value = if (try self.match(.Comma))
+    const key_omitted = !(try self.match(.Comma));
+    const infer_value_type = !key_omitted and try self.match(.Var);
+    var value = if (!key_omitted)
         try self.varDeclaration(
             false,
-            try self.parseTypeDef(null, true),
+            if (infer_value_type)
+                null
+            else
+                try self.parseTypeDef(null, true),
             .Nothing,
             false,
             false,
+            infer_value_type,
         )
     else
         null;
 
     // If key is omitted, prepare the slot anyway
-    const key_omitted = value == null;
     if (key_omitted) {
         value = key;
 
@@ -8080,8 +8113,40 @@ fn forEachStatement(self: *Self) Error!Ast.Node.Index {
     );
 
     const iterable = try self.expression(false);
+    const iterable_type_def = self.ast.nodes.items(.type_def)[iterable].?;
 
-    self.current.?.locals[iterable_slot].type_def = self.ast.nodes.items(.type_def)[iterable].?;
+    self.current.?.locals[iterable_slot].type_def = iterable_type_def;
+
+    // Infer key/value type
+    if (infer_key_type and !key_omitted) {
+        const key_type = switch (iterable_type_def.def_type) {
+            .List, .String => self.gc.type_registry.int_type,
+            .Map => iterable_type_def.resolved_type.?.Map.key_type,
+            else =>
+            // Other type don't have key type
+            self.current.?.locals[self.ast.nodes.items(.components)[key].VarDeclaration.slot].type_def,
+        };
+
+        self.current.?.locals[self.ast.nodes.items(.components)[key].VarDeclaration.slot].type_def = key_type;
+        self.ast.nodes.items(.type_def)[key] = key_type;
+    }
+
+    if (infer_value_type or (infer_key_type and key_omitted)) {
+        const value_type = switch (iterable_type_def.def_type) {
+            .List => iterable_type_def.resolved_type.?.List.item_type,
+            .Range => self.gc.type_registry.int_type,
+            // .String => self.gc.type_registry.str_type,
+            .Map => iterable_type_def.resolved_type.?.Map.value_type,
+            .Enum => try iterable_type_def.toInstance(self.gc.allocator, &self.gc.type_registry),
+            .Fiber => iterable_type_def.resolved_type.?.Fiber.yield_type,
+            else =>
+            // Other type are invalid and will be caught at codegen
+            self.current.?.locals[self.ast.nodes.items(.components)[value.?].VarDeclaration.slot].type_def,
+        };
+
+        self.current.?.locals[self.ast.nodes.items(.components)[value.?].VarDeclaration.slot].type_def = value_type;
+        self.ast.nodes.items(.type_def)[value.?] = value_type;
+    }
 
     self.markInitialized();
 

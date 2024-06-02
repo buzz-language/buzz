@@ -59,7 +59,7 @@ pub fn invert(ctx: *obj.NativeCtx) c_int {
     ctx.vm.push(
         Value.fromObj((ctx.vm.gc.allocateObject(
             obj.ObjRange,
-            obj.ObjRange{
+            .{
                 .high = range.low,
                 .low = range.high,
             },
@@ -93,7 +93,7 @@ pub fn intersect(ctx: *obj.NativeCtx) c_int {
     ctx.vm.push(
         Value.fromObj((ctx.vm.gc.allocateObject(
             obj.ObjRange,
-            obj.ObjRange{
+            .{
                 .high = @max(
                     @min(rangeB.low, rangeB.high),
                     @min(rangeA.low, rangeA.high),
@@ -119,7 +119,7 @@ pub fn @"union"(ctx: *obj.NativeCtx) c_int {
     ctx.vm.push(
         Value.fromObj((ctx.vm.gc.allocateObject(
             obj.ObjRange,
-            obj.ObjRange{
+            .{
                 .high = @min(
                     @min(rangeB.low, rangeB.high),
                     @min(rangeA.low, rangeA.high),

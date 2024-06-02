@@ -5,7 +5,7 @@ fun fibonacci(int n) > void *> int? {
     var n2 = 1;
     int? next = null;
 
-    foreach (int _ in 0..n) {
+    foreach (var _ in 0..n) {
         _ = yield n1;
         next = n1 + n2;
         n1 = n2;
@@ -19,7 +19,7 @@ fun main([str] args) > void {
         else
             10;
 
-    foreach (int? n in &fibonacci(N)) {
+    foreach (var n in &fibonacci(N)) {
         std.print("{n}");
     }
 }
