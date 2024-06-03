@@ -1,0 +1,4 @@
+| Can't mix tuple notation and regular properties in anonymous object initialization
+test "Mixing tuple notation and regular anonymous object" {
+	.{ name = "Joe", 42 };
+}

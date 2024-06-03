@@ -111,6 +111,8 @@ pub const Error = enum(u8) {
     unused_import = 94,
     label_does_not_exists = 95,
     constant_property = 96,
+    tuple_limit = 97,
+    mix_tuple = 98,
 };
 
 // Inspired by https://github.com/zesterer/ariadne

@@ -1,0 +1,27 @@
+import "std";
+
+fun pack([str] names) > obj{ str, str, str } {
+	return .{
+		names[0],
+		names[1],
+		names[2],
+	};
+}
+
+test "Tuples" {
+    const tuple = .{ "joe", "doe" };
+
+    std.assert(tuple.@"0" == "joe" and tuple.@"1" == "doe");
+
+    const name = "Joe";
+    const age = 42;
+
+    | Forced tuple
+    const another = .{ (name), (age) };
+
+    std.assert(another.@"0" == "Joe" and another.@"1" == 42);
+
+	const names = pack(["Joe", "John", "James"]);
+
+	std.assert(names.@"0" == "Joe" and names.@"1" == "John");
+}

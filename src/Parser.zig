@@ -699,7 +699,7 @@ fn match(self: *Self, tag: Token.Type) !bool {
     return true;
 }
 
-// Insert token in ast and advance over it to avoid confusing the parser
+/// Insert token in ast and advance over it to avoid confusing the parser
 fn insertUtilityToken(self: *Self, token: Token) !Ast.TokenIndex {
     const current_token = self.ast.tokens.get(self.current_token.?);
 
@@ -3004,15 +3004,61 @@ fn parseObjType(self: *Self, generic_types: ?std.AutoArrayHashMap(*obj.ObjString
     defer field_names.deinit();
     var fields = std.ArrayList(Ast.AnonymousObjectType.Field).init(self.gc.allocator);
     defer fields.shrinkAndFree(fields.items.len);
+    var tuple_index: u8 = 0;
+    var obj_is_tuple = false;
+    var obj_is_not_tuple = false;
     while (!self.check(.RightBrace) and !self.check(.Eof)) {
+        const constant = try self.match(.Const);
+
         const property_type = try self.parseTypeDef(generic_types, true);
 
-        const constant = try self.match(.Const);
-        try self.consume(.Identifier, "Expected property name.");
-        const property_name = self.current_token.? - 1;
+        const is_tuple = !(try self.match(.Identifier));
+        const property_name = if (!is_tuple)
+            self.current_token.? - 1
+        else
+            try self.insertUtilityToken(
+                Token.identifier(
+                    switch (tuple_index) {
+                        0 => "0",
+                        1 => "1",
+                        2 => "2",
+                        3 => "3",
+                        else => "invalid",
+                    },
+                ),
+            );
         const property_name_lexeme = self.ast.tokens.items(.lexeme)[property_name];
 
-        if (field_names.get(property_name_lexeme) != null) {
+        if (is_tuple) {
+            obj_is_tuple = true;
+
+            if (obj_is_not_tuple) {
+                self.reportErrorAtCurrent(
+                    .mix_tuple,
+                    "Can't mix tuple notation and regular properties in anonymous object initialization",
+                );
+            }
+
+            if (tuple_index >= 4) {
+                self.reportErrorAtCurrent(
+                    .tuple_limit,
+                    "Tuples can't have more than 4 elements",
+                );
+            }
+
+            tuple_index += 1;
+        } else {
+            obj_is_not_tuple = true;
+
+            if (obj_is_tuple) {
+                self.reportErrorAtCurrent(
+                    .mix_tuple,
+                    "Can't mix tuple notation and regular properties in anonymous object initialization",
+                );
+            }
+        }
+
+        if (!is_tuple and field_names.get(property_name_lexeme) != null) {
             self.reportError(.property_already_exists, "A property with that name already exists.");
         }
 
@@ -3871,26 +3917,63 @@ fn anonymousObjectInit(self: *Self, _: bool) Error!Ast.Node.Index {
     var property_names = std.StringHashMap(Ast.Node.Index).init(self.gc.allocator);
     defer property_names.deinit();
 
+    var tuple_index: u8 = 0;
+    var obj_is_tuple = false;
+    var obj_is_not_tuple = false;
     while (!self.check(.RightBrace) and !self.check(.Eof)) {
-        try self.consume(.Identifier, "Expected property name");
+        // Unnamed: this expression is a little bit tricky:
+        // - either an identifier followed by something other than =
+        // - or not an identifier
+        if ((self.check(.Identifier) and !(try self.checkAhead(.Equal, 0))) or
+            !self.check(.Identifier))
+        {
+            const expr = try self.expression(false);
+            const is_tuple = self.ast.nodes.items(.tag)[expr] != .NamedVariable;
 
-        const property_name = self.current_token.? - 1;
-        const property_name_lexeme = self.ast.tokens.items(.lexeme)[property_name];
-        if (property_names.get(property_name_lexeme)) |previous_decl| {
-            self.reporter.reportWithOrigin(
-                .property_already_exists,
-                self.ast.tokens.get(property_name),
-                self.ast.tokens.get(previous_decl),
-                "Property `{s}` was already defined",
-                .{property_name_lexeme},
-                "Defined here",
+            if (is_tuple) {
+                obj_is_tuple = true;
+
+                if (obj_is_not_tuple) {
+                    self.reportErrorAtCurrent(
+                        .mix_tuple,
+                        "Can't mix tuple notation and regular properties in anonymous object initialization",
+                    );
+                }
+            }
+
+            if (is_tuple and tuple_index >= 4) {
+                self.reportErrorAtCurrent(
+                    .tuple_limit,
+                    "Tuples can't have more than 4 elements",
+                );
+            }
+
+            // Consume identifier if it exists
+            const property_name = if (!is_tuple)
+                self.current_token.? - 1
+            else
+                try self.insertUtilityToken(
+                    Token.identifier(
+                        switch (tuple_index) {
+                            0 => "0",
+                            1 => "1",
+                            2 => "2",
+                            3 => "3",
+                            else => "invalid",
+                        },
+                    ),
+                );
+
+            if (is_tuple) {
+                tuple_index += 1;
+            }
+
+            const property_name_lexeme = self.ast.tokens.items(.lexeme)[property_name];
+
+            try property_names.put(
+                property_name_lexeme,
+                property_name,
             );
-        }
-        try property_names.put(property_name_lexeme, property_name);
-
-        // Named variable with the same name as property
-        const expr = if (self.check(.Comma) or self.check(.RightBrace)) named: {
-            const expr = try self.expression(true);
 
             try properties.append(
                 .{
@@ -3899,8 +3982,45 @@ fn anonymousObjectInit(self: *Self, _: bool) Error!Ast.Node.Index {
                 },
             );
 
-            break :named expr;
-        } else regular: {
+            try object_type.resolved_type.?.Object.fields.put(
+                property_name_lexeme,
+                .{
+                    .name = property_name_lexeme,
+                    .type_def = self.ast.nodes.items(.type_def)[expr].?,
+                    .location = self.ast.tokens.get(property_name),
+                    .static = false,
+                    .method = false,
+                    .constant = false,
+                    .has_default = false,
+                },
+            );
+        } else {
+            try self.consume(.Identifier, "Expected property name");
+
+            obj_is_not_tuple = true;
+
+            if (obj_is_tuple) {
+                self.reportErrorAtCurrent(
+                    .mix_tuple,
+                    "Can't mix tuple notation and regular properties in anonymous object initialization",
+                );
+            }
+
+            const property_name = self.current_token.? - 1;
+            const property_name_lexeme = self.ast.tokens.items(.lexeme)[property_name];
+            if (property_names.get(property_name_lexeme)) |previous_decl| {
+                self.reporter.reportWithOrigin(
+                    .property_already_exists,
+                    self.ast.tokens.get(property_name),
+                    self.ast.tokens.get(previous_decl),
+                    "Property `{s}` was already defined",
+                    .{property_name_lexeme},
+                    "Defined here",
+                );
+            }
+            try property_names.put(property_name_lexeme, property_name);
+
+            // Named variable with the same name as property or tuple notation
             try self.consume(.Equal, "Expected `=` after property name.");
 
             const expr = try self.expression(false);
@@ -3912,21 +4032,19 @@ fn anonymousObjectInit(self: *Self, _: bool) Error!Ast.Node.Index {
                 },
             );
 
-            break :regular expr;
-        };
-
-        try object_type.resolved_type.?.Object.fields.put(
-            property_name_lexeme,
-            .{
-                .name = property_name_lexeme,
-                .type_def = self.ast.nodes.items(.type_def)[expr].?,
-                .location = self.ast.tokens.get(property_name),
-                .static = false,
-                .method = false,
-                .constant = false,
-                .has_default = false,
-            },
-        );
+            try object_type.resolved_type.?.Object.fields.put(
+                property_name_lexeme,
+                .{
+                    .name = property_name_lexeme,
+                    .type_def = self.ast.nodes.items(.type_def)[expr].?,
+                    .location = self.ast.tokens.get(property_name),
+                    .static = false,
+                    .method = false,
+                    .constant = false,
+                    .has_default = false,
+                },
+            );
+        }
 
         if (!self.check(.RightBrace) or self.check(.Comma)) {
             try self.consume(.Comma, "Expected `,` after field initialization.");
