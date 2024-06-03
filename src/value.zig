@@ -5,7 +5,6 @@ const _obj = @import("obj.zig");
 const VM = @import("vm.zig").VM;
 const GarbageCollector = @import("memory.zig").GarbageCollector;
 const Obj = _obj.Obj;
-const objToString = _obj.objToString;
 const ObjTypeDef = _obj.ObjTypeDef;
 
 pub const Float = f64;
@@ -171,7 +170,7 @@ pub const Value = packed struct {
 
     pub fn toString(self: Value, writer: *const std.ArrayList(u8).Writer) (Allocator.Error || std.fmt.BufPrintError)!void {
         if (self.isObj()) {
-            try objToString(writer, self.obj());
+            try self.obj().toString(writer);
 
             return;
         }

@@ -3888,16 +3888,33 @@ fn anonymousObjectInit(self: *Self, _: bool) Error!Ast.Node.Index {
         }
         try property_names.put(property_name_lexeme, property_name);
 
-        try self.consume(.Equal, "Expected `=` after property name.");
+        // Named variable with the same name as property
+        const expr = if (self.check(.Comma) or self.check(.RightBrace)) named: {
+            const expr = try self.expression(true);
 
-        const expr = try self.expression(false);
+            try properties.append(
+                .{
+                    .name = property_name,
+                    .value = expr,
+                },
+            );
 
-        try properties.append(
-            .{
-                .name = property_name,
-                .value = expr,
-            },
-        );
+            break :named expr;
+        } else regular: {
+            try self.consume(.Equal, "Expected `=` after property name.");
+
+            const expr = try self.expression(false);
+
+            try properties.append(
+                .{
+                    .name = property_name,
+                    .value = expr,
+                },
+            );
+
+            break :regular expr;
+        };
+
         try object_type.resolved_type.?.Object.fields.put(
             property_name_lexeme,
             .{

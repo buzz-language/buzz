@@ -7,6 +7,7 @@
 ## Modified
 - Enum can now have `rg`, `ud`, `void`, `pat` has value type
 - `var` can be used for key and/or value type in `for` and `foreach` loop
+- Anonymous object can also omit property name when initial value is a named variable
 
 ## Fixed
 - Type checking was not done on object instance property assignments

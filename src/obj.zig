@@ -501,6 +501,176 @@ pub const Obj = struct {
             },
         }
     }
+
+    pub fn toString(obj: *Obj, writer: *const std.ArrayList(u8).Writer) (Allocator.Error || std.fmt.BufPrintError)!void {
+        return switch (obj.obj_type) {
+            .String => {
+                const str = ObjString.cast(obj).?.string;
+
+                try writer.print("{s}", .{str});
+            },
+            .Pattern => {
+                const pattern = ObjPattern.cast(obj).?.source;
+
+                try writer.print("{s}", .{pattern});
+            },
+            .Fiber => {
+                const fiber = ObjFiber.cast(obj).?.fiber;
+
+                try writer.print("fiber: 0x{x}", .{@intFromPtr(fiber)});
+            },
+            .Type => {
+                const type_def: *ObjTypeDef = ObjTypeDef.cast(obj).?;
+
+                try writer.print("type: 0x{x} `", .{
+                    @intFromPtr(type_def),
+                });
+
+                try type_def.toString(writer);
+
+                try writer.writeAll("`");
+            },
+            .UpValue => {
+                const upvalue: *ObjUpValue = ObjUpValue.cast(obj).?;
+
+                try (upvalue.closed orelse upvalue.location.*).toString(writer);
+            },
+            .Closure => try writer.print("closure: 0x{x} `{s}`", .{
+                @intFromPtr(ObjClosure.cast(obj).?),
+                ObjClosure.cast(obj).?.function.name.string,
+            }),
+            .Function => try writer.print("function: 0x{x} `{s}`", .{
+                @intFromPtr(ObjFunction.cast(obj).?),
+                ObjFunction.cast(obj).?.name.string,
+            }),
+            .ObjectInstance => {
+                const instance = ObjObjectInstance.cast(obj).?;
+
+                if (instance.object) |object| {
+                    try writer.print(
+                        "object instance: 0x{x} `{s}`",
+                        .{
+                            @intFromPtr(instance),
+                            object.name.string,
+                        },
+                    );
+                } else {
+                    try writer.print(
+                        "object instance: 0x{x} obj{{ ",
+                        .{
+                            @intFromPtr(instance),
+                        },
+                    );
+                    var it = instance.fields.iterator();
+                    while (it.next()) |kv| {
+                        // This line is awesome
+                        try instance
+                            .type_def
+                            .resolved_type.?
+                            .ObjectInstance
+                            .resolved_type.?
+                            .Object
+                            .fields
+                            .get(kv.key_ptr.*.string).?
+                            .type_def
+                            .toString(writer);
+                        try writer.print(" {s}, ", .{kv.key_ptr.*.string});
+                    }
+                    try writer.writeAll("}");
+                }
+            },
+            .Object => try writer.print("object: 0x{x} `{s}`", .{
+                @intFromPtr(ObjObject.cast(obj).?),
+                ObjObject.cast(obj).?.name.string,
+            }),
+            .Range => {
+                const range = ObjRange.cast(obj).?;
+
+                try writer.print(
+                    "range: 0x{x} {}..{}",
+                    .{
+                        @intFromPtr(range),
+                        range.low,
+                        range.high,
+                    },
+                );
+            },
+            .List => {
+                const list: *ObjList = ObjList.cast(obj).?;
+
+                try writer.print("list: 0x{x} [", .{@intFromPtr(list)});
+
+                try list.type_def.resolved_type.?.List.item_type.toString(writer);
+
+                try writer.writeAll("]");
+            },
+            .Map => {
+                const map: *ObjMap = ObjMap.cast(obj).?;
+
+                try writer.print("map: 0x{x} {{", .{
+                    @intFromPtr(map),
+                });
+
+                try map.type_def.resolved_type.?.Map.key_type.toString(writer);
+
+                try writer.writeAll(", ");
+
+                try map.type_def.resolved_type.?.Map.value_type.toString(writer);
+
+                try writer.writeAll("}");
+            },
+            .Enum => try writer.print("enum: 0x{x} `{s}`", .{
+                @intFromPtr(ObjEnum.cast(obj).?),
+                ObjEnum.cast(obj).?.name.string,
+            }),
+            .EnumInstance => enum_instance: {
+                const instance: *ObjEnumInstance = ObjEnumInstance.cast(obj).?;
+                const enum_: *ObjEnum = instance.enum_ref;
+
+                break :enum_instance try writer.print("{s}.{s}", .{
+                    enum_.name.string,
+                    enum_.type_def.resolved_type.?.Enum.cases.items[instance.case],
+                });
+            },
+            .Bound => {
+                const bound: *ObjBoundMethod = ObjBoundMethod.cast(obj).?;
+
+                if (bound.closure) |closure| {
+                    const closure_name: []const u8 = closure.function.name.string;
+                    try writer.writeAll("bound method: ");
+
+                    try (bound.receiver).toString(writer);
+
+                    try writer.print(" to {s}", .{closure_name});
+                } else {
+                    assert(bound.native != null);
+                    try writer.writeAll("bound method: ");
+
+                    try (bound.receiver).toString(writer);
+
+                    try writer.print(" to native 0x{}", .{@intFromPtr(bound.native.?)});
+                }
+            },
+            .Native => {
+                const native: *ObjNative = ObjNative.cast(obj).?;
+
+                try writer.print("native: 0x{x}", .{@intFromPtr(native)});
+            },
+            .UserData => {
+                const userdata: *ObjUserData = ObjUserData.cast(obj).?;
+
+                try writer.print("userdata: 0x{x}", .{userdata.userdata});
+            },
+            .ForeignContainer => {
+                const foreign = ObjForeignContainer.cast(obj).?;
+
+                try writer.print("foreign struct: 0x{x} `{s}`", .{
+                    @intFromPtr(foreign.data.ptr),
+                    foreign.type_def.resolved_type.?.ForeignContainer.name.string,
+                });
+            },
+        };
+    }
 };
 
 pub const ObjFiber = struct {
@@ -4589,176 +4759,6 @@ pub fn cloneObject(obj: *Obj, vm: *VM) !Value {
         // TODO
         .ObjectInstance => unreachable,
     }
-}
-
-pub fn objToString(writer: *const std.ArrayList(u8).Writer, obj: *Obj) (Allocator.Error || std.fmt.BufPrintError)!void {
-    return switch (obj.obj_type) {
-        .String => {
-            const str = ObjString.cast(obj).?.string;
-
-            try writer.print("{s}", .{str});
-        },
-        .Pattern => {
-            const pattern = ObjPattern.cast(obj).?.source;
-
-            try writer.print("{s}", .{pattern});
-        },
-        .Fiber => {
-            const fiber = ObjFiber.cast(obj).?.fiber;
-
-            try writer.print("fiber: 0x{x}", .{@intFromPtr(fiber)});
-        },
-        .Type => {
-            const type_def: *ObjTypeDef = ObjTypeDef.cast(obj).?;
-
-            try writer.print("type: 0x{x} `", .{
-                @intFromPtr(type_def),
-            });
-
-            try type_def.toString(writer);
-
-            try writer.writeAll("`");
-        },
-        .UpValue => {
-            const upvalue: *ObjUpValue = ObjUpValue.cast(obj).?;
-
-            try (upvalue.closed orelse upvalue.location.*).toString(writer);
-        },
-        .Closure => try writer.print("closure: 0x{x} `{s}`", .{
-            @intFromPtr(ObjClosure.cast(obj).?),
-            ObjClosure.cast(obj).?.function.name.string,
-        }),
-        .Function => try writer.print("function: 0x{x} `{s}`", .{
-            @intFromPtr(ObjFunction.cast(obj).?),
-            ObjFunction.cast(obj).?.name.string,
-        }),
-        .ObjectInstance => {
-            const instance = ObjObjectInstance.cast(obj).?;
-
-            if (instance.object) |object| {
-                try writer.print(
-                    "object instance: 0x{x} `{s}`",
-                    .{
-                        @intFromPtr(instance),
-                        object.name.string,
-                    },
-                );
-            } else {
-                try writer.print(
-                    "object instance: 0x{x} obj{{ ",
-                    .{
-                        @intFromPtr(instance),
-                    },
-                );
-                var it = instance.fields.iterator();
-                while (it.next()) |kv| {
-                    // This line is awesome
-                    try instance
-                        .type_def
-                        .resolved_type.?
-                        .ObjectInstance
-                        .resolved_type.?
-                        .Object
-                        .fields
-                        .get(kv.key_ptr.*.string).?
-                        .type_def
-                        .toString(writer);
-                    try writer.print(" {s}, ", .{kv.key_ptr.*.string});
-                }
-                try writer.writeAll("}");
-            }
-        },
-        .Object => try writer.print("object: 0x{x} `{s}`", .{
-            @intFromPtr(ObjObject.cast(obj).?),
-            ObjObject.cast(obj).?.name.string,
-        }),
-        .Range => {
-            const range = ObjRange.cast(obj).?;
-
-            try writer.print(
-                "range: 0x{x} {}..{}",
-                .{
-                    @intFromPtr(range),
-                    range.low,
-                    range.high,
-                },
-            );
-        },
-        .List => {
-            const list: *ObjList = ObjList.cast(obj).?;
-
-            try writer.print("list: 0x{x} [", .{@intFromPtr(list)});
-
-            try list.type_def.resolved_type.?.List.item_type.toString(writer);
-
-            try writer.writeAll("]");
-        },
-        .Map => {
-            const map: *ObjMap = ObjMap.cast(obj).?;
-
-            try writer.print("map: 0x{x} {{", .{
-                @intFromPtr(map),
-            });
-
-            try map.type_def.resolved_type.?.Map.key_type.toString(writer);
-
-            try writer.writeAll(", ");
-
-            try map.type_def.resolved_type.?.Map.value_type.toString(writer);
-
-            try writer.writeAll("}");
-        },
-        .Enum => try writer.print("enum: 0x{x} `{s}`", .{
-            @intFromPtr(ObjEnum.cast(obj).?),
-            ObjEnum.cast(obj).?.name.string,
-        }),
-        .EnumInstance => enum_instance: {
-            const instance: *ObjEnumInstance = ObjEnumInstance.cast(obj).?;
-            const enum_: *ObjEnum = instance.enum_ref;
-
-            break :enum_instance try writer.print("{s}.{s}", .{
-                enum_.name.string,
-                enum_.type_def.resolved_type.?.Enum.cases.items[instance.case],
-            });
-        },
-        .Bound => {
-            const bound: *ObjBoundMethod = ObjBoundMethod.cast(obj).?;
-
-            if (bound.closure) |closure| {
-                const closure_name: []const u8 = closure.function.name.string;
-                try writer.writeAll("bound method: ");
-
-                try (bound.receiver).toString(writer);
-
-                try writer.print(" to {s}", .{closure_name});
-            } else {
-                assert(bound.native != null);
-                try writer.writeAll("bound method: ");
-
-                try (bound.receiver).toString(writer);
-
-                try writer.print(" to native 0x{}", .{@intFromPtr(bound.native.?)});
-            }
-        },
-        .Native => {
-            const native: *ObjNative = ObjNative.cast(obj).?;
-
-            try writer.print("native: 0x{x}", .{@intFromPtr(native)});
-        },
-        .UserData => {
-            const userdata: *ObjUserData = ObjUserData.cast(obj).?;
-
-            try writer.print("userdata: 0x{x}", .{userdata.userdata});
-        },
-        .ForeignContainer => {
-            const foreign = ObjForeignContainer.cast(obj).?;
-
-            try writer.print("foreign struct: 0x{x} `{s}`", .{
-                @intFromPtr(foreign.data.ptr),
-                foreign.type_def.resolved_type.?.ForeignContainer.name.string,
-            });
-        },
-    };
 }
 
 pub const PlaceholderDef = struct {
