@@ -16,6 +16,15 @@ test "Anonymous objects" {
     std.assert(info is obj{ str name, int age },  message: "Type safety works with anonymous object");
 }
 
+test "Named variable init" {
+    const name = "Joe";
+    const age = 42;
+
+    const person = .{ name, age };
+
+    std.assert(person.name == "Joe" and person.age == 42);
+}
+
 fun getPayload::<T>(T data) > obj{ T data } {
     return .{
         data = data
