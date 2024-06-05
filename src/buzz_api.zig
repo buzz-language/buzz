@@ -274,7 +274,7 @@ fn valueDump(value: Value, vm: *VM, seen: *std.AutoHashMap(*_obj.Obj, void), dep
                                 },
                             );
 
-                            if (object.fields.get(vm.gc.copyString(kv.key_ptr.*) catch unreachable)) |v| {
+                            if (if (field.static) object.fields[field.index] else object.defaults[field.index]) |v| {
                                 io.print(" = ", .{});
                                 valueDump(v, vm, seen, depth + 1);
                             }
@@ -294,6 +294,8 @@ fn valueDump(value: Value, vm: *VM, seen: *std.AutoHashMap(*_obj.Obj, void), dep
 
             .ObjectInstance => {
                 const object_instance = ObjObjectInstance.cast(value.obj()).?;
+                const object_def = object_instance.type_def.resolved_type.?.ObjectInstance
+                    .resolved_type.?.Object;
 
                 io.print(
                     "{s}{{ ",
@@ -304,10 +306,21 @@ fn valueDump(value: Value, vm: *VM, seen: *std.AutoHashMap(*_obj.Obj, void), dep
                             ".",
                     },
                 );
-                var it = object_instance.fields.iterator();
-                while (it.next()) |kv| {
-                    io.print("{s} = ", .{kv.key_ptr.*.string});
-                    valueDump(kv.value_ptr.*, vm, seen, depth + 1);
+                for (object_instance.fields, 0..) |field, i| {
+                    var it = object_def.fields.iterator();
+                    const field_def: ObjObject.ObjectDef.Field = field_def: {
+                        while (it.next()) |kv| {
+                            const f = kv.value_ptr.*;
+                            if (f.index == i and !f.static and !f.method) {
+                                break :field_def f;
+                            }
+                        }
+
+                        unreachable;
+                    };
+
+                    io.print("{s} = ", .{field_def.name});
+                    valueDump(field, vm, seen, depth + 1);
                     io.print(", ", .{});
                 }
                 io.print("}}", .{});
@@ -533,7 +546,7 @@ export fn bz_newList(vm: *VM, of_type: Value) Value {
 
     return (vm.gc.allocateObject(
         ObjList,
-        ObjList.init(vm.gc.allocator, list_def_type),
+        ObjList.init(vm.gc.allocator, list_def_type) catch @panic("Out of memory"),
     ) catch @panic("Could not create list")).toValue();
 }
 
@@ -621,7 +634,10 @@ export fn bz_newVM(self: *VM) ?*VM {
         return null;
     };
     // FIXME: should share strings between gc
-    gc.* = GarbageCollector.init(self.gc.allocator);
+    gc.* = GarbageCollector.init(self.gc.allocator) catch {
+        vm.panic("Out of memory");
+        unreachable;
+    };
     gc.type_registry = TypeRegistry.init(gc) catch {
         vm.panic("Out of memory");
         unreachable;
@@ -760,7 +776,7 @@ fn calleeIsCompiled(value: Value) bool {
 pub export fn bz_invoke(
     self: *VM,
     instance: Value,
-    method: *ObjString,
+    method_idx: usize,
     arguments: ?[*]const *const Value,
     len: u8,
     catch_value: ?*Value,
@@ -776,10 +792,10 @@ pub export fn bz_invoke(
 
     // TODO: catch properly
     const callee = self.invoke(
-        method,
+        false,
+        method_idx,
         len,
         if (catch_value) |v| v.* else null,
-        false,
         false,
     ) catch unreachable;
 
@@ -809,7 +825,6 @@ pub export fn bz_call(
         closure.toValue(),
         len,
         if (catch_value) |v| v.* else null,
-        false,
     ) catch unreachable;
 
     // If not compiled, run it with the VM loop
@@ -830,19 +845,21 @@ export fn bz_instanceQualified(self: *VM, qualified_name: [*]const u8, len: usiz
                 self.panic("Out of memory");
                 unreachable;
             },
-        ),
+            self.gc,
+        ) catch @panic("Out of memory"),
     ) catch {
         @panic("Could not create error");
     };
 
     // Set instance fields with default values
-    var it = object.fields.iterator();
-    while (it.next()) |kv| {
-        instance.setField(
-            self.gc,
-            kv.key_ptr.*,
-            self.cloneValue(kv.value_ptr.*) catch @panic("Could not set object property"),
-        ) catch @panic("Could not set object property");
+    for (object.defaults, 0..) |default, idx| {
+        if (default) |udefault| {
+            instance.setField(
+                self.gc,
+                idx,
+                self.cloneValue(udefault) catch @panic("Could not set object property"),
+            ) catch @panic("Could not set object property");
+        }
     }
 
     return instance.toValue();
@@ -859,19 +876,15 @@ fn instanciateError(
 
     if (message) |msg| {
         const obj_instance = ObjObjectInstance.cast(instance.obj()).?;
-        const message_key = vm.gc.strings.get("message").?;
+        const object_def = obj_instance.type_def.resolved_type.?.ObjectInstance
+            .resolved_type.?.Object
+            .fields;
 
-        if (obj_instance.fields.get(message_key) != null) {
-            obj_instance.fields.put(
-                message_key,
-                (vm.gc.copyString(msg[0..mlen]) catch {
-                    vm.panic("Out of memory");
-                    unreachable;
-                }).toValue(),
-            ) catch {
+        if (object_def.get("message")) |field| {
+            obj_instance.fields[field.index] = (vm.gc.copyString(msg[0..mlen]) catch {
                 vm.panic("Out of memory");
                 unreachable;
-            };
+            }).toValue();
         }
     }
 
@@ -946,62 +959,88 @@ export fn bz_instance(vm: *VM, object_value: Value, typedef_value: Value) Value 
             vm,
             object,
             typedef,
-        ),
+            vm.gc,
+        ) catch @panic("Out of memory"),
     ) catch @panic("Could not instanciate object");
 
     // If not anonymous, set default fields
     if (object) |uobject| {
-        var it = uobject.fields.iterator();
-        while (it.next()) |kv| {
-            instance.setField(
-                vm.gc,
-                kv.key_ptr.*,
-                vm.cloneValue(kv.value_ptr.*) catch @panic("Could not set object field"),
-            ) catch @panic("Could not set object field");
+        for (uobject.defaults, 0..) |default, idx| {
+            if (default) |udefault| {
+                instance.setField(
+                    vm.gc,
+                    idx,
+                    vm.cloneValue(udefault) catch @panic("Could not set object field"),
+                ) catch @panic("Could not set object field");
+            }
         }
     }
 
     return instance.toValue();
 }
 
-export fn bz_getObjectField(object_value: Value, field_name_value: Value) Value {
-    const object = ObjObject.cast(object_value.obj()).?;
-
-    return object.static_fields.get(ObjString.cast(field_name_value.obj()).?).?;
+export fn bz_getObjectField(object_value: Value, field_idx: usize) Value {
+    return ObjObject.cast(object_value.obj()).?.fields[field_idx];
 }
 
-export fn bz_setObjectField(vm: *VM, object_value: Value, field_name_value: Value, value: Value) void {
-    const object = ObjObject.cast(object_value.obj()).?;
-    const field = ObjString.cast(field_name_value.obj()).?;
-
-    object.setStaticField(vm.gc, field, value) catch @panic("Could not set static field");
+export fn bz_setObjectField(vm: *VM, object_value: Value, field_idx: usize, value: Value) void {
+    ObjObject.cast(object_value.obj()).?.setField(
+        vm.gc,
+        field_idx,
+        value,
+    ) catch @panic("Could not set static field");
 }
 
-export fn bz_setInstanceField(vm: *VM, instance_value: Value, field_name_value: Value, value: Value) void {
+export fn bz_setInstanceProperty(vm: *VM, instance_value: Value, field_idx: usize, value: Value) void {
     ObjObjectInstance.cast(instance_value.obj()).?.setField(
         vm.gc,
-        ObjString.cast(field_name_value.obj()).?,
+        field_idx,
         value,
     ) catch @panic("Could not set instance field");
 }
 
-export fn bz_getInstanceField(vm: *VM, instance_value: Value, field_name_value: Value, bind: bool) Value {
-    const instance = ObjObjectInstance.cast(instance_value.obj()).?;
-    if (instance.fields.get(ObjString.cast(field_name_value.obj()).?)) |field| {
-        return field;
-    }
+export fn bz_getInstanceProperty(instance_value: Value, property_idx: usize) Value {
+    return ObjObjectInstance.cast(instance_value.obj()).?
+        .fields[property_idx];
+}
 
-    const method = instance.object.?.methods.get(ObjString.cast(field_name_value.obj()).?).?.toValue();
+export fn bz_getInstanceMethod(vm: *VM, instance_value: Value, method_idx: usize, bind: bool) Value {
+    const method = ObjObjectInstance.cast(instance_value.obj()).?
+        .object.?
+        .fields[method_idx];
 
     return if (bind)
         bz_bindMethod(
             vm,
-            instance.toValue(),
+            method,
             method,
             Value.Null,
         )
     else
         method;
+}
+
+export fn bz_getProtocolMethod(vm: *VM, instance_value: Value, method_name: Value) Value {
+    const instance = instance_value.obj().access(
+        ObjObjectInstance,
+        .ObjectInstance,
+        vm.gc,
+    ).?;
+
+    const name = method_name.obj()
+        .access(ObjString, .String, vm.gc).?
+        .string;
+
+    const method_idx = instance.type_def.resolved_type.?.ObjectInstance
+        .resolved_type.?.Object
+        .fields.get(name).?.index;
+
+    return bz_bindMethod(
+        vm,
+        instance_value,
+        instance.object.?.fields[method_idx],
+        Value.Null,
+    );
 }
 
 export fn bz_bindMethod(vm: *VM, receiver: Value, method_value: Value, native_value: Value) Value {
@@ -1115,10 +1154,13 @@ export fn bz_valueTypeOf(self: Value, vm: *VM) Value {
 }
 
 export fn bz_newMap(vm: *VM, map_type: Value) Value {
-    var map: *ObjMap = vm.gc.allocateObject(ObjMap, ObjMap.init(
-        vm.gc.allocator,
-        ObjTypeDef.cast(map_type.obj()).?,
-    )) catch @panic("Could not create map");
+    var map: *ObjMap = vm.gc.allocateObject(
+        ObjMap,
+        ObjMap.init(
+            vm.gc.allocator,
+            ObjTypeDef.cast(map_type.obj()).?,
+        ) catch @panic("Could not create map"),
+    ) catch @panic("Could not create map");
 
     return Value.fromObj(map.toObj());
 }
@@ -1325,101 +1367,90 @@ export fn bz_dumpStack(ctx: *NativeCtx, off: usize) void {
     dumpStack(ctx.vm);
 }
 
-export fn bz_getStringField(vm: *VM, string_value: Value, field_name_value: Value, bind: bool) Value {
-    const string = ObjString.cast(string_value.obj()).?;
-    const method = (ObjString.member(vm, ObjString.cast(field_name_value.obj()).?) catch @panic("Could not get string method")).?;
+export fn bz_getStringProperty(vm: *VM, string_value: Value, property_idx: usize, bind: bool) Value {
+    const method = ObjString.member(vm, property_idx) catch @panic("Out of memory").?;
 
     return if (bind)
         bz_bindMethod(
             vm,
-            string.toValue(),
+            string_value,
             Value.Null,
-            method.toValue(),
+            method,
         )
     else
-        method.toValue();
+        method;
 }
 
-export fn bz_getPatternField(vm: *VM, pattern_value: Value, field_name_value: Value, bind: bool) Value {
-    const pattern = ObjPattern.cast(pattern_value.obj()).?;
-    const method = (ObjPattern.member(vm, ObjString.cast(field_name_value.obj()).?) catch @panic("Could not get pattern method")).?;
+export fn bz_getPatternProperty(vm: *VM, pattern_value: Value, property_idx: usize, bind: bool) Value {
+    const method = ObjPattern.member(vm, property_idx) catch @panic("Could not get pattern method");
 
     return if (bind)
         bz_bindMethod(
             vm,
-            pattern.toValue(),
+            pattern_value,
             Value.Null,
-            method.toValue(),
+            method,
         )
     else
-        method.toValue();
+        method;
 }
 
-export fn bz_getFiberField(vm: *VM, fiber_value: Value, field_name_value: Value, bind: bool) Value {
-    const fiber = ObjFiber.cast(fiber_value.obj()).?;
-    const method = (ObjFiber.member(vm, ObjString.cast(field_name_value.obj()).?) catch @panic("Could not get fiber method")).?;
+export fn bz_getFiberProperty(vm: *VM, fiber_value: Value, property_idx: usize, bind: bool) Value {
+    const method = ObjFiber.member(vm, property_idx) catch @panic("Could not get fiber method");
 
     return if (bind)
         bz_bindMethod(
             vm,
-            fiber.toValue(),
+            fiber_value,
             Value.Null,
-            method.toValue(),
+            method,
         )
     else
-        method.toValue();
+        method;
 }
 
-export fn bz_getListField(vm: *VM, list_value: Value, field_name_value: Value, bind: bool) Value {
-    const field_name = ObjString.cast(field_name_value.obj()).?;
-    const list = ObjList.cast(list_value.obj()).?;
-    const method = (list.member(vm, field_name) catch @panic("Could not get list method")).?;
+export fn bz_getListProperty(vm: *VM, list_value: Value, property_idx: usize, bind: bool) Value {
+    const method = ObjList.cast(list_value.obj()).?
+        .member(vm, property_idx) catch @panic("Could not get list method");
 
     return if (bind)
         bz_bindMethod(
             vm,
-            list.toValue(),
+            list_value,
             Value.Null,
-            method.toValue(),
+            method,
         )
     else
-        method.toValue();
+        method;
 }
 
-export fn bz_getRangeField(vm: *VM, range_value: Value, field_name_value: Value, bind: bool) Value {
-    const range = ObjRange.cast(range_value.obj()).?;
-    const member_name = ObjString.cast(field_name_value.obj()).?;
-
-    if (ObjRange.member(vm, member_name) catch @panic("Could not get range method")) |method| {
-        return if (bind)
-            bz_bindMethod(
-                vm,
-                range.toValue(),
-                Value.Null,
-                method.toValue(),
-            )
-        else
-            method.toValue();
-    } else if (std.mem.eql(u8, member_name.string, "high")) {
-        return Value.fromInteger(range.high);
-    }
-
-    return Value.fromInteger(range.low);
-}
-
-export fn bz_getMapField(vm: *VM, map_value: Value, field_name_value: Value, bind: bool) Value {
-    const map = ObjMap.cast(map_value.obj()).?;
-    const method = (map.member(vm, ObjString.cast(field_name_value.obj()).?) catch @panic("Could not get map method")).?;
+export fn bz_getRangeProperty(vm: *VM, range_value: Value, property_idx: usize, bind: bool) Value {
+    const method = ObjRange.member(vm, property_idx) catch @panic("Out of memory");
 
     return if (bind)
         bz_bindMethod(
             vm,
-            map.toValue(),
+            range_value,
             Value.Null,
-            method.toValue(),
+            method,
         )
     else
-        method.toValue();
+        method;
+}
+
+export fn bz_getMapProperty(vm: *VM, map_value: Value, property_idx: usize, bind: bool) Value {
+    const method = ObjMap.cast(map_value.obj()).?
+        .member(vm, property_idx) catch @panic("Could not get map method");
+
+    return if (bind)
+        bz_bindMethod(
+            vm,
+            map_value,
+            Value.Null,
+            method,
+        )
+    else
+        method;
 }
 
 export fn bz_stringNext(vm: *VM, string_value: Value, index: *Value) Value {
@@ -1817,19 +1848,24 @@ export fn bz_writeZigValueToBuffer(
     }
 }
 
-export fn bz_containerGet(vm: *VM, value: Value, field: [*]const u8, len: usize) Value {
+export fn bz_containerGet(vm: *VM, value: Value, field_idx: usize) Value {
     const container = ObjForeignContainer.cast(value.obj()).?;
-    // Oh right that's beautiful enough...
-    return container.type_def.resolved_type.?.ForeignContainer.fields.get(field[0..len]).?.getter(
+
+    return container.type_def.resolved_type.?
+        .ForeignContainer
+        .fields.values()[field_idx]
+        .getter(
         vm,
         container.data.ptr,
     );
 }
 
-export fn bz_containerSet(vm: *VM, value: Value, field: [*]const u8, len: usize, new_value: Value) void {
+export fn bz_containerSet(vm: *VM, value: Value, field_idx: usize, new_value: Value) void {
     const container = ObjForeignContainer.cast(value.obj()).?;
     // Oh right that's beautiful enough...
-    return container.type_def.resolved_type.?.ForeignContainer.fields.get(field[0..len]).?.setter(
+    return container.type_def.resolved_type.?.ForeignContainer
+        .fields.values()[field_idx]
+        .setter(
         vm,
         container.data.ptr,
         new_value,

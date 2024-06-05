@@ -260,6 +260,7 @@ export object Request {
     }
 }
 
+| Don't change proeprties order
 export object Response {
     int status = 200,
     {str: str} headers = {<str: str>},

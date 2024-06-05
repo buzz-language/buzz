@@ -21,7 +21,7 @@ pub fn disassembleChunk(chunk: *Chunk, name: []const u8) void {
     print("\u{001b}[0m", .{});
 }
 
-fn invokeInstruction(code: OpCode, chunk: *Chunk, offset: usize) usize {
+fn namedInvokeInstruction(code: OpCode, chunk: *Chunk, offset: usize) usize {
     const constant: u24 = @intCast(0x00ffffff & chunk.code.items[offset]);
     const arg_count: u8 = @intCast(chunk.code.items[offset + 1] >> 24);
     const catch_count: u24 = @intCast(0x00ffffff & chunk.code.items[offset + 1]);
@@ -29,14 +29,35 @@ fn invokeInstruction(code: OpCode, chunk: *Chunk, offset: usize) usize {
     var value_str = chunk.constants.items[constant].toStringAlloc(global_allocator) catch @panic("Out of memory");
     defer value_str.deinit();
 
-    print("{s}\t{s}({} args, {} catches)", .{
-        @tagName(code),
-        value_str.items[0..@min(value_str.items.len, 100)],
-        arg_count,
-        catch_count,
-    });
+    print(
+        "{s}\t{s}({} args, {} catches)",
+        .{
+            @tagName(code),
+            value_str.items[0..@min(value_str.items.len, 100)],
+            arg_count,
+            catch_count,
+        },
+    );
 
     return offset + 2;
+}
+
+fn invokeInstruction(code: OpCode, chunk: *Chunk, offset: usize) usize {
+    const method_idx: u24 = @intCast(0x00ffffff & chunk.code.items[offset]);
+    const arg_count: u8 = @intCast(chunk.code.items[offset + 1] >> 24);
+    const catch_count: u24 = @intCast(0x00ffffff & chunk.code.items[offset + 1]);
+
+    print(
+        "{s}\t{}({} args, {} catches)",
+        .{
+            @tagName(code),
+            method_idx,
+            arg_count,
+            catch_count,
+        },
+    );
+
+    return offset + 1;
 }
 
 fn simpleInstruction(code: OpCode, offset: usize) usize {
@@ -272,25 +293,27 @@ pub fn disassembleInstruction(chunk: *Chunk, offset: usize) usize {
         .OP_RETURN,
         .OP_LIST_APPEND,
         .OP_SET_MAP,
+        .OP_PROPERTY,
+        .OP_OBJECT_DEFAULT,
+        .OP_SET_OBJECT_PROPERTY,
+        .OP_SET_INSTANCE_PROPERTY,
+        .OP_GET_INSTANCE_PROPERTY,
+        .OP_GET_INSTANCE_METHOD,
+        .OP_GET_LIST_PROPERTY,
+        .OP_GET_MAP_PROPERTY,
+        .OP_GET_FIBER_PROPERTY,
+        .OP_GET_RANGE_PROPERTY,
+        .OP_GET_STRING_PROPERTY,
+        .OP_GET_PATTERN_PROPERTY,
+        .OP_GET_OBJECT_PROPERTY,
         => byteInstruction(instruction, chunk, offset),
 
         .OP_OBJECT,
         .OP_LIST,
         .OP_MAP,
         .OP_RANGE,
-        .OP_METHOD,
-        .OP_PROPERTY,
-        .OP_GET_OBJECT_PROPERTY,
-        .OP_GET_INSTANCE_PROPERTY,
+        .OP_GET_PROTOCOL_METHOD,
         .OP_GET_FCONTAINER_INSTANCE_PROPERTY,
-        .OP_GET_LIST_PROPERTY,
-        .OP_GET_MAP_PROPERTY,
-        .OP_GET_STRING_PROPERTY,
-        .OP_GET_PATTERN_PROPERTY,
-        .OP_GET_FIBER_PROPERTY,
-        .OP_GET_RANGE_PROPERTY,
-        .OP_SET_OBJECT_PROPERTY,
-        .OP_SET_INSTANCE_PROPERTY,
         .OP_SET_FCONTAINER_INSTANCE_PROPERTY,
         .OP_CONSTANT,
         => constantInstruction(instruction, chunk, offset),
@@ -304,6 +327,8 @@ pub fn disassembleInstruction(chunk: *Chunk, offset: usize) usize {
 
         .OP_LOOP => jumpInstruction(instruction, chunk, false, offset),
 
+        .OP_CALL_INSTANCE_PROPERTY,
+        .OP_TAIL_CALL_INSTANCE_PROPERTY,
         .OP_INSTANCE_INVOKE,
         .OP_INSTANCE_TAIL_INVOKE,
         .OP_STRING_INVOKE,
@@ -314,10 +339,13 @@ pub fn disassembleInstruction(chunk: *Chunk, offset: usize) usize {
         .OP_RANGE_INVOKE,
         => invokeInstruction(instruction, chunk, offset),
 
+        .OP_PROTOCOL_INVOKE,
+        .OP_PROTOCOL_TAIL_INVOKE,
+        => namedInvokeInstruction(instruction, chunk, offset),
+
         .OP_CALL,
         .OP_TAIL_CALL,
         .OP_FIBER,
-        .OP_INVOKE_FIBER,
         => triInstruction(instruction, chunk, offset),
 
         .OP_CLOSURE => closure: {
@@ -568,7 +596,7 @@ pub const DumpState = struct {
                                 },
                             ) catch unreachable;
 
-                            if (object.fields.get(state.vm.gc.copyString(kv.key_ptr.*) catch unreachable)) |v| {
+                            if (object.defaults[field.index]) |v| {
                                 out.print(" = ", .{}) catch unreachable;
                                 state.valueDump(
                                     v,
@@ -595,6 +623,9 @@ pub const DumpState = struct {
 
                 .ObjectInstance => {
                     const object_instance = obj.ObjObjectInstance.cast(value.obj()).?;
+                    const fields = object_instance.type_def.resolved_type.?.ObjectInstance
+                        .resolved_type.?.Object
+                        .fields;
 
                     out.print(
                         "{s}{{\n",
@@ -606,16 +637,15 @@ pub const DumpState = struct {
                         },
                     ) catch unreachable;
                     state.tab += 1;
-                    var it = object_instance.fields.iterator();
-                    while (it.next()) |kv| {
+                    for (object_instance.fields, 0..) |val, idx| {
                         out.print(
                             "    {s} = ",
                             .{
-                                kv.key_ptr.*.string,
+                                fields.keys()[idx],
                             },
                         ) catch unreachable;
                         state.valueDump(
-                            kv.value_ptr.*,
+                            val,
                             out,
                             true,
                         );

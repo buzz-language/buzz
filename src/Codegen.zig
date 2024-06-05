@@ -301,7 +301,7 @@ pub fn makeConstant(self: *Self, value: Value) !u24 {
 
 pub fn identifierConstant(self: *Self, name: []const u8) !u24 {
     return try self.makeConstant(
-        Value.fromObj((try self.gc.copyString(name)).toObj()),
+        (try self.gc.copyString(name)).toValue(),
     );
 }
 
@@ -1298,78 +1298,75 @@ fn generateCall(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj
 
     // This is an async call, create a fiber
     if (components.is_async) {
-        if (!invoked) {
-            const call_arg_count: u8 = if (!invoked)
-                @as(u8, @intCast(arg_count))
-            else if (invoked_on != null and invoked_on.? != .ObjectInstance and invoked_on.? != .ProtocolInstance)
-                @as(u8, @intCast(arg_count)) + 1
-            else
-                @as(u8, @intCast(arg_count));
-
-            try self.emitCodeArgs(
-                locations[node],
-                .OP_FIBER,
-                call_arg_count,
-                if (components.catch_default != null) 1 else 0,
-            );
-
-            try self.patchOptJumps(node);
-            try self.endScope(node);
-
-            return null;
-        } else {
-            if (invoked) {
-                try self.emitCodeArg(
-                    locations[node],
-                    .OP_INVOKE_FIBER,
-                    try self.identifierConstant(
-                        lexemes[node_components[components.callee].Dot.identifier],
-                    ),
-                );
-            }
-
-            try self.emitTwo(
-                locations[node],
-                if (invoked_on != null and invoked_on.? != .ObjectInstance and invoked_on.? != .ProtocolInstance)
-                    @as(u8, @intCast(arg_count)) + 1
-                else
-                    @as(u8, @intCast(components.arguments.len)),
-                if (components.catch_default != null) 1 else 0,
-            );
-
-            try self.patchOptJumps(node);
-            try self.endScope(node);
-
-            return null;
-        }
+        // We emit OP_FIBER, the vm will then read the next instruction to get the info about the call
+        // and create the fiber
+        try self.emitOpCode(locations[node], .OP_FIBER);
     }
 
     // Normal call/invoke
     if (invoked) {
-        // TODO: can it be invoked without callee being a DotNode?
-        try self.emitCodeArg(
-            locations[node],
-            switch (type_defs[node_components[components.callee].Dot.callee].?.def_type) {
-                .ObjectInstance, .ProtocolInstance => if (components.tail_call)
+        const callee_def_type = type_defs[node_components[components.callee].Dot.callee].?.def_type;
+        const member_lexeme = lexemes[node_components[components.callee].Dot.identifier];
+
+        if (callee_def_type == .ObjectInstance) {
+            const fields = type_defs[node_components[components.callee].Dot.callee].?
+                .resolved_type.?.ObjectInstance
+                .resolved_type.?.Object.fields;
+
+            const field = fields.get(member_lexeme).?;
+
+            try self.emitCodeArg(
+                locations[node],
+                if (components.tail_call and field.method)
                     .OP_INSTANCE_TAIL_INVOKE
+                else if (field.method)
+                    .OP_INSTANCE_INVOKE
+                else if (components.tail_call)
+                    .OP_TAIL_CALL_INSTANCE_PROPERTY
                 else
-                    .OP_INSTANCE_INVOKE,
-                .String => .OP_STRING_INVOKE,
-                .Pattern => .OP_PATTERN_INVOKE,
-                .Fiber => .OP_FIBER_INVOKE,
-                .List => .OP_LIST_INVOKE,
-                .Map => .OP_MAP_INVOKE,
-                .Range => .OP_RANGE_INVOKE,
-                else => unexpected: {
-                    std.debug.assert(self.reporter.had_error);
-                    break :unexpected if (components.tail_call)
-                        .OP_INSTANCE_TAIL_INVOKE
-                    else
-                        .OP_INSTANCE_INVOKE;
+                    .OP_CALL_INSTANCE_PROPERTY,
+                @intCast(field.index),
+            );
+        } else if (callee_def_type == .ProtocolInstance) {
+            try self.emitCodeArg(
+                locations[node],
+                if (components.tail_call)
+                    .OP_PROTOCOL_TAIL_INVOKE
+                else
+                    .OP_PROTOCOL_INVOKE,
+                try self.identifierConstant(member_lexeme),
+            );
+        } else {
+            try self.emitCodeArg(
+                locations[node],
+                switch (callee_def_type) {
+                    .String => .OP_STRING_INVOKE,
+                    .Pattern => .OP_PATTERN_INVOKE,
+                    .Fiber => .OP_FIBER_INVOKE,
+                    .List => .OP_LIST_INVOKE,
+                    .Map => .OP_MAP_INVOKE,
+                    .Range => .OP_RANGE_INVOKE,
+                    else => unexpected: {
+                        std.debug.assert(self.reporter.had_error);
+                        break :unexpected .OP_INSTANCE_INVOKE;
+                    },
                 },
-            },
-            try self.identifierConstant(lexemes[node_components[components.callee].Dot.identifier]),
-        );
+                @intCast(
+                    switch (callee_def_type) {
+                        .String => obj.ObjString.members_name.get(member_lexeme).?,
+                        .Pattern => obj.ObjPattern.members_name.get(member_lexeme).?,
+                        .Fiber => obj.ObjFiber.members_name.get(member_lexeme).?,
+                        .List => obj.ObjList.members_name.get(member_lexeme).?,
+                        .Map => obj.ObjMap.members_name.get(member_lexeme).?,
+                        .Range => obj.ObjRange.members_name.get(member_lexeme).?,
+                        else => unexpected: {
+                            std.debug.assert(self.reporter.had_error);
+                            break :unexpected 0;
+                        },
+                    },
+                ),
+            );
+        }
     }
 
     if (!invoked) {
@@ -1396,6 +1393,7 @@ fn generateCall(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj
     return null;
 }
 
+// FIXME: this is become a unreadable mess
 fn generateDot(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.ObjFunction {
     const node_components = self.ast.nodes.items(.components);
     const type_defs = self.ast.nodes.items(.type_def);
@@ -1443,7 +1441,8 @@ fn generateDot(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.
 
     const get_code: ?Chunk.OpCode = switch (callee_type.def_type) {
         .Object => .OP_GET_OBJECT_PROPERTY,
-        .ObjectInstance, .ProtocolInstance => .OP_GET_INSTANCE_PROPERTY,
+        .ObjectInstance => .OP_GET_INSTANCE_PROPERTY,
+        .ProtocolInstance => .OP_GET_PROTOCOL_METHOD,
         .ForeignContainer => .OP_GET_FCONTAINER_INSTANCE_PROPERTY,
         .List => .OP_GET_LIST_PROPERTY,
         .Map => .OP_GET_MAP_PROPERTY,
@@ -1464,11 +1463,32 @@ fn generateDot(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.
                 try self.emitCodeArg(
                     locations[node],
                     get_code.?,
-                    try self.identifierConstant(identifier_lexeme),
+                    switch (callee_type.def_type) {
+                        .Fiber => @intCast(obj.ObjFiber.members_name.get(identifier_lexeme).?),
+                        .Pattern => @intCast(obj.ObjPattern.members_name.get(identifier_lexeme).?),
+                        .String => @intCast(obj.ObjString.members_name.get(identifier_lexeme).?),
+                        else => unreachable,
+                    },
                 );
             }
         },
         .ForeignContainer, .ObjectInstance, .Object => {
+            const field_name = self.ast.tokens.items(.lexeme)[components.identifier];
+            const field = switch (callee_type.def_type) {
+                .ObjectInstance => callee_type.resolved_type.?.ObjectInstance
+                    .resolved_type.?.Object.fields
+                    .get(field_name),
+                .Object => callee_type.resolved_type.?.Object.fields
+                    .get(field_name),
+                else => null,
+            };
+            const field_index = if (field) |f|
+                f.index
+            else fcontainer: {
+                std.debug.assert(callee_type.def_type == .ForeignContainer);
+                break :fcontainer callee_type.resolved_type.?.ForeignContainer.fields.getIndex(field_name).?;
+            };
+
             switch (components.member_kind) {
                 .Value => {
                     const value = components.value_or_call_or_enum.Value;
@@ -1478,7 +1498,6 @@ fn generateDot(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.
                     }
 
                     // Type check value
-                    const field_name = self.ast.tokens.items(.lexeme)[components.identifier];
                     switch (callee_type.def_type) {
                         .ForeignContainer => {
                             const field_type = callee_type.resolved_type.?.ForeignContainer.buzz_type.get(field_name).?;
@@ -1495,15 +1514,9 @@ fn generateDot(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.
                             }
                         },
                         .ObjectInstance, .Object => {
-                            const field = if (callee_type.def_type == .ObjectInstance)
-                                callee_type.resolved_type.?.ObjectInstance
-                                    .resolved_type.?.Object.fields.get(field_name).?
-                            else
-                                callee_type.resolved_type.?.Object.fields.get(field_name).?;
-
-                            if (field.method or
-                                (callee_type.def_type == .ObjectInstance and field.static) or
-                                (callee_type.def_type == .Object and !field.static))
+                            if (field.?.method or
+                                (callee_type.def_type == .ObjectInstance and field.?.static) or
+                                (callee_type.def_type == .Object and !field.?.static))
                             {
                                 self.reporter.reportErrorFmt(
                                     .assignable,
@@ -1513,7 +1526,7 @@ fn generateDot(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.
                                         field_name,
                                     },
                                 );
-                            } else if (field.constant) {
+                            } else if (field.?.constant) {
                                 self.reporter.reportErrorFmt(
                                     .constant_property,
                                     self.ast.tokens.get(locations[value]),
@@ -1524,11 +1537,11 @@ fn generateDot(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.
                                 );
                             }
 
-                            if (!field.type_def.eql(value_type_def)) {
+                            if (!field.?.type_def.eql(value_type_def)) {
                                 self.reporter.reportTypeCheck(
                                     .assignment_value_type,
-                                    field.location,
-                                    field.type_def,
+                                    field.?.location,
+                                    field.?.type_def,
                                     self.ast.tokens.get(locations[value]),
                                     value_type_def,
                                     "Bad property type",
@@ -1545,9 +1558,10 @@ fn generateDot(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.
                         switch (callee_type.def_type) {
                             .ObjectInstance => .OP_SET_INSTANCE_PROPERTY,
                             .ForeignContainer => .OP_SET_FCONTAINER_INSTANCE_PROPERTY,
-                            else => .OP_SET_OBJECT_PROPERTY,
+                            .Object => .OP_SET_OBJECT_PROPERTY,
+                            else => unreachable,
                         },
-                        try self.identifierConstant(identifier_lexeme),
+                        @intCast(field_index),
                     );
                 },
                 .Call => {
@@ -1564,7 +1578,7 @@ fn generateDot(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.
                         try self.emitCodeArg(
                             locations[node],
                             get_code.?,
-                            try self.identifierConstant(identifier_lexeme),
+                            @intCast(field.?.index),
                         );
                     }
 
@@ -1572,8 +1586,11 @@ fn generateDot(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.
                 },
                 .Ref => try self.emitCodeArg(
                     locations[node],
-                    get_code.?,
-                    try self.identifierConstant(identifier_lexeme),
+                    if (callee_type.def_type == .ObjectInstance and field.?.method)
+                        .OP_GET_INSTANCE_METHOD
+                    else
+                        get_code.?,
+                    @intCast(field_index),
                 ),
                 else => unreachable,
             }
@@ -1582,7 +1599,7 @@ fn generateDot(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.
             if (components.member_kind == .Call) {
                 _ = try self.generateNode(components.value_or_call_or_enum.Call, breaks);
             } else {
-                std.debug.assert(components.member_kind == .Value);
+                std.debug.assert(components.member_kind == .Ref);
                 try self.emitCodeArg(
                     locations[node],
                     get_code.?,
@@ -1597,27 +1614,12 @@ fn generateDot(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.
                 @intCast(components.value_or_call_or_enum.EnumCase),
             );
         },
-        .Range => {
-            if (components.member_kind == .Call) {
-                try self.emitOpCode(locations[node], .OP_COPY);
-
-                _ = try self.generateNode(components.value_or_call_or_enum.Call, breaks);
-            } else {
-                std.debug.assert(components.member_kind != .Value);
-
-                try self.emitCodeArg(
-                    locations[node],
-                    get_code.?,
-                    try self.identifierConstant(identifier_lexeme),
-                );
-            }
-        },
         .EnumInstance => {
             std.debug.assert(std.mem.eql(u8, identifier_lexeme, "value"));
 
             try self.emitOpCode(locations[node], .OP_GET_ENUM_CASE_VALUE);
         },
-        .List, .Map => {
+        .List, .Map, .Range => {
             if (components.member_kind == .Call) {
                 try self.emitOpCode(locations[node], .OP_COPY);
 
@@ -1627,10 +1629,16 @@ fn generateDot(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.
                 try self.emitCodeArg(
                     locations[node],
                     get_code.?,
-                    try self.identifierConstant(identifier_lexeme),
+                    switch (callee_type.def_type) {
+                        .List => @intCast(obj.ObjList.members_name.get(identifier_lexeme).?),
+                        .Map => @intCast(obj.ObjMap.members_name.get(identifier_lexeme).?),
+                        .Range => @intCast(obj.ObjRange.members_name.get(identifier_lexeme).?),
+                        else => unreachable,
+                    },
                 );
             }
         },
+
         else => std.debug.assert(self.reporter.had_error),
     }
 
@@ -2953,11 +2961,12 @@ fn generateObjectDeclaration(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks
 
     for (components.members) |member| {
         const member_name = lexemes[member.name];
-        const member_name_constant = try self.identifierConstant(member_name);
 
         if (member.method) {
+            // Method
             const member_field = object_def.fields.get(member_name).?;
             const member_type_def = member_field.type_def;
+            const member_idx = member_field.index;
 
             if (member_type_def.def_type == .Placeholder) {
                 self.reporter.reportPlaceholder(self.ast, member_type_def.resolved_type.?.Placeholder);
@@ -3008,13 +3017,14 @@ fn generateObjectDeclaration(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks
             _ = try self.generateNode(member.method_or_default_value.?, breaks);
             try self.emitCodeArg(
                 location,
-                if (member_field.static) .OP_PROPERTY else .OP_METHOD,
-                member_name_constant,
+                .OP_PROPERTY,
+                @intCast(member_idx),
             );
         } else {
-            // Properties
+            // Property
             const property_field = object_def.fields.get(member_name).?;
             const property_type = property_field.type_def;
+            const property_idx = property_field.index;
 
             // Create property default value
             if (member.method_or_default_value) |default| {
@@ -3040,10 +3050,18 @@ fn generateObjectDeclaration(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks
 
                 // Create property default value
                 if (property_field.static) {
-                    try self.emitCodeArg(location, .OP_SET_OBJECT_PROPERTY, member_name_constant);
+                    try self.emitCodeArg(
+                        location,
+                        .OP_SET_OBJECT_PROPERTY,
+                        @intCast(property_idx),
+                    );
                     try self.emitOpCode(location, .OP_POP);
                 } else {
-                    try self.emitCodeArg(location, .OP_PROPERTY, member_name_constant);
+                    try self.emitCodeArg(
+                        location,
+                        .OP_OBJECT_DEFAULT,
+                        @intCast(property_idx),
+                    );
                 }
             }
         }
@@ -3124,7 +3142,17 @@ fn generateObjectInit(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error
 
     for (components.properties) |property| {
         const property_name = lexemes[property.name];
-        const property_name_constant = try self.identifierConstant(property_name);
+        const property_idx = if (node_type_def.def_type == .ObjectInstance)
+            if (node_type_def.resolved_type.?.ObjectInstance
+                .resolved_type.?.Object
+                .fields.get(property_name)) |field|
+                field.index
+            else
+                null
+        else
+            node_type_def.resolved_type.?.ForeignContainer
+                .fields.getIndex(property_name);
+
         const value_type_def = type_defs[property.value].?;
 
         if (fields.get(property_name)) |prop| {
@@ -3167,7 +3195,7 @@ fn generateObjectInit(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error
                     .OP_SET_INSTANCE_PROPERTY
                 else
                     .OP_SET_FCONTAINER_INSTANCE_PROPERTY,
-                property_name_constant,
+                @intCast(property_idx.?),
             );
             try self.emitOpCode(location, .OP_POP); // Pop property value
         } else {

@@ -5,8 +5,8 @@ test "Range" {
     rg range = 0..limit;
 
     std.assert(range == 0..10, message: "Could compare ranges");
-    std.assert(range.low == 0, message: "Could get low limit of range");
-    std.assert(range.high == 10, message: "Could get high limit of range");
+    std.assert(range.low() == 0, message: "Could get low limit of range");
+    std.assert(range.high() == 10, message: "Could get high limit of range");
 
     [int] list = range.toList();
     std.assert(list.len() == 10, message: "Could create list from range");
@@ -25,8 +25,8 @@ test "Inverted range" {
     rg range = 10..limit;
 
     std.assert((0..10).invert() == range, message: "Could invert range");
-    std.assert(range.low == 10, message: "Could get low limit of range");
-    std.assert(range.high == 0, message: "Could get high limit of range");
+    std.assert(range.low() == 10, message: "Could get low limit of range");
+    std.assert(range.high() == 0, message: "Could get high limit of range");
 
     [int] list = range.toList();
     std.assert(list.len() == 10, message: "Could create list from inverted range");

@@ -149,7 +149,7 @@ pub const Obj = struct {
                     ObjMap.init(
                         vm.gc.allocator,
                         map_type,
-                    ),
+                    ) catch return error.OutOfMemory,
                 ) catch return error.OutOfMemory;
 
                 serialized_range.map.put(
@@ -187,7 +187,7 @@ pub const Obj = struct {
                     ObjList.init(
                         vm.gc.allocator,
                         list_type,
-                    ),
+                    ) catch return error.OutOfMemory,
                 ) catch return error.OutOfMemory;
 
                 for (list.items.items) |item| {
@@ -224,7 +224,7 @@ pub const Obj = struct {
                     ObjMap.init(
                         vm.gc.allocator,
                         map_type,
-                    ),
+                    ) catch return error.OutOfMemory,
                 ) catch return error.OutOfMemory;
 
                 for (map.map.keys()) |key| {
@@ -263,16 +263,20 @@ pub const Obj = struct {
                     ObjMap.init(
                         vm.gc.allocator,
                         map_type,
-                    ),
+                    ) catch return error.OutOfMemory,
                 ) catch return error.OutOfMemory;
 
-                for (object_def.fields.keys()) |property| {
-                    const property_str = (vm.gc.copyString(property) catch return error.OutOfMemory);
-                    serialized_instance.set(
-                        vm.gc,
-                        property_str.toValue(),
-                        try instance.fields.get(property_str).?.serialize(vm, seen),
-                    ) catch return error.OutOfMemory;
+                var it = object_def.fields.iterator();
+                while (it.next()) |kv| {
+                    const field = kv.value_ptr.*;
+                    if (!field.static and !field.method) {
+                        const property_str = (vm.gc.copyString(field.name) catch return error.OutOfMemory);
+                        serialized_instance.set(
+                            vm.gc,
+                            property_str.toValue(),
+                            try instance.fields[field.index].serialize(vm, seen),
+                        ) catch return error.OutOfMemory;
+                    }
                 }
 
                 return serialized_instance.toValue();
@@ -303,7 +307,7 @@ pub const Obj = struct {
                     ObjMap.init(
                         vm.gc.allocator,
                         map_type,
-                    ),
+                    ) catch return error.OutOfMemory,
                 ) catch return error.OutOfMemory;
 
                 var it = container_def.fields.iterator();
@@ -561,20 +565,23 @@ pub const Obj = struct {
                             @intFromPtr(instance),
                         },
                     );
-                    var it = instance.fields.iterator();
-                    while (it.next()) |kv| {
-                        // This line is awesome
-                        try instance
+
+                    for (0..instance.fields.len) |i| {
+                        const object_def = instance
                             .type_def
                             .resolved_type.?
                             .ObjectInstance
                             .resolved_type.?
-                            .Object
-                            .fields
-                            .get(kv.key_ptr.*.string).?
+                            .Object;
+
+                        const field_name = object_def.fields.keys()[i];
+
+                        try object_def
+                            .fields.get(field_name).?
                             .type_def
                             .toString(writer);
-                        try writer.print(" {s}, ", .{kv.key_ptr.*.string});
+
+                        try writer.print(" {s}, ", .{field_name});
                     }
                     try writer.writeAll("}");
                 }
@@ -696,55 +703,69 @@ pub const ObjFiber = struct {
         return obj.cast(Self, .Fiber);
     }
 
-    const members = std.StaticStringMap(NativeFn).initComptime(
+    pub const members = [_]NativeFn{
+        buzz_builtin.fiber.cancel,
+        buzz_builtin.fiber.isMain,
+        buzz_builtin.fiber.over,
+    };
+
+    pub const members_typedef = [_][]const u8{
+        "extern Function cancel() > void",
+        "extern Function isMain() > bool",
+        "extern Function over() > bool",
+    };
+
+    pub const members_name = std.StaticStringMap(usize).initComptime(
         .{
-            .{ "over", buzz_builtin.fiber.over },
-            .{ "cancel", buzz_builtin.fiber.cancel },
-            .{ "isMain", buzz_builtin.fiber.isMain },
+            .{ "cancel", 0 },
+            .{ "isMain", 1 },
+            .{ "over", 2 },
         },
     );
 
-    const members_typedef = std.StaticStringMap(
-        []const u8,
-    ).initComptime(.{
-        .{ "over", "extern Function over() > bool" },
-        .{ "cancel", "extern Function cancel() > void" },
-        .{ "isMain", "extern Function isMain() > bool" },
-    });
-
-    pub fn member(vm: *VM, method: *ObjString) !?*ObjNative {
-        if (vm.gc.objfiber_members.get(method)) |umethod| {
-            return umethod;
-        }
-
-        if (members.get(method.string)) |unativeFn| {
-            var native: *ObjNative = try vm.gc.allocateObject(
-                ObjNative,
-                .{
-                    // Complains about const qualifier discard otherwise
-                    .native = @as(*anyopaque, @ptrFromInt(@intFromPtr(unativeFn))),
-                },
-            );
-
-            try vm.gc.objfiber_members.put(method, native);
-
-            // We need to mark it otherwise it could be collected by a Young gc and then badly accessed by a Full gc
-            vm.gc.markObj(native.toObj()) catch @panic("Could not mark obj");
-
-            return native;
-        }
-
-        return null;
+    pub fn memberByName(vm: *VM, name: []const u8) !?Value {
+        return if (members_name.get(name)) |idx|
+            try member(vm, idx)
+        else
+            null;
     }
 
-    pub fn memberDef(parser: *Parser, method: []const u8) !?*ObjTypeDef {
-        if (parser.gc.objfiber_memberDefs.get(method)) |umethod| {
+    pub fn member(vm: *VM, method_idx: usize) !Value {
+        if (vm.gc.objfiber_members[method_idx]) |umethod| {
+            return umethod.toValue();
+        }
+
+        var native: *ObjNative = try vm.gc.allocateObject(
+            ObjNative,
+            .{
+                // Complains about const qualifier discard otherwise
+                .native = @as(*anyopaque, @ptrFromInt(@intFromPtr(members[method_idx]))),
+            },
+        );
+
+        vm.gc.objfiber_members[method_idx] = native;
+
+        // We need to mark it otherwise it could be collected by a Young gc and then badly accessed by a Full gc
+        vm.gc.markObj(native.toObj()) catch @panic("Could not mark obj");
+
+        return native.toValue();
+    }
+
+    pub fn memberDefByName(parser: *Parser, name: []const u8) !?*ObjTypeDef {
+        return if (members_name.get(name)) |idx|
+            try memberDef(parser, idx)
+        else
+            null;
+    }
+
+    pub fn memberDef(parser: *Parser, method_idx: usize) !*ObjTypeDef {
+        if (parser.gc.objfiber_memberDefs[method_idx]) |umethod| {
             return umethod;
         }
 
-        const native_type = try parser.parseTypeDefFrom(members_typedef.get(method).?);
+        const native_type = try parser.parseTypeDefFrom(members_typedef[method_idx]);
 
-        try parser.gc.objfiber_memberDefs.put(method, native_type);
+        parser.gc.objfiber_memberDefs[method_idx] = native_type;
 
         return native_type;
     }
@@ -794,71 +815,92 @@ pub const ObjPattern = struct {
         return obj.cast(Self, .Pattern);
     }
 
-    const members = std.StaticStringMap(NativeFn).initComptime(
+    pub const members = if (!is_wasm)
+        [_]NativeFn{
+            buzz_builtin.pattern.match,
+            buzz_builtin.pattern.matchAll,
+            buzz_builtin.pattern.replace,
+            buzz_builtin.pattern.replaceAll,
+        }
+    else
+        [_]NativeFn{
+            buzz_builtin.pattern.replace,
+            buzz_builtin.pattern.replaceAll,
+        };
+
+    const members_typedef = if (!is_wasm)
+        [_][]const u8{
+            "extern Function match(str subject) > [str]?",
+            "extern Function matchAll(str subject) > [[str]]?",
+            "extern Function replace(str subject, str with) > str",
+            "extern Function replaceAll(str subject, str with) > str",
+        }
+    else
+        [_][]const u8{
+            "extern Function replace(str subject, str with) > str",
+            "extern Function replaceAll(str subject, str with) > str",
+        };
+
+    pub const members_name = std.StaticStringMap(usize).initComptime(
         if (!is_wasm)
             .{
-                .{ "match", buzz_builtin.pattern.match },
-                .{ "matchAll", buzz_builtin.pattern.matchAll },
-                .{ "replace", buzz_builtin.pattern.replace },
-                .{ "replaceAll", buzz_builtin.pattern.replaceAll },
+                .{ "match", 0 },
+                .{ "matchAll", 1 },
+                .{ "replace", 2 },
+                .{ "replaceAll", 3 },
             }
         else
             .{
-                .{ "replace", buzz_builtin.pattern.replace },
-                .{ "replaceAll", buzz_builtin.pattern.replaceAll },
+                .{ "replace", 0 },
+                .{ "replaceAll", 1 },
             },
     );
 
-    const members_typedef = std.StaticStringMap([]const u8).initComptime(
-        if (!is_wasm)
+    pub fn member(vm: *VM, method_idx: usize) !Value {
+        if (vm.gc.objpattern_members[method_idx]) |umethod| {
+            return umethod.toValue();
+        }
+
+        var native: *ObjNative = try vm.gc.allocateObject(
+            ObjNative,
             .{
-                .{ "match", "extern Function match(str subject) > [str]?" },
-                .{ "matchAll", "extern Function matchAll(str subject) > [[str]]?" },
-                .{ "replace", "extern Function replace(str subject, str with) > str" },
-                .{ "replaceAll", "extern Function replaceAll(str subject, str with) > str" },
-            }
-        else
-            .{
-                .{ "replace", "extern Function replace(str subject, str with) > str" },
-                .{ "replaceAll", "extern Function replaceAll(str subject, str with) > str" },
+                // Complains about const qualifier discard otherwise
+                .native = @as(*anyopaque, @ptrFromInt(@intFromPtr(members[method_idx]))),
             },
-    );
+        );
 
-    pub fn member(vm: *VM, method: *ObjString) !?*ObjNative {
-        if (vm.gc.objpattern_members.get(method)) |umethod| {
-            return umethod;
-        }
+        vm.gc.objpattern_members[method_idx] = native;
 
-        if (members.get(method.string)) |nativeFn| {
-            var native: *ObjNative = try vm.gc.allocateObject(
-                ObjNative,
-                .{
-                    // Complains about const qualifier discard otherwise
-                    .native = @as(*anyopaque, @ptrFromInt(@intFromPtr(nativeFn))),
-                },
-            );
+        // We need to mark it otherwise it could be collected by a Young gc and then badly accessed by a Full gc
+        vm.gc.markObj(native.toObj()) catch @panic("Could not mark obj");
 
-            try vm.gc.objpattern_members.put(method, native);
-
-            // We need to mark it otherwise it could be collected by a Young gc and then badly accessed by a Full gc
-            vm.gc.markObj(native.toObj()) catch @panic("Could not mark obj");
-
-            return native;
-        }
-
-        return null;
+        return native.toValue();
     }
 
-    pub fn memberDef(parser: *Parser, method: []const u8) !?*ObjTypeDef {
-        if (parser.gc.objpattern_memberDefs.get(method)) |umethod| {
+    pub fn memberByName(vm: *VM, name: []const u8) !?Value {
+        return if (members_name.get(name)) |idx|
+            try member(vm, idx)
+        else
+            null;
+    }
+
+    pub fn memberDef(parser: *Parser, method_idx: usize) !*ObjTypeDef {
+        if (parser.gc.objpattern_memberDefs[method_idx]) |umethod| {
             return umethod;
         }
 
-        const native_type = try parser.parseTypeDefFrom(members_typedef.get(method).?);
+        const native_type = try parser.parseTypeDefFrom(members_typedef[method_idx]);
 
-        try parser.gc.objpattern_memberDefs.put(method, native_type);
+        parser.gc.objpattern_memberDefs[method_idx] = native_type;
 
         return native_type;
+    }
+
+    pub fn memberDefByName(parser: *Parser, name: []const u8) !?*ObjTypeDef {
+        return if (members_name.get(name)) |idx|
+            try memberDef(parser, idx)
+        else
+            null;
     }
 };
 
@@ -936,90 +978,117 @@ pub const ObjString = struct {
         }
     }
 
-    pub const members = std.StaticStringMap(NativeFn).initComptime(
+    pub const members = [_]NativeFn{
+        buzz_builtin.str.bin,
+        buzz_builtin.str.byte,
+        buzz_builtin.str.decodeBase64,
+        buzz_builtin.str.encodeBase64,
+        buzz_builtin.str.endsWith,
+        buzz_builtin.str.hex,
+        buzz_builtin.str.indexOf,
+        buzz_builtin.str.len,
+        buzz_builtin.str.lower,
+        buzz_builtin.str.repeat,
+        buzz_builtin.str.replace,
+        buzz_builtin.str.split,
+        buzz_builtin.str.startsWith,
+        buzz_builtin.str.sub,
+        buzz_builtin.str.trim,
+        buzz_builtin.str.upper,
+        buzz_builtin.str.utf8Codepoints,
+        buzz_builtin.str.utf8Len,
+        buzz_builtin.str.utf8Valid,
+    };
+
+    pub const members_typedef = [_][]const u8{
+        "extern Function bin() > str",
+        "extern Function byte(int at = 0) > int",
+        "extern Function decodeBase64() > str",
+        "extern Function encodeBase64() > str",
+        "extern Function endsWith(str needle) > bool",
+        "extern Function hex() > str",
+        "extern Function indexOf(str needle) > int?",
+        "extern Function len() > int",
+        "extern Function lower() > str",
+        "extern Function repeat(int n) > str",
+        "extern Function replace(str needle, str with) > str",
+        "extern Function split(str separator) > [str]",
+        "extern Function startsWith(str needle) > bool",
+        "extern Function sub(int start, int? len) > str",
+        "extern Function trim() > str",
+        "extern Function upper() > str",
+        "extern Function utf8Codepoints() > [str]",
+        "extern Function utf8Len() > int",
+        "extern Function utf8Valid() > bool",
+    };
+
+    pub const members_name = std.StaticStringMap(usize).initComptime(
         .{
-            .{ "len", buzz_builtin.str.len },
-            .{ "utf8Len", buzz_builtin.str.utf8Len },
-            .{ "utf8Valid", buzz_builtin.str.utf8Valid },
-            .{ "utf8Codepoints", buzz_builtin.str.utf8Codepoints },
-            .{ "trim", buzz_builtin.str.trim },
-            .{ "byte", buzz_builtin.str.byte },
-            .{ "indexOf", buzz_builtin.str.indexOf },
-            .{ "split", buzz_builtin.str.split },
-            .{ "sub", buzz_builtin.str.sub },
-            .{ "startsWith", buzz_builtin.str.startsWith },
-            .{ "endsWith", buzz_builtin.str.endsWith },
-            .{ "replace", buzz_builtin.str.replace },
-            .{ "repeat", buzz_builtin.str.repeat },
-            .{ "encodeBase64", buzz_builtin.str.encodeBase64 },
-            .{ "decodeBase64", buzz_builtin.str.decodeBase64 },
-            .{ "upper", buzz_builtin.str.upper },
-            .{ "lower", buzz_builtin.str.lower },
-            .{ "hex", buzz_builtin.str.hex },
-            .{ "bin", buzz_builtin.str.bin },
+            .{ "bin", 0 },
+            .{ "byte", 1 },
+            .{ "decodeBase64", 2 },
+            .{ "encodeBase64", 3 },
+            .{ "endsWith", 4 },
+            .{ "hex", 5 },
+            .{ "indexOf", 6 },
+            .{ "len", 7 },
+            .{ "lower", 8 },
+            .{ "repeat", 9 },
+            .{ "replace", 10 },
+            .{ "split", 11 },
+            .{ "startsWith", 12 },
+            .{ "sub", 13 },
+            .{ "trim", 14 },
+            .{ "upper", 15 },
+            .{ "utf8Codepoints", 16 },
+            .{ "utf8Len", 17 },
+            .{ "utf8Valid", 18 },
         },
     );
 
-    pub const members_typedef = std.StaticStringMap(
-        []const u8,
-    ).initComptime(
-        .{
-            .{ "len", "extern Function len() > int" },
-            .{ "utf8Len", "extern Function utf8Len() > int" },
-            .{ "utf8Valid", "extern Function utf8Valid() > bool" },
-            .{ "utf8Codepoints", "extern Function utf8Codepoints() > [str]" },
-            .{ "trim", "extern Function trim() > str" },
-            .{ "byte", "extern Function byte(int at = 0) > int" },
-            .{ "indexOf", "extern Function indexOf(str needle) > int?" },
-            .{ "startsWith", "extern Function startsWith(str needle) > bool" },
-            .{ "endsWith", "extern Function endsWith(str needle) > bool" },
-            .{ "replace", "extern Function replace(str needle, str with) > str" },
-            .{ "split", "extern Function split(str separator) > [str]" },
-            .{ "sub", "extern Function sub(int start, int? len) > str" },
-            .{ "repeat", "extern Function repeat(int n) > str" },
-            .{ "encodeBase64", "extern Function encodeBase64() > str" },
-            .{ "decodeBase64", "extern Function decodeBase64() > str" },
-            .{ "upper", "extern Function upper() > str" },
-            .{ "lower", "extern Function lower() > str" },
-            .{ "hex", "extern Function hex() > str" },
-            .{ "bin", "extern Function bin() > str" },
-        },
-    );
-
-    // TODO: find a way to return the same ObjNative pointer for the same type of Lists
-    pub fn member(vm: *VM, method: *ObjString) !?*ObjNative {
-        if (vm.gc.objstring_members.get(method)) |umethod| {
-            return umethod;
-        }
-
-        if (members.get(method.string)) |nativeFn| {
-            var native: *ObjNative = try vm.gc.allocateObject(
-                ObjNative,
-                .{
-                    // Complains about const qualifier discard otherwise
-                    .native = @as(*anyopaque, @ptrFromInt(@intFromPtr(nativeFn))),
-                },
-            );
-
-            try vm.gc.objstring_members.put(method, native);
-
-            // We need to mark it otherwise it could be collected by a Young gc and then badly accessed by a Full gc
-            vm.gc.markObj(native.toObj()) catch @panic("Could not mark obj");
-
-            return native;
-        }
-
-        return null;
+    pub fn memberByName(vm: *VM, name: []const u8) !?Value {
+        return if (members_name.get(name)) |idx|
+            try member(vm, idx)
+        else
+            null;
     }
 
-    pub fn memberDef(parser: *Parser, method: []const u8) !?*ObjTypeDef {
-        if (parser.gc.objstring_memberDefs.get(method)) |umethod| {
+    pub fn member(vm: *VM, method_idx: usize) !Value {
+        if (vm.gc.objstring_members[method_idx]) |umethod| {
+            return umethod.toValue();
+        }
+
+        var native: *ObjNative = try vm.gc.allocateObject(
+            ObjNative,
+            .{
+                // Complains about const qualifier discard otherwise
+                .native = @as(*anyopaque, @ptrFromInt(@intFromPtr(members[method_idx]))),
+            },
+        );
+
+        vm.gc.objstring_members[method_idx] = native;
+
+        // We need to mark it otherwise it could be collected by a Young gc and then badly accessed by a Full gc
+        vm.gc.markObj(native.toObj()) catch @panic("Could not mark obj");
+
+        return native.toValue();
+    }
+
+    pub fn memberDefByName(parser: *Parser, name: []const u8) !?*ObjTypeDef {
+        return if (members_name.get(name)) |idx|
+            try memberDef(parser, idx)
+        else
+            null;
+    }
+
+    pub fn memberDef(parser: *Parser, method_idx: usize) !*ObjTypeDef {
+        if (parser.gc.objstring_memberDefs[method_idx]) |umethod| {
             return umethod;
         }
 
-        const native_type = try parser.parseTypeDefFrom(members_typedef.get(method).?);
+        const native_type = try parser.parseTypeDefFrom(members_typedef[method_idx]);
 
-        try parser.gc.objstring_memberDefs.put(method, native_type);
+        parser.gc.objstring_memberDefs[method_idx] = native_type;
 
         return native_type;
     }
@@ -1317,21 +1386,47 @@ pub const ObjObjectInstance = struct {
     /// Populated object type
     type_def: *ObjTypeDef,
     /// Fields value
-    fields: std.AutoHashMap(*ObjString, Value),
+    fields: []Value,
     /// VM in which the instance was created, we need this so the instance destructor can be called in the appropriate vm
     vm: *VM,
 
-    pub fn setField(self: *Self, gc: *GarbageCollector, key: *ObjString, value: Value) !void {
-        try self.fields.put(key, value);
+    pub fn setField(self: *Self, gc: *GarbageCollector, key: usize, value: Value) !void {
+        self.fields[key] = value;
         try gc.markObjDirty(&self.obj);
     }
 
-    pub fn init(vm: *VM, object: ?*ObjObject, type_def: *ObjTypeDef) Self {
-        return Self{
+    /// Should not be called by runtime when possible
+    pub fn setFieldByName(self: *Self, gc: *GarbageCollector, key: *ObjString, value: Value) !void {
+        const object_def = self.type_def.resolved_type.?.ObjectInstance.resolved_type.?.Object;
+        const index = std.mem.indexOf(
+            *ObjString,
+            object_def.fields.keys(),
+            key,
+        );
+
+        self.setField(
+            gc,
+            index,
+            value,
+        );
+    }
+
+    pub fn init(
+        vm: *VM,
+        object: ?*ObjObject,
+        type_def: *ObjTypeDef,
+        gc: *GarbageCollector,
+    ) !Self {
+        return .{
             .vm = vm,
             .object = object,
             .type_def = type_def,
-            .fields = std.AutoHashMap(*ObjString, Value).init(vm.gc.allocator),
+            .fields = try gc.allocateMany(
+                Value,
+                type_def.resolved_type.?.ObjectInstance
+                    .resolved_type.?.Object
+                    .propertiesCount(),
+            ),
         };
     }
 
@@ -1340,15 +1435,13 @@ pub const ObjObjectInstance = struct {
             try gc.markObj(object.toObj());
         }
         try gc.markObj(@constCast(self.type_def.toObj()));
-        var it = self.fields.iterator();
-        while (it.next()) |kv| {
-            try gc.markObj(kv.key_ptr.*.toObj());
-            try gc.markValue(kv.value_ptr.*);
+        for (self.fields) |field| {
+            try gc.markValue(field);
         }
     }
 
-    pub fn deinit(self: *Self) void {
-        self.fields.deinit();
+    pub fn deinit(self: *Self, allocator: Allocator) void {
+        allocator.free(self.fields);
     }
 
     pub inline fn toObj(self: *Self) *Obj {
@@ -1396,8 +1489,8 @@ pub const ObjForeignContainer = struct {
         };
     }
 
-    pub fn setField(self: *Self, vm: *VM, field: []const u8, value: Value) !void {
-        self.type_def.resolved_type.?.ForeignContainer.fields.get(field).?.setter(
+    pub fn setField(self: *Self, vm: *VM, field_idx: usize, value: Value) !void {
+        self.type_def.resolved_type.?.ForeignContainer.fields.values()[field_idx].setter(
             vm,
             self.data.ptr,
             value,
@@ -1405,8 +1498,8 @@ pub const ObjForeignContainer = struct {
         try vm.gc.markObjDirty(&self.obj);
     }
 
-    pub fn getField(self: *Self, vm: *VM, field: []const u8) Value {
-        return self.type_def.resolved_type.?.ForeignContainer.fields.get(field).?.getter(
+    pub fn getField(self: *Self, vm: *VM, field_idx: usize) Value {
+        return self.type_def.resolved_type.?.ForeignContainer.fields.values()[field_idx].getter(
             vm,
             self.data.ptr,
         );
@@ -1473,62 +1566,83 @@ pub const ObjObject = struct {
 
     /// Object name
     name: *ObjString,
-    /// Object methods
-    methods: std.AutoHashMap(*ObjString, *ObjClosure),
-    /// Object fields default values
-    fields: std.AutoHashMap(*ObjString, Value),
-    /// Object static fields
-    static_fields: std.AutoHashMap(*ObjString, Value),
+    /// Static fields and methods
+    fields: []Value,
+    /// Properties default values (null if none)
+    defaults: []?Value,
 
-    pub fn init(allocator: Allocator, name: *ObjString, type_def: *ObjTypeDef) Self {
-        return Self{
+    /// To avoid counting object fields that are instance properties
+    property_count: ?usize = 0,
+
+    pub fn init(allocator: Allocator, name: *ObjString, type_def: *ObjTypeDef) !Self {
+        const self = Self{
             .name = name,
-            .methods = std.AutoHashMap(*ObjString, *ObjClosure).init(allocator),
-            .fields = std.AutoHashMap(*ObjString, Value).init(allocator),
-            .static_fields = std.AutoHashMap(*ObjString, Value).init(allocator),
+            .fields = try allocator.alloc(
+                Value,
+                type_def.resolved_type.?.Object.fields.count(),
+            ),
+            .defaults = try allocator.alloc(
+                ?Value,
+                type_def.resolved_type.?.Object.propertiesCount(),
+            ),
             .type_def = type_def,
         };
+
+        return self;
     }
 
-    pub fn setField(self: *Self, gc: *GarbageCollector, key: *ObjString, value: Value) !void {
-        try self.fields.put(key, value);
+    pub fn propertyCount(self: *Self) usize {
+        if (self.property_count) |pc| {
+            return pc;
+        }
+
+        var property_count: usize = 0;
+        var it = self.fields.iterator();
+        while (it.next()) |kv| {
+            property_count += if (!kv.value_ptr.*.static and !kv.value_ptr.*.method)
+                1
+            else
+                0;
+        }
+
+        self.property_count = property_count;
+
+        return property_count;
+    }
+
+    pub fn setField(self: *Self, gc: *GarbageCollector, key: usize, value: Value) !void {
+        self.fields[key] = value;
         try gc.markObjDirty(&self.obj);
     }
 
-    pub fn setStaticField(self: *Self, gc: *GarbageCollector, key: *ObjString, value: Value) !void {
-        try self.static_fields.put(key, value);
+    pub fn setDefault(self: *Self, gc: *GarbageCollector, key: usize, value: Value) !void {
+        self.defaults[key] = value;
         try gc.markObjDirty(&self.obj);
     }
 
-    pub fn setMethod(self: *Self, gc: *GarbageCollector, key: *ObjString, closure: *ObjClosure) !void {
-        try self.methods.put(key, closure);
+    pub fn setPropertyDefaultValue(self: *Self, gc: *GarbageCollector, key: usize, value: Value) !void {
+        self.defaults[key] = value;
         try gc.markObjDirty(&self.obj);
     }
 
     pub fn mark(self: *Self, gc: *GarbageCollector) !void {
         try gc.markObj(@constCast(self.type_def.toObj()));
         try gc.markObj(self.name.toObj());
-        var it = self.methods.iterator();
-        while (it.next()) |kv| {
-            try gc.markObj(kv.key_ptr.*.toObj());
-            try gc.markObj(kv.value_ptr.*.toObj());
+
+        for (self.fields) |field| {
+            try gc.markValue(field);
         }
-        var it2 = self.fields.iterator();
-        while (it2.next()) |kv| {
-            try gc.markObj(kv.key_ptr.*.toObj());
-            try gc.markValue(kv.value_ptr.*);
-        }
-        var it3 = self.static_fields.iterator();
-        while (it3.next()) |kv| {
-            try gc.markObj(kv.key_ptr.*.toObj());
-            try gc.markValue(kv.value_ptr.*);
+
+        for (self.defaults) |field_opt| {
+            if (field_opt) |field| {
+                try gc.markValue(field);
+            }
         }
     }
 
-    pub fn deinit(self: *Self) void {
-        self.methods.deinit();
-        self.fields.deinit();
-        self.static_fields.deinit();
+    pub fn deinit(self: *Self, allocator: Allocator) void {
+        allocator.free(self.fields);
+        allocator.free(self.defaults);
     }
 
     pub inline fn toObj(self: *Self) *Obj {
@@ -1589,6 +1703,8 @@ pub const ObjObject = struct {
             static: bool,
             location: Token,
             has_default: bool,
+            // If the field is a static property or a method or an instance property, the index is not the same
+            index: usize,
         };
 
         id: usize,
@@ -1639,6 +1755,20 @@ pub const ObjObject = struct {
             self.static_placeholders.deinit();
             self.conforms_to.deinit();
             self.generic_types.deinit();
+        }
+
+        pub fn propertiesCount(self: ObjectDef) usize {
+            var count: usize = 0;
+            var it = self.fields.iterator();
+            while (it.next()) |kv| {
+                const field = kv.value_ptr.*;
+
+                if (!field.method and !field.static) {
+                    count += 1;
+                }
+            }
+
+            return count;
         }
 
         // Do they both conform to a common protocol?
@@ -1697,14 +1827,23 @@ pub const ObjList = struct {
     /// List items
     items: std.ArrayList(Value),
 
-    methods: std.AutoHashMap(*ObjString, *ObjNative),
+    methods: []?*ObjNative,
 
-    pub fn init(allocator: Allocator, type_def: *ObjTypeDef) Self {
-        return Self{
+    pub fn init(allocator: Allocator, type_def: *ObjTypeDef) !Self {
+        const self = Self{
             .items = std.ArrayList(Value).init(allocator),
             .type_def = type_def,
-            .methods = std.AutoHashMap(*ObjString, *ObjNative).init(allocator),
+            .methods = try allocator.alloc(
+                ?*ObjNative,
+                Self.members.len,
+            ),
         };
+
+        for (0..Self.members.len) |i| {
+            self.methods[i] = null;
+        }
+
+        return self;
     }
 
     pub fn mark(self: *Self, gc: *GarbageCollector) !void {
@@ -1712,16 +1851,17 @@ pub const ObjList = struct {
             try gc.markValue(value);
         }
         try gc.markObj(@constCast(self.type_def.toObj()));
-        var it = self.methods.iterator();
-        while (it.next()) |kv| {
-            try gc.markObj(kv.key_ptr.*.toObj());
-            try gc.markObj(kv.value_ptr.*.toObj());
+
+        for (self.methods) |method_opt| {
+            if (method_opt) |method| {
+                try gc.markObj(method.toObj());
+            }
         }
     }
 
-    pub fn deinit(self: *Self) void {
+    pub fn deinit(self: *Self, allocator: Allocator) void {
         self.items.deinit();
-        self.methods.deinit();
+        allocator.free(self.methods);
     }
 
     pub inline fn toObj(self: *Self) *Obj {
@@ -1736,54 +1876,68 @@ pub const ObjList = struct {
         return obj.cast(Self, .List);
     }
 
-    const members = std.StaticStringMap(
-        NativeFn,
-    ).initComptime(
+    pub const members = [_]NativeFn{
+        buzz_builtin.list.append,
+        buzz_builtin.list.clone,
+        buzz_builtin.list.fill,
+        buzz_builtin.list.filter,
+        buzz_builtin.list.forEach,
+        buzz_builtin.list.indexOf,
+        buzz_builtin.list.insert,
+        buzz_builtin.list.join,
+        buzz_builtin.list.len,
+        buzz_builtin.list.map,
+        buzz_builtin.list.next,
+        buzz_builtin.list.pop,
+        buzz_builtin.list.reduce,
+        buzz_builtin.list.remove,
+        buzz_builtin.list.reverse,
+        buzz_builtin.list.sort,
+        buzz_builtin.list.sub,
+    };
+
+    // TODO: could probably build this in a comptime block?
+    pub const members_name = std.StaticStringMap(usize).initComptime(
         .{
-            .{ "append", buzz_builtin.list.append },
-            .{ "clone", buzz_builtin.list.clone },
-            .{ "filter", buzz_builtin.list.filter },
-            .{ "forEach", buzz_builtin.list.forEach },
-            .{ "indexOf", buzz_builtin.list.indexOf },
-            .{ "insert", buzz_builtin.list.insert },
-            .{ "join", buzz_builtin.list.join },
-            .{ "len", buzz_builtin.list.len },
-            .{ "map", buzz_builtin.list.map },
-            .{ "next", buzz_builtin.list.next },
-            .{ "pop", buzz_builtin.list.pop },
-            .{ "reduce", buzz_builtin.list.reduce },
-            .{ "remove", buzz_builtin.list.remove },
-            .{ "reverse", buzz_builtin.list.reverse },
-            .{ "sort", buzz_builtin.list.sort },
-            .{ "sub", buzz_builtin.list.sub },
-            .{ "fill", buzz_builtin.list.fill },
+            .{ "append", 0 },
+            .{ "clone", 1 },
+            .{ "fill", 2 },
+            .{ "filter", 3 },
+            .{ "forEach", 4 },
+            .{ "indexOf", 5 },
+            .{ "insert", 6 },
+            .{ "join", 7 },
+            .{ "len", 8 },
+            .{ "map", 9 },
+            .{ "next", 10 },
+            .{ "pop", 11 },
+            .{ "reduce", 12 },
+            .{ "remove", 13 },
+            .{ "reverse", 14 },
+            .{ "sort", 15 },
+            .{ "sub", 16 },
         },
     );
 
-    // TODO: find a way to return the same ObjNative pointer for the same type of Lists
-    pub fn member(self: *Self, vm: *VM, method: *ObjString) !?*ObjNative {
-        if (self.methods.get(method)) |native| {
-            return native;
+    pub fn member(self: *Self, vm: *VM, method_idx: usize) !Value {
+        if (self.methods[method_idx]) |native| {
+            return native.toValue();
         }
 
-        if (members.get(method.string)) |nativeFn| {
-            var native: *ObjNative = try vm.gc.allocateObject(
-                ObjNative,
-                .{
-                    // Complains about const qualifier discard otherwise
-                    .native = @as(*anyopaque, @ptrFromInt(@intFromPtr(nativeFn))),
-                },
-            );
+        var native: *ObjNative = try vm.gc.allocateObject(
+            ObjNative,
+            .{
+                // Complains about const qualifier discard otherwise
+                .native = @as(*anyopaque, @ptrFromInt(@intFromPtr(members[method_idx]))),
+            },
+        );
 
-            try self.methods.put(method, native);
+        self.methods[method_idx] = native;
 
-            // We need to mark it otherwise it could be collected by a Young gc and then badly accessed by a Full gc
-            vm.gc.markObj(native.toObj()) catch @panic("Could not mark obj");
+        // We need to mark it otherwise it could be collected by a Young gc and then badly accessed by a Full gc
+        vm.gc.markObj(native.toObj()) catch @panic("Could not mark obj");
 
-            return native;
-        }
-
-        return null;
+        return native.toValue();
     }
 
     pub fn rawAppend(self: *Self, gc: *GarbageCollector, value: Value) !void {
@@ -2664,66 +2818,86 @@ pub const ObjRange = struct {
         return obj.cast(Self, .Range);
     }
 
-    const members = std.StaticStringMap(NativeFn).initComptime(
+    pub const members = [_]NativeFn{
+        buzz_builtin.range.high,
+        buzz_builtin.range.intersect,
+        buzz_builtin.range.invert,
+        buzz_builtin.range.len,
+        buzz_builtin.range.low,
+        buzz_builtin.range.subsetOf,
+        buzz_builtin.range.toList,
+        buzz_builtin.range.@"union",
+    };
+
+    const members_typedef = [_][]const u8{
+        "extern Function high() > int",
+        "extern Function intersect(rg other) > rg",
+        "extern Function invert() > rg",
+        "extern Function len() > int",
+        "extern Function low() > int",
+        "extern Function subsetOf(rg other) > bool",
+        "extern Function toList() > [int]",
+        "extern Function union(rg other) > rg",
+    };
+
+    pub const members_name = std.StaticStringMap(usize).initComptime(
         .{
-            .{ "toList", buzz_builtin.range.toList },
-            .{ "len", buzz_builtin.range.len },
-            .{ "invert", buzz_builtin.range.invert },
-            .{ "subsetOf", buzz_builtin.range.subsetOf },
-            .{ "intersect", buzz_builtin.range.intersect },
-            .{ "union", buzz_builtin.range.@"union" },
+            .{ "high", 0 },
+            .{ "intersect", 1 },
+            .{ "invert", 2 },
+            .{ "len", 3 },
+            .{ "low", 4 },
+            .{ "subsetOf", 5 },
+            .{ "toList", 6 },
+            .{ "union", 7 },
         },
     );
 
-    const members_typedef = std.StaticStringMap([]const u8).initComptime(
-        .{
-            .{ "toList", "extern Function toList() > [int]" },
-            .{ "len", "extern Function len() > int" },
-            .{ "invert", "extern Function invert() > rg" },
-            .{ "subsetOf", "extern Function subsetOf(rg other) > bool" },
-            .{ "intersect", "extern Function intersect(rg other) > rg" },
-            .{ "union", "extern Function union(rg other) > rg" },
-        },
-    );
-
-    pub fn member(vm: *VM, method: *ObjString) !?*ObjNative {
-        if (vm.gc.objrange_members.get(method)) |native| {
-            return native;
-        }
-
-        if (members.get(method.string)) |nativeFn| {
-            var native: *ObjNative = try vm.gc.allocateObject(
-                ObjNative,
-                .{
-                    // Complains about const qualifier discard otherwise
-                    .native = @as(*anyopaque, @ptrFromInt(@intFromPtr(nativeFn))),
-                },
-            );
-
-            try vm.gc.objrange_members.put(method, native);
-
-            // We need to mark it otherwise it could be collected by a Young gc and then badly accessed by a Full gc
-            vm.gc.markObj(native.toObj()) catch @panic("Could not mark obj");
-
-            return native;
-        }
-
-        return null;
+    pub fn memberByName(vm: *VM, name: []const u8) !?Value {
+        return if (members_name.get(name)) |idx|
+            try member(vm, idx)
+        else
+            null;
     }
-    pub fn memberDef(parser: *Parser, method: []const u8) !?*ObjTypeDef {
-        if (parser.gc.objrange_memberDefs.get(method)) |umethod| {
+
+    pub fn member(vm: *VM, method_idx: usize) !Value {
+        if (vm.gc.objrange_members[method_idx]) |native| {
+            return native.toValue();
+        }
+
+        var native: *ObjNative = try vm.gc.allocateObject(
+            ObjNative,
+            .{
+                // Complains about const qualifier discard otherwise
+                .native = @as(*anyopaque, @ptrFromInt(@intFromPtr(members[method_idx]))),
+            },
+        );
+
+        vm.gc.objrange_members[method_idx] = native;
+
+        // We need to mark it otherwise it could be collected by a Young gc and then badly accessed by a Full gc
+        vm.gc.markObj(native.toObj()) catch @panic("Could not mark obj");
+
+        return native.toValue();
+    }
+
+    pub fn memberDefByName(parser: *Parser, name: []const u8) !?*ObjTypeDef {
+        return if (members_name.get(name)) |idx|
+            try memberDef(parser, idx)
+        else
+            null;
+    }
+
+    pub fn memberDef(parser: *Parser, method_idx: usize) !*ObjTypeDef {
+        if (parser.gc.objrange_memberDefs[method_idx]) |umethod| {
             return umethod;
         }
 
-        if (members_typedef.get(method)) |member_typedef| {
-            const native_type = try parser.parseTypeDefFrom(member_typedef);
+        const native_type = try parser.parseTypeDefFrom(members_typedef[method_idx]);
 
-            try parser.gc.objrange_memberDefs.put(method, native_type);
+        parser.gc.objrange_memberDefs[method_idx] = native_type;
 
-            return native_type;
-        }
-
-        return null;
+        return native_type;
     }
 };
 
@@ -2738,14 +2912,23 @@ pub const ObjMap = struct {
     // We need an ArrayHashMap for `next`
     map: std.AutoArrayHashMap(Value, Value),
 
-    methods: std.AutoHashMap(*ObjString, *ObjNative),
+    methods: []?*ObjNative,
 
-    pub fn init(allocator: Allocator, type_def: *ObjTypeDef) Self {
-        return .{
+    pub fn init(allocator: Allocator, type_def: *ObjTypeDef) !Self {
+        const self = Self{
             .type_def = type_def,
             .map = std.AutoArrayHashMap(Value, Value).init(allocator),
-            .methods = std.AutoHashMap(*ObjString, *ObjNative).init(allocator),
+            .methods = try allocator.alloc(
+                ?*ObjNative,
+                Self.members.len,
+            ),
         };
+
+        for (0..Self.members.len) |i| {
+            self.methods[i] = null;
+        }
+
+        return self;
     }
 
     pub fn set(self: *Self, gc: *GarbageCollector, key: Value, value: Value) !void {
@@ -2753,46 +2936,57 @@ pub const ObjMap = struct {
         try gc.markObjDirty(&self.obj);
     }
 
-    const members = std.StaticStringMap(NativeFn).initComptime(
+    pub const members = [_]NativeFn{
+        buzz_builtin.map.clone,
+        buzz_builtin.map.diff,
+        buzz_builtin.map.filter,
+        buzz_builtin.map.forEach,
+        buzz_builtin.map.intersect,
+        buzz_builtin.map.keys,
+        buzz_builtin.map.map,
+        buzz_builtin.map.reduce,
+        buzz_builtin.map.remove,
+        buzz_builtin.map.size,
+        buzz_builtin.map.sort,
+        buzz_builtin.map.values,
+    };
+
+    pub const members_name = std.StaticStringMap(usize).initComptime(
         .{
-            .{ "clone", buzz_builtin.map.clone },
-            .{ "diff", buzz_builtin.map.diff },
-            .{ "filter", buzz_builtin.map.filter },
-            .{ "forEach", buzz_builtin.map.forEach },
-            .{ "intersect", buzz_builtin.map.intersect },
-            .{ "keys", buzz_builtin.map.keys },
-            .{ "map", buzz_builtin.map.map },
-            .{ "reduce", buzz_builtin.map.reduce },
-            .{ "remove", buzz_builtin.map.remove },
-            .{ "size", buzz_builtin.map.size },
-            .{ "sort", buzz_builtin.map.sort },
-            .{ "values", buzz_builtin.map.values },
+            .{ "clone", 0 },
+            .{ "diff", 1 },
+            .{ "filter", 2 },
+            .{ "forEach", 3 },
+            .{ "intersect", 4 },
+            .{ "keys", 5 },
+            .{ "map", 6 },
+            .{ "reduce", 7 },
+            .{ "remove", 8 },
+            .{ "size", 9 },
+            .{ "sort", 10 },
+            .{ "values", 11 },
         },
     );
 
-    pub fn member(self: *Self, vm: *VM, method: *ObjString) !?*ObjNative {
-        if (self.methods.get(method)) |native| {
-            return native;
+    pub fn member(self: *Self, vm: *VM, method_idx: usize) !Value {
+        if (self.methods[method_idx]) |native| {
+            return native.toValue();
         }
 
-        if (members.get(method.string)) |nativeFn| {
-            const native: *ObjNative = try vm.gc.allocateObject(
-                ObjNative,
-                .{
-                    // Complains about const qualifier discard otherwise
-                    .native = @constCast(nativeFn),
-                },
-            );
+        const native: *ObjNative = try vm.gc.allocateObject(
+            ObjNative,
+            .{
+                // Complains about const qualifier discard otherwise
+                .native = @constCast(members[method_idx]),
+            },
+        );
 
-            try self.methods.put(method, native);
+        self.methods[method_idx] = native;
 
-            // We need to mark it otherwise it could be collected by a Young gc and then badly accessed by a Full gc
-            vm.gc.markObj(native.toObj()) catch @panic("Could not mark obj");
+        // We need to mark it otherwise it could be collected by a Young gc and then badly accessed by a Full gc
+        vm.gc.markObj(native.toObj()) catch @panic("Could not mark obj");
 
-            return native;
-        }
-
-        return null;
+        return native.toValue();
     }
 
     pub fn mark(self: *Self, gc: *GarbageCollector) !void {
@@ -2802,10 +2996,10 @@ pub const ObjMap = struct {
             try gc.markValue(kv.value_ptr.*);
         }
 
-        var it2 = self.methods.iterator();
-        while (it2.next()) |kv| {
-            try gc.markObj(kv.key_ptr.*.toObj());
-            try gc.markObj(kv.value_ptr.*.toObj());
+        for (self.methods) |method_opt| {
+            if (method_opt) |method| {
+                try gc.markObj(method.toObj());
+            }
         }
 
         try gc.markObj(@constCast(self.type_def.toObj()));
@@ -2827,9 +3021,9 @@ pub const ObjMap = struct {
         }
     }
 
-    pub fn deinit(self: *Self) void {
+    pub fn deinit(self: *Self, allocator: Allocator) void {
         self.map.deinit();
-        self.methods.deinit();
+        allocator.free(self.methods);
     }
 
     pub inline fn toObj(self: *Self) *Obj {
@@ -3262,6 +3456,7 @@ pub const ObjMap = struct {
                         .static = false,
                         .has_default = false,
                         .location = Token.identifier("key"),
+                        .index = 0,
                     },
                 );
                 try entry_def.fields.put(
@@ -3274,6 +3469,7 @@ pub const ObjMap = struct {
                         .static = false,
                         .has_default = false,
                         .location = Token.identifier("value"),
+                        .index = 1,
                     },
                 );
 
@@ -3938,6 +4134,7 @@ pub const ObjTypeDef = struct {
                                     visited_ptr,
                                 ),
                                 .has_default = kv.value_ptr.*.has_default,
+                                .index = kv.value_ptr.*.index,
                             },
                         );
                     }

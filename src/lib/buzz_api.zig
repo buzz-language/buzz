@@ -326,14 +326,14 @@ pub const ObjString = opaque {
     pub extern fn bz_objStringConcat(vm: *VM, obj_string: Value, other: Value) Value;
     pub extern fn bz_objStringSubscript(vm: *VM, obj_string: Value, index_value: Value) Value;
     pub extern fn bz_toString(vm: *VM, value: Value) Value;
-    pub extern fn bz_getStringField(vm: *VM, field_name_value: Value) Value;
+    pub extern fn bz_getStringProperty(vm: *VM, method_idx: usize) Value;
     pub extern fn bz_stringNext(vm: *VM, string_value: Value, index: *Value) Value;
 };
 
 pub const ObjRange = opaque {
     pub extern fn bz_newRange(vm: *VM, low: i32, high: i32) Value;
     pub extern fn bz_rangeNext(range_value: Value, index_slot: Value) Value;
-    pub extern fn bz_getRangeField(vm: *VM, range_value: Value, field_name_value: Value, bind: bool) Value;
+    pub extern fn bz_getRangeProperty(vm: *VM, range_value: Value, property_idx: usize, bind: bool) Value;
 };
 
 pub const ObjList = opaque {
@@ -344,7 +344,7 @@ pub const ObjList = opaque {
     pub extern fn bz_listSet(vm: *VM, self: Value, index: usize, value: Value) void;
     pub extern fn bz_listLen(self: *ObjList) usize;
     pub extern fn bz_listConcat(vm: *VM, list: Value, other_list: Value) Value;
-    pub extern fn bz_getListField(vm: *VM, list_value: Value, field_name_value: Value, bind: bool) Value;
+    pub extern fn bz_getListProperty(vm: *VM, list_value: Value, property_idx: usize, bind: bool) Value;
     pub extern fn bz_listNext(vm: *VM, list_value: Value, index: *Value) Value;
 };
 
@@ -353,7 +353,7 @@ pub const ObjMap = opaque {
     pub extern fn bz_mapSet(vm: *VM, map: Value, key: Value, value: Value) void;
     pub extern fn bz_mapGet(map: Value, key: Value) Value;
     pub extern fn bz_mapConcat(vm: *VM, map: Value, other_map: Value) Value;
-    pub extern fn bz_getMapField(vm: *VM, map_value: Value, field_name_value: Value, bind: bool) Value;
+    pub extern fn bz_getMapProperty(vm: *VM, map_value: Value, property_idx: usize, bind: bool) Value;
     pub extern fn bz_mapNext(vm: *VM, map_value: Value, index: *Value) Value;
 };
 
@@ -368,10 +368,12 @@ pub const ObjObjectInstance = opaque {};
 pub const ObjObject = opaque {
     pub extern fn bz_instanceQualified(self: *VM, qualified_name: [*]const u8, len: usize) Value;
     pub extern fn bz_instance(vm: *VM, object_value: Value, typedef_value: Value) Value;
-    pub extern fn bz_setInstanceField(vm: *VM, instance_value: Value, field_name_value: Value, value: Value) void;
-    pub extern fn bz_getInstanceField(vm: *VM, instance_value: Value, field_name_value: Value) Value;
-    pub extern fn bz_getObjectField(object_value: Value, field_name_value: Value) Value;
-    pub extern fn bz_setObjectField(vm: *VM, object_value: Value, field_name_value: Value, value: Value) void;
+    pub extern fn bz_setInstanceProperty(vm: *VM, instance_value: Value, property_idx: usize, value: Value) void;
+    pub extern fn bz_getInstanceProperty(vm: *VM, instance_value: Value, property_idx: usize) Value;
+    pub extern fn bz_getInstanceMethod(vm: *VM, instance_value: Value, method_idx: usize, bind: bool) Value;
+    pub extern fn bz_getProtocolMethod(vm: *VM, instance_value: Value, method_name: Value) Value;
+    pub extern fn bz_getObjectField(object_value: Value, field_idx: usize) Value;
+    pub extern fn bz_setObjectField(vm: *VM, object_value: Value, field_idx: usize, value: Value) void;
 };
 
 pub const ObjEnumInstance = opaque {
@@ -385,17 +387,17 @@ pub const ObjEnum = opaque {
 };
 
 pub const ObjPattern = opaque {
-    pub extern fn bz_getPatternField(vm: *VM, field_name_value: Value) Value;
+    pub extern fn bz_getPatternProperty(vm: *VM, property_idx: usize) Value;
 };
 
 pub const ObjFiber = opaque {
-    pub extern fn bz_getFiberField(vm: *VM, field_name_value: Value) Value;
+    pub extern fn bz_getFiberProperty(vm: *VM, property_idx: usize) Value;
     pub extern fn bz_isMainFiber(self: *ObjFiber, vm: *VM) Value;
 };
 
 pub const ObjForeignContainer = opaque {
-    pub extern fn bz_containerGet(vm: *VM, value: Value, field: [*]const u8, len: usize) Value;
-    pub extern fn bz_containerSet(vm: *VM, value: Value, field: [*]const u8, len: usize, new_value: Value) void;
+    pub extern fn bz_containerGet(vm: *VM, value: Value, field_idx: usize) Value;
+    pub extern fn bz_containerSet(vm: *VM, value: Value, field_idx: usize, new_value: Value) void;
     pub extern fn bz_containerInstance(vm: *VM, typedef_value: Value) Value;
     pub extern fn bz_containerSlice(container_value: Value, len: *usize) [*]u8;
     pub extern fn bz_containerFromSlice(vm: *VM, type_def: *ObjTypeDef, ptr: [*]u8, len: usize) Value;

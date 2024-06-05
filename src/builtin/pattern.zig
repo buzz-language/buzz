@@ -89,7 +89,7 @@ fn rawMatch(self: *ObjPattern, vm: *VM, subject: *ObjString, offset: *usize) !?*
 
             results = try vm.gc.allocateObject(
                 ObjList,
-                ObjList.init(
+                try ObjList.init(
                     vm.gc.allocator,
                     vm.gc.type_registry.str_type,
                 ),
@@ -126,7 +126,7 @@ fn rawMatchAll(self: *ObjPattern, vm: *VM, subject: *ObjString) !?*ObjList {
             const was_null = results == null;
             results = results orelse try vm.gc.allocateObject(
                 ObjList,
-                ObjList.init(vm.gc.allocator, matches.type_def),
+                try ObjList.init(vm.gc.allocator, matches.type_def),
             );
 
             if (was_null) {

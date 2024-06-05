@@ -9,7 +9,10 @@ pub fn toList(ctx: *obj.NativeCtx) c_int {
         obj.ObjList.init(
             ctx.vm.gc.allocator,
             ctx.vm.gc.type_registry.int_type,
-        ),
+        ) catch {
+            ctx.vm.panic("Out of memory");
+            unreachable;
+        },
     ) catch {
         ctx.vm.panic("Out of memory");
         unreachable;
@@ -133,6 +136,26 @@ pub fn @"union"(ctx: *obj.NativeCtx) c_int {
             ctx.vm.panic("Out of memory");
             unreachable;
         }).toObj()),
+    );
+
+    return 1;
+}
+
+pub fn high(ctx: *obj.NativeCtx) c_int {
+    ctx.vm.push(
+        Value.fromInteger(
+            ctx.vm.peek(0).obj().access(obj.ObjRange, .Range, ctx.vm.gc).?.high,
+        ),
+    );
+
+    return 1;
+}
+
+pub fn low(ctx: *obj.NativeCtx) c_int {
+    ctx.vm.push(
+        Value.fromInteger(
+            ctx.vm.peek(0).obj().access(obj.ObjRange, .Range, ctx.vm.gc).?.low,
+        ),
     );
 
     return 1;
