@@ -66,7 +66,10 @@ pub fn reverse(ctx: *NativeCtx) c_int {
 
     var new_list = ctx.vm.gc.allocateObject(
         ObjList,
-        ObjList.init(ctx.vm.gc.allocator, list.type_def),
+        ObjList.init(ctx.vm.gc.allocator, list.type_def) catch {
+            ctx.vm.panic("Out of memory");
+            unreachable;
+        },
     ) catch {
         ctx.vm.panic("Out of memory");
         unreachable;
@@ -181,7 +184,10 @@ pub fn clone(ctx: *NativeCtx) c_int {
 
     var new_list = ctx.vm.gc.allocateObject(
         ObjList,
-        ObjList.init(ctx.vm.gc.allocator, self.type_def),
+        ObjList.init(ctx.vm.gc.allocator, self.type_def) catch {
+            ctx.vm.panic("Out of memory");
+            unreachable;
+        },
     ) catch {
         ctx.vm.panic("Out of memory");
         unreachable;
@@ -247,11 +253,18 @@ pub fn sub(ctx: *NativeCtx) c_int {
         self.items.items.len;
     const substr = self.items.items[@intCast(start)..limit];
 
+    var methods = std.ArrayList(?*_obj.ObjNative)
+        .fromOwnedSlice(ctx.vm.gc.allocator, self.methods)
+        .clone() catch {
+        ctx.vm.panic("Out of memory");
+        unreachable;
+    };
+
     var list = ctx.vm.gc.allocateObject(
         ObjList,
         .{
             .type_def = self.type_def,
-            .methods = self.methods.clone() catch {
+            .methods = methods.toOwnedSlice() catch {
                 ctx.vm.panic("Out of memory");
                 unreachable;
             },
@@ -355,7 +368,10 @@ pub fn filter(ctx: *NativeCtx) c_int {
         ObjList.init(
             ctx.vm.gc.allocator,
             list.type_def,
-        ),
+        ) catch {
+            ctx.vm.panic("Out of memory");
+            unreachable;
+        },
     ) catch {
         ctx.vm.panic("Out of memory");
         unreachable;
@@ -396,7 +412,10 @@ pub fn map(ctx: *NativeCtx) c_int {
         ObjList.init(
             ctx.vm.gc.allocator,
             mapped_type,
-        ),
+        ) catch {
+            ctx.vm.panic("Out of memory");
+            unreachable;
+        },
     ) catch {
         ctx.vm.panic("Out of memory");
         unreachable;

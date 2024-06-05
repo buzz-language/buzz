@@ -78,7 +78,10 @@ pub fn utf8Codepoints(ctx: *NativeCtx) c_int {
 
     var list = (ctx.vm.gc.allocateObject(
         ObjList,
-        ObjList.init(ctx.vm.gc.allocator, list_def_type),
+        ObjList.init(ctx.vm.gc.allocator, list_def_type) catch {
+            ctx.vm.panic("Out of memory");
+            unreachable;
+        },
     ) catch {
         ctx.vm.panic("Out of memory");
         unreachable;
@@ -267,7 +270,10 @@ pub fn split(ctx: *NativeCtx) c_int {
 
     var list = ctx.vm.gc.allocateObject(
         ObjList,
-        ObjList.init(ctx.vm.gc.allocator, list_def_type),
+        ObjList.init(ctx.vm.gc.allocator, list_def_type) catch {
+            ctx.vm.panic("Out of memory");
+            unreachable;
+        },
     ) catch {
         ctx.vm.panic("Out of memory");
         unreachable;

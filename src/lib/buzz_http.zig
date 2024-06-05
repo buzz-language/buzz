@@ -198,19 +198,10 @@ pub export fn HttpRequestRead(ctx: *api.NativeCtx) c_int {
     );
 
     // Set body
-    api.ObjObject.bz_setInstanceField(
+    api.ObjObject.bz_setInstanceProperty(
         ctx.vm,
         response,
-        api.ObjString.bz_objStringToValue(
-            api.ObjString.bz_string(
-                ctx.vm,
-                "body".ptr,
-                "body".len,
-            ) orelse {
-                ctx.vm.bz_panic("Out of memory", "Out of memory".len);
-                unreachable;
-            },
-        ),
+        2,
         if (body_raw.items.len == 0)
             api.Value.Null
         else
@@ -227,19 +218,10 @@ pub export fn HttpRequestRead(ctx: *api.NativeCtx) c_int {
     );
 
     // Set status
-    api.ObjObject.bz_setInstanceField(
+    api.ObjObject.bz_setInstanceProperty(
         ctx.vm,
         response,
-        api.ObjString.bz_objStringToValue(
-            api.ObjString.bz_string(
-                ctx.vm,
-                "status".ptr,
-                "status".len,
-            ) orelse {
-                ctx.vm.bz_panic("Out of memory", "Out of memory".len);
-                unreachable;
-            },
-        ),
+        0,
         api.Value.fromInteger(@intFromEnum(request.response.status)),
     );
 
@@ -254,19 +236,10 @@ pub export fn HttpRequestRead(ctx: *api.NativeCtx) c_int {
         ),
     );
 
-    api.ObjObject.bz_setInstanceField(
+    api.ObjObject.bz_setInstanceProperty(
         ctx.vm,
         response,
-        api.ObjString.bz_objStringToValue(
-            api.ObjString.bz_string(
-                ctx.vm,
-                "headers".ptr,
-                "headers".len,
-            ) orelse {
-                ctx.vm.bz_panic("Out of memory", "Out of memory".len);
-                unreachable;
-            },
-        ),
+        1,
         headers,
     );
 

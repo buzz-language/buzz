@@ -93,7 +93,7 @@ pub fn repl(allocator: std.mem.Allocator) !void {
         false;
 
     var import_registry = ImportRegistry.init(allocator);
-    var gc = GarbageCollector.init(allocator);
+    var gc = try GarbageCollector.init(allocator);
     gc.type_registry = try TypeRegistry.init(&gc);
     var imports = std.StringHashMap(Parser.ScriptImport).init(allocator);
     var vm = try VM.init(&gc, &import_registry, .Repl);

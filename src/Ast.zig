@@ -1139,7 +1139,7 @@ pub fn toValue(self: Self, node: Node.Index, gc: *GarbageCollector) Error!Value 
 
                 var list = try gc.allocateObject(
                     obj.ObjList,
-                    obj.ObjList.init(gc.allocator, type_def.?),
+                    try obj.ObjList.init(gc.allocator, type_def.?),
                 );
 
                 for (components.items) |item| {
@@ -1156,7 +1156,7 @@ pub fn toValue(self: Self, node: Node.Index, gc: *GarbageCollector) Error!Value 
 
                 var map = try gc.allocateObject(
                     obj.ObjMap,
-                    obj.ObjMap.init(gc.allocator, type_def.?),
+                    try obj.ObjMap.init(gc.allocator, type_def.?),
                 );
 
                 for (components.entries) |entry| {

@@ -196,14 +196,14 @@ pub const GarbageCollector = struct {
     where: ?Token = null,
 
     // Types we generaly don't wan't to ever be collected
-    objfiber_members: std.AutoHashMap(*ObjString, *ObjNative),
-    objfiber_memberDefs: std.StringHashMap(*ObjTypeDef),
-    objpattern_members: std.AutoHashMap(*ObjString, *ObjNative),
-    objpattern_memberDefs: std.StringHashMap(*ObjTypeDef),
-    objstring_members: std.AutoHashMap(*ObjString, *ObjNative),
-    objstring_memberDefs: std.StringHashMap(*ObjTypeDef),
-    objrange_memberDefs: std.StringHashMap(*ObjTypeDef),
-    objrange_members: std.AutoHashMap(*ObjString, *ObjNative),
+    objfiber_members: []?*ObjNative,
+    objfiber_memberDefs: []?*ObjTypeDef,
+    objpattern_members: []?*ObjNative,
+    objpattern_memberDefs: []?*ObjTypeDef,
+    objstring_members: []?*ObjNative,
+    objstring_memberDefs: []?*ObjTypeDef,
+    objrange_memberDefs: []?*ObjTypeDef,
+    objrange_members: []?*ObjNative,
 
     full_collection_count: usize = 0,
     light_collection_count: usize = 0,
@@ -211,8 +211,8 @@ pub const GarbageCollector = struct {
 
     gc_time: usize = 0,
 
-    pub fn init(allocator: std.mem.Allocator) Self {
-        return Self{
+    pub fn init(allocator: std.mem.Allocator) !Self {
+        const self = Self{
             .allocator = allocator,
             .strings = std.StringHashMap(*ObjString).init(allocator),
             .type_registry = undefined,
@@ -220,15 +220,37 @@ pub const GarbageCollector = struct {
             .active_vms = std.AutoHashMap(*VM, void).init(allocator),
             .debugger = if (BuildOptions.gc_debug_access) GarbageCollectorDebugger.init(allocator) else null,
 
-            .objfiber_members = std.AutoHashMap(*ObjString, *ObjNative).init(allocator),
-            .objfiber_memberDefs = std.StringHashMap(*ObjTypeDef).init(allocator),
-            .objpattern_members = std.AutoHashMap(*ObjString, *ObjNative).init(allocator),
-            .objpattern_memberDefs = std.StringHashMap(*ObjTypeDef).init(allocator),
-            .objstring_members = std.AutoHashMap(*ObjString, *ObjNative).init(allocator),
-            .objstring_memberDefs = std.StringHashMap(*ObjTypeDef).init(allocator),
-            .objrange_members = std.AutoHashMap(*ObjString, *ObjNative).init(allocator),
-            .objrange_memberDefs = std.StringHashMap(*ObjTypeDef).init(allocator),
+            .objfiber_members = try allocator.alloc(?*ObjNative, ObjFiber.members.len),
+            .objfiber_memberDefs = try allocator.alloc(?*ObjTypeDef, ObjFiber.members.len),
+            .objpattern_members = try allocator.alloc(?*ObjNative, ObjPattern.members.len),
+            .objpattern_memberDefs = try allocator.alloc(?*ObjTypeDef, ObjPattern.members.len),
+            .objstring_members = try allocator.alloc(?*ObjNative, ObjString.members.len),
+            .objstring_memberDefs = try allocator.alloc(?*ObjTypeDef, ObjString.members.len),
+            .objrange_members = try allocator.alloc(?*ObjNative, ObjRange.members.len),
+            .objrange_memberDefs = try allocator.alloc(?*ObjTypeDef, ObjRange.members.len),
         };
+
+        for (0..ObjFiber.members.len) |i| {
+            self.objfiber_members[i] = null;
+            self.objfiber_memberDefs[i] = null;
+        }
+
+        for (0..ObjPattern.members.len) |i| {
+            self.objpattern_members[i] = null;
+            self.objpattern_memberDefs[i] = null;
+        }
+
+        for (0..ObjString.members.len) |i| {
+            self.objstring_members[i] = null;
+            self.objstring_memberDefs[i] = null;
+        }
+
+        for (0..ObjRange.members.len) |i| {
+            self.objrange_members[i] = null;
+            self.objrange_memberDefs[i] = null;
+        }
+
+        return self;
     }
 
     pub fn registerVM(self: *Self, vm: *VM) !void {
@@ -247,14 +269,14 @@ pub const GarbageCollector = struct {
             debugger.deinit();
         }
 
-        self.objfiber_members.deinit();
-        self.objfiber_memberDefs.deinit();
-        self.objpattern_members.deinit();
-        self.objpattern_memberDefs.deinit();
-        self.objstring_members.deinit();
-        self.objstring_memberDefs.deinit();
-        self.objrange_members.deinit();
-        self.objrange_memberDefs.deinit();
+        self.allocator.free(self.objfiber_members);
+        self.allocator.free(self.objfiber_memberDefs);
+        self.allocator.free(self.objpattern_members);
+        self.allocator.free(self.objpattern_memberDefs);
+        self.allocator.free(self.objstring_members);
+        self.allocator.free(self.objstring_memberDefs);
+        self.allocator.free(self.objrange_members);
+        self.allocator.free(self.objrange_memberDefs);
     }
 
     pub fn allocate(self: *Self, comptime T: type) !*T {
@@ -663,47 +685,48 @@ pub const GarbageCollector = struct {
 
                 // Calling eventual destructor method
                 if (obj_objectinstance.object) |object| {
-                    const collect_key = self.strings.get("collect");
-                    if (collect_key != null and object.methods.get(collect_key.?) != null) {
-                        if (self.debugger != null) {
-                            self.debugger.?.invoking_collector = true;
-                        }
-                        buzz_api.bz_invoke(
-                            obj_objectinstance.vm,
-                            obj_objectinstance.toValue(),
-                            collect_key.?,
-                            null,
-                            0,
-                            null,
-                        );
-                        if (self.debugger != null) {
-                            self.debugger.?.invoking_collector = false;
-                        }
+                    if (object.type_def.resolved_type.?.Object.fields.get("collect")) |field| {
+                        if (field.method and !field.static) {
+                            if (self.debugger != null) {
+                                self.debugger.?.invoking_collector = true;
+                            }
+                            buzz_api.bz_invoke(
+                                obj_objectinstance.vm,
+                                obj_objectinstance.toValue(),
+                                field.index,
+                                null,
+                                0,
+                                null,
+                            );
+                            if (self.debugger != null) {
+                                self.debugger.?.invoking_collector = false;
+                            }
 
-                        // Remove void result of the collect call
-                        _ = obj_objectinstance.vm.pop();
+                            // Remove void result of the collect call
+                            _ = obj_objectinstance.vm.pop();
+                        }
                     }
                 }
 
-                obj_objectinstance.deinit();
+                obj_objectinstance.deinit(self.allocator);
 
                 free(self, ObjObjectInstance, obj_objectinstance);
             },
             .Object => {
                 var obj_object = ObjObject.cast(obj).?;
-                obj_object.deinit();
+                obj_object.deinit(self.allocator);
 
                 free(self, ObjObject, obj_object);
             },
             .List => {
                 var obj_list = ObjList.cast(obj).?;
-                obj_list.deinit();
+                obj_list.deinit(self.allocator);
 
                 free(self, ObjList, obj_list);
             },
             .Map => {
                 var obj_map = ObjMap.cast(obj).?;
-                obj_map.deinit();
+                obj_map.deinit(self.allocator);
 
                 free(self, ObjMap, obj_map);
             },
@@ -802,63 +825,51 @@ pub const GarbageCollector = struct {
             io.print("MARKING BASIC TYPES METHOD\n", .{});
         }
         // Mark basic types methods
-        {
-            var it = self.objfiber_members.iterator();
-            while (it.next()) |umember| {
-                try self.markObj(umember.key_ptr.*.toObj());
-                try self.markObj(umember.value_ptr.*.toObj());
+        for (self.objfiber_members) |member| {
+            if (member) |umember| {
+                try self.markObj(umember.toObj());
             }
         }
 
-        {
-            var it = self.objfiber_memberDefs.iterator();
-            while (it.next()) |umember| {
-                try self.markObj(@constCast(umember.value_ptr.*.toObj()));
+        for (self.objfiber_memberDefs) |def| {
+            if (def) |udef| {
+                try self.markObj(udef.toObj());
             }
         }
 
-        {
-            var it = self.objpattern_members.iterator();
-            while (it.next()) |kv| {
-                try self.markObj(kv.key_ptr.*.toObj());
-                try self.markObj(kv.value_ptr.*.toObj());
+        for (self.objrange_members) |member| {
+            if (member) |umember| {
+                try self.markObj(umember.toObj());
             }
         }
 
-        {
-            var it = self.objpattern_memberDefs.iterator();
-            while (it.next()) |kv| {
-                try self.markObj(@constCast(kv.value_ptr.*.toObj()));
+        for (self.objrange_memberDefs) |def| {
+            if (def) |udef| {
+                try self.markObj(udef.toObj());
             }
         }
 
-        {
-            var it = self.objstring_members.iterator();
-            while (it.next()) |kv| {
-                try self.markObj(kv.key_ptr.*.toObj());
-                try self.markObj(kv.value_ptr.*.toObj());
+        for (self.objstring_members) |member| {
+            if (member) |umember| {
+                try self.markObj(umember.toObj());
             }
         }
 
-        {
-            var it = self.objstring_memberDefs.iterator();
-            while (it.next()) |kv| {
-                try self.markObj(@constCast(kv.value_ptr.*.toObj()));
+        for (self.objstring_memberDefs) |def| {
+            if (def) |udef| {
+                try self.markObj(udef.toObj());
             }
         }
 
-        {
-            var it = self.objrange_members.iterator();
-            while (it.next()) |kv| {
-                try self.markObj(kv.key_ptr.*.toObj());
-                try self.markObj(kv.value_ptr.*.toObj());
+        for (self.objpattern_members) |member| {
+            if (member) |umember| {
+                try self.markObj(umember.toObj());
             }
         }
 
-        {
-            var it = self.objrange_memberDefs.iterator();
-            while (it.next()) |kv| {
-                try self.markObj(@constCast(kv.value_ptr.*.toObj()));
+        for (self.objpattern_memberDefs) |def| {
+            if (def) |udef| {
+                try self.markObj(udef.toObj());
             }
         }
 

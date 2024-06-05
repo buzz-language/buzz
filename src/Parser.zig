@@ -1825,35 +1825,52 @@ fn resolvePlaceholderWithRelation(
                 .List => {
                     std.debug.assert(child_placeholder.name != null);
 
-                    if (try obj.ObjList.ListDef.member(resolved_type, self, child_placeholder.name.?.string)) |member| {
+                    if (try obj.ObjList.ListDef.member(
+                        resolved_type,
+                        self,
+                        child_placeholder.name.?.string,
+                    )) |member| {
                         try self.resolvePlaceholder(child, member, false);
                     }
                 },
                 .Map => {
                     std.debug.assert(child_placeholder.name != null);
 
-                    if (try obj.ObjMap.MapDef.member(resolved_type, self, child_placeholder.name.?.string)) |member| {
+                    if (try obj.ObjMap.MapDef.member(
+                        resolved_type,
+                        self,
+                        child_placeholder.name.?.string,
+                    )) |member| {
                         try self.resolvePlaceholder(child, member, false);
                     }
                 },
                 .String => {
                     std.debug.assert(child_placeholder.name != null);
 
-                    if (try obj.ObjString.memberDef(self, child_placeholder.name.?.string)) |member| {
+                    if (try obj.ObjString.memberDefByName(
+                        self,
+                        child_placeholder.name.?.string,
+                    )) |member| {
                         try self.resolvePlaceholder(child, member, false);
                     }
                 },
                 .Pattern => {
                     std.debug.assert(child_placeholder.name != null);
 
-                    if (try obj.ObjPattern.memberDef(self, child_placeholder.name.?.string)) |member| {
+                    if (try obj.ObjPattern.memberDefByName(
+                        self,
+                        child_placeholder.name.?.string,
+                    )) |member| {
                         try self.resolvePlaceholder(child, member, false);
                     }
                 },
                 .Fiber => {
                     std.debug.assert(child_placeholder.name != null);
 
-                    if (try obj.ObjFiber.memberDef(self, child_placeholder.name.?.string)) |member| {
+                    if (try obj.ObjFiber.memberDefByName(
+                        self,
+                        child_placeholder.name.?.string,
+                    )) |member| {
                         try self.resolvePlaceholder(child, member, false);
                     }
                 },
@@ -3007,7 +3024,8 @@ fn parseObjType(self: *Self, generic_types: ?std.AutoArrayHashMap(*obj.ObjString
     var tuple_index: u8 = 0;
     var obj_is_tuple = false;
     var obj_is_not_tuple = false;
-    while (!self.check(.RightBrace) and !self.check(.Eof)) {
+    var property_idx: usize = 0;
+    while (!self.check(.RightBrace) and !self.check(.Eof)) : (property_idx += 1) {
         const constant = try self.match(.Const);
 
         const property_type = try self.parseTypeDef(generic_types, true);
@@ -3075,6 +3093,7 @@ fn parseObjType(self: *Self, generic_types: ?std.AutoArrayHashMap(*obj.ObjString
                 .static = false,
                 .method = false,
                 .has_default = false,
+                .index = property_idx,
             },
         );
         try field_names.put(property_name_lexeme, {});
@@ -3920,7 +3939,8 @@ fn anonymousObjectInit(self: *Self, _: bool) Error!Ast.Node.Index {
     var tuple_index: u8 = 0;
     var obj_is_tuple = false;
     var obj_is_not_tuple = false;
-    while (!self.check(.RightBrace) and !self.check(.Eof)) {
+    var property_idx: usize = 0;
+    while (!self.check(.RightBrace) and !self.check(.Eof)) : (property_idx += 1) {
         // Unnamed: this expression is a little bit tricky:
         // - either an identifier followed by something other than =
         // - or not an identifier
@@ -3992,6 +4012,7 @@ fn anonymousObjectInit(self: *Self, _: bool) Error!Ast.Node.Index {
                     .method = false,
                     .constant = false,
                     .has_default = false,
+                    .index = property_idx,
                 },
             );
         } else {
@@ -4042,6 +4063,7 @@ fn anonymousObjectInit(self: *Self, _: bool) Error!Ast.Node.Index {
                     .method = false,
                     .constant = false,
                     .has_default = false,
+                    .index = property_idx,
                 },
             );
         }
@@ -4103,7 +4125,7 @@ fn dot(self: *Self, can_assign: bool, callee: Ast.Node.Index) Error!Ast.Node.Ind
         const callee_def_type = callee_type_def.?.def_type;
         switch (callee_def_type) {
             .String => {
-                if (try obj.ObjString.memberDef(self, member_name)) |member_type_def| {
+                if (try obj.ObjString.memberDefByName(self, member_name)) |member_type_def| {
                     const generic_resolve = if (try self.match(.DoubleColon))
                         try self.parseGenericResolve(member_type_def, null)
                     else
@@ -4143,7 +4165,7 @@ fn dot(self: *Self, can_assign: bool, callee: Ast.Node.Index) Error!Ast.Node.Ind
                 }
             },
             .Range => {
-                if (try obj.ObjRange.memberDef(self, member_name)) |member_type_def| {
+                if (try obj.ObjRange.memberDefByName(self, member_name)) |member_type_def| {
                     const generic_resolve = if (try self.match(.DoubleColon))
                         try self.parseGenericResolve(member_type_def, null)
                     else
@@ -4178,15 +4200,12 @@ fn dot(self: *Self, can_assign: bool, callee: Ast.Node.Index) Error!Ast.Node.Ind
                         self.ast.nodes.items(.components)[dot_node].Dot.member_kind = .Ref;
                         self.ast.nodes.items(.type_def)[dot_node] = member;
                     }
-                } else if (std.mem.eql(u8, member_name, "high") or std.mem.eql(u8, member_name, "low")) {
-                    self.ast.nodes.items(.components)[dot_node].Dot.member_kind = .Ref;
-                    self.ast.nodes.items(.type_def)[dot_node] = self.gc.type_registry.int_type;
                 } else {
                     self.reportError(.property_does_not_exists, "Range property doesn't exist.");
                 }
             },
             .Pattern => {
-                if (try obj.ObjPattern.memberDef(self, member_name)) |member_type_def| {
+                if (try obj.ObjPattern.memberDefByName(self, member_name)) |member_type_def| {
                     const generic_resolve = if (try self.match(.DoubleColon))
                         try self.parseGenericResolve(member_type_def, null)
                     else
@@ -4226,7 +4245,7 @@ fn dot(self: *Self, can_assign: bool, callee: Ast.Node.Index) Error!Ast.Node.Ind
                 }
             },
             .Fiber => {
-                if (try obj.ObjFiber.memberDef(self, member_name)) |member_type_def| {
+                if (try obj.ObjFiber.memberDefByName(self, member_name)) |member_type_def| {
                     const generic_resolve = if (try self.match(.DoubleColon))
                         try self.parseGenericResolve(member_type_def, null)
                     else
@@ -6335,6 +6354,8 @@ fn objectDeclaration(self: *Self) Error!Ast.Node.Index {
     var properties_type = std.StringHashMap(*obj.ObjTypeDef).init(self.gc.allocator);
 
     // Docblocks
+    var property_idx: usize = 0;
+    var static_property_idx: usize = 0;
     while (!self.check(.RightBrace) and !self.check(.Eof)) {
         const docblock = if (try self.match(.Docblock))
             self.current_token.? - 1
@@ -6403,8 +6424,18 @@ fn objectDeclaration(self: *Self) Error!Ast.Node.Index {
                     .location = self.ast.tokens.get(method_token),
                     .method = true,
                     .has_default = false,
+                    .index = if (static)
+                        static_property_idx
+                    else
+                        property_idx,
                 },
             );
+
+            if (static) {
+                static_property_idx += 1;
+            } else {
+                property_idx += 1;
+            }
 
             try members.append(
                 .{
@@ -6507,8 +6538,18 @@ fn objectDeclaration(self: *Self) Error!Ast.Node.Index {
                     .location = property_name,
                     .method = false,
                     .has_default = default != null,
+                    .index = if (static)
+                        static_property_idx
+                    else
+                        property_idx,
                 },
             );
+
+            if (static) {
+                static_property_idx += 1;
+            } else {
+                property_idx += 1;
+            }
 
             try members.append(
                 .{
@@ -8444,7 +8485,6 @@ fn returnStatement(self: *Self) Error!Ast.Node.Index {
     if (value) |uvalue| {
         try self.consume(.Semicolon, "Expected `;` after statement.");
 
-        // Tail call (TODO: do it for dot call)
         if (self.ast.nodes.items(.tag)[uvalue] == .Call) {
             self.ast.nodes.items(.components)[uvalue].Call.tail_call = true;
         } else if (self.ast.nodes.items(.tag)[uvalue] == .Dot and self.ast.nodes.items(.components)[uvalue].Dot.member_kind == .Call) {

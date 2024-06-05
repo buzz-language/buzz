@@ -20,7 +20,10 @@ pub fn clone(ctx: *NativeCtx) c_int {
 
     var new_map = ctx.vm.gc.allocateObject(
         ObjMap,
-        ObjMap.init(ctx.vm.gc.allocator, self.type_def),
+        ObjMap.init(ctx.vm.gc.allocator, self.type_def) catch {
+            ctx.vm.panic("Out of memory");
+            unreachable;
+        },
     ) catch {
         ctx.vm.panic("Out of memory");
         unreachable;
@@ -70,7 +73,10 @@ pub fn filter(ctx: *NativeCtx) c_int {
         ObjMap.init(
             ctx.vm.gc.allocator,
             self.type_def,
-        ),
+        ) catch {
+            ctx.vm.panic("Out of memory");
+            unreachable;
+        },
     ) catch {
         ctx.vm.panic("Out of memory");
         unreachable;
@@ -147,20 +153,15 @@ pub fn map(ctx: *NativeCtx) c_int {
                 ctx.vm.panic("Out of memory");
                 unreachable;
             },
-        ),
+        ) catch {
+            ctx.vm.panic("Out of memory");
+            unreachable;
+        },
     ) catch {
         ctx.vm.panic("Out of memory");
         unreachable;
     };
 
-    const key_str = ctx.vm.gc.copyString("key") catch {
-        ctx.vm.panic("Out of memory");
-        unreachable;
-    };
-    const value_str = ctx.vm.gc.copyString("value") catch {
-        ctx.vm.panic("Out of memory");
-        unreachable;
-    };
     var it = self.map.iterator();
     while (it.next()) |kv| {
         var args = [_]*const Value{ kv.key_ptr, kv.value_ptr };
@@ -173,11 +174,15 @@ pub fn map(ctx: *NativeCtx) c_int {
             null,
         );
 
-        const entry = ObjObjectInstance.cast(ctx.vm.pop().obj()).?;
-        const key = entry.fields.get(key_str).?;
-        const value = entry.fields.get(value_str).?;
+        const instance = ObjObjectInstance.cast(ctx.vm.pop().obj()).?;
+        const object_def = instance.type_def.resolved_type.?.ObjectInstance
+            .resolved_type.?.Object;
 
-        new_map.set(ctx.vm.gc, key, value) catch {
+        new_map.set(
+            ctx.vm.gc,
+            instance.fields[object_def.fields.get("key").?.index],
+            instance.fields[object_def.fields.get("value").?.index],
+        ) catch {
             ctx.vm.panic("Out of memory");
             unreachable;
         };
@@ -238,7 +243,10 @@ pub fn diff(ctx: *NativeCtx) c_int {
         ObjMap.init(
             ctx.vm.gc.allocator,
             lhs.type_def,
-        ),
+        ) catch {
+            ctx.vm.panic("Out of memory");
+            unreachable;
+        },
     ) catch {
         ctx.vm.panic("Out of memory");
         unreachable;
@@ -273,7 +281,10 @@ pub fn intersect(ctx: *NativeCtx) c_int {
         ObjMap.init(
             ctx.vm.gc.allocator,
             lhs.type_def,
-        ),
+        ) catch {
+            ctx.vm.panic("Out of memory");
+            unreachable;
+        },
     ) catch {
         ctx.vm.panic("Out of memory");
         unreachable;
@@ -353,7 +364,10 @@ pub fn keys(ctx: *NativeCtx) c_int {
 
     var list = ctx.vm.gc.allocateObject(
         ObjList,
-        ObjList.init(ctx.vm.gc.allocator, list_def_type),
+        ObjList.init(ctx.vm.gc.allocator, list_def_type) catch {
+            ctx.vm.panic("Out of memory");
+            unreachable;
+        },
     ) catch {
         ctx.vm.panic("Out of memory");
         unreachable;
@@ -396,7 +410,10 @@ pub fn values(ctx: *NativeCtx) c_int {
 
     var list = ctx.vm.gc.allocateObject(
         ObjList,
-        ObjList.init(ctx.vm.gc.allocator, list_def_type),
+        ObjList.init(ctx.vm.gc.allocator, list_def_type) catch {
+            ctx.vm.panic("Out of memory");
+            unreachable;
+        },
     ) catch {
         ctx.vm.panic("Out of memory");
         unreachable;
