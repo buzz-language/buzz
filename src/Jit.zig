@@ -204,7 +204,7 @@ pub fn compileFunction(self: *Self, ast: Ast, closure: *o.ObjClosure) Error!void
     // Link everything together
     m.MIR_link(self.ctx, m.MIR_set_lazy_gen_interface, null);
 
-    m.MIR_gen_init(self.ctx, 1);
+    m.MIR_gen_init(self.ctx);
     defer m.MIR_gen_finish(self.ctx);
 
     // Generate all needed functions and set them in corresponding ObjFunctions
@@ -213,8 +213,8 @@ pub fn compileFunction(self: *Self, ast: Ast, closure: *o.ObjClosure) Error!void
         const node = kv.key_ptr.*;
         const items = kv.value_ptr.*.?;
 
-        const native = if (items[0]) |item| m.MIR_gen(self.ctx, 0, item) else null;
-        const native_raw = if (items[1]) |item| m.MIR_gen(self.ctx, 0, item) else null;
+        const native = if (items[0]) |item| m.MIR_gen(self.ctx, item) else null;
+        const native_raw = if (items[1]) |item| m.MIR_gen(self.ctx, item) else null;
 
         // Find out if we need to set it in a ObjFunction
         var it3 = self.objclosures_queue.iterator();
@@ -284,7 +284,7 @@ pub fn compileHotSpot(self: *Self, ast: Ast, closure: *o.ObjClosure, hotspot_nod
     // Link everything together
     m.MIR_link(self.ctx, m.MIR_set_lazy_gen_interface, null);
 
-    m.MIR_gen_init(self.ctx, 1);
+    m.MIR_gen_init(self.ctx);
     defer m.MIR_gen_finish(self.ctx);
 
     // Generate all needed functions and set them in corresponding ObjFunctions
@@ -294,8 +294,8 @@ pub fn compileHotSpot(self: *Self, ast: Ast, closure: *o.ObjClosure, hotspot_nod
         const node = kv.key_ptr.*;
         const items = kv.value_ptr.*.?;
 
-        const native = if (items[0]) |item| m.MIR_gen(self.ctx, 0, item) else null;
-        const native_raw = if (items[1]) |item| m.MIR_gen(self.ctx, 0, item) else null;
+        const native = if (items[0]) |item| m.MIR_gen(self.ctx, item) else null;
+        const native_raw = if (items[1]) |item| m.MIR_gen(self.ctx, item) else null;
 
         // Find out if we need to set it in a ObjFunction
         var it3 = self.objclosures_queue.iterator();
@@ -542,7 +542,7 @@ fn generateNode(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
                     current_insn,
                     m.MIR_new_insn_arr(
                         self.ctx,
-                        m.MIR_BEQ,
+                        @intFromEnum(m.MIR_Instruction.BEQ),
                         3,
                         &[_]m.MIR_op_t{
                             m.MIR_new_label_op(self.ctx, out_label),
@@ -1611,7 +1611,7 @@ fn buildExternApiCall(self: *Self, method: ExternApi, dest: ?m.MIR_op_t, args: [
     self.append(
         m.MIR_new_insn_arr(
             self.ctx,
-            m.MIR_CALL,
+            @intFromEnum(m.MIR_Instruction.CALL),
             full_args.items.len,
             full_args.items.ptr,
         ),
@@ -2071,7 +2071,7 @@ fn generateCall(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
     self.append(
         m.MIR_new_insn_arr(
             self.ctx,
-            m.MIR_CALL,
+            @intFromEnum(m.MIR_Instruction.CALL),
             4,
             &[_]m.MIR_op_t{
                 m.MIR_new_ref_op(
@@ -3968,7 +3968,7 @@ fn generateUnwrap(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
 
     const current_insn = m.MIR_new_insn_arr(
         self.ctx,
-        m.MIR_MOV,
+        @intFromEnum(m.MIR_Instruction.MOV),
         2,
         &[_]m.MIR_op_t{
             m.MIR_new_reg_op(self.ctx, self.state.?.opt_jump.?.alloca),
@@ -4724,7 +4724,7 @@ fn generateNativeFn(self: *Self, node: Ast.Node.Index, raw_fn: m.MIR_item_t) !m.
         function,
         m.MIR_new_insn_arr(
             self.ctx,
-            m.MIR_CALL,
+            @intFromEnum(m.MIR_Instruction.CALL),
             4,
             &[_]m.MIR_op_t{
                 m.MIR_new_ref_op(self.ctx, try ExternApi.rawfn.declare(self)),
@@ -4946,7 +4946,7 @@ pub fn compileZdefContainer(self: *Self, ast: Ast, zdef_element: Ast.Zdef.ZdefEl
     // Link everything together
     m.MIR_link(self.ctx, m.MIR_set_lazy_gen_interface, null);
 
-    m.MIR_gen_init(self.ctx, 1);
+    m.MIR_gen_init(self.ctx);
     defer m.MIR_gen_finish(self.ctx);
 
     // Gen getters/setters
@@ -4956,13 +4956,11 @@ pub fn compileZdefContainer(self: *Self, ast: Ast, zdef_element: Ast.Zdef.ZdefEl
                 const struct_field = foreign_def.fields.getEntry(field.name).?;
                 struct_field.value_ptr.*.getter = @alignCast(@ptrCast(m.MIR_gen(
                     self.ctx,
-                    0,
                     getters.items[idx],
                 ) orelse unreachable));
 
                 struct_field.value_ptr.*.setter = @alignCast(@ptrCast(m.MIR_gen(
                     self.ctx,
-                    0,
                     setters.items[idx],
                 ) orelse unreachable));
             }
@@ -4972,13 +4970,11 @@ pub fn compileZdefContainer(self: *Self, ast: Ast, zdef_element: Ast.Zdef.ZdefEl
                 const struct_field = foreign_def.fields.getEntry(field.name).?;
                 struct_field.value_ptr.*.getter = @alignCast(@ptrCast(m.MIR_gen(
                     self.ctx,
-                    0,
                     getters.items[idx],
                 ) orelse unreachable));
 
                 struct_field.value_ptr.*.setter = @alignCast(@ptrCast(m.MIR_gen(
                     self.ctx,
-                    0,
                     setters.items[idx],
                 ) orelse unreachable));
             }
@@ -5177,13 +5173,13 @@ pub fn compileZdef(self: *Self, buzz_ast: Ast, zdef: Ast.Zdef.ZdefElement) Error
     // Link everything together
     m.MIR_link(self.ctx, m.MIR_set_lazy_gen_interface, null);
 
-    m.MIR_gen_init(self.ctx, 1);
+    m.MIR_gen_init(self.ctx);
     defer m.MIR_gen_finish(self.ctx);
 
     return try self.vm.gc.allocateObject(
         o.ObjNative,
         .{
-            .native = m.MIR_gen(self.ctx, 0, wrapper_item) orelse unreachable,
+            .native = m.MIR_gen(self.ctx, wrapper_item) orelse unreachable,
         },
     );
 }
@@ -5414,7 +5410,7 @@ fn buildZdefWrapper(self: *Self, zdef_element: Ast.Zdef.ZdefElement) Error!m.MIR
     self.append(
         m.MIR_new_insn_arr(
             self.ctx,
-            m.MIR_CALL,
+            @intFromEnum(m.MIR_Instruction.CALL),
             full_args.items.len,
             full_args.items.ptr,
         ),
@@ -5897,7 +5893,7 @@ inline fn MOV(self: *Self, dest: m.MIR_op_t, value: m.MIR_op_t) void {
     self.append(
         m.MIR_new_insn_arr(
             self.ctx,
-            m.MIR_MOV,
+            @intFromEnum(m.MIR_Instruction.MOV),
             2,
             &[_]m.MIR_op_t{
                 dest,
@@ -5911,7 +5907,7 @@ inline fn DMOV(self: *Self, dest: m.MIR_op_t, value: m.MIR_op_t) void {
     self.append(
         m.MIR_new_insn_arr(
             self.ctx,
-            m.MIR_DMOV,
+            @intFromEnum(m.MIR_Instruction.DMOV),
             2,
             &[_]m.MIR_op_t{
                 dest,
@@ -5925,7 +5921,7 @@ inline fn FMOV(self: *Self, dest: m.MIR_op_t, value: m.MIR_op_t) void {
     self.append(
         m.MIR_new_insn_arr(
             self.ctx,
-            m.MIR_FMOV,
+            @intFromEnum(m.MIR_Instruction.FMOV),
             2,
             &[_]m.MIR_op_t{
                 dest,
@@ -5939,7 +5935,7 @@ inline fn EQ(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t)
     self.append(
         m.MIR_new_insn_arr(
             self.ctx,
-            m.MIR_EQ,
+            @intFromEnum(m.MIR_Instruction.EQ),
             3,
             &[_]m.MIR_op_t{
                 dest,
@@ -5954,7 +5950,7 @@ inline fn EQS(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t
     self.append(
         m.MIR_new_insn_arr(
             self.ctx,
-            m.MIR_EQS,
+            @intFromEnum(m.MIR_Instruction.EQS),
             3,
             &[_]m.MIR_op_t{
                 dest,
@@ -5969,7 +5965,7 @@ inline fn DEQ(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t
     self.append(
         m.MIR_new_insn_arr(
             self.ctx,
-            m.MIR_DEQ,
+            @intFromEnum(m.MIR_Instruction.DEQ),
             3,
             &[_]m.MIR_op_t{
                 dest,
@@ -5984,7 +5980,7 @@ inline fn GT(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t)
     self.append(
         m.MIR_new_insn_arr(
             self.ctx,
-            m.MIR_GT,
+            @intFromEnum(m.MIR_Instruction.GT),
             3,
             &[_]m.MIR_op_t{
                 dest,
@@ -5999,7 +5995,7 @@ inline fn GTS(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t
     self.append(
         m.MIR_new_insn_arr(
             self.ctx,
-            m.MIR_GTS,
+            @intFromEnum(m.MIR_Instruction.GTS),
             3,
             &[_]m.MIR_op_t{
                 dest,
@@ -6014,7 +6010,7 @@ inline fn DGT(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t
     self.append(
         m.MIR_new_insn_arr(
             self.ctx,
-            m.MIR_DGT,
+            @intFromEnum(m.MIR_Instruction.DGT),
             3,
             &[_]m.MIR_op_t{
                 dest,
@@ -6029,7 +6025,7 @@ inline fn LT(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t)
     self.append(
         m.MIR_new_insn_arr(
             self.ctx,
-            m.MIR_LT,
+            @intFromEnum(m.MIR_Instruction.LT),
             3,
             &[_]m.MIR_op_t{
                 dest,
@@ -6044,7 +6040,7 @@ inline fn LTS(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t
     self.append(
         m.MIR_new_insn_arr(
             self.ctx,
-            m.MIR_LTS,
+            @intFromEnum(m.MIR_Instruction.LTS),
             3,
             &[_]m.MIR_op_t{
                 dest,
@@ -6059,7 +6055,7 @@ inline fn DLT(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t
     self.append(
         m.MIR_new_insn_arr(
             self.ctx,
-            m.MIR_DLT,
+            @intFromEnum(m.MIR_Instruction.DLT),
             3,
             &[_]m.MIR_op_t{
                 dest,
@@ -6074,7 +6070,7 @@ inline fn GE(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t)
     self.append(
         m.MIR_new_insn_arr(
             self.ctx,
-            m.MIR_GE,
+            @intFromEnum(m.MIR_Instruction.GE),
             3,
             &[_]m.MIR_op_t{
                 dest,
@@ -6089,7 +6085,7 @@ inline fn GES(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t
     self.append(
         m.MIR_new_insn_arr(
             self.ctx,
-            m.MIR_GES,
+            @intFromEnum(m.MIR_Instruction.GES),
             3,
             &[_]m.MIR_op_t{
                 dest,
@@ -6104,7 +6100,7 @@ inline fn DGE(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t
     self.append(
         m.MIR_new_insn_arr(
             self.ctx,
-            m.MIR_DGE,
+            @intFromEnum(m.MIR_Instruction.DGE),
             3,
             &[_]m.MIR_op_t{
                 dest,
@@ -6119,7 +6115,7 @@ inline fn LE(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t)
     self.append(
         m.MIR_new_insn_arr(
             self.ctx,
-            m.MIR_LE,
+            @intFromEnum(m.MIR_Instruction.LE),
             3,
             &[_]m.MIR_op_t{
                 dest,
@@ -6134,7 +6130,7 @@ inline fn LES(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t
     self.append(
         m.MIR_new_insn_arr(
             self.ctx,
-            m.MIR_LES,
+            @intFromEnum(m.MIR_Instruction.LES),
             3,
             &[_]m.MIR_op_t{
                 dest,
@@ -6149,7 +6145,7 @@ inline fn DLE(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t
     self.append(
         m.MIR_new_insn_arr(
             self.ctx,
-            m.MIR_DLE,
+            @intFromEnum(m.MIR_Instruction.DLE),
             3,
             &[_]m.MIR_op_t{
                 dest,
@@ -6164,7 +6160,7 @@ inline fn NE(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t)
     self.append(
         m.MIR_new_insn_arr(
             self.ctx,
-            m.MIR_NE,
+            @intFromEnum(m.MIR_Instruction.NE),
             3,
             &[_]m.MIR_op_t{
                 dest,
@@ -6179,7 +6175,7 @@ inline fn NES(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t
     self.append(
         m.MIR_new_insn_arr(
             self.ctx,
-            m.MIR_NES,
+            @intFromEnum(m.MIR_Instruction.NES),
             3,
             &[_]m.MIR_op_t{
                 dest,
@@ -6194,7 +6190,7 @@ inline fn DNE(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t
     self.append(
         m.MIR_new_insn_arr(
             self.ctx,
-            m.MIR_DNE,
+            @intFromEnum(m.MIR_Instruction.DNE),
             3,
             &[_]m.MIR_op_t{
                 dest,
@@ -6209,7 +6205,7 @@ inline fn BEQ(self: *Self, label: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_
     self.append(
         m.MIR_new_insn_arr(
             self.ctx,
-            m.MIR_BEQ,
+            @intFromEnum(m.MIR_Instruction.BEQ),
             3,
             &[_]m.MIR_op_t{
                 label,
@@ -6224,7 +6220,7 @@ inline fn BNE(self: *Self, label: m.MIR_insn_t, left: m.MIR_op_t, right: m.MIR_o
     self.append(
         m.MIR_new_insn_arr(
             self.ctx,
-            m.MIR_BNE,
+            @intFromEnum(m.MIR_Instruction.BNE),
             3,
             &[_]m.MIR_op_t{
                 m.MIR_new_label_op(self.ctx, label),
@@ -6239,7 +6235,7 @@ inline fn JMP(self: *Self, label: m.MIR_insn_t) void {
     self.append(
         m.MIR_new_insn_arr(
             self.ctx,
-            m.MIR_JMP,
+            @intFromEnum(m.MIR_Instruction.JMP),
             1,
             &[_]m.MIR_op_t{
                 m.MIR_new_label_op(self.ctx, label),
@@ -6250,221 +6246,331 @@ inline fn JMP(self: *Self, label: m.MIR_insn_t) void {
 
 inline fn ADD(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t) void {
     self.append(
-        m.MIR_new_insn_arr(self.ctx, m.MIR_ADD, 3, &[_]m.MIR_op_t{
-            dest,
-            left,
-            right,
-        }),
+        m.MIR_new_insn_arr(
+            self.ctx,
+            @intFromEnum(m.MIR_Instruction.ADD),
+            3,
+            &[_]m.MIR_op_t{
+                dest,
+                left,
+                right,
+            },
+        ),
     );
 }
 
 inline fn DADD(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t) void {
     self.append(
-        m.MIR_new_insn_arr(self.ctx, m.MIR_DADD, 3, &[_]m.MIR_op_t{
-            dest,
-            left,
-            right,
-        }),
+        m.MIR_new_insn_arr(
+            self.ctx,
+            @intFromEnum(m.MIR_Instruction.DADD),
+            3,
+            &[_]m.MIR_op_t{
+                dest,
+                left,
+                right,
+            },
+        ),
     );
 }
 
 inline fn ADDS(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t) void {
     self.append(
-        m.MIR_new_insn_arr(self.ctx, m.MIR_ADDS, 3, &[_]m.MIR_op_t{
-            dest,
-            left,
-            right,
-        }),
+        m.MIR_new_insn_arr(
+            self.ctx,
+            @intFromEnum(m.MIR_Instruction.ADDS),
+            3,
+            &[_]m.MIR_op_t{
+                dest,
+                left,
+                right,
+            },
+        ),
     );
 }
 
 inline fn SUB(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t) void {
     self.append(
-        m.MIR_new_insn_arr(self.ctx, m.MIR_SUB, 3, &[_]m.MIR_op_t{
-            dest,
-            left,
-            right,
-        }),
+        m.MIR_new_insn_arr(
+            self.ctx,
+            @intFromEnum(m.MIR_Instruction.SUB),
+            3,
+            &[_]m.MIR_op_t{
+                dest,
+                left,
+                right,
+            },
+        ),
     );
 }
 
 inline fn SUBS(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t) void {
     self.append(
-        m.MIR_new_insn_arr(self.ctx, m.MIR_SUBS, 3, &[_]m.MIR_op_t{
-            dest,
-            left,
-            right,
-        }),
+        m.MIR_new_insn_arr(
+            self.ctx,
+            @intFromEnum(m.MIR_Instruction.SUBS),
+            3,
+            &[_]m.MIR_op_t{
+                dest,
+                left,
+                right,
+            },
+        ),
     );
 }
 
 inline fn DSUB(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t) void {
     self.append(
-        m.MIR_new_insn_arr(self.ctx, m.MIR_DSUB, 3, &[_]m.MIR_op_t{
-            dest,
-            left,
-            right,
-        }),
+        m.MIR_new_insn_arr(
+            self.ctx,
+            @intFromEnum(m.MIR_Instruction.DSUB),
+            3,
+            &[_]m.MIR_op_t{
+                dest,
+                left,
+                right,
+            },
+        ),
     );
 }
 
 inline fn MUL(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t) void {
     self.append(
-        m.MIR_new_insn_arr(self.ctx, m.MIR_MUL, 3, &[_]m.MIR_op_t{
-            dest,
-            left,
-            right,
-        }),
+        m.MIR_new_insn_arr(
+            self.ctx,
+            @intFromEnum(m.MIR_Instruction.MUL),
+            3,
+            &[_]m.MIR_op_t{
+                dest,
+                left,
+                right,
+            },
+        ),
     );
 }
 
 inline fn MULS(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t) void {
     self.append(
-        m.MIR_new_insn_arr(self.ctx, m.MIR_MULS, 3, &[_]m.MIR_op_t{
-            dest,
-            left,
-            right,
-        }),
+        m.MIR_new_insn_arr(
+            self.ctx,
+            @intFromEnum(m.MIR_Instruction.MULS),
+            3,
+            &[_]m.MIR_op_t{
+                dest,
+                left,
+                right,
+            },
+        ),
     );
 }
 
 inline fn DMUL(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t) void {
     self.append(
-        m.MIR_new_insn_arr(self.ctx, m.MIR_DMUL, 3, &[_]m.MIR_op_t{
-            dest,
-            left,
-            right,
-        }),
+        m.MIR_new_insn_arr(
+            self.ctx,
+            @intFromEnum(m.MIR_Instruction.DMUL),
+            3,
+            &[_]m.MIR_op_t{
+                dest,
+                left,
+                right,
+            },
+        ),
     );
 }
 
 inline fn DIV(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t) void {
     self.append(
-        m.MIR_new_insn_arr(self.ctx, m.MIR_DIV, 3, &[_]m.MIR_op_t{
-            dest,
-            left,
-            right,
-        }),
+        m.MIR_new_insn_arr(
+            self.ctx,
+            @intFromEnum(m.MIR_Instruction.DIV),
+            3,
+            &[_]m.MIR_op_t{
+                dest,
+                left,
+                right,
+            },
+        ),
     );
 }
 
 inline fn DIVS(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t) void {
     self.append(
-        m.MIR_new_insn_arr(self.ctx, m.MIR_DIVS, 3, &[_]m.MIR_op_t{
-            dest,
-            left,
-            right,
-        }),
+        m.MIR_new_insn_arr(
+            self.ctx,
+            @intFromEnum(m.MIR_Instruction.DIVS),
+            3,
+            &[_]m.MIR_op_t{
+                dest,
+                left,
+                right,
+            },
+        ),
     );
 }
 
 inline fn DDIV(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t) void {
     self.append(
-        m.MIR_new_insn_arr(self.ctx, m.MIR_DDIV, 3, &[_]m.MIR_op_t{
-            dest,
-            left,
-            right,
-        }),
+        m.MIR_new_insn_arr(
+            self.ctx,
+            @intFromEnum(m.MIR_Instruction.DDIV),
+            3,
+            &[_]m.MIR_op_t{
+                dest,
+                left,
+                right,
+            },
+        ),
     );
 }
 
 inline fn MOD(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t) void {
     self.append(
-        m.MIR_new_insn_arr(self.ctx, m.MIR_MOD, 3, &[_]m.MIR_op_t{
-            dest,
-            left,
-            right,
-        }),
+        m.MIR_new_insn_arr(
+            self.ctx,
+            @intFromEnum(m.MIR_Instruction.MOD),
+            3,
+            &[_]m.MIR_op_t{
+                dest,
+                left,
+                right,
+            },
+        ),
     );
 }
 
 inline fn MODS(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t) void {
     self.append(
-        m.MIR_new_insn_arr(self.ctx, m.MIR_MODS, 3, &[_]m.MIR_op_t{
-            dest,
-            left,
-            right,
-        }),
+        m.MIR_new_insn_arr(
+            self.ctx,
+            @intFromEnum(m.MIR_Instruction.MODS),
+            3,
+            &[_]m.MIR_op_t{
+                dest,
+                left,
+                right,
+            },
+        ),
     );
 }
 
 inline fn AND(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t) void {
     self.append(
-        m.MIR_new_insn_arr(self.ctx, m.MIR_AND, 3, &[_]m.MIR_op_t{
-            dest,
-            left,
-            right,
-        }),
+        m.MIR_new_insn_arr(
+            self.ctx,
+            @intFromEnum(m.MIR_Instruction.AND),
+            3,
+            &[_]m.MIR_op_t{
+                dest,
+                left,
+                right,
+            },
+        ),
     );
 }
 
 inline fn ANDS(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t) void {
     self.append(
-        m.MIR_new_insn_arr(self.ctx, m.MIR_ANDS, 3, &[_]m.MIR_op_t{
-            dest,
-            left,
-            right,
-        }),
+        m.MIR_new_insn_arr(
+            self.ctx,
+            @intFromEnum(m.MIR_Instruction.ANDS),
+            3,
+            &[_]m.MIR_op_t{
+                dest,
+                left,
+                right,
+            },
+        ),
     );
 }
 
 inline fn OR(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t) void {
     self.append(
-        m.MIR_new_insn_arr(self.ctx, m.MIR_OR, 3, &[_]m.MIR_op_t{
-            dest,
-            left,
-            right,
-        }),
+        m.MIR_new_insn_arr(
+            self.ctx,
+            @intFromEnum(m.MIR_Instruction.OR),
+            3,
+            &[_]m.MIR_op_t{
+                dest,
+                left,
+                right,
+            },
+        ),
     );
 }
 
 inline fn ORS(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t) void {
     self.append(
-        m.MIR_new_insn_arr(self.ctx, m.MIR_ORS, 3, &[_]m.MIR_op_t{
-            dest,
-            left,
-            right,
-        }),
+        m.MIR_new_insn_arr(
+            self.ctx,
+            @intFromEnum(m.MIR_Instruction.ORS),
+            3,
+            &[_]m.MIR_op_t{
+                dest,
+                left,
+                right,
+            },
+        ),
     );
 }
 
 inline fn XOR(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t) void {
     self.append(
-        m.MIR_new_insn_arr(self.ctx, m.MIR_XOR, 3, &[_]m.MIR_op_t{
-            dest,
-            left,
-            right,
-        }),
+        m.MIR_new_insn_arr(
+            self.ctx,
+            @intFromEnum(m.MIR_Instruction.XOR),
+            3,
+            &[_]m.MIR_op_t{
+                dest,
+                left,
+                right,
+            },
+        ),
     );
 }
 
 inline fn SHL(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t) void {
     self.append(
-        m.MIR_new_insn_arr(self.ctx, m.MIR_LSH, 3, &[_]m.MIR_op_t{
-            dest,
-            left,
-            right,
-        }),
+        m.MIR_new_insn_arr(
+            self.ctx,
+            @intFromEnum(m.MIR_Instruction.LSH),
+            3,
+            &[_]m.MIR_op_t{
+                dest,
+                left,
+                right,
+            },
+        ),
     );
 }
 
 inline fn SHR(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t) void {
     self.append(
-        m.MIR_new_insn_arr(self.ctx, m.MIR_RSH, 3, &[_]m.MIR_op_t{
-            dest,
-            left,
-            right,
-        }),
+        m.MIR_new_insn_arr(
+            self.ctx,
+            @intFromEnum(m.MIR_Instruction.RSH),
+            3,
+            &[_]m.MIR_op_t{
+                dest,
+                left,
+                right,
+            },
+        ),
     );
 }
 
 inline fn NOT(self: *Self, dest: m.MIR_op_t, value: m.MIR_op_t) void {
     self.append(
-        m.MIR_new_insn_arr(self.ctx, m.MIR_XOR, 3, &[_]m.MIR_op_t{
-            dest,
-            value,
-            m.MIR_new_uint_op(self.ctx, std.math.maxInt(u64)),
-        }),
+        m.MIR_new_insn_arr(
+            self.ctx,
+            @intFromEnum(m.MIR_Instruction.XOR),
+            3,
+            &[_]m.MIR_op_t{
+                dest,
+                value,
+                m.MIR_new_uint_op(self.ctx, std.math.maxInt(u64)),
+            },
+        ),
     );
 }
 
@@ -6472,7 +6578,7 @@ inline fn NOTS(self: *Self, dest: m.MIR_op_t, value: m.MIR_op_t) void {
     self.append(
         m.MIR_new_insn_arr(
             self.ctx,
-            m.MIR_XORS,
+            @intFromEnum(m.MIR_Instruction.XORS),
             3,
             &[_]m.MIR_op_t{
                 dest,
@@ -6487,7 +6593,7 @@ inline fn I2D(self: *Self, dest: m.MIR_op_t, value: m.MIR_op_t) void {
     self.append(
         m.MIR_new_insn_arr(
             self.ctx,
-            m.MIR_I2D,
+            @intFromEnum(m.MIR_Instruction.I2D),
             2,
             &[_]m.MIR_op_t{
                 dest,
@@ -6501,7 +6607,7 @@ inline fn UI2D(self: *Self, dest: m.MIR_op_t, value: m.MIR_op_t) void {
     self.append(
         m.MIR_new_insn_arr(
             self.ctx,
-            m.MIR_UI2D,
+            @intFromEnum(m.MIR_Instruction.UI2D),
             2,
             &[_]m.MIR_op_t{
                 dest,
@@ -6515,7 +6621,7 @@ inline fn D2I(self: *Self, dest: m.MIR_op_t, value: m.MIR_op_t) void {
     self.append(
         m.MIR_new_insn_arr(
             self.ctx,
-            m.MIR_D2I,
+            @intFromEnum(m.MIR_Instruction.D2I),
             2,
             &[_]m.MIR_op_t{
                 dest,
@@ -6529,7 +6635,7 @@ inline fn NEGS(self: *Self, dest: m.MIR_op_t, value: m.MIR_op_t) void {
     self.append(
         m.MIR_new_insn_arr(
             self.ctx,
-            m.MIR_NEGS,
+            @intFromEnum(m.MIR_Instruction.NEGS),
             2,
             &[_]m.MIR_op_t{
                 dest,
@@ -6543,7 +6649,7 @@ inline fn DNEG(self: *Self, dest: m.MIR_op_t, value: m.MIR_op_t) void {
     self.append(
         m.MIR_new_insn_arr(
             self.ctx,
-            m.MIR_DNEG,
+            @intFromEnum(m.MIR_Instruction.DNEG),
             2,
             &[_]m.MIR_op_t{
                 dest,
@@ -6557,7 +6663,7 @@ inline fn RET(self: *Self, return_value: m.MIR_op_t) void {
     self.append(
         m.MIR_new_insn_arr(
             self.ctx,
-            m.MIR_RET,
+            @intFromEnum(m.MIR_Instruction.RET),
             1,
             &[_]m.MIR_op_t{
                 return_value,
@@ -6570,7 +6676,7 @@ inline fn ALLOCA(self: *Self, reg: m.MIR_reg_t, size: usize) void {
     self.append(
         m.MIR_new_insn_arr(
             self.ctx,
-            m.MIR_ALLOCA,
+            @intFromEnum(m.MIR_Instruction.ALLOCA),
             2,
             &[_]m.MIR_op_t{
                 m.MIR_new_reg_op(self.ctx, reg),
