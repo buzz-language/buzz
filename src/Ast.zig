@@ -1002,10 +1002,14 @@ fn binaryValue(self: Self, node: Node.Index, gc: *GarbageCollector) !?Value {
                     },
                 )).toValue();
             } else {
-                var new_map = try left_map.?.map.clone();
+                var new_map = try left_map.?.map.clone(gc.allocator);
                 var it = right_map.?.map.iterator();
                 while (it.next()) |entry| {
-                    try new_map.put(entry.key_ptr.*, entry.value_ptr.*);
+                    try new_map.put(
+                        gc.allocator,
+                        entry.key_ptr.*,
+                        entry.value_ptr.*,
+                    );
                 }
 
                 return (try gc.allocateObject(
@@ -1161,6 +1165,7 @@ pub fn toValue(self: Self, node: Node.Index, gc: *GarbageCollector) Error!Value 
 
                 for (components.entries) |entry| {
                     try map.map.put(
+                        gc.allocator,
                         try self.toValue(entry.key, gc),
                         try self.toValue(entry.value, gc),
                     );

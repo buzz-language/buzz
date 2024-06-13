@@ -3559,13 +3559,17 @@ pub const VM = struct {
         const right: *ObjMap = self.pop().obj().access(ObjMap, .Map, self.gc).?;
         const left: *ObjMap = self.pop().obj().access(ObjMap, .Map, self.gc).?;
 
-        var new_map = left.map.clone() catch {
+        var new_map = left.map.clone(self.gc.allocator) catch {
             self.panic("Out of memory");
             unreachable;
         };
         var it = right.map.iterator();
         while (it.next()) |entry| {
-            new_map.put(entry.key_ptr.*, entry.value_ptr.*) catch {
+            new_map.put(
+                self.gc.allocator,
+                entry.key_ptr.*,
+                entry.value_ptr.*,
+            ) catch {
                 self.panic("Out of memory");
                 unreachable;
             };

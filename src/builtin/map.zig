@@ -28,8 +28,8 @@ pub fn clone(ctx: *NativeCtx) c_int {
         ctx.vm.panic("Out of memory");
         unreachable;
     };
-    new_map.map.deinit();
-    new_map.map = self.map.clone() catch {
+    new_map.map.deinit(ctx.vm.gc.allocator);
+    new_map.map = self.map.clone(ctx.vm.gc.allocator) catch {
         ctx.vm.panic("Out of memory");
         unreachable;
     };
@@ -131,7 +131,9 @@ pub fn map(ctx: *NativeCtx) c_int {
     const self = ObjMap.cast(ctx.vm.peek(1).obj()).?;
     const closure = ObjClosure.cast(ctx.vm.peek(0).obj()).?;
 
-    const mapped_type = closure.function.type_def.resolved_type.?.Function.return_type.resolved_type.?.ObjectInstance.resolved_type.?.Object;
+    const mapped_type = closure.function.type_def.resolved_type.?.Function
+        .return_type.resolved_type.?.ObjectInstance
+        .resolved_type.?.Object;
 
     var new_map: *ObjMap = ctx.vm.gc.allocateObject(
         ObjMap,
