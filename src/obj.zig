@@ -1827,13 +1827,13 @@ pub const ObjList = struct {
     type_def: *ObjTypeDef,
 
     /// List items
-    items: std.ArrayList(Value),
+    items: std.ArrayListUnmanaged(Value),
 
     methods: []?*ObjNative,
 
     pub fn init(allocator: Allocator, type_def: *ObjTypeDef) !Self {
         const self = Self{
-            .items = std.ArrayList(Value).init(allocator),
+            .items = std.ArrayListUnmanaged(Value){},
             .type_def = type_def,
             .methods = try allocator.alloc(
                 ?*ObjNative,
@@ -1862,7 +1862,7 @@ pub const ObjList = struct {
     }
 
     pub fn deinit(self: *Self, allocator: Allocator) void {
-        self.items.deinit();
+        self.items.deinit(allocator);
         allocator.free(self.methods);
     }
 
@@ -1943,12 +1943,19 @@ pub const ObjList = struct {
     }
 
     pub fn rawAppend(self: *Self, gc: *GarbageCollector, value: Value) !void {
-        try self.items.append(value);
+        try self.items.append(
+            gc.allocator,
+            value,
+        );
         try gc.markObjDirty(&self.obj);
     }
 
     pub fn rawInsert(self: *Self, gc: *GarbageCollector, index: usize, value: Value) !void {
-        try self.items.insert(index, value);
+        try self.items.insert(
+            gc.allocator,
+            index,
+            value,
+        );
         try gc.markObjDirty(&self.obj);
     }
 
@@ -4940,7 +4947,7 @@ pub fn cloneObject(obj: *Obj, vm: *VM) !Value {
                 ObjList,
                 .{
                     .type_def = list.type_def,
-                    .items = try list.items.clone(),
+                    .items = try list.items.clone(vm.gc.allocator),
                     .methods = list.methods,
                 },
             )).toValue();

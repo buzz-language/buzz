@@ -578,9 +578,9 @@ export fn bz_listConcat(vm: *VM, list: Value, other_list: Value) Value {
     const left: *ObjList = ObjList.cast(list.obj()).?;
     const right: *ObjList = ObjList.cast(other_list.obj()).?;
 
-    var new_list = std.ArrayList(Value).init(vm.gc.allocator);
-    new_list.appendSlice(left.items.items) catch @panic("Could not concatenate lists");
-    new_list.appendSlice(right.items.items) catch @panic("Could not concatenate lists");
+    var new_list = std.ArrayListUnmanaged(Value){};
+    new_list.appendSlice(vm.gc.allocator, left.items.items) catch @panic("Could not concatenate lists");
+    new_list.appendSlice(vm.gc.allocator, right.items.items) catch @panic("Could not concatenate lists");
 
     return (vm.gc.allocateObject(
         ObjList,

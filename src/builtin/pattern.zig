@@ -101,6 +101,7 @@ fn rawMatch(self: *ObjPattern, vm: *VM, subject: *ObjString, offset: *usize) !?*
             var i: usize = 0;
             while (i < rc) : (i += 1) {
                 try results.?.items.append(
+                    vm.gc.allocator,
                     (try vm.gc.copyString(
                         subject.string[@intCast(output_vector[2 * i])..@intCast(output_vector[2 * i + 1])],
                     )).toValue(),
@@ -133,7 +134,7 @@ fn rawMatchAll(self: *ObjPattern, vm: *VM, subject: *ObjString) !?*ObjList {
                 vm.push(results.?.toValue());
             }
 
-            try results.?.items.append(matches.toValue());
+            try results.?.items.append(vm.gc.allocator, matches.toValue());
         } else {
             if (results != null) {
                 _ = vm.pop();
@@ -155,8 +156,8 @@ fn rawReplace(self: *ObjPattern, vm: *VM, subject: *ObjString, replacement: *Obj
         return subject;
     }
 
-    var result = std.ArrayList(u8).init(vm.gc.allocator);
-    defer result.deinit();
+    var result = std.ArrayListUnmanaged(u8){};
+    defer result.deinit(vm.gc.allocator);
 
     var match_data = self.pattern.createMatchData(null) orelse {
         vm.panic("Out of memory");
@@ -185,9 +186,9 @@ fn rawReplace(self: *ObjPattern, vm: *VM, subject: *ObjString, replacement: *Obj
 
             offset.* = @as(usize, @intCast(output_vector[1]));
 
-            try result.appendSlice(subject.string[0..@as(usize, @intCast(output_vector[0]))]);
-            try result.appendSlice(replacement.string);
-            try result.appendSlice(subject.string[offset.*..]);
+            try result.appendSlice(vm.gc.allocator, subject.string[0..@as(usize, @intCast(output_vector[0]))]);
+            try result.appendSlice(vm.gc.allocator, replacement.string);
+            try result.appendSlice(vm.gc.allocator, subject.string[offset.*..]);
         },
     }
 

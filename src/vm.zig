@@ -517,6 +517,7 @@ pub const VM = struct {
                 }
 
                 try arg_list.items.append(
+                    self.gc.allocator,
                     Value.fromObj((try self.gc.copyString(std.mem.sliceTo(arg, 0))).toObj()),
                 );
             }
@@ -3520,12 +3521,12 @@ pub const VM = struct {
         const right: *ObjList = self.pop().obj().access(ObjList, .List, self.gc).?;
         const left: *ObjList = self.pop().obj().access(ObjList, .List, self.gc).?;
 
-        var new_list = std.ArrayList(Value).init(self.gc.allocator);
-        new_list.appendSlice(left.items.items) catch {
+        var new_list = std.ArrayListUnmanaged(Value){};
+        new_list.appendSlice(self.gc.allocator, left.items.items) catch {
             self.panic("Out of memory");
             unreachable;
         };
-        new_list.appendSlice(right.items.items) catch {
+        new_list.appendSlice(self.gc.allocator, right.items.items) catch {
             self.panic("Out of memory");
             unreachable;
         };

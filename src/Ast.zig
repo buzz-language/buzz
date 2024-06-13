@@ -989,9 +989,9 @@ fn binaryValue(self: Self, node: Node.Index, gc: *GarbageCollector) !?Value {
             } else if (right_integer) |ri| {
                 return Value.fromInteger(ri +% left_integer.?);
             } else if (right_list) |rl| {
-                var new_list = std.ArrayList(Value).init(gc.allocator);
-                try new_list.appendSlice(left_list.?.items.items);
-                try new_list.appendSlice(rl.items.items);
+                var new_list = std.ArrayListUnmanaged(Value){};
+                try new_list.appendSlice(gc.allocator, left_list.?.items.items);
+                try new_list.appendSlice(gc.allocator, rl.items.items);
 
                 return (try gc.allocateObject(
                     obj.ObjList,
@@ -1147,7 +1147,10 @@ pub fn toValue(self: Self, node: Node.Index, gc: *GarbageCollector) Error!Value 
                 );
 
                 for (components.items) |item| {
-                    try list.items.append(try self.toValue(item, gc));
+                    try list.items.append(
+                        gc.allocator,
+                        try self.toValue(item, gc),
+                    );
                 }
 
                 break :list list.toValue();

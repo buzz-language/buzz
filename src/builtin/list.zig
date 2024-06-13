@@ -75,7 +75,7 @@ pub fn reverse(ctx: *NativeCtx) c_int {
         unreachable;
     };
 
-    new_list.items.appendSlice(list.items.items) catch {
+    new_list.items.appendSlice(ctx.vm.gc.allocator, list.items.items) catch {
         ctx.vm.panic("Out of memory");
         unreachable;
     };
@@ -192,7 +192,7 @@ pub fn clone(ctx: *NativeCtx) c_int {
         ctx.vm.panic("Out of memory");
         unreachable;
     };
-    new_list.items.appendSlice(self.items.items) catch {
+    new_list.items.appendSlice(ctx.vm.gc.allocator, self.items.items) catch {
         ctx.vm.panic("Out of memory");
         unreachable;
     };
@@ -268,7 +268,7 @@ pub fn sub(ctx: *NativeCtx) c_int {
                 ctx.vm.panic("Out of memory");
                 unreachable;
             },
-            .items = std.ArrayList(Value).init(ctx.vm.gc.allocator),
+            .items = std.ArrayListUnmanaged(Value){},
         },
     ) catch {
         ctx.vm.panic("Out of memory");
@@ -277,7 +277,7 @@ pub fn sub(ctx: *NativeCtx) c_int {
 
     ctx.vm.push(list.toValue());
 
-    list.items.appendSlice(substr) catch {
+    list.items.appendSlice(ctx.vm.gc.allocator, substr) catch {
         ctx.vm.panic("Out of memory");
         unreachable;
     };

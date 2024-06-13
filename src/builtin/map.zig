@@ -337,9 +337,9 @@ pub fn keys(ctx: *NativeCtx) c_int {
     const self: *ObjMap = ObjMap.cast(ctx.vm.peek(0).obj()).?;
 
     const map_keys = self.map.keys();
-    var result = std.ArrayList(Value).init(ctx.vm.gc.allocator);
+    var result = std.ArrayListUnmanaged(Value){};
     for (map_keys) |key| {
-        result.append(key) catch {
+        result.append(ctx.vm.gc.allocator, key) catch {
             ctx.vm.panic("Out of memory");
             unreachable;
         };
@@ -375,7 +375,7 @@ pub fn keys(ctx: *NativeCtx) c_int {
         unreachable;
     };
 
-    list.items.deinit();
+    list.items.deinit(ctx.vm.gc.allocator);
     list.items = result;
 
     _ = ctx.vm.pop();
@@ -388,8 +388,8 @@ pub fn values(ctx: *NativeCtx) c_int {
     const self: *ObjMap = ObjMap.cast(ctx.vm.peek(0).obj()).?;
 
     const map_values: []Value = self.map.values();
-    var result = std.ArrayList(Value).init(ctx.vm.gc.allocator);
-    result.appendSlice(map_values) catch {
+    var result = std.ArrayListUnmanaged(Value){};
+    result.appendSlice(ctx.vm.gc.allocator, map_values) catch {
         ctx.vm.panic("Out of memory");
         unreachable;
     };
@@ -421,7 +421,7 @@ pub fn values(ctx: *NativeCtx) c_int {
         unreachable;
     };
 
-    list.items.deinit();
+    list.items.deinit(ctx.vm.gc.allocator);
     list.items = result;
 
     ctx.vm.push(list.toValue());
