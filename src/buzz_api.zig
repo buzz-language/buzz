@@ -1346,7 +1346,7 @@ export fn bz_closure(
     // On stack to prevent collection
     ctx.vm.push(closure.toValue());
 
-    ctx.vm.jit.?.compiled_closures.put(closure, {}) catch @panic("Could not get closure");
+    // ctx.vm.jit.?.compiled_functions.put(closure, {}) catch @panic("Could not get closure");
 
     var it = ctx.vm.current_ast.nodes.items(.components)[function_node].Function.upvalue_binding.iterator();
     while (it.next()) |kv| {
