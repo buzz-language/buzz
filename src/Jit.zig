@@ -11,7 +11,6 @@ const ZigType = @import("zigtypes.zig").Type;
 const ExternApi = @import("jit_extern_api.zig").ExternApi;
 const api = @import("lib/buzz_api.zig");
 const io = @import("io.zig");
-const disassembler = @import("disassembler.zig");
 
 pub const Error = error{
     CantCompile,
@@ -41,7 +40,7 @@ const GenState = struct {
     module: m.MIR_module_t,
     prototypes: std.AutoHashMap(ExternApi, m.MIR_item_t),
 
-    // Root closure (not necessarily the one being compiled)
+    /// Root closure (not necessarily the one being compiled)
     closure: *o.ObjClosure,
     opt_jump: ?OptJump = null,
 
@@ -57,16 +56,16 @@ const GenState = struct {
     function_native: ?m.MIR_item_t = null,
     function_native_proto: ?m.MIR_item_t = null,
 
-    // Convenience registers
+    /// Convenience registers
     ctx_reg: ?m.MIR_reg_t = null,
     vm_reg: ?m.MIR_reg_t = null,
 
-    // Avoid register name collisions
+    /// Avoid register name collisions
     registers: std.AutoHashMap([*:0]const u8, usize),
 
-    // Label to jump to when breaking a loop without a label
+    /// Label to jump to when breaking a loop without a label
     break_label: m.MIR_insn_t = null,
-    // Label to jump to when continuing a loop whithout a label
+    /// Label to jump to when continuing a loop whithout a label
     continue_label: m.MIR_insn_t = null,
 
     breaks_label: Breaks,

@@ -53,9 +53,9 @@ current: ?*Frame = null,
 ast: Ast,
 gc: *GarbageCollector,
 flavor: RunFlavor,
-// Jump to patch at end of current expression with a optional unwrapping in the middle of it
+/// Jump to patch at end of current expression with a optional unwrapping in the middle of it
 opt_jumps: ?std.ArrayList(usize) = null,
-// Used to generate error messages
+/// Used to generate error messages
 parser: *Parser,
 jit: ?*JIT,
 
@@ -152,7 +152,7 @@ pub inline fn currentCode(self: *Self) usize {
     return self.current.?.function.?.chunk.code.items.len;
 }
 
-pub fn generate(self: *Self, ast: Ast) anyerror!?*obj.ObjFunction {
+pub fn generate(self: *Self, ast: Ast) Error!?*obj.ObjFunction {
     self.ast = ast;
     self.reporter.had_error = false;
     self.reporter.panic_mode = false;

@@ -71,6 +71,9 @@ pub const Node = struct {
     /// To avoid generating a node const value multiple times
     value: ?Value = null,
 
+    /// How many time it was visited at runtime (used to decide wether its a hotspot that needs to be compiled)
+    count: usize = 0,
+
     pub const Index = u32;
 
     pub const Tag = enum(u8) {

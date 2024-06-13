@@ -121,8 +121,6 @@ const crypto_api = if (is_wasm) std.StaticStringMap(buzz_api.NativeFn).initCompt
     },
 ) else void;
 
-// TODO: other libs
-
 const Self = @This();
 
 extern fn dlerror() [*:0]u8;
@@ -229,10 +227,10 @@ pub const Frame = struct {
     upvalues: [255]UpValue,
     upvalue_count: u8 = 0,
     scope_depth: u32 = 0,
-    // Keep track of the node that introduced the scope (useful for labeled break/continue statements)
+    /// Keep track of the node that introduced the scope (useful for labeled break/continue statements)
     scopes: std.ArrayList(?Ast.Node.Index),
-    // If false, `return` was omitted or within a conditionned block (if, loop, etc.)
-    // We only count `return` emitted within the scope_depth 0 of the current function or unconditionned else statement
+    /// If false, `return` was omitted or within a conditionned block (if, loop, etc.)
+    /// We only count `return` emitted within the scope_depth 0 of the current function or unconditionned else statement
     function_node: Ast.Node.Index,
     function: ?*obj.ObjFunction = null,
     generics: ?*std.AutoArrayHashMap(*obj.ObjString, *obj.ObjTypeDef) = null,
@@ -480,13 +478,13 @@ gc: *GarbageCollector,
 scanner: ?Scanner = null,
 current_token: ?Ast.TokenIndex = null,
 script_name: []const u8 = undefined,
-// If true the script is being imported
+/// If true the script is being imported
 imported: bool = false,
-// True when parsing a declaration inside an export statement
+/// True when parsing a declaration inside an export statement
 exporting: bool = false,
-// Cached imported functions (shared across instances of Parser)
+/// Cached imported functions (shared across instances of Parser)
 imports: *std.StringHashMap(ScriptImport),
-// Keep track of things imported by the current script
+/// Keep track of things imported by the current script
 script_imports: std.StringHashMap(LocalScriptImport),
 test_count: u64 = 0,
 // FIXME: use SinglyLinkedList instead of heap allocated ptrs
@@ -498,7 +496,7 @@ flavor: RunFlavor,
 ffi: FFI,
 reporter: Reporter,
 
-// Jump to patch at end of current expression with a optional unwrapping in the middle of it
+/// Jump to patch at end of current expression with a optional unwrapping in the middle of it
 opt_jumps: ?std.ArrayList(Precedence) = null,
 
 pub fn init(

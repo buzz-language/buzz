@@ -450,7 +450,6 @@ pub const VM = struct {
     globals_count: usize = 0,
     import_registry: *ImportRegistry,
     jit: ?JIT = null,
-    hotspots: std.AutoHashMap(Ast.Node.Index, usize),
     hotspots_count: u128 = 0,
     flavor: RunFlavor,
     reporter: Reporter,
@@ -469,7 +468,6 @@ pub const VM = struct {
                 .allocator = gc.allocator,
             },
             .ffi = if (!is_wasm) FFI.init(gc) else {},
-            .hotspots = std.AutoHashMap(Ast.Node.Index, usize).init(gc.allocator),
         };
     }
 
@@ -477,7 +475,6 @@ pub const VM = struct {
         // TODO: we can't free this because exported closure refer to it
         // self.globals.deinit();
         self.ffi.deinit();
-        self.hotspots.deinit();
     }
 
     pub fn cliArgs(self: *Self, args: ?[][:0]u8) !*ObjList {
@@ -4276,17 +4273,8 @@ pub const VM = struct {
         if (is_wasm) unreachable;
 
         const node = self.readInstruction();
-        const count = (self.hotspots.get(node) orelse 0) + 1;
 
-        self.hotspots.put(
-            node,
-            count,
-        ) catch {
-            self.panic("Out of memory");
-            unreachable;
-        };
-
-        self.hotspots_count += 1;
+        self.current_ast.nodes.items(.count)[node] += 1;
 
         if (self.shouldCompileHotspot(node)) {
             var timer = std.time.Timer.start() catch unreachable;
@@ -4672,7 +4660,7 @@ pub const VM = struct {
                 io.print(
                     "Calling compiled version of function `{s}.{}.n{}`\n",
                     .{
-                        closure.function.name.string,
+                        closure.function.type_def.resolved_type.?.Function.name.string,
                         self.current_ast.nodes.items(.components)[closure.function.node].Function.id,
                         closure.function.node,
                     },
@@ -4755,7 +4743,7 @@ pub const VM = struct {
             io.print(
                 "Calling uncompiled version of function `{s}.{}.n{}`\n",
                 .{
-                    closure.function.name.string,
+                    closure.function.type_def.resolved_type.?.Function.name.string,
                     self.current_ast.nodes.items(.components)[closure.function.node].Function.id,
                     closure.function.node,
                 },
@@ -5155,20 +5143,19 @@ pub const VM = struct {
     }
 
     fn shouldCompileHotspot(self: *Self, node: Ast.Node.Index) bool {
-        if (!self.current_ast.nodes.items(.tag)[node].isHotspot()) {
-            return false;
-        }
+        const count = self.current_ast.nodes.items(.count)[node];
 
-        if (self.jit != null and (self.jit.?.compiled_nodes.get(node) != null or self.jit.?.blacklisted_nodes.get(node) != null)) {
-            return false;
-        }
-
-        const count = self.hotspots.get(node) orelse 0;
-
-        return BuildOptions.jit_always_on or
-            BuildOptions.jit_hotspot_always_on or
+        // JIT is on?
+        return self.jit != null and
+            // JIT compile all the thing?
+            (BuildOptions.jit_always_on or BuildOptions.jit_hotspot_always_on or
+            // Threshold reached
             (count > 10 and
-            (@as(f128, @floatFromInt(count)) / @as(f128, @floatFromInt(self.hotspots_count))) > BuildOptions.jit_prof_threshold);
+            (@as(f128, @floatFromInt(count)) / @as(f128, @floatFromInt(self.hotspots_count))) > BuildOptions.jit_prof_threshold)) and
+            // It qualifies has a hotspot
+            self.current_ast.nodes.items(.tag)[node].isHotspot() and
+            // It's not already done or blacklisted
+            (self.jit.?.compiled_nodes.get(node) == null and self.jit.?.blacklisted_nodes.get(node) == null);
     }
 
     fn patchHotspot(
