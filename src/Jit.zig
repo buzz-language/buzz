@@ -11,6 +11,7 @@ const ZigType = @import("zigtypes.zig").Type;
 const ExternApi = @import("jit_extern_api.zig").ExternApi;
 const api = @import("lib/buzz_api.zig");
 const io = @import("io.zig");
+const disassembler = @import("disassembler.zig");
 
 pub const Error = error{
     CantCompile,
@@ -85,36 +86,30 @@ const Self = @This();
 vm: *VM,
 ctx: m.MIR_context_t,
 state: ?GenState = null,
-// Set of closures being or already compiled
-compiled_closures: std.AutoHashMap(*o.ObjClosure, void),
-// Closures we can't compile (containing async call, or yield)
-blacklisted_closures: std.AutoHashMap(*o.ObjClosure, void),
-// Set of hostpot being already compiled
-compiled_hotspots: std.AutoHashMap(Ast.Node.Index, void),
-// Hotspots we can't comiple (containing async call, or yield)
-blacklisted_hotspots: std.AutoHashMap(Ast.Node.Index, void),
-// MIR doesn't allow generating multiple functions at once, so we keep a set of function to compile
-// Once compiled, the value is set to an array of the native and raw native func_items
+/// Set of closures or hotspots being or already compiled
+compiled_nodes: std.AutoHashMap(Ast.Node.Index, void),
+/// Closures or hotspots we can't compile (containing async call, or yield)
+blacklisted_nodes: std.AutoHashMap(Ast.Node.Index, void),
+/// MIR doesn't allow generating multiple functions at once, so we keep a set of function to compile
+/// Once compiled, the value is set to an array of the native and raw native func_items
 functions_queue: std.AutoHashMap(Ast.Node.Index, ?[2]?m.MIR_item_t),
-// ObjClosures for which we later compiled the function and need to set it's native and native_raw fields
+/// ObjClosures for which we later compiled the function and need to set it's native and native_raw fields
 objclosures_queue: std.AutoHashMap(*o.ObjClosure, void),
-// External api to link
+/// External api to link
 required_ext_api: std.AutoHashMap(ExternApi, void),
-// Modules to load when linking/generating
+/// Modules to load when linking/generating
 modules: std.ArrayList(m.MIR_module_t),
-// Call count of all functions
+/// Call count of all functions
 call_count: u128 = 0,
-// Keeps track of time spent in the JIT
+/// Keeps track of time spent in the JIT
 jit_time: usize = 0,
 
 pub fn init(vm: *VM) Self {
     return .{
         .vm = vm,
         .ctx = m.MIR_init(),
-        .compiled_closures = std.AutoHashMap(*o.ObjClosure, void).init(vm.gc.allocator),
-        .compiled_hotspots = std.AutoHashMap(Ast.Node.Index, void).init(vm.gc.allocator),
-        .blacklisted_closures = std.AutoHashMap(*o.ObjClosure, void).init(vm.gc.allocator),
-        .blacklisted_hotspots = std.AutoHashMap(Ast.Node.Index, void).init(vm.gc.allocator),
+        .compiled_nodes = std.AutoHashMap(Ast.Node.Index, void).init(vm.gc.allocator),
+        .blacklisted_nodes = std.AutoHashMap(Ast.Node.Index, void).init(vm.gc.allocator),
         .functions_queue = std.AutoHashMap(Ast.Node.Index, ?[2]?m.MIR_item_t).init(vm.gc.allocator),
         .objclosures_queue = std.AutoHashMap(*o.ObjClosure, void).init(vm.gc.allocator),
         .required_ext_api = std.AutoHashMap(ExternApi, void).init(vm.gc.allocator),
@@ -123,10 +118,8 @@ pub fn init(vm: *VM) Self {
 }
 
 pub fn deinit(self: *Self) void {
-    self.compiled_closures.deinit();
-    self.compiled_hotspots.deinit();
-    self.blacklisted_closures.deinit();
-    self.blacklisted_hotspots.deinit();
+    self.compiled_nodes.deinit();
+    self.blacklisted_nodes.deinit();
     // std.debug.assert(self.functions_queue.count() == 0);
     self.functions_queue.deinit();
     // std.debug.assert(self.objclosures_queue.count() == 0);
@@ -168,7 +161,7 @@ pub fn compileFunction(self: *Self, ast: Ast, closure: *o.ObjClosure) Error!void
         }
         _ = self.functions_queue.remove(ast_node);
         _ = self.objclosures_queue.remove(closure);
-        try self.blacklisted_closures.put(closure, {});
+        try self.blacklisted_nodes.put(closure.function.node, {});
 
         return error.CantCompile;
     }
@@ -247,7 +240,7 @@ pub fn compileHotSpot(self: *Self, ast: Ast, closure: *o.ObjClosure, hotspot_nod
             );
         }
 
-        try self.blacklisted_hotspots.put(hotspot_node, {});
+        try self.blacklisted_nodes.put(hotspot_node, {});
 
         return error.CantCompile;
     }
@@ -372,7 +365,7 @@ fn buildFunction(self: *Self, ast: Ast, closure: ?*o.ObjClosure, ast_node: Ast.N
     self.state.?.module = module;
 
     if (closure) |uclosure| {
-        try self.compiled_closures.put(uclosure, {});
+        try self.compiled_nodes.put(uclosure.function.node, {});
 
         if (BuildOptions.jit_debug) {
             io.print(
@@ -384,16 +377,26 @@ fn buildFunction(self: *Self, ast: Ast, closure: ?*o.ObjClosure, ast_node: Ast.N
                 },
             );
         }
-    } else if (tag.isHotspot()) {
-        try self.compiled_hotspots.put(ast_node, {});
     } else {
+        try self.compiled_nodes.put(ast_node, {});
+
         if (BuildOptions.jit_debug) {
-            io.print(
-                "Compiling closure `{s}`\n",
-                .{
-                    qualified_name.items,
-                },
-            );
+            if (tag.isHotspot()) {
+                io.print(
+                    "Compiling hotspot for node {s} {}\n",
+                    .{
+                        @tagName(self.state.?.ast.nodes.items(.tag)[ast_node]),
+                        ast_node,
+                    },
+                );
+            } else {
+                io.print(
+                    "Compiling closure `{s}`\n",
+                    .{
+                        qualified_name.items,
+                    },
+                );
+            }
         }
     }
 
@@ -411,7 +414,7 @@ fn buildFunction(self: *Self, ast: Ast, closure: ?*o.ObjClosure, ast_node: Ast.N
             _ = self.functions_queue.remove(ast_node);
             if (closure) |uclosure| {
                 _ = self.objclosures_queue.remove(uclosure);
-                try self.blacklisted_closures.put(uclosure, {});
+                try self.blacklisted_nodes.put(uclosure.function.node, {});
             }
         }
 
@@ -1707,8 +1710,8 @@ fn generateNamedVariable(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
                 const closure = o.ObjClosure.cast(self.state.?.closure.globals.items[components.slot].obj()).?;
 
                 // Does it need to be compiled?
-                if (self.compiled_closures.get(closure) == null) {
-                    if (self.blacklisted_closures.get(closure) != null) {
+                if (self.compiled_nodes.get(closure.function.node) == null) {
+                    if (self.blacklisted_nodes.get(closure.function.node) != null) {
                         return Error.CantCompile;
                     }
 
@@ -4570,7 +4573,7 @@ fn generateHotspotFunction(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t 
 
             m.MIR_finish_func(self.ctx);
 
-            try self.blacklisted_hotspots.put(self.state.?.ast_node, {});
+            try self.blacklisted_nodes.put(self.state.?.ast_node, {});
         }
 
         return err;
@@ -4788,7 +4791,13 @@ fn getQualifiedName(self: *Self, node: Ast.Node.Index, raw: bool) !std.ArrayList
 
             // Don't qualify extern functions
             if (function_type != .Extern) {
-                try qualified_name.writer().print(".{}", .{components.id});
+                try qualified_name.writer().print(
+                    ".{}.n{}",
+                    .{
+                        components.id,
+                        node,
+                    },
+                );
             }
             if (function_type != .Extern and raw) {
                 try qualified_name.appendSlice(".raw");

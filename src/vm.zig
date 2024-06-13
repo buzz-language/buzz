@@ -4345,7 +4345,7 @@ pub const VM = struct {
                 };
             } else {
                 // Blacklist the node
-                self.jit.?.blacklisted_hotspots.put(node, {}) catch {
+                self.jit.?.blacklisted_nodes.put(node, {}) catch {
                     self.panic("Out of memory");
                     unreachable;
                 };
@@ -4670,7 +4670,14 @@ pub const VM = struct {
         // Is there a compiled version of it?
         if (native != null) {
             if (BuildOptions.jit_debug) {
-                io.print("Calling compiled version of function `{s}`\n", .{closure.function.name.string});
+                io.print(
+                    "Calling compiled version of function `{s}.{}.n{}`\n",
+                    .{
+                        closure.function.name.string,
+                        self.current_ast.nodes.items(.components)[closure.function.node].Function.id,
+                        closure.function.node,
+                    },
+                );
             }
 
             try self.callCompiled(
@@ -4746,7 +4753,14 @@ pub const VM = struct {
         self.current_fiber.frame_count += 1;
 
         if (BuildOptions.jit_debug) {
-            io.print("Calling uncompiled version of function `{s}`\n", .{closure.function.name.string});
+            io.print(
+                "Calling uncompiled version of function `{s}.{}.n{}`\n",
+                .{
+                    closure.function.name.string,
+                    self.current_ast.nodes.items(.components)[closure.function.node].Function.id,
+                    closure.function.node,
+                },
+            );
         }
     }
 
@@ -5113,11 +5127,20 @@ pub const VM = struct {
     fn shouldCompileFunction(self: *Self, closure: *ObjClosure) bool {
         const function_type = closure.function.type_def.resolved_type.?.Function.function_type;
 
-        if (function_type == .Extern or function_type == .Script or function_type == .ScriptEntryPoint or function_type == .EntryPoint or function_type == .Repl) {
-            return false;
+        switch (function_type) {
+            .Extern,
+            .Script,
+            .ScriptEntryPoint,
+            .EntryPoint,
+            .Repl,
+            => return false,
+            else => {},
         }
 
-        if (self.jit != null and (self.jit.?.compiled_closures.get(closure) != null or self.jit.?.blacklisted_closures.get(closure) != null)) {
+        if (self.jit != null and
+            (self.jit.?.compiled_nodes.get(closure.function.node) != null or
+            self.jit.?.blacklisted_nodes.get(closure.function.node) != null))
+        {
             return false;
         }
 
@@ -5137,7 +5160,7 @@ pub const VM = struct {
             return false;
         }
 
-        if (self.jit != null and (self.jit.?.compiled_hotspots.get(node) != null or self.jit.?.blacklisted_hotspots.get(node) != null)) {
+        if (self.jit != null and (self.jit.?.compiled_nodes.get(node) != null or self.jit.?.blacklisted_nodes.get(node) != null)) {
             return false;
         }
 
