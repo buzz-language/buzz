@@ -543,11 +543,11 @@ pub const Obj = struct {
             },
             .Closure => try writer.print("closure: 0x{x} `{s}`", .{
                 @intFromPtr(ObjClosure.cast(obj).?),
-                ObjClosure.cast(obj).?.function.name.string,
+                ObjClosure.cast(obj).?.function.type_def.resolved_type.?.Function.name.string,
             }),
             .Function => try writer.print("function: 0x{x} `{s}`", .{
                 @intFromPtr(ObjFunction.cast(obj).?),
-                ObjFunction.cast(obj).?.name.string,
+                ObjFunction.cast(obj).?.type_def.resolved_type.?.Function.name.string,
             }),
             .ObjectInstance => {
                 const instance = ObjObjectInstance.cast(obj).?;
@@ -648,7 +648,7 @@ pub const Obj = struct {
                 const bound: *ObjBoundMethod = ObjBoundMethod.cast(obj).?;
 
                 if (bound.closure) |closure| {
-                    const closure_name: []const u8 = closure.function.name.string;
+                    const closure_name: []const u8 = closure.function.type_def.resolved_type.?.Function.name.string;
                     try writer.writeAll("bound method: ");
 
                     try (bound.receiver).toString(writer);
@@ -1267,7 +1267,6 @@ pub const ObjFunction = struct {
 
     type_def: *ObjTypeDef = undefined, // Undefined because function initialization is in several steps
 
-    name: *ObjString,
     chunk: Chunk,
     upvalue_count: u8 = 0,
 
@@ -1282,9 +1281,8 @@ pub const ObjFunction = struct {
     // JIT compiled function callable by buzz VM
     native: ?*anyopaque = null,
 
-    pub fn init(allocator: Allocator, ast: Ast, node: Ast.Node.Index, name: *ObjString) !Self {
+    pub fn init(allocator: Allocator, ast: Ast, node: Ast.Node.Index) !Self {
         return Self{
-            .name = name,
             .node = node,
             .chunk = Chunk.init(allocator, ast),
         };
@@ -1295,7 +1293,6 @@ pub const ObjFunction = struct {
     }
 
     pub fn mark(self: *Self, gc: *GarbageCollector) !void {
-        try gc.markObj(self.name.toObj());
         try gc.markObj(@constCast(self.type_def.toObj()));
         if (BuildOptions.gc_debug) {
             io.print("MARKING CONSTANTS OF FUNCTION @{} {s}\n", .{ @intFromPtr(self), self.name.string });

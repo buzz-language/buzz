@@ -2220,7 +2220,6 @@ fn generateFunction(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?
         self.gc.allocator,
         self.ast,
         node,
-        node_type_def.resolved_type.?.Function.name,
     );
 
     function.type_def = node_type_def;

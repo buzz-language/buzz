@@ -4558,6 +4558,7 @@ pub const VM = struct {
             var writer = msg.writer();
 
             if (next) |unext| {
+                const function_name = unext.closure.function.type_def.resolved_type.?.Function.name.string;
                 writer.print(
                     "\t{s} in \x1b[36m{s}\x1b[0m at {s}",
                     .{
@@ -4568,9 +4569,9 @@ pub const VM = struct {
                         else
                             "  ╰─",
                         if (unext.closure.function.type_def.resolved_type.?.Function.function_type == .Test)
-                            unext.closure.function.name.string[(std.mem.indexOfScalar(u8, unext.closure.function.name.string, ' ').? + 1)..]
+                            function_name[(std.mem.indexOfScalar(u8, function_name, ' ').? + 1)..]
                         else
-                            unext.closure.function.name.string,
+                            function_name,
                         if (frame.call_site) |call_site|
                             self.current_ast.tokens.items(.script_name)[call_site]
                         else
