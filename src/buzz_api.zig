@@ -596,10 +596,14 @@ export fn bz_mapConcat(vm: *VM, map: Value, other_map: Value) Value {
     const left: *ObjMap = ObjMap.cast(map.obj()).?;
     const right: *ObjMap = ObjMap.cast(other_map.obj()).?;
 
-    var new_map = left.map.clone() catch @panic("Could not concatenate maps");
+    var new_map = left.map.clone(vm.gc.allocator) catch @panic("Could not concatenate maps");
     var it = right.map.iterator();
     while (it.next()) |entry| {
-        new_map.put(entry.key_ptr.*, entry.value_ptr.*) catch @panic("Could not concatenate maps");
+        new_map.put(
+            vm.gc.allocator,
+            entry.key_ptr.*,
+            entry.value_ptr.*,
+        ) catch @panic("Could not concatenate maps");
     }
 
     return (vm.gc.allocateObject(ObjMap, ObjMap{

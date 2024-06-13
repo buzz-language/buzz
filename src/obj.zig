@@ -153,11 +153,13 @@ pub const Obj = struct {
                 ) catch return error.OutOfMemory;
 
                 serialized_range.map.put(
+                    vm.gc.allocator,
                     (vm.gc.copyString("low") catch return error.OutOfMemory).toValue(),
                     Value.fromInteger(range.low),
                 ) catch return error.OutOfMemory;
 
                 serialized_range.map.put(
+                    vm.gc.allocator,
                     (vm.gc.copyString("high") catch return error.OutOfMemory).toValue(),
                     Value.fromInteger(range.high),
                 ) catch return error.OutOfMemory;
@@ -2910,14 +2912,14 @@ pub const ObjMap = struct {
     type_def: *ObjTypeDef,
 
     // We need an ArrayHashMap for `next`
-    map: std.AutoArrayHashMap(Value, Value),
+    map: std.AutoArrayHashMapUnmanaged(Value, Value),
 
     methods: []?*ObjNative,
 
     pub fn init(allocator: Allocator, type_def: *ObjTypeDef) !Self {
         const self = Self{
             .type_def = type_def,
-            .map = std.AutoArrayHashMap(Value, Value).init(allocator),
+            .map = std.AutoArrayHashMapUnmanaged(Value, Value){},
             .methods = try allocator.alloc(
                 ?*ObjNative,
                 Self.members.len,
@@ -2932,7 +2934,11 @@ pub const ObjMap = struct {
     }
 
     pub fn set(self: *Self, gc: *GarbageCollector, key: Value, value: Value) !void {
-        try self.map.put(key, value);
+        try self.map.put(
+            gc.allocator,
+            key,
+            value,
+        );
         try gc.markObjDirty(&self.obj);
     }
 
@@ -3022,7 +3028,7 @@ pub const ObjMap = struct {
     }
 
     pub fn deinit(self: *Self, allocator: Allocator) void {
-        self.map.deinit();
+        self.map.deinit(allocator);
         allocator.free(self.methods);
     }
 
@@ -4947,7 +4953,7 @@ pub fn cloneObject(obj: *Obj, vm: *VM) !Value {
                 ObjMap,
                 .{
                     .type_def = map.type_def,
-                    .map = try map.map.clone(),
+                    .map = try map.map.clone(vm.gc.allocator),
                     .methods = map.methods,
                 },
             )).toValue();
