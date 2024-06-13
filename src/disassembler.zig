@@ -545,7 +545,7 @@ pub const DumpState = struct {
                         "enum({s}) {s} {{\n",
                         .{
                             enum_value_type_def.items,
-                            enumeration.name.string,
+                            enum_type_def.name.string,
                         },
                     ) catch unreachable;
                     state.tab += 1;

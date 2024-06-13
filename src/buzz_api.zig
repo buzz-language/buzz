@@ -229,7 +229,13 @@ fn valueDump(value: Value, vm: *VM, seen: *std.AutoHashMap(*_obj.Obj, void), dep
                 const enumeration = ObjEnum.cast(value.obj()).?;
                 const enum_type_def = enumeration.type_def.resolved_type.?.Enum;
 
-                io.print("enum({s}) {s} {{ ", .{ enum_type_def.name.string, enumeration.name.string });
+                io.print(
+                    "enum({s}) {s} {{ ",
+                    .{
+                        enum_type_def.name.string,
+                        enum_type_def.name.string,
+                    },
+                );
                 for (enum_type_def.cases.items, 0..) |case, i| {
                     io.print("{s} -> ", .{case});
                     valueDump(enumeration.cases[i], vm, seen, depth);

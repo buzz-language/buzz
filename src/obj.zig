@@ -630,14 +630,14 @@ pub const Obj = struct {
             },
             .Enum => try writer.print("enum: 0x{x} `{s}`", .{
                 @intFromPtr(ObjEnum.cast(obj).?),
-                ObjEnum.cast(obj).?.name.string,
+                ObjEnum.cast(obj).?.type_def.resolved_type.?.Enum.name.string,
             }),
             .EnumInstance => enum_instance: {
                 const instance: *ObjEnumInstance = ObjEnumInstance.cast(obj).?;
                 const enum_: *ObjEnum = instance.enum_ref;
 
                 break :enum_instance try writer.print("{s}.{s}", .{
-                    enum_.name.string,
+                    enum_.type_def.resolved_type.?.Enum.name.string,
                     enum_.type_def.resolved_type.?.Enum.cases.items[instance.case],
                 });
             },
@@ -3744,19 +3744,16 @@ pub const ObjEnum = struct {
     /// Used to allow type checking at runtime
     type_def: *ObjTypeDef,
 
-    name: *ObjString,
     cases: []Value,
 
     pub fn init(def: *ObjTypeDef) Self {
         return Self{
             .type_def = def,
-            .name = def.resolved_type.?.Enum.name,
             .cases = undefined,
         };
     }
 
     pub fn mark(self: *Self, gc: *GarbageCollector) !void {
-        try gc.markObj(self.name.toObj());
         try gc.markObj(@constCast(self.type_def.toObj()));
         for (self.cases) |case| {
             try gc.markValue(case);
