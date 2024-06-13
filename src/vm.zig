@@ -2796,15 +2796,12 @@ pub const VM = struct {
         );
     }
 
-    fn OP_OBJECT(self: *Self, _: *CallFrame, _: u32, _: OpCode, arg: u24) void {
+    fn OP_OBJECT(self: *Self, _: *CallFrame, _: u32, _: OpCode, type_def_constant: u24) void {
         var object: *ObjObject = self.gc.allocateObject(
             ObjObject,
             ObjObject.init(
                 self.gc.allocator,
-                self.readConstant(arg).obj().access(ObjString, .String, self.gc).?,
-                self.readConstant(
-                    @intCast(self.readInstruction()),
-                )
+                self.readConstant(type_def_constant)
                     .obj().access(ObjTypeDef, .Type, self.gc).?,
             ) catch {
                 self.panic("Out of memory");

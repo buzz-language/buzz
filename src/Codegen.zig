@@ -2948,12 +2948,8 @@ fn generateObjectDeclaration(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks
         }
     }
 
-    const name_constant = try self.makeConstant(object_def.name.toValue());
-    const object_type_constant = try self.makeConstant(object_type.toValue());
-
     // Put  object on the stack and define global with it
-    try self.emitCodeArg(location, .OP_OBJECT, name_constant);
-    try self.emit(location, @intCast(object_type_constant));
+    try self.emitCodeArg(location, .OP_OBJECT, try self.makeConstant(object_type.toValue()));
     try self.emitCodeArg(location, .OP_DEFINE_GLOBAL, @intCast(components.slot));
 
     // Put the object on the stack to set its fields

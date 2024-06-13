@@ -557,7 +557,7 @@ pub const Obj = struct {
                         "object instance: 0x{x} `{s}`",
                         .{
                             @intFromPtr(instance),
-                            object.name.string,
+                            object.type_def.resolved_type.?.Object.name.string,
                         },
                     );
                 } else {
@@ -588,10 +588,13 @@ pub const Obj = struct {
                     try writer.writeAll("}");
                 }
             },
-            .Object => try writer.print("object: 0x{x} `{s}`", .{
-                @intFromPtr(ObjObject.cast(obj).?),
-                ObjObject.cast(obj).?.name.string,
-            }),
+            .Object => try writer.print(
+                "object: 0x{x} `{s}`",
+                .{
+                    @intFromPtr(ObjObject.cast(obj).?),
+                    ObjObject.cast(obj).?.type_def.resolved_type.?.Object.name.string,
+                },
+            ),
             .Range => {
                 const range = ObjRange.cast(obj).?;
 
@@ -1566,8 +1569,6 @@ pub const ObjObject = struct {
 
     type_def: *ObjTypeDef,
 
-    /// Object name
-    name: *ObjString,
     /// Static fields and methods
     fields: []Value,
     /// Properties default values (null if none)
@@ -1576,9 +1577,8 @@ pub const ObjObject = struct {
     /// To avoid counting object fields that are instance properties
     property_count: ?usize = 0,
 
-    pub fn init(allocator: Allocator, name: *ObjString, type_def: *ObjTypeDef) !Self {
+    pub fn init(allocator: Allocator, type_def: *ObjTypeDef) !Self {
         const self = Self{
-            .name = name,
             .fields = try allocator.alloc(
                 Value,
                 type_def.resolved_type.?.Object.fields.count(),
@@ -1629,7 +1629,6 @@ pub const ObjObject = struct {
 
     pub fn mark(self: *Self, gc: *GarbageCollector) !void {
         try gc.markObj(@constCast(self.type_def.toObj()));
-        try gc.markObj(self.name.toObj());
 
         for (self.fields) |field| {
             try gc.markValue(field);
