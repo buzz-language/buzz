@@ -1459,6 +1459,7 @@ pub const VM = struct {
             switch (err) {
                 Error.RuntimeError => return,
                 else => {
+                    std.debug.print("{}\n", .{err});
                     self.panic("Out of memory");
                     unreachable;
                 },
@@ -2423,11 +2424,11 @@ pub const VM = struct {
         );
     }
 
-    fn OP_GET_LIST_SUBSCRIPT(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
+    fn OP_GET_LIST_SUBSCRIPT(self: *Self, _: *CallFrame, _: u32, _: OpCode, checked: u24) void {
         const list = self.peek(1).obj().access(ObjList, .List, self.gc).?;
         const index = self.peek(0).integer();
 
-        if (index < 0) {
+        if (checked == 0 and index < 0) {
             self.throw(
                 Error.OutOfBound,
                 (self.gc.copyString("Out of bound list access.") catch {
@@ -2449,7 +2450,7 @@ pub const VM = struct {
 
         const list_index: usize = @intCast(index);
 
-        if (list_index >= list.items.items.len) {
+        if (checked == 0 and list_index >= list.items.items.len) {
             self.throw(
                 Error.OutOfBound,
                 (self.gc.copyString("Out of bound list access.") catch {
@@ -2471,7 +2472,10 @@ pub const VM = struct {
             return;
         }
 
-        const list_item = list.items.items[list_index];
+        const list_item = if (list_index >= list.items.items.len or list_index < 0)
+            Value.Null
+        else
+            list.items.items[list_index];
 
         // Pop list and index
         _ = self.pop();
@@ -2523,11 +2527,11 @@ pub const VM = struct {
         );
     }
 
-    fn OP_GET_STRING_SUBSCRIPT(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
+    fn OP_GET_STRING_SUBSCRIPT(self: *Self, _: *CallFrame, _: u32, _: OpCode, checked: u24) void {
         const str = self.peek(1).obj().access(ObjString, .String, self.gc).?;
         const index = self.peek(0).integer();
 
-        if (index < 0) {
+        if (checked == 0 and index < 0) {
             self.throw(
                 Error.OutOfBound,
                 (self.gc.copyString("Out of bound string access.") catch {
@@ -2549,19 +2553,7 @@ pub const VM = struct {
 
         const str_index: usize = @intCast(index);
 
-        if (str_index < str.string.len) {
-            const str_item = (self.gc.copyString(&([_]u8{str.string[str_index]})) catch {
-                self.panic("Out of memory");
-                unreachable;
-            }).toValue();
-
-            // Pop str and index
-            _ = self.pop();
-            _ = self.pop();
-
-            // Push value
-            self.push(str_item);
-        } else {
+        if (checked == 0 and str_index >= str.string.len) {
             self.throw(
                 Error.OutOfBound,
                 (self.gc.copyString("Out of bound str access.") catch {
@@ -2579,6 +2571,21 @@ pub const VM = struct {
                     },
                 }
             };
+        } else {
+            const str_item = if (str_index < 0 or str_index >= str.string.len)
+                Value.Null
+            else
+                (self.gc.copyString(&([_]u8{str.string[str_index]})) catch {
+                    self.panic("Out of memory");
+                    unreachable;
+                }).toValue();
+
+            // Pop str and index
+            _ = self.pop();
+            _ = self.pop();
+
+            // Push value
+            self.push(str_item);
         }
 
         const next_full_instruction: u32 = self.readInstruction();

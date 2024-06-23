@@ -159,7 +159,11 @@ pub export fn execute(ctx: *api.NativeCtx) c_int {
     const len = argv.bz_listLen();
     var i: usize = 0;
     while (i < len) : (i += 1) {
-        const arg = api.ObjList.bz_listGet(argv_value, i);
+        const arg = api.ObjList.bz_listGet(
+            argv_value,
+            @intCast(i),
+            false,
+        );
         var arg_len: usize = 0;
         var arg_str = arg.bz_valueToString(&arg_len);
 

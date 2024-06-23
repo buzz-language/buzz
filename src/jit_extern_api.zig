@@ -103,7 +103,7 @@ pub const ExternApi = enum {
                 self.pname(),
                 1,
                 &[_]m.MIR_type_t{m.MIR_T_U64},
-                3,
+                4,
                 &[_]m.MIR_var_t{
                     .{
                         .type = m.MIR_T_P,
@@ -118,6 +118,11 @@ pub const ExternApi = enum {
                     .{
                         .type = m.MIR_T_U64,
                         .name = "index_value",
+                        .size = undefined,
+                    },
+                    .{
+                        .type = m.MIR_T_U8,
+                        .name = "checked",
                         .size = undefined,
                     },
                 },
@@ -218,7 +223,31 @@ pub const ExternApi = enum {
                     },
                 },
             ),
-            .bz_listGet, .bz_mapGet => m.MIR_new_proto_arr(
+            .bz_listGet => m.MIR_new_proto_arr(
+                ctx,
+                self.pname(),
+                1,
+                &[_]m.MIR_type_t{m.MIR_T_U64},
+                3,
+                &[_]m.MIR_var_t{
+                    .{
+                        .type = m.MIR_T_U64,
+                        .name = "list",
+                        .size = undefined,
+                    },
+                    .{
+                        .type = m.MIR_T_I32,
+                        .name = "index",
+                        .size = undefined,
+                    },
+                    .{
+                        .type = m.MIR_T_U8,
+                        .name = "checked",
+                        .size = undefined,
+                    },
+                },
+            ),
+            .bz_mapGet => m.MIR_new_proto_arr(
                 ctx,
                 self.pname(),
                 1,

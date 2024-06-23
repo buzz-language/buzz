@@ -537,6 +537,24 @@ fn generateBinary(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*o
         else => unreachable,
     }
 
+    if (components.operator != .QuestionQuestion and components.operator != .EqualEqual and components.operator != .BangEqual) {
+        if (left_type.optional) {
+            self.reporter.reportErrorAt(
+                .binary_operand_type,
+                self.ast.tokens.get(locations[components.left]),
+                "Binary operand can't be optional",
+            );
+        }
+
+        if (right_type.optional) {
+            self.reporter.reportErrorAt(
+                .binary_operand_type,
+                self.ast.tokens.get(locations[components.right]),
+                "Binary operand can't be optional",
+            );
+        }
+    }
+
     switch (components.operator) {
         .QuestionQuestion => {
             if (!left_type.optional) {
@@ -3569,7 +3587,11 @@ fn generateSubscript(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!
 
         try self.emitOpCode(location, set_code);
     } else {
-        try self.emitOpCode(location, get_code);
+        try self.emitCodeArg(
+            location,
+            get_code,
+            if (components.checked) 1 else 0,
+        );
     }
 
     try self.patchOptJumps(node);

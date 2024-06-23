@@ -3303,6 +3303,7 @@ fn subscript(self: *Self, can_assign: bool, subscripted: Ast.Node.Index) Error!A
     const start_location = self.current_token.? - 1;
 
     const subscript_type_def = self.ast.nodes.items(.type_def)[subscripted];
+    const checked = try self.match(.Question);
     const index = try self.expression(false);
     const index_type_def = self.ast.nodes.items(.type_def)[index];
 
@@ -3321,13 +3322,15 @@ fn subscript(self: *Self, can_assign: bool, subscripted: Ast.Node.Index) Error!A
         if (!type_def.optional) {
             switch (type_def.def_type) {
                 .Placeholder => {
-                    const placeholder_resolved_type: obj.ObjTypeDef.TypeUnion = .{
-                        .Placeholder = obj.PlaceholderDef.init(self.gc.allocator, self.current_token.? - 1),
-                    };
                     const placeholder = try self.gc.type_registry.getTypeDef(
                         .{
                             .def_type = .Placeholder,
-                            .resolved_type = placeholder_resolved_type,
+                            .resolved_type = .{
+                                .Placeholder = obj.PlaceholderDef.init(
+                                    self.gc.allocator,
+                                    self.current_token.? - 1,
+                                ),
+                            },
                         },
                     );
 
@@ -3366,12 +3369,16 @@ fn subscript(self: *Self, can_assign: bool, subscripted: Ast.Node.Index) Error!A
             .tag = .Subscript,
             .location = start_location,
             .end_location = self.current_token.? - 1,
-            .type_def = subscripted_type_def,
+            .type_def = if (subscripted_type_def != null and checked)
+                try subscripted_type_def.?.cloneOptional(&self.gc.type_registry)
+            else
+                subscripted_type_def,
             .components = .{
                 .Subscript = .{
                     .index = index,
                     .value = value,
                     .subscripted = subscripted,
+                    .checked = checked,
                 },
             },
         },

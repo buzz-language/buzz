@@ -1,0 +1,14 @@
+import "std";
+
+test "List checked subscript" {
+    var list = [1, 2, 3];
+    std.assert(list[?10] is int?);
+    std.assert(list[?10] == null);
+    std.assert(list[?0] == 1);
+}
+
+test "String checked subscript" {
+    std.assert("hello"[?10] is str?);
+    std.assert("hello"[?10] == null);
+    std.assert("hello"[?0] == "h");
+}

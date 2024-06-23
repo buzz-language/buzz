@@ -9,6 +9,14 @@ const tuple = .{ "john", "james" };
 
 tuples.@"0" == "john";
 ```
+- Checked subscript access to list and strings:
+```buzz
+var list = [1, 2, 3];
+
+list[?10] == null;
+
+"hello"[?20] == null;
+```
 
 ## Modified
 - Enum can now have `rg`, `ud`, `void`, `pat` has value type

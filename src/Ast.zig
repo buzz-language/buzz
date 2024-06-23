@@ -655,6 +655,7 @@ pub const Subscript = struct {
     subscripted: Node.Index,
     index: Node.Index,
     value: ?Node.Index,
+    checked: bool,
 };
 
 pub const Throw = struct {
@@ -1203,6 +1204,10 @@ pub fn toValue(self: Self, node: Node.Index, gc: *GarbageCollector) Error!Value 
                         const index: usize = @intCast(key.integer());
 
                         if (index < 0 or index >= list.items.items.len) {
+                            if (components.checked) {
+                                break :subscript Value.Null;
+                            }
+
                             return Error.OutOfBound;
                         }
 
@@ -1218,6 +1223,10 @@ pub fn toValue(self: Self, node: Node.Index, gc: *GarbageCollector) Error!Value 
                         const index: usize = @intCast(key.integer());
 
                         if (index < 0 or index >= str.string.len) {
+                            if (components.checked) {
+                                break :subscript Value.Null;
+                            }
+
                             return Error.OutOfBound;
                         }
 

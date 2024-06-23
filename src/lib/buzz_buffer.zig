@@ -519,7 +519,11 @@ inline fn rawWriteZ(
 
     var index = at;
     for (0..values.bz_listLen()) |i| {
-        const value = api.ObjList.bz_listGet(values_value, i);
+        const value = api.ObjList.bz_listGet(
+            values_value,
+            @intCast(i),
+            false,
+        );
 
         if (!ctx.vm.bz_checkBuzzType(value, zig_type.?, obj_typedef)) {
             return false;
@@ -591,7 +595,11 @@ inline fn rawWriteStruct(
 
     var index = at;
     for (0..values.bz_listLen()) |i| {
-        const value = api.ObjList.bz_listGet(values_value, i);
+        const value = api.ObjList.bz_listGet(
+            values_value,
+            @intCast(i),
+            false,
+        );
 
         if (!value.bz_valueIs(type_def_value).boolean()) {
             var msg = std.ArrayList(u8).init(api.VM.allocator);

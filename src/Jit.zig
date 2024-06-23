@@ -3567,6 +3567,10 @@ fn generateSubscript(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
                 &[_]m.MIR_op_t{
                     subscripted,
                     index,
+                    m.MIR_new_uint_op(
+                        self.ctx,
+                        if (components.checked) 1 else 0,
+                    ),
                 },
             );
 
@@ -3585,6 +3589,10 @@ fn generateSubscript(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
                     m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
                     subscripted,
                     index_val,
+                    m.MIR_new_uint_op(
+                        self.ctx,
+                        if (components.checked) 1 else 0,
+                    ),
                 },
             );
 

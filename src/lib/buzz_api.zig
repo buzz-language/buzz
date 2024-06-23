@@ -324,7 +324,7 @@ pub const ObjString = opaque {
     pub extern fn bz_objStringToString(obj_string: *ObjString, len: *usize) ?[*]const u8;
     pub extern fn bz_objStringToValue(obj_string: *ObjString) Value;
     pub extern fn bz_objStringConcat(vm: *VM, obj_string: Value, other: Value) Value;
-    pub extern fn bz_objStringSubscript(vm: *VM, obj_string: Value, index_value: Value) Value;
+    pub extern fn bz_objStringSubscript(vm: *VM, obj_string: Value, index_value: Value, checked: bool) Value;
     pub extern fn bz_toString(vm: *VM, value: Value) Value;
     pub extern fn bz_getStringProperty(vm: *VM, method_idx: usize) Value;
     pub extern fn bz_stringNext(vm: *VM, string_value: Value, index: *Value) Value;
@@ -340,7 +340,7 @@ pub const ObjList = opaque {
     pub extern fn bz_newList(vm: *VM, of_type: Value) Value;
     pub extern fn bz_listAppend(vm: *VM, list: Value, value: Value) void;
     pub extern fn bz_valueToList(value: Value) *ObjList;
-    pub extern fn bz_listGet(self: Value, index: usize) Value;
+    pub extern fn bz_listGet(self: Value, index: i32, checked: bool) Value;
     pub extern fn bz_listSet(vm: *VM, self: Value, index: usize, value: Value) void;
     pub extern fn bz_listLen(self: *ObjList) usize;
     pub extern fn bz_listConcat(vm: *VM, list: Value, other_list: Value) Value;

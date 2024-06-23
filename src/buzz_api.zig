@@ -426,11 +426,15 @@ export fn bz_objStringConcat(vm: *VM, obj_string: Value, other: Value) Value {
     ) catch @panic("Could not concat strings")).toValue();
 }
 
-export fn bz_objStringSubscript(vm: *VM, obj_string: Value, index_value: Value) Value {
+export fn bz_objStringSubscript(vm: *VM, obj_string: Value, index_value: Value, checked: bool) Value {
     const str = ObjString.cast(obj_string.obj()).?;
     const index = index_value.integer();
 
     if (index < 0) {
+        if (checked) {
+            return Value.Null;
+        }
+
         bz_throw(
             vm,
             (vm.gc.copyString("Out of bound string access.") catch unreachable).toValue(),
@@ -444,6 +448,10 @@ export fn bz_objStringSubscript(vm: *VM, obj_string: Value, index_value: Value) 
     if (str_index < str.string.len) {
         return (vm.gc.copyString(&([_]u8{str.string[str_index]})) catch unreachable).toValue();
     } else {
+        if (checked) {
+            return Value.Null;
+        }
+
         bz_throw(
             vm,
             (vm.gc.copyString("Out of bound str access.") catch unreachable).toValue(),
@@ -564,8 +572,18 @@ export fn bz_valueToList(value: Value) *ObjList {
     return ObjList.cast(value.obj()).?;
 }
 
-export fn bz_listGet(self: Value, index: usize) Value {
-    return ObjList.cast(self.obj()).?.items.items[index];
+export fn bz_listGet(self: Value, index: i32, checked: bool) Value {
+    const list = ObjList.cast(self.obj()).?;
+
+    if (index < 0 or index >= list.items.items.len) {
+        if (checked) {
+            return Value.Null;
+        } else {
+            @panic("Out of bound list access.");
+        }
+    }
+
+    return list.items.items[@intCast(index)];
 }
 
 export fn bz_listSet(vm: *VM, self: Value, index: usize, value: Value) void {
