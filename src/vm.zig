@@ -1459,7 +1459,6 @@ pub const VM = struct {
             switch (err) {
                 Error.RuntimeError => return,
                 else => {
-                    std.debug.print("{}\n", .{err});
                     self.panic("Out of memory");
                     unreachable;
                 },

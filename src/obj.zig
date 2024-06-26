@@ -60,7 +60,7 @@ pub const Obj = struct {
     is_marked: bool = false,
     // True when old obj and was modified
     is_dirty: bool = false,
-    node: ?*std.TailQueue(*Obj).Node = null,
+    node: ?*std.DoublyLinkedList(*Obj).Node = null,
 
     pub inline fn cast(obj: *Obj, comptime T: type, obj_type: ObjType) ?*T {
         if (obj.obj_type != obj_type) {

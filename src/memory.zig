@@ -186,7 +186,7 @@ pub const GarbageCollector = struct {
     next_gc: usize = if (builtin.mode == .Debug) 1024 else 1024 * BuildOptions.initial_gc,
     next_full_gc: usize = if (builtin.mode == .Debug) 1024 else 1024 * BuildOptions.initial_gc,
     last_gc: ?Mode = null,
-    objects: std.TailQueue(*Obj) = .{},
+    objects: std.DoublyLinkedList(*Obj) = .{},
     gray_stack: std.ArrayList(*Obj),
     active_vms: std.AutoHashMap(*VM, void),
     // Obj being collected, useful to avoid setting object instance dirty while running its collector method
@@ -403,7 +403,7 @@ pub const GarbageCollector = struct {
     }
 
     fn addObject(self: *Self, obj: *Obj) !void {
-        const new_node = try self.allocator.create(std.TailQueue(*Obj).Node);
+        const new_node = try self.allocator.create(std.DoublyLinkedList(*Obj).Node);
         new_node.* = .{
             .data = obj,
         };
@@ -937,7 +937,7 @@ pub const GarbageCollector = struct {
         const swept: usize = self.bytes_allocated;
 
         var obj_count: usize = 0;
-        var obj_node: ?*std.TailQueue(*Obj).Node = self.objects.first;
+        var obj_node: ?*std.DoublyLinkedList(*Obj).Node = self.objects.first;
         var count: usize = 0;
         while (obj_node) |node| : (count += 1) {
             if (node.data.is_marked) {

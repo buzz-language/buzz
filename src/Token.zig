@@ -57,7 +57,7 @@ pub fn getLines(self: Self, allocator: mem.Allocator, before: usize, after: usiz
     const before_index = if (self.line > 0) self.line - @min(before, self.line) else self.line;
     const after_index = if (self.line > 0) self.line + after else self.line;
 
-    var it = std.mem.split(u8, self.source, "\n");
+    var it = std.mem.splitScalar(u8, self.source, '\n');
     var current: usize = 0;
     while (it.next()) |line| : (current += 1) {
         if (current >= before_index and current <= after_index) {
