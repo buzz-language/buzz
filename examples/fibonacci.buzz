@@ -14,10 +14,7 @@ fun fibonacci(int n) > void *> int? {
 }
 
 fun main([str] args) > void {
-    const N = if (args.len() > 0)
-            std.parseInt(args[0]) ?? 10
-        else
-            10;
+    const N = std.parseInt(args[?0] ?? '10') ?? 10;
 
     foreach (var n in &fibonacci(N)) {
         std.print("{n}");
