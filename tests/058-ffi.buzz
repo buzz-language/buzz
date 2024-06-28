@@ -2,8 +2,6 @@ import "std";
 import "buffer" as _;
 import "ffi";
 
-| TODO: one zdef for one lib and multiple declarations
-| TODO: Allow multiple declarations in one string
 zdef("tests/utils/libforeign", `
     fn acos(value: f64) f64;
     fn fprint(msg: [*:0]const u8) void;
@@ -19,7 +17,6 @@ test "cstring" {
 }
 
 test "pointer with Buffer" {
-    | TODO: would be better with object destructor so the buffer can be collected
     var buffer = Buffer.init();
 
     buffer.writeZ::<int>("i32", values: [1, 2, 3]);
@@ -28,7 +25,7 @@ test "pointer with Buffer" {
     try {
         | Arguably, the zig type parameter could a constant and be built at compile time
         | But: that would require a new type
-        | Since we cache the result of the type parsing this roughly equivalent
+        | Since we cache the result of the type parsing this is roughly equivalent
         buffer.writeZ::<int>("u64", values: [1]);
         std.assert(false, message: "Using bad buzz type triggers error");
     } catch (ffi.FFITypeMismatchError _) {

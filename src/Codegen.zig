@@ -2382,7 +2382,7 @@ fn generateFunction(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?
     current_function.upvalue_count = @intCast(components.upvalue_binding.count());
 
     if (BuildOptions.debug) {
-        disassembler.disassembleChunk(&current_function.chunk, current_function.name.string);
+        disassembler.disassembleChunk(&current_function.chunk, current_function.type_def.resolved_type.?.Function.name.string);
         io.print("\n\n", .{});
     }
 

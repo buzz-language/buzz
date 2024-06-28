@@ -7,7 +7,7 @@
 ```buzz
 const tuple = .{ "john", "james" };
 
-tuples.@"0" == "john";
+tuple.@"0" == "john";
 ```
 - Checked subscript access to list and strings:
 ```buzz
@@ -28,7 +28,7 @@ list[?10] == null;
 - Http client could not be collected because it kept connection opened to previous requests' domains
 
 ## Internal
-- Properties are now retrieve with an index rather than by a hashmap lookup (https://github.com/buzz-language/buzz/issues/90) which gives a nice performance boost of about 40% on some benches
+- Properties are now retrieved with an index rather than a hashmap lookup (https://github.com/buzz-language/buzz/issues/90) which gives a nice performance boost of about 40% on some benches
 
 # 0.4.0 (05-16-2024)
 

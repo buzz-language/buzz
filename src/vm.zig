@@ -5210,7 +5210,7 @@ pub const VM = struct {
         self.currentFrame().?.ip = hotspot_call_start;
 
         if (BuildOptions.debug) {
-            disassembler.disassembleChunk(chunk, self.currentFrame().?.closure.function.name.string);
+            disassembler.disassembleChunk(chunk, self.currentFrame().?.closure.function.type_def.resolved_type.?.Function.name.string);
         }
     }
 };

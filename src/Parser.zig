@@ -6360,7 +6360,7 @@ fn objectDeclaration(self: *Self) Error!Ast.Node.Index {
 
     // Docblocks
     var property_idx: usize = 0;
-    var static_property_idx: usize = 0;
+    var static_or_method_property_idx: usize = 0;
     while (!self.check(.RightBrace) and !self.check(.Eof)) {
         const docblock = if (try self.match(.Docblock))
             self.current_token.? - 1
@@ -6429,18 +6429,11 @@ fn objectDeclaration(self: *Self) Error!Ast.Node.Index {
                     .location = self.ast.tokens.get(method_token),
                     .method = true,
                     .has_default = false,
-                    .index = if (static)
-                        static_property_idx
-                    else
-                        property_idx,
+                    .index = static_or_method_property_idx,
                 },
             );
 
-            if (static) {
-                static_property_idx += 1;
-            } else {
-                property_idx += 1;
-            }
+            static_or_method_property_idx += 1;
 
             try members.append(
                 .{
@@ -6544,14 +6537,14 @@ fn objectDeclaration(self: *Self) Error!Ast.Node.Index {
                     .method = false,
                     .has_default = default != null,
                     .index = if (static)
-                        static_property_idx
+                        static_or_method_property_idx
                     else
                         property_idx,
                 },
             );
 
             if (static) {
-                static_property_idx += 1;
+                static_or_method_property_idx += 1;
             } else {
                 property_idx += 1;
             }
