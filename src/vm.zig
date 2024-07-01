@@ -1336,7 +1336,18 @@ pub const VM = struct {
         };
         fiber.* = Fiber.init(
             self.gc.allocator,
-            undefined,
+            self.gc.type_registry.getTypeDef(
+                .{
+                    .optional = false,
+                    .def_type = .Fiber,
+                    .resolved_type = .{
+                        .Fiber = .{
+                            .return_type = self.gc.type_registry.void_type,
+                            .yield_type = self.gc.type_registry.void_type,
+                        },
+                    },
+                },
+            ) catch @panic("Out of memory"),
             self.current_fiber,
             stack_slice,
             instruction,
@@ -5210,7 +5221,7 @@ pub const VM = struct {
         self.currentFrame().?.ip = hotspot_call_start;
 
         if (BuildOptions.debug) {
-            disassembler.disassembleChunk(chunk, self.currentFrame().?.closure.function.type_def.resolved_type.?.Function.name.string);
+            disassembler.disassembleChunk(chunk, self.currentFrame().?.closure.function.name.string);
         }
     }
 };
