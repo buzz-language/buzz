@@ -169,7 +169,7 @@ pub export fn parseFloat(ctx: *api.NativeCtx) c_int {
 
     const string_slice = string.?[0..len];
 
-    const number: f64 = std.fmt.parseFloat(f64, string_slice) catch {
+    const number = std.fmt.parseFloat(f64, string_slice) catch {
         ctx.vm.bz_push(api.Value.Null);
 
         return 1;

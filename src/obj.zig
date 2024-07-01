@@ -337,7 +337,7 @@ pub const Obj = struct {
             .Range => gc.type_registry.rg_type,
             .String => gc.type_registry.str_type,
             .Pattern => gc.type_registry.pat_type,
-            .Fiber => try gc.type_registry.getTypeDef(.{ .def_type = .Fiber }),
+            .Fiber => ObjFiber.cast(self).?.fiber.type_def,
             .Type => try gc.type_registry.getTypeDef(.{ .def_type = .Type }),
             .Object => ObjObject.cast(self).?.type_def,
             .Enum => ObjEnum.cast(self).?.type_def,
