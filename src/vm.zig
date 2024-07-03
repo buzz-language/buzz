@@ -445,7 +445,6 @@ pub const VM = struct {
     gc: *GarbageCollector,
     current_fiber: *Fiber,
     current_ast: Ast,
-    main_fiber: *Fiber,
     globals: std.ArrayList(Value),
     globals_count: usize = 0,
     import_registry: *ImportRegistry,
@@ -462,7 +461,6 @@ pub const VM = struct {
             .globals = std.ArrayList(Value).init(gc.allocator),
             .current_ast = undefined,
             .current_fiber = undefined,
-            .main_fiber = undefined,
             .flavor = flavor,
             .reporter = Reporter{
                 .allocator = gc.allocator,

@@ -18,6 +18,8 @@ test "fiber" {
     std.assert(sum == 45, message: "Sum is good");
 
     std.assert(resolve &count(10) == "Counting is done!", message: "Resolve without any resume");
+
+    std.assert(std.currentFiber().isMain(), message: "We recognize main fiber");
 }
 
 | returns str, yields int

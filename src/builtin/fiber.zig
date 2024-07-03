@@ -25,7 +25,7 @@ pub fn cancel(ctx: *NativeCtx) c_int {
 pub fn isMain(ctx: *NativeCtx) c_int {
     const self = ObjFiber.cast(ctx.vm.peek(0).obj()).?;
 
-    ctx.vm.push(Value.fromBoolean(ctx.vm.main_fiber == self.fiber));
+    ctx.vm.push(Value.fromBoolean(self.fiber.parent_fiber == null));
 
     return 1;
 }

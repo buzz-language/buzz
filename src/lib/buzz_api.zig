@@ -392,7 +392,6 @@ pub const ObjPattern = opaque {
 
 pub const ObjFiber = opaque {
     pub extern fn bz_getFiberProperty(vm: *VM, property_idx: usize) Value;
-    pub extern fn bz_isMainFiber(self: *ObjFiber, vm: *VM) Value;
 };
 
 pub const ObjForeignContainer = opaque {
