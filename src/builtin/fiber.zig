@@ -17,6 +17,11 @@ pub fn over(ctx: *NativeCtx) c_int {
 pub fn cancel(ctx: *NativeCtx) c_int {
     const self = ObjFiber.cast(ctx.vm.peek(0).obj()).?;
 
+    // Main fiber can't be cancelled
+    if (self.fiber.parent_fiber == null) {
+        return 0;
+    }
+
     self.fiber.status = .Over;
 
     return 0;
