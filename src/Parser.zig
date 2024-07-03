@@ -1559,7 +1559,9 @@ fn addGlobal(self: *Self, name: Ast.TokenIndex, global_type: *obj.ObjTypeDef, co
 
     // Search for an existing placeholder global with the same name
     for (self.globals.items, 0..) |*global, index| {
-        if (global.type_def.def_type == .Placeholder and global.type_def.resolved_type.?.Placeholder.name != null and std.mem.eql(u8, lexemes[name], global.name.string)) {
+        if (global.type_def.def_type == .Placeholder and
+            std.mem.eql(u8, lexemes[name], global.name.string))
+        {
             global.exported = self.exporting;
 
             if (global_type.def_type != .Placeholder) {
@@ -1610,7 +1612,7 @@ fn resolveLocal(self: *Self, frame: *Frame, name: Ast.TokenIndex) !?usize {
 
     var i: usize = frame.local_count - 1;
     while (i >= 0) : (i -= 1) {
-        var local: *Local = &frame.locals[i];
+        var local = &frame.locals[i];
         if (std.mem.eql(u8, lexeme, local.name.string)) {
             if (local.depth == -1) {
                 self.reportErrorFmt(
@@ -1691,6 +1693,7 @@ fn resolvePlaceholderWithRelation(
     relation: obj.PlaceholderDef.PlaceholderRelation,
 ) Error!void {
     const child_placeholder = child.resolved_type.?.Placeholder;
+    const child_placeholder_name = self.ast.tokens.items(.lexeme)[child_placeholder.where];
 
     if (BuildOptions.debug_placeholders) {
         io.print(
@@ -1821,65 +1824,53 @@ fn resolvePlaceholderWithRelation(
         .FieldAccess => {
             switch (resolved_type.def_type) {
                 .List => {
-                    std.debug.assert(child_placeholder.name != null);
-
                     if (try obj.ObjList.ListDef.member(
                         resolved_type,
                         self,
-                        child_placeholder.name.?.string,
+                        child_placeholder_name,
                     )) |member| {
                         try self.resolvePlaceholder(child, member, false);
                     }
                 },
                 .Map => {
-                    std.debug.assert(child_placeholder.name != null);
-
                     if (try obj.ObjMap.MapDef.member(
                         resolved_type,
                         self,
-                        child_placeholder.name.?.string,
+                        child_placeholder_name,
                     )) |member| {
                         try self.resolvePlaceholder(child, member, false);
                     }
                 },
                 .String => {
-                    std.debug.assert(child_placeholder.name != null);
-
                     if (try obj.ObjString.memberDefByName(
                         self,
-                        child_placeholder.name.?.string,
+                        child_placeholder_name,
                     )) |member| {
                         try self.resolvePlaceholder(child, member, false);
                     }
                 },
                 .Pattern => {
-                    std.debug.assert(child_placeholder.name != null);
-
                     if (try obj.ObjPattern.memberDefByName(
                         self,
-                        child_placeholder.name.?.string,
+                        child_placeholder_name,
                     )) |member| {
                         try self.resolvePlaceholder(child, member, false);
                     }
                 },
                 .Fiber => {
-                    std.debug.assert(child_placeholder.name != null);
-
                     if (try obj.ObjFiber.memberDefByName(
                         self,
-                        child_placeholder.name.?.string,
+                        child_placeholder_name,
                     )) |member| {
                         try self.resolvePlaceholder(child, member, false);
                     }
                 },
                 .Object => {
                     // We can't create a field access placeholder without a name
-                    std.debug.assert(child_placeholder.name != null);
-
                     const object_def = resolved_type.resolved_type.?.Object;
 
                     // Search for a field matching the placeholder
-                    if (object_def.fields.get(child_placeholder.name.?.string)) |field| {
+                    if (object_def.fields.get(child_placeholder_name)) |field| {
                         // TODO: remove? should only resolve with a field if field accessing an object instance?
                         try self.resolvePlaceholder(
                             child,
@@ -1892,19 +1883,17 @@ fn resolvePlaceholderWithRelation(
                             "`{s}` has no static field `{s}`",
                             .{
                                 object_def.name.string,
-                                child_placeholder.name.?.string,
+                                child_placeholder_name,
                             },
                         );
                     }
                 },
                 .ObjectInstance => {
                     // We can't create a field access placeholder without a name
-                    std.debug.assert(child_placeholder.name != null);
-
                     const object_def = resolved_type.resolved_type.?.ObjectInstance.resolved_type.?.Object;
 
                     // Search for a field matching the placeholder
-                    if (object_def.fields.get(child_placeholder.name.?.string)) |field| {
+                    if (object_def.fields.get(child_placeholder_name)) |field| {
                         try self.resolvePlaceholder(
                             child,
                             field.type_def,
@@ -1916,19 +1905,17 @@ fn resolvePlaceholderWithRelation(
                             "`{s}` has no field `{s}`",
                             .{
                                 object_def.name.string,
-                                child_placeholder.name.?.string,
+                                child_placeholder_name,
                             },
                         );
                     }
                 },
                 .ForeignContainer => {
                     // We can't create a field access placeholder without a name
-                    std.debug.assert(child_placeholder.name != null);
-
                     const f_def = resolved_type.resolved_type.?.ForeignContainer;
 
                     // Search for a field matching the placeholder
-                    if (f_def.buzz_type.get(child_placeholder.name.?.string)) |field| {
+                    if (f_def.buzz_type.get(child_placeholder_name)) |field| {
                         try self.resolvePlaceholder(child, field, false);
                     } else {
                         self.reportErrorFmt(
@@ -1936,19 +1923,17 @@ fn resolvePlaceholderWithRelation(
                             "`{s}` has no field `{s}`",
                             .{
                                 f_def.name.string,
-                                child_placeholder.name.?.string,
+                                child_placeholder_name,
                             },
                         );
                     }
                 },
                 .ProtocolInstance => {
                     // We can't create a field access placeholder without a name
-                    std.debug.assert(child_placeholder.name != null);
-
                     const protocol_def = resolved_type.resolved_type.?.ProtocolInstance.resolved_type.?.Protocol;
 
                     // Search for a field matching the placeholder
-                    if (protocol_def.methods.get(child_placeholder.name.?.string)) |method_def| {
+                    if (protocol_def.methods.get(child_placeholder_name)) |method_def| {
                         try self.resolvePlaceholder(child, method_def, true);
                     } else {
                         self.reportErrorFmt(
@@ -1956,20 +1941,18 @@ fn resolvePlaceholderWithRelation(
                             "`{s}` has no method `{s}`",
                             .{
                                 protocol_def.name.string,
-                                child_placeholder.name.?.string,
+                                child_placeholder_name,
                             },
                         );
                     }
                 },
                 .Enum => {
                     // We can't create a field access placeholder without a name
-                    std.debug.assert(child_placeholder.name != null);
-
                     const enum_def = resolved_type.resolved_type.?.Enum;
 
                     // Search for a case matching the placeholder
                     for (enum_def.cases.items) |case| {
-                        if (std.mem.eql(u8, case, child_placeholder.name.?.string)) {
+                        if (std.mem.eql(u8, case, child_placeholder_name)) {
                             const enum_instance_def: obj.ObjTypeDef.TypeUnion = .{ .EnumInstance = resolved_type };
 
                             try self.resolvePlaceholder(child, try self.gc.type_registry.getTypeDef(.{
@@ -1981,9 +1964,7 @@ fn resolvePlaceholderWithRelation(
                     }
                 },
                 .EnumInstance => {
-                    std.debug.assert(child_placeholder.name != null);
-
-                    if (std.mem.eql(u8, "value", child_placeholder.name.?.string)) {
+                    if (std.mem.eql(u8, "value", child_placeholder_name)) {
                         try self.resolvePlaceholder(
                             child,
                             resolved_type.resolved_type.?.EnumInstance.resolved_type.?.Enum.enum_type,
@@ -2082,7 +2063,7 @@ pub fn resolvePlaceholder(self: *Self, placeholder: *obj.ObjTypeDef, resolved_ty
         return;
     }
 
-    const placeholder_def = placeholder.resolved_type.?.Placeholder;
+    var placeholder_def = placeholder.resolved_type.?.Placeholder;
 
     if (BuildOptions.debug_placeholders) {
         io.print(
@@ -2117,6 +2098,8 @@ pub fn resolvePlaceholder(self: *Self, placeholder: *obj.ObjTypeDef, resolved_ty
             );
         }
     }
+
+    placeholder_def.deinit();
 
     // TODO: should resolved_type be freed?
     // TODO: does this work with vm.type_defs? (i guess not)
@@ -2201,7 +2184,12 @@ fn declareVariable(self: *Self, variable_type: *obj.ObjTypeDef, name_token: ?Ast
             for (self.globals.items, 0..) |*global, index| {
                 if (!std.mem.eql(u8, name_lexeme, "_") and std.mem.eql(u8, name_lexeme, global.name.string) and !global.hidden) {
                     // If we found a placeholder with that name, try to resolve it with `variable_type`
-                    if (global.type_def.def_type == .Placeholder and global.type_def.resolved_type.?.Placeholder.name != null and std.mem.eql(u8, name_lexeme, global.type_def.resolved_type.?.Placeholder.name.?.string)) {
+                    if (global.type_def.def_type == .Placeholder and
+                        std.mem.eql(
+                        u8,
+                        name_lexeme,
+                        self.ast.tokens.items(.lexeme)[global.type_def.resolved_type.?.Placeholder.where],
+                    )) {
                         // A function declares a global with an incomplete typedef so that it can handle recursion
                         // The placeholder resolution occurs after we parsed the functions body in `funDeclaration`
                         if (variable_type.resolved_type != null or @intFromEnum(variable_type.def_type) < @intFromEnum(obj.ObjTypeDef.Type.ObjectInstance)) {
@@ -2268,15 +2256,12 @@ fn declarePlaceholder(self: *Self, name: Ast.TokenIndex, placeholder: ?*obj.ObjT
     if (placeholder) |uplaceholder| {
         placeholder_type = uplaceholder;
     } else {
-        var placeholder_resolved_type: obj.ObjTypeDef.TypeUnion = .{
-            .Placeholder = obj.PlaceholderDef.init(self.gc.allocator, name),
-        };
-        placeholder_resolved_type.Placeholder.name = try self.gc.copyString(self.ast.tokens.items(.lexeme)[name]);
-
         placeholder_type = try self.gc.type_registry.getTypeDef(
             .{
                 .def_type = .Placeholder,
-                .resolved_type = placeholder_resolved_type,
+                .resolved_type = .{
+                    .Placeholder = obj.PlaceholderDef.init(self.gc.allocator, name),
+                },
             },
         );
     }
@@ -3147,16 +3132,12 @@ fn parseUserType(self: *Self, instance: bool) Error!Ast.Node.Index {
 
     // If none found, create a placeholder
     if (var_type == null) {
-        var placeholder_resolved_type: obj.ObjTypeDef.TypeUnion = .{
-            .Placeholder = obj.PlaceholderDef.init(self.gc.allocator, user_type_name),
-        };
-
-        placeholder_resolved_type.Placeholder.name = try self.gc.copyString(self.ast.tokens.items(.lexeme)[user_type_name]);
-
         var_type = try self.gc.type_registry.getTypeDef(
             .{
                 .def_type = .Placeholder,
-                .resolved_type = placeholder_resolved_type,
+                .resolved_type = .{
+                    .Placeholder = obj.PlaceholderDef.init(self.gc.allocator, user_type_name),
+                },
             },
         );
 
@@ -3842,17 +3823,12 @@ fn objectInit(self: *Self, _: bool, object: Ast.Node.Index) Error!Ast.Node.Index
         // Object is placeholder, create placeholder for the property and link it
         const object_type_def = self.ast.nodes.items(.type_def)[object];
         if (object_type_def != null and object_type_def.?.def_type == .Placeholder) {
-            var placeholder_resolved_type: obj.ObjTypeDef.TypeUnion = .{
-                .Placeholder = obj.PlaceholderDef.init(self.gc.allocator, self.current_token.? - 1),
-            };
-            placeholder_resolved_type.Placeholder.name = try self.gc.copyString(
-                self.ast.tokens.items(.lexeme)[property_name],
-            );
-
             property_placeholder = try self.gc.type_registry.getTypeDef(
                 .{
                     .def_type = .Placeholder,
-                    .resolved_type = placeholder_resolved_type,
+                    .resolved_type = .{
+                        .Placeholder = obj.PlaceholderDef.init(self.gc.allocator, property_name),
+                    },
                 },
             );
 
@@ -4301,19 +4277,13 @@ fn dot(self: *Self, can_assign: bool, callee: Ast.Node.Index) Error!Ast.Node.Ind
                     self.current_object.?.name.lexeme,
                     obj_def.name.string,
                 )) {
-                    var placeholder_resolved_type: obj.ObjTypeDef.TypeUnion = .{
-                        .Placeholder = obj.PlaceholderDef.init(self.gc.allocator, member_name_token),
-                    };
-
-                    placeholder_resolved_type.Placeholder.name = try self.gc.copyString(
-                        self.ast.tokens.items(.lexeme)[member_name_token],
-                    );
-
                     const placeholder: *obj.ObjTypeDef = try self.gc.type_registry.getTypeDef(
                         .{
                             .optional = false,
                             .def_type = .Placeholder,
-                            .resolved_type = placeholder_resolved_type,
+                            .resolved_type = .{
+                                .Placeholder = obj.PlaceholderDef.init(self.gc.allocator, member_name_token),
+                            },
                         },
                     );
 
@@ -4413,16 +4383,13 @@ fn dot(self: *Self, can_assign: bool, callee: Ast.Node.Index) Error!Ast.Node.Ind
 
                 // Else create placeholder
                 if (property_type == null and self.current_object != null and std.mem.eql(u8, self.current_object.?.name.lexeme, obj_def.name.string)) {
-                    var placeholder_resolved_type = obj.ObjTypeDef.TypeUnion{
-                        .Placeholder = obj.PlaceholderDef.init(self.gc.allocator, member_name_token),
-                    };
-                    placeholder_resolved_type.Placeholder.name = try self.gc.copyString(member_name);
-
                     const placeholder = try self.gc.type_registry.getTypeDef(
                         .{
                             .optional = false,
                             .def_type = .Placeholder,
-                            .resolved_type = placeholder_resolved_type,
+                            .resolved_type = .{
+                                .Placeholder = obj.PlaceholderDef.init(self.gc.allocator, member_name_token),
+                            },
                         },
                     );
 
@@ -4660,16 +4627,12 @@ fn dot(self: *Self, can_assign: bool, callee: Ast.Node.Index) Error!Ast.Node.Ind
             },
             .Placeholder => {
                 // We know nothing of the field
-                var placeholder_resolved_type = obj.ObjTypeDef.TypeUnion{
-                    .Placeholder = obj.PlaceholderDef.init(self.gc.allocator, member_name_token),
-                };
-
-                placeholder_resolved_type.Placeholder.name = try self.gc.copyString(member_name);
-
                 var placeholder = try self.gc.type_registry.getTypeDef(
                     .{
                         .def_type = .Placeholder,
-                        .resolved_type = placeholder_resolved_type,
+                        .resolved_type = .{
+                            .Placeholder = obj.PlaceholderDef.init(self.gc.allocator, member_name_token),
+                        },
                     },
                 );
 
@@ -8014,19 +7977,13 @@ fn userVarDeclaration(self: *Self, _: bool, constant: bool) Error!Ast.Node.Index
 
         // If none found, create a placeholder
         if (var_type == null) {
-            var placeholder_resolved_type: obj.ObjTypeDef.TypeUnion = .{
-                // TODO: token is wrong but what else can we put here?
-                .Placeholder = obj.PlaceholderDef.init(self.gc.allocator, user_type_name),
-            };
-
-            placeholder_resolved_type.Placeholder.name = try self.gc.copyString(
-                self.ast.tokens.items(.lexeme)[user_type_name],
-            );
-
             var_type = try self.gc.type_registry.getTypeDef(
                 .{
                     .def_type = .Placeholder,
-                    .resolved_type = placeholder_resolved_type,
+                    .resolved_type = .{
+                        // TODO: token is wrong but what else can we put here?
+                        .Placeholder = obj.PlaceholderDef.init(self.gc.allocator, user_type_name),
+                    },
                 },
             );
 

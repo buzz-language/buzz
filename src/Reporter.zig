@@ -695,12 +695,11 @@ pub fn reportPlaceholder(self: *Self, ast: Ast, placeholder: PlaceholderDef) voi
         }
     } else {
         // Should be a root placeholder with a name
-        assert(placeholder.name != null);
         self.reportErrorFmt(
             .undefined,
             ast.tokens.get(placeholder.where),
             "`{s}` is not defined",
-            .{placeholder.name.?.string},
+            .{ast.tokens.items(.lexeme)[placeholder.where]},
         );
     }
 }
