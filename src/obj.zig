@@ -4674,17 +4674,14 @@ pub const ObjTypeDef = struct {
                     return self.resolved_type.?.Placeholder.parent.?;
                 }
 
-                var placeholder_resolved_type: ObjTypeDef.TypeUnion = .{
-                    .Placeholder = PlaceholderDef.init(
-                        allocator,
-                        self.resolved_type.?.Placeholder.where,
-                    ),
-                };
-                placeholder_resolved_type.Placeholder.name = self.resolved_type.?.Placeholder.name;
-
                 const placeholder = try type_registry.getTypeDef(Self{
                     .def_type = .Placeholder,
-                    .resolved_type = placeholder_resolved_type,
+                    .resolved_type = .{
+                        .Placeholder = PlaceholderDef.init(
+                            allocator,
+                            self.resolved_type.?.Placeholder.where,
+                        ),
+                    },
                 });
 
                 try PlaceholderDef.link(self, placeholder, .Parent);
@@ -4737,17 +4734,14 @@ pub const ObjTypeDef = struct {
                     };
                 },
                 .Placeholder => placeholder: {
-                    var placeholder_resolved_type: ObjTypeDef.TypeUnion = .{
-                        .Placeholder = PlaceholderDef.init(
-                            allocator,
-                            self.resolved_type.?.Placeholder.where,
-                        ),
-                    };
-                    placeholder_resolved_type.Placeholder.name = self.resolved_type.?.Placeholder.name;
-
                     break :placeholder Self{
                         .def_type = .Placeholder,
-                        .resolved_type = placeholder_resolved_type,
+                        .resolved_type = .{
+                            .Placeholder = PlaceholderDef.init(
+                                allocator,
+                                self.resolved_type.?.Placeholder.where,
+                            ),
+                        },
                     };
                 },
                 else => self.*,
@@ -4967,7 +4961,6 @@ pub fn cloneObject(obj: *Obj, vm: *VM) !Value {
 pub const PlaceholderDef = struct {
     const Self = @This();
 
-    // TODO: are relations enough and booleans useless?
     pub const PlaceholderRelation = enum {
         Call,
         Yield,
@@ -4982,7 +4975,6 @@ pub const PlaceholderDef = struct {
         GenericResolve,
     };
 
-    name: ?*ObjString = null,
     where: Ast.TokenIndex, // Where the placeholder was created
     // When accessing/calling/subscrit/assign a placeholder we produce another. We keep them linked so we
     // can trace back the root of the unknown type.
