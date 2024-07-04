@@ -16,6 +16,7 @@ const StringParser = @import("string_parser.zig").StringParser;
 const pcre = if (!is_wasm) @import("pcre.zig") else void;
 const buzz_api = @import("lib/buzz_api.zig");
 const io = @import("io.zig");
+const leven = @import("leven.zig").leven;
 
 // In the wasm build, libraries are statically linked
 const std_lib = if (is_wasm) @import("lib/buzz_std.zig") else void;
@@ -1712,6 +1713,7 @@ fn resolvePlaceholderWithRelation(
             try self.resolvePlaceholder(
                 child,
                 try resolved_type.populateGenerics(
+                    self,
                     self.current_token.? - 1,
                     switch (resolved_type.def_type) {
                         .Function => resolved_type.resolved_type.?.Function.id,
@@ -2147,6 +2149,44 @@ fn resolveUpvalue(self: *Self, frame: *Frame, name: Ast.TokenIndex) Error!?usize
     return null;
 }
 
+pub fn findVariableCandidates(self: *Self, name: []const u8) ![]const Ast.TokenIndex {
+    var candidates = std.ArrayList(Ast.TokenIndex).init(self.gc.allocator);
+    defer candidates.shrinkAndFree(candidates.items.len);
+
+    // Search local and upvalue candidates
+    var frame = self.current;
+    while (frame) |uframe| {
+        for (0..uframe.local_count) |i| {
+            const local = uframe.locals[i];
+            if ((leven(
+                name,
+                local.name.string,
+                0,
+                20,
+            )) < 6) {
+                try candidates.append(local.name_token);
+            }
+        }
+
+        frame = uframe.enclosing;
+    }
+
+    // Search global candidate
+    for (self.globals.items) |global| {
+        // TODO: we ignore prefix for now but would be great to take them into account
+        if ((leven(
+            name,
+            global.name.string,
+            0,
+            20,
+        )) < 6) {
+            try candidates.append(global.name_token);
+        }
+    }
+
+    return candidates.items;
+}
+
 fn declareVariable(self: *Self, variable_type: *obj.ObjTypeDef, name_token: ?Ast.TokenIndex, constant: bool, check_name: bool) Error!usize {
     const name = name_token orelse self.current_token.? - 1;
     const name_lexeme = self.ast.tokens.items(.lexeme)[name];
@@ -2260,7 +2300,12 @@ fn declarePlaceholder(self: *Self, name: Ast.TokenIndex, placeholder: ?*obj.ObjT
             .{
                 .def_type = .Placeholder,
                 .resolved_type = .{
-                    .Placeholder = obj.PlaceholderDef.init(self.gc.allocator, name),
+                    .Placeholder = obj.PlaceholderDef.init(
+                        self.gc.allocator,
+                        name,
+                        // TODO: would be great if the candidates list contained later declared globals
+                        try self.findVariableCandidates(self.ast.tokens.items(.lexeme)[name]),
+                    ),
                 },
             },
         );
@@ -3136,7 +3181,11 @@ fn parseUserType(self: *Self, instance: bool) Error!Ast.Node.Index {
             .{
                 .def_type = .Placeholder,
                 .resolved_type = .{
-                    .Placeholder = obj.PlaceholderDef.init(self.gc.allocator, user_type_name),
+                    .Placeholder = obj.PlaceholderDef.init(
+                        self.gc.allocator,
+                        user_type_name,
+                        try self.findVariableCandidates(self.ast.tokens.items(.lexeme)[user_type_name]),
+                    ),
                 },
             },
         );
@@ -3182,6 +3231,7 @@ fn parseUserType(self: *Self, instance: bool) Error!Ast.Node.Index {
         }
 
         var_type = try var_type.?.populateGenerics(
+            self,
             self.current_token.? - 1,
             var_type.?.resolved_type.?.Object.id,
             resolved_generics.items,
@@ -3258,6 +3308,7 @@ fn parseGenericResolve(self: *Self, callee_type_def: *obj.ObjTypeDef, expr: ?Ast
             .location = start_location,
             .end_location = self.current_token.? - 1,
             .type_def = try callee_type_def.populateGenerics(
+                self,
                 self.current_token.? - 1,
                 if (callee_type_def.def_type == .Function)
                     callee_type_def.resolved_type.?.Function.id
@@ -3310,6 +3361,9 @@ fn subscript(self: *Self, can_assign: bool, subscripted: Ast.Node.Index) Error!A
                                 .Placeholder = obj.PlaceholderDef.init(
                                     self.gc.allocator,
                                     self.current_token.? - 1,
+                                    try self.findVariableCandidates(
+                                        self.ast.tokens.items(.lexeme)[self.current_token.? - 1],
+                                    ),
                                 ),
                             },
                         },
@@ -3625,7 +3679,11 @@ fn call(self: *Self, _: bool, callee: Ast.Node.Index) Error!Ast.Node.Index {
             type_def = self.gc.type_registry.void_type;
         } else {
             const placeholder_resolved_type: obj.ObjTypeDef.TypeUnion = .{
-                .Placeholder = obj.PlaceholderDef.init(self.gc.allocator, start_location),
+                .Placeholder = obj.PlaceholderDef.init(
+                    self.gc.allocator,
+                    start_location,
+                    try self.findVariableCandidates(self.ast.tokens.items(.lexeme)[start_location]),
+                ),
             };
 
             type_def = try self.gc.type_registry.getTypeDef(
@@ -3827,7 +3885,11 @@ fn objectInit(self: *Self, _: bool, object: Ast.Node.Index) Error!Ast.Node.Index
                 .{
                     .def_type = .Placeholder,
                     .resolved_type = .{
-                        .Placeholder = obj.PlaceholderDef.init(self.gc.allocator, property_name),
+                        .Placeholder = obj.PlaceholderDef.init(
+                            self.gc.allocator,
+                            property_name,
+                            try self.findVariableCandidates(self.ast.tokens.items(.lexeme)[property_name]),
+                        ),
                     },
                 },
             );
@@ -4282,7 +4344,11 @@ fn dot(self: *Self, can_assign: bool, callee: Ast.Node.Index) Error!Ast.Node.Ind
                             .optional = false,
                             .def_type = .Placeholder,
                             .resolved_type = .{
-                                .Placeholder = obj.PlaceholderDef.init(self.gc.allocator, member_name_token),
+                                .Placeholder = obj.PlaceholderDef.init(
+                                    self.gc.allocator,
+                                    member_name_token,
+                                    try self.findVariableCandidates(self.ast.tokens.items(.lexeme)[member_name_token]),
+                                ),
                             },
                         },
                     );
@@ -4388,7 +4454,11 @@ fn dot(self: *Self, can_assign: bool, callee: Ast.Node.Index) Error!Ast.Node.Ind
                             .optional = false,
                             .def_type = .Placeholder,
                             .resolved_type = .{
-                                .Placeholder = obj.PlaceholderDef.init(self.gc.allocator, member_name_token),
+                                .Placeholder = obj.PlaceholderDef.init(
+                                    self.gc.allocator,
+                                    member_name_token,
+                                    try self.findVariableCandidates(self.ast.tokens.items(.lexeme)[member_name_token]),
+                                ),
                             },
                         },
                     );
@@ -4631,7 +4701,11 @@ fn dot(self: *Self, can_assign: bool, callee: Ast.Node.Index) Error!Ast.Node.Ind
                     .{
                         .def_type = .Placeholder,
                         .resolved_type = .{
-                            .Placeholder = obj.PlaceholderDef.init(self.gc.allocator, member_name_token),
+                            .Placeholder = obj.PlaceholderDef.init(
+                                self.gc.allocator,
+                                member_name_token,
+                                try self.findVariableCandidates(self.ast.tokens.items(.lexeme)[member_name_token]),
+                            ),
                         },
                     },
                 );
@@ -5559,7 +5633,11 @@ fn asyncCall(self: *Self, _: bool) Error!Ast.Node.Index {
     if (function_type.def_type == .Placeholder) {
         // create placeholders for return and yield types and link them with .Call and .Yield
         const return_placeholder_resolved_type = obj.ObjTypeDef.TypeUnion{
-            .Placeholder = obj.PlaceholderDef.init(self.gc.allocator, self.current_token.? - 1),
+            .Placeholder = obj.PlaceholderDef.init(
+                self.gc.allocator,
+                self.current_token.? - 1,
+                try self.findVariableCandidates(self.ast.tokens.items(.lexeme)[self.current_token.? - 1]),
+            ),
         };
         const return_placeholder = try self.gc.type_registry.getTypeDef(
             .{
@@ -5571,7 +5649,11 @@ fn asyncCall(self: *Self, _: bool) Error!Ast.Node.Index {
         try obj.PlaceholderDef.link(function_type, return_placeholder, .Call);
 
         const yield_placeholder_resolved_type = obj.ObjTypeDef.TypeUnion{
-            .Placeholder = obj.PlaceholderDef.init(self.gc.allocator, self.current_token.? - 1),
+            .Placeholder = obj.PlaceholderDef.init(
+                self.gc.allocator,
+                self.current_token.? - 1,
+                try self.findVariableCandidates(self.ast.tokens.items(.lexeme)[self.current_token.? - 1]),
+            ),
         };
         const yield_placeholder = try self.gc.type_registry.getTypeDef(
             .{
@@ -5670,7 +5752,11 @@ fn resumeFiber(self: *Self, _: bool) Error!Ast.Node.Index {
         unreachable;
     } else if (fiber_type.?.def_type == .Placeholder) {
         const yield_placeholder_resolved_type = obj.ObjTypeDef.TypeUnion{
-            .Placeholder = obj.PlaceholderDef.init(self.gc.allocator, self.current_token.? - 1),
+            .Placeholder = obj.PlaceholderDef.init(
+                self.gc.allocator,
+                self.current_token.? - 1,
+                try self.findVariableCandidates(self.ast.tokens.items(.lexeme)[self.current_token.? - 1]),
+            ),
         };
         const yield_placeholder = try (try self.gc.type_registry.getTypeDef(
             .{
@@ -5727,7 +5813,11 @@ fn resolveFiber(self: *Self, _: bool) Error!Ast.Node.Index {
         unreachable;
     } else if (fiber_type.?.def_type == .Placeholder) {
         const return_placeholder_resolved_type = obj.ObjTypeDef.TypeUnion{
-            .Placeholder = obj.PlaceholderDef.init(self.gc.allocator, self.current_token.? - 1),
+            .Placeholder = obj.PlaceholderDef.init(
+                self.gc.allocator,
+                self.current_token.? - 1,
+                try self.findVariableCandidates(self.ast.tokens.items(.lexeme)[self.current_token.? - 1]),
+            ),
         };
         const return_placeholder = try self.gc.type_registry.getTypeDef(
             .{
@@ -7982,7 +8072,11 @@ fn userVarDeclaration(self: *Self, _: bool, constant: bool) Error!Ast.Node.Index
                     .def_type = .Placeholder,
                     .resolved_type = .{
                         // TODO: token is wrong but what else can we put here?
-                        .Placeholder = obj.PlaceholderDef.init(self.gc.allocator, user_type_name),
+                        .Placeholder = obj.PlaceholderDef.init(
+                            self.gc.allocator,
+                            user_type_name,
+                            try self.findVariableCandidates(self.ast.tokens.items(.lexeme)[user_type_name]),
+                        ),
                     },
                 },
             );
@@ -8029,6 +8123,7 @@ fn userVarDeclaration(self: *Self, _: bool, constant: bool) Error!Ast.Node.Index
 
             // Shouldn't we populate only in codegen?
             var_type = try var_type.?.populateGenerics(
+                self,
                 self.current_token.? - 1,
                 var_type.?.resolved_type.?.Object.id,
                 resolved_generics.items,

@@ -3986,6 +3986,7 @@ pub const ObjTypeDef = struct {
 
     pub fn populateGenerics(
         self: *Self,
+        parser: *Parser,
         where: Ast.TokenIndex,
         origin: ?usize,
         generics: []*Self,
@@ -4037,6 +4038,9 @@ pub const ObjTypeDef = struct {
                     .Placeholder = PlaceholderDef.init(
                         type_registry.gc.allocator,
                         where,
+                        try parser.findVariableCandidates(
+                            parser.ast.tokens.items(.lexeme)[where],
+                        ),
                     ),
                 };
 
@@ -4069,6 +4073,7 @@ pub const ObjTypeDef = struct {
             .Fiber => fiber: {
                 const new_fiber_def = ObjFiber.FiberDef{
                     .return_type = try self.resolved_type.?.Fiber.return_type.populateGenerics(
+                        parser,
                         where,
                         origin,
                         generics,
@@ -4076,6 +4081,7 @@ pub const ObjTypeDef = struct {
                         visited_ptr,
                     ),
                     .yield_type = try self.resolved_type.?.Fiber.yield_type.populateGenerics(
+                        parser,
                         where,
                         origin,
                         generics,
@@ -4095,6 +4101,7 @@ pub const ObjTypeDef = struct {
                 break :fiber try type_registry.getTypeDef(new_fiber);
             },
             .ObjectInstance => try (try self.resolved_type.?.ObjectInstance.populateGenerics(
+                parser,
                 where,
                 origin,
                 generics,
@@ -4133,6 +4140,7 @@ pub const ObjTypeDef = struct {
                                 .location = kv.value_ptr.*.location,
                                 .method = kv.value_ptr.*.method,
                                 .type_def = try kv.value_ptr.*.type_def.populateGenerics(
+                                    parser,
                                     where,
                                     origin,
                                     generics,
@@ -4166,6 +4174,7 @@ pub const ObjTypeDef = struct {
                     try methods.put(
                         kv.key_ptr.*,
                         try kv.value_ptr.*.populateGenerics(
+                            parser,
                             where,
                             origin,
                             generics,
@@ -4177,6 +4186,7 @@ pub const ObjTypeDef = struct {
 
                 const new_list_def = ObjList.ListDef{
                     .item_type = try (try old_list_def.item_type.populateGenerics(
+                        parser,
                         where,
                         origin,
                         generics,
@@ -4205,6 +4215,7 @@ pub const ObjTypeDef = struct {
                     try methods.put(
                         kv.key_ptr.*,
                         try kv.value_ptr.*.populateGenerics(
+                            parser,
                             where,
                             origin,
                             generics,
@@ -4216,6 +4227,7 @@ pub const ObjTypeDef = struct {
 
                 const new_map_def = ObjMap.MapDef{
                     .key_type = try old_map_def.key_type.populateGenerics(
+                        parser,
                         where,
                         origin,
                         generics,
@@ -4223,6 +4235,7 @@ pub const ObjTypeDef = struct {
                         visited_ptr,
                     ),
                     .value_type = try old_map_def.value_type.populateGenerics(
+                        parser,
                         where,
                         origin,
                         generics,
@@ -4250,6 +4263,7 @@ pub const ObjTypeDef = struct {
                     error_types = std.ArrayList(*ObjTypeDef).init(type_registry.gc.allocator);
                     for (old_error_types) |error_type| {
                         try error_types.?.append(try error_type.populateGenerics(
+                            parser,
                             where,
                             origin,
                             generics,
@@ -4266,6 +4280,7 @@ pub const ObjTypeDef = struct {
                         try parameters.put(
                             kv.key_ptr.*,
                             try (try kv.value_ptr.*.populateGenerics(
+                                parser,
                                 where,
                                 origin,
                                 generics,
@@ -4281,6 +4296,7 @@ pub const ObjTypeDef = struct {
                     .name = old_fun_def.name,
                     .script_name = old_fun_def.script_name,
                     .return_type = try (try old_fun_def.return_type.populateGenerics(
+                        parser,
                         where,
                         origin,
                         generics,
@@ -4288,6 +4304,7 @@ pub const ObjTypeDef = struct {
                         visited_ptr,
                     )).toInstance(type_registry.gc.allocator, type_registry),
                     .yield_type = try (try old_fun_def.yield_type.populateGenerics(
+                        parser,
                         where,
                         origin,
                         generics,
@@ -4680,6 +4697,7 @@ pub const ObjTypeDef = struct {
                         .Placeholder = PlaceholderDef.init(
                             allocator,
                             self.resolved_type.?.Placeholder.where,
+                            self.resolved_type.?.Placeholder.candidates, // Should we copy
                         ),
                     },
                 });
@@ -4740,6 +4758,7 @@ pub const ObjTypeDef = struct {
                             .Placeholder = PlaceholderDef.init(
                                 allocator,
                                 self.resolved_type.?.Placeholder.where,
+                                self.resolved_type.?.Placeholder.candidates, // Should we copy?
                             ),
                         },
                     };
@@ -4975,27 +4994,32 @@ pub const PlaceholderDef = struct {
         GenericResolve,
     };
 
-    where: Ast.TokenIndex, // Where the placeholder was created
-    // When accessing/calling/subscrit/assign a placeholder we produce another. We keep them linked so we
-    // can trace back the root of the unknown type.
+    /// Where the placeholder was created
+    where: Ast.TokenIndex,
+    /// When accessing/calling/subscrit/assign a placeholder we produce another. We keep them linked so we
+    /// can trace back the root of the unknown type.
     parent: ?*ObjTypeDef = null,
-    // What's the relation with the parent?
+    /// What's the relation with the parent?
     parent_relation: ?PlaceholderRelation = null,
-    // Children adds themselves here
+    /// Children adds themselves here
     children: std.ArrayList(*ObjTypeDef),
-
-    // If the placeholder is a function return, we need to remember eventual generic types defined in that call
+    /// In the event that the placeholder is never resolved, we keep a list of similar named variables
+    /// We keep it here because we report placeholders at codegen where locals and globals knowledge is not available anymore
+    candidates: []const Ast.TokenIndex,
+    /// If the placeholder is a function return, we need to remember eventual generic types defined in that call
     resolved_generics: ?[]*ObjTypeDef = null,
 
-    pub fn init(allocator: Allocator, where: Ast.TokenIndex) Self {
+    pub fn init(allocator: Allocator, where: Ast.TokenIndex, candidates: []const Ast.TokenIndex) Self {
         return Self{
             .where = where,
+            .candidates = candidates,
             .children = std.ArrayList(*ObjTypeDef).init(allocator),
         };
     }
 
-    pub fn deinit(self: *Self) void {
+    pub fn deinit(self: *Self, allocator: Allocator) void {
         self.children.deinit();
+        allocator.free(self.candidates);
     }
 
     pub fn link(parent: *ObjTypeDef, child: *ObjTypeDef, relation: PlaceholderRelation) !void {
