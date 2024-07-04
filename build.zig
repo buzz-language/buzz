@@ -302,6 +302,16 @@ pub fn build(b: *Build) !void {
     });
     b.installArtifact(exe);
 
+    var exe_check = b.addExecutable(.{
+        .name = "buzz",
+        .root_source_file = b.path("src/main.zig"),
+        .target = target,
+        .optimize = build_mode,
+    });
+
+    const check = b.step("check", "Check if buzz compiles");
+    check.dependOn(&exe_check.step);
+
     if (is_wasm) {
         exe.global_base = 6560;
         exe.entry = .disabled;
@@ -322,20 +332,25 @@ pub fn build(b: *Build) !void {
 
     for (includes.items) |include| {
         exe.addIncludePath(b.path(include));
+        exe_check.addIncludePath(b.path(include));
     }
     for (llibs.items) |lib| {
         exe.addLibraryPath(b.path(lib));
+        exe_check.addLibraryPath(b.path(lib));
     }
     for (sys_libs.items) |slib| {
         // FIXME: if mir is linked as static library (libmir.a), here also need to link libc
         // it's better to built it with Zig's build system
         exe.linkSystemLibrary(slib);
+        exe_check.linkSystemLibrary(slib);
     }
     if (build_options.needLibC()) {
         exe.linkLibC();
+        exe_check.linkLibC();
     }
 
     exe.root_module.addImport("build_options", build_option_module);
+    exe_check.root_module.addImport("build_options", build_option_module);
 
     if (!is_wasm) {
         // Building buzz api library
@@ -380,8 +395,10 @@ pub fn build(b: *Build) !void {
 
         // So that JIT compiled function can reference buzz_api
         exe.linkLibrary(lib);
+        exe_check.linkLibrary(lib);
         if (lib_linenoise) |ln| {
             exe.linkLibrary(ln);
+            exe_check.linkLibrary(ln);
         }
 
         b.default_step.dependOn(&exe.step);
