@@ -12,7 +12,7 @@ const io = @import("io.zig");
 
 const Self = @This();
 
-// Do not reorder whitout updating documentation, values are explicit so they can be retrieved easily
+// Do not reorder without updating documentation, values are explicit so they can be retrieved easily
 pub const Error = enum(u8) {
     already_conforming_protocol = 0,
     arguments_count = 1,

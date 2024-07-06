@@ -290,7 +290,7 @@ pub fn emitConstant(self: *Self, location: Ast.TokenIndex, value: Value) !void {
 }
 
 pub fn makeConstant(self: *Self, value: Value) !u24 {
-    const constant: u24 = try self.current.?.function.?.chunk.addConstant(null, value);
+    const constant = try self.current.?.function.?.chunk.addConstant(null, value);
     if (constant > Chunk.max_constants) {
         self.reportError("Too many constants in one chunk.");
         return 0;

@@ -848,7 +848,7 @@ pub fn parse(self: *Self, source: []const u8, file_name: []const u8) !?Ast {
             }) |decl| {
                 var statements = std.ArrayList(Ast.Node.Index).fromOwnedSlice(
                     self.gc.allocator,
-                    self.ast.nodes.items(.components)[body_node].Block,
+                    @constCast(self.ast.nodes.items(.components)[body_node].Block),
                 );
                 defer statements.shrinkAndFree(statements.items.len);
 
@@ -869,7 +869,7 @@ pub fn parse(self: *Self, source: []const u8, file_name: []const u8) !?Ast {
             }) |decl| {
                 var statements = std.ArrayList(Ast.Node.Index).fromOwnedSlice(
                     self.gc.allocator,
-                    self.ast.nodes.items(.components)[body_node].Block,
+                    @constCast(self.ast.nodes.items(.components)[body_node].Block),
                 );
                 defer statements.shrinkAndFree(statements.items.len);
 
@@ -4270,6 +4270,15 @@ fn dot(self: *Self, can_assign: bool, callee: Ast.Node.Index) Error!Ast.Node.Ind
                 const property_field = obj_def.fields.get(member_name);
                 var property_type = if (property_field) |field| field.type_def else null;
 
+                if (property_field != null and !property_field.?.static) {
+                    self.reportErrorFmt(
+                        .undefined,
+                        "Static property `{s}` is not defined",
+                        .{
+                            self.ast.tokens.items(.lexeme)[member_name_token],
+                        },
+                    );
+                } else
                 // Not found, create a placeholder, this is a root placeholder not linked to anything
                 // TODO: test with something else than a name
                 if (property_type == null and self.current_object != null and std.mem.eql(

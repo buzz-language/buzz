@@ -157,8 +157,8 @@ pub const Node = struct {
         As: IsAs,
         AsyncCall: Node.Index,
         Binary: Binary,
-        Block: []Node.Index,
-        BlockExpression: []Node.Index,
+        Block: []const Node.Index,
+        BlockExpression: []const Node.Index,
         Boolean: bool,
         Break: ?Node.Index,
         Call: Call,
@@ -202,7 +202,7 @@ pub const Node = struct {
         Return: Return,
         // The type should be taken from the type_def field and not the token
         SimpleType: void,
-        String: []Node.Index,
+        String: []const Node.Index,
         StringLiteral: *obj.ObjString,
         Subscript: Subscript,
         Throw: Throw,
@@ -380,7 +380,7 @@ pub fn usesFiber(self: Self, node: Node.Index, seen: *std.AutoHashMap(Node.Index
 }
 
 pub const AnonymousObjectType = struct {
-    fields: []Field,
+    fields: []const Field,
 
     pub const Field = struct {
         name: TokenIndex,
@@ -399,7 +399,7 @@ pub const Call = struct {
     callee: Node.Index,
     // We need this because in a dot.call, callee is dot and its type will be == to call return type
     callee_type_def: *obj.ObjTypeDef,
-    arguments: []Argument,
+    arguments: []const Argument,
     catch_default: ?Node.Index,
     tail_call: bool = false,
 
@@ -436,7 +436,7 @@ pub const Enum = struct {
     name: TokenIndex,
     case_type: ?Node.Index,
     slot: Slot,
-    cases: []Case,
+    cases: []const Case,
 
     pub const Case = struct {
         name: TokenIndex,
@@ -457,9 +457,9 @@ pub const FiberType = struct {
 };
 
 pub const For = struct {
-    init_declarations: []Node.Index,
+    init_declarations: []const Node.Index,
     condition: Node.Index,
-    post_loop: []Node.Index,
+    post_loop: []const Node.Index,
     body: Node.Index,
     label: ?TokenIndex,
 };
@@ -506,8 +506,8 @@ pub const Function = struct {
     pub const Entry = struct {
         main_slot: ?usize = null,
         main_location: ?TokenIndex = null,
-        test_slots: []usize,
-        test_locations: []TokenIndex,
+        test_slots: []const usize,
+        test_locations: []const TokenIndex,
         exported_count: usize = 0,
     };
 };
@@ -516,9 +516,9 @@ pub const FunctionType = struct {
     name: ?TokenIndex,
     return_type: ?Node.Index,
     yield_type: ?Node.Index,
-    error_types: []Node.Index,
-    arguments: []Argument,
-    generic_types: []TokenIndex,
+    error_types: []const Node.Index,
+    arguments: []const Argument,
+    generic_types: []const TokenIndex,
     lambda: bool,
 
     pub const Argument = struct {
@@ -536,7 +536,7 @@ pub const FunDeclaration = struct {
 };
 
 pub const GenericResolveType = struct {
-    resolved_types: []Node.Index,
+    resolved_types: []const Node.Index,
 };
 
 pub const If = struct {
@@ -549,7 +549,7 @@ pub const If = struct {
 };
 
 pub const Import = struct {
-    imported_symbols: []TokenIndex,
+    imported_symbols: []const TokenIndex,
     prefix: ?TokenIndex,
     path: TokenIndex,
     import: ?Parser.ScriptImport,
@@ -562,7 +562,7 @@ pub const IsAs = struct {
 
 pub const List = struct {
     explicit_item_type: ?TokenIndex,
-    items: []Node.Index,
+    items: []const Node.Index,
 };
 
 pub const ListType = struct {
@@ -573,7 +573,7 @@ pub const Map = struct {
     explicit_key_type: ?Node.Index,
     explicit_value_type: ?Node.Index,
 
-    entries: []Entry,
+    entries: []const Entry,
 
     pub const Entry = struct {
         key: Node.Index,
@@ -605,10 +605,10 @@ pub const NamedVariable = struct {
 pub const ObjectDeclaration = struct {
     name: TokenIndex,
     slot: Slot,
-    protocols: []Node.Index,
-    generics: []TokenIndex,
+    protocols: []const Node.Index,
+    generics: []const TokenIndex,
     // List of either Function (methods) or VarDeclaration (properties)
-    members: []Member,
+    members: []const Member,
 
     pub const Member = struct {
         name: TokenIndex,
@@ -620,7 +620,7 @@ pub const ObjectDeclaration = struct {
 
 pub const ObjectInit = struct {
     object: ?Node.Index, // Should be a NamedVariableNode or GenericResolve
-    properties: []Property,
+    properties: []const Property,
 
     pub const Property = struct {
         name: TokenIndex,
@@ -631,7 +631,7 @@ pub const ObjectInit = struct {
 pub const ProtocolDeclaration = struct {
     name: TokenIndex,
     slot: Slot,
-    methods: []Method,
+    methods: []const Method,
 
     pub const Method = struct {
         docblock: ?TokenIndex,
@@ -665,7 +665,7 @@ pub const Throw = struct {
 
 pub const Try = struct {
     body: Node.Index,
-    clauses: []Clause,
+    clauses: []const Clause,
     unconditional_clause: ?Node.Index,
 
     pub const Clause = struct {

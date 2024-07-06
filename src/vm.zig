@@ -2073,9 +2073,14 @@ pub const VM = struct {
         return false;
     }
 
-    inline fn repurposeFrame(self: *Self, closure: *ObjClosure, arg_count: u8, catch_value: ?Value) Error!void {
+    fn repurposeFrame(self: *Self, closure: *ObjClosure, arg_count: u8, catch_value: ?Value) Error!void {
         // Is or will be JIT compiled, call and stop there
-        if (!is_wasm and self.current_fiber.parent_fiber == null and try self.compileAndCall(closure, arg_count, catch_value)) {
+        if (!is_wasm and self.current_fiber.parent_fiber == null and
+            try self.compileAndCall(
+            closure,
+            arg_count,
+            catch_value,
+        )) {
             return;
         }
 
@@ -2719,8 +2724,6 @@ pub const VM = struct {
     fn OP_GET_ENUM_CASE(self: *Self, _: *CallFrame, _: u32, _: OpCode, arg: u24) void {
         const enum_ = self.peek(0).obj().access(ObjEnum, .Enum, self.gc).?;
 
-        _ = self.pop();
-
         var enum_case: *ObjEnumInstance = self.gc.allocateObject(
             ObjEnumInstance,
             ObjEnumInstance{
@@ -2732,6 +2735,7 @@ pub const VM = struct {
             unreachable;
         };
 
+        _ = self.pop();
         self.push(Value.fromObj(enum_case.toObj()));
 
         const next_full_instruction: u32 = self.readInstruction();
