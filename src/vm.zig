@@ -114,7 +114,7 @@ pub const Fiber = struct {
 
     parent_fiber: ?*Fiber,
 
-    // Instruction(s) that triggered the fiber
+    /// Instruction(s) that triggered the fiber
     instruction: u32,
     extra_instruction: ?u32,
 
@@ -129,10 +129,10 @@ pub const Fiber = struct {
     open_upvalues: ?*ObjUpValue,
 
     status: Status = .Instanciated,
-    // true: we did `resolve fiber`, false: we did `resume fiber`
+    /// true: we did `resolve fiber`, false: we did `resume fiber`
     resolved: bool = false,
 
-    // When within a try catch in a JIT compiled function
+    /// When within a try catch in a JIT compiled function
     try_context: ?*TryCtx = null,
 
     type_def: *ObjTypeDef,
@@ -4903,11 +4903,14 @@ pub const VM = struct {
     }
 
     fn bindMethod(self: *Self, method: ?*ObjClosure, native: ?*ObjNative) !void {
-        var bound: *ObjBoundMethod = try self.gc.allocateObject(ObjBoundMethod, .{
-            .receiver = self.peek(0),
-            .closure = method,
-            .native = native,
-        });
+        var bound: *ObjBoundMethod = try self.gc.allocateObject(
+            ObjBoundMethod,
+            .{
+                .receiver = self.peek(0),
+                .closure = method,
+                .native = native,
+            },
+        );
 
         _ = self.pop(); // Pop instane
         self.push(Value.fromObj(bound.toObj()));
@@ -5143,38 +5146,54 @@ pub const VM = struct {
             else => {},
         }
 
-        if (self.jit != null and
-            (self.jit.?.compiled_nodes.get(closure.function.node) != null or
-            self.jit.?.blacklisted_nodes.get(closure.function.node) != null))
-        {
-            return false;
+        // zig fmt: off
+        if (
+            // Marked as compilable
+            self.current_ast.nodes.items(.compilable)[closure.function.node] and
+            self.jit != null and
+            (
+                // Always on
+                BuildOptions.jit_always_on or
+                // Threshold reached
+                (closure.function.call_count > 10 and (@as(f128, @floatFromInt(closure.function.call_count)) / @as(f128, @floatFromInt(self.jit.?.call_count))) > BuildOptions.jit_prof_threshold)
+            )
+        ) {
+            // Not blacklisted or already compiled
+            self.current_ast.nodes.items(.compilable)[closure.function.node] =
+                self.jit.?.compiled_nodes.get(closure.function.node) == null and
+                self.jit.?.blacklisted_nodes.get(closure.function.node) == null;
+
+            return self.current_ast.nodes.items(.compilable)[closure.function.node];
         }
+        // zig fmt: on
 
-        const user_hot = if (self.current_ast.nodes.items(.components)[closure.function.node].Function.docblock) |docblock|
-            std.mem.indexOf(u8, self.current_ast.tokens.items(.lexeme)[docblock], "@hot") != null
-        else
-            false;
-
-        return BuildOptions.jit_always_on or
-            user_hot or
-            (closure.function.call_count > 10 and
-            (@as(f128, @floatFromInt(closure.function.call_count)) / @as(f128, @floatFromInt(self.jit.?.call_count))) > BuildOptions.jit_prof_threshold);
+        return false;
     }
 
     fn shouldCompileHotspot(self: *Self, node: Ast.Node.Index) bool {
         const count = self.current_ast.nodes.items(.count)[node];
 
-        // JIT is on?
-        return self.jit != null and
+        // zig fmt: off
+        if (
+            // Marked as compilable
+            self.current_ast.nodes.items(.compilable)[node] and
+            self.jit != null and
             // JIT compile all the thing?
-            (BuildOptions.jit_always_on or BuildOptions.jit_hotspot_always_on or
-            // Threshold reached
-            (count > 10 and
-            (@as(f128, @floatFromInt(count)) / @as(f128, @floatFromInt(self.hotspots_count))) > BuildOptions.jit_prof_threshold)) and
-            // It qualifies has a hotspot
-            self.current_ast.nodes.items(.tag)[node].isHotspot() and
+            (
+                // Always compile
+                BuildOptions.jit_always_on or BuildOptions.jit_hotspot_always_on or
+                // Threshold reached
+                (count > 10 and (@as(f128, @floatFromInt(count)) / @as(f128, @floatFromInt(self.hotspots_count))) > BuildOptions.jit_prof_threshold)
+            )
+        ) {
             // It's not already done or blacklisted
-            (self.jit.?.compiled_nodes.get(node) == null and self.jit.?.blacklisted_nodes.get(node) == null);
+            self.current_ast.nodes.items(.compilable)[node] = (self.jit.?.compiled_nodes.get(node) == null and self.jit.?.blacklisted_nodes.get(node) == null);
+
+            return self.current_ast.nodes.items(.compilable)[node];
+        }
+        // zig fmt: on
+
+        return false;
     }
 
     fn patchHotspot(

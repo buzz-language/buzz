@@ -100,7 +100,6 @@ export object Buffer {
 
     || Writes a string
     || @param bytes Bytes to write
-    || @hot
     fun write(str bytes) > void !> WriteWhileReadingError {
         BufferWrite(this.buffer, bytes: bytes);
     }

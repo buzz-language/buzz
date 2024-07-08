@@ -27,7 +27,6 @@ fun itemCheck(Node tree) > int {
     return 0;
 }
 
-|| @hot
 fun btree(int N) > void {
     int mindepth = 4;
     int maxdepth = mindepth + 2;

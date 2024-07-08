@@ -4266,7 +4266,7 @@ fn dot(self: *Self, can_assign: bool, callee: Ast.Node.Index) Error!Ast.Node.Ind
                 }
             },
             .Object => {
-                const obj_def: obj.ObjObject.ObjectDef = callee_type_def.?.resolved_type.?.Object;
+                const obj_def = callee_type_def.?.resolved_type.?.Object;
                 const property_field = obj_def.fields.get(member_name);
                 var property_type = if (property_field) |field| field.type_def else null;
 
@@ -4286,12 +4286,15 @@ fn dot(self: *Self, can_assign: bool, callee: Ast.Node.Index) Error!Ast.Node.Ind
                     self.current_object.?.name.lexeme,
                     obj_def.name.string,
                 )) {
-                    const placeholder: *obj.ObjTypeDef = try self.gc.type_registry.getTypeDef(
+                    const placeholder = try self.gc.type_registry.getTypeDef(
                         .{
                             .optional = false,
                             .def_type = .Placeholder,
                             .resolved_type = .{
-                                .Placeholder = obj.PlaceholderDef.init(self.gc.allocator, member_name_token),
+                                .Placeholder = obj.PlaceholderDef.init(
+                                    self.gc.allocator,
+                                    member_name_token,
+                                ),
                             },
                         },
                     );
