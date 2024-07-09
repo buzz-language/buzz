@@ -188,12 +188,12 @@ pub const ExternApi = enum {
                         .size = undefined,
                     },
                     .{
-                        .type = m.MIR_T_I32,
+                        .type = m.MIR_T_I64,
                         .name = "low",
                         .size = undefined,
                     },
                     .{
-                        .type = m.MIR_T_I32,
+                        .type = m.MIR_T_I64,
                         .name = "high",
                         .size = undefined,
                     },
@@ -236,7 +236,7 @@ pub const ExternApi = enum {
                         .size = undefined,
                     },
                     .{
-                        .type = m.MIR_T_I32,
+                        .type = m.MIR_T_I64,
                         .name = "index",
                         .size = undefined,
                     },

@@ -49,6 +49,9 @@ var gpa = std.heap.GeneralPurposeAllocator(.{
     .safety = builtin.mode == .Debug,
 }){};
 
+pub const Integer = i48;
+pub const Float = f64;
+
 pub const VM = opaque {
     pub const allocator = if (builtin.mode == .Debug or is_wasm)
         gpa.allocator()
@@ -86,8 +89,8 @@ pub const VM = opaque {
     pub extern fn bz_pop(self: *VM) Value;
     pub extern fn bz_peek(self: *VM, distance: u32) Value;
     pub extern fn bz_pushBool(self: *VM, value: bool) void;
-    pub extern fn bz_pushFloat(self: *VM, value: f64) void;
-    pub extern fn bz_pushInteger(self: *VM, value: i32) void;
+    pub extern fn bz_pushFloat(self: *VM, value: Float) void;
+    pub extern fn bz_pushInteger(self: *VM, value: i64) void;
     pub extern fn bz_pushString(self: *VM, value: *ObjString) void;
     pub extern fn bz_pushList(self: *VM, value: *ObjList) void;
     pub extern fn bz_pushUserData(self: *VM, value: *ObjUserData) void;
@@ -192,6 +195,8 @@ pub const SignMask: u64 = 1 << 63;
 /// QNAN and one extra bit to the right.
 pub const TaggedValueMask: u64 = 0x7ffc000000000000;
 
+pub const TaggedUpperValueMask: u64 = 0xffff000000000000;
+
 /// TaggedMask + Sign bit indicates a pointer value.
 pub const PointerMask: u64 = TaggedValueMask | SignMask;
 
@@ -200,7 +205,7 @@ pub const FalseMask: u64 = BooleanMask;
 pub const TrueBitMask: u64 = 1;
 pub const TrueMask: u64 = BooleanMask | TrueBitMask;
 
-pub const IntegerMask: u64 = TaggedValueMask | (@as(u64, TagInteger) << 32);
+pub const IntegerMask: u64 = TaggedValueMask | (@as(u64, TagInteger) << 49);
 pub const NullMask: u64 = TaggedValueMask | (@as(u64, TagNull) << 32);
 pub const VoidMask: u64 = TaggedValueMask | (@as(u64, TagVoid) << 32);
 pub const ErrorMask: u64 = TaggedValueMask | (@as(u64, TagError) << 32);
@@ -222,11 +227,11 @@ pub const Value = packed struct {
         return if (val) True else False;
     }
 
-    pub inline fn fromInteger(val: i32) Value {
-        return .{ .val = IntegerMask | @as(u32, @bitCast(val)) };
+    pub inline fn fromInteger(val: Integer) Value {
+        return .{ .val = IntegerMask | @as(u48, @bitCast(val)) };
     }
 
-    pub inline fn fromFloat(val: f64) Value {
+    pub inline fn fromFloat(val: Float) Value {
         return .{ .val = @as(u64, @bitCast(val)) };
     }
 
@@ -243,7 +248,7 @@ pub const Value = packed struct {
     }
 
     pub inline fn isInteger(self: Value) bool {
-        return self.val & (TaggedPrimitiveMask | SignMask) == IntegerMask;
+        return self.val & TaggedUpperValueMask == IntegerMask;
     }
 
     pub inline fn isFloat(self: Value) bool {
@@ -274,11 +279,11 @@ pub const Value = packed struct {
         return self.val == TrueMask;
     }
 
-    pub inline fn integer(self: Value) i32 {
-        return @bitCast(@as(u32, @intCast(self.val & 0xffffffff)));
+    pub inline fn integer(self: Value) Integer {
+        return @bitCast(@as(i48, @intCast(self.val & 0xffffffffffff)));
     }
 
-    pub inline fn float(self: Value) f64 {
+    pub inline fn float(self: Value) Float {
         return @bitCast(self.val);
     }
 
@@ -331,7 +336,7 @@ pub const ObjString = opaque {
 };
 
 pub const ObjRange = opaque {
-    pub extern fn bz_newRange(vm: *VM, low: i32, high: i32) Value;
+    pub extern fn bz_newRange(vm: *VM, low: i64, high: i64) Value;
     pub extern fn bz_rangeNext(range_value: Value, index_slot: Value) Value;
     pub extern fn bz_getRangeProperty(vm: *VM, range_value: Value, property_idx: usize, bind: bool) Value;
 };
@@ -340,7 +345,7 @@ pub const ObjList = opaque {
     pub extern fn bz_newList(vm: *VM, of_type: Value) Value;
     pub extern fn bz_listAppend(vm: *VM, list: Value, value: Value) void;
     pub extern fn bz_valueToList(value: Value) *ObjList;
-    pub extern fn bz_listGet(self: Value, index: i32, checked: bool) Value;
+    pub extern fn bz_listGet(self: Value, index: i64, checked: bool) Value;
     pub extern fn bz_listSet(vm: *VM, self: Value, index: usize, value: Value) void;
     pub extern fn bz_listLen(self: *ObjList) usize;
     pub extern fn bz_listConcat(vm: *VM, list: Value, other_list: Value) Value;

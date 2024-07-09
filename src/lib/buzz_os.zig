@@ -9,7 +9,7 @@ pub export fn sleep(ctx: *api.NativeCtx) c_int {
 }
 
 pub export fn time(ctx: *api.NativeCtx) c_int {
-    ctx.vm.bz_push(api.Value.fromFloat(@as(f64, @floatFromInt(std.time.milliTimestamp()))));
+    ctx.vm.bz_push(api.Value.fromFloat(@floatFromInt(std.time.milliTimestamp())));
 
     return 1;
 }
@@ -104,7 +104,7 @@ pub export fn tmpFilename(ctx: *api.NativeCtx) c_int {
 
 // If it was named `exit` it would be considered by zig as a callback when std.posix.exit is called
 pub export fn buzzExit(ctx: *api.NativeCtx) c_int {
-    const exitCode: i32 = ctx.vm.bz_peek(0).integer();
+    const exitCode = ctx.vm.bz_peek(0).integer();
 
     std.process.exit(@intCast(exitCode));
 
@@ -303,8 +303,8 @@ pub export fn SocketConnect(ctx: *api.NativeCtx) c_int {
     var len: usize = 0;
     const address_value = api.Value.bz_valueToString(ctx.vm.bz_peek(2), &len);
     const address = if (len > 0) address_value.?[0..len] else "";
-    const port: ?i32 = ctx.vm.bz_peek(1).integer();
-    if (port == null or port.? < 0) {
+    const port = ctx.vm.bz_peek(1).integer();
+    if (port < 0) {
         ctx.vm.pushError("errors.InvalidArgumentError", null);
 
         return -1;
@@ -317,7 +317,7 @@ pub export fn SocketConnect(ctx: *api.NativeCtx) c_int {
             const stream = std.net.tcpConnectToHost(
                 api.VM.allocator,
                 address,
-                @as(u16, @intCast(port.?)),
+                @intCast(port),
             ) catch |err| {
                 handleConnectError(ctx, err);
 
@@ -391,7 +391,7 @@ fn handleReadAllError(ctx: *api.NativeCtx, err: anytype) void {
 }
 
 pub export fn SocketRead(ctx: *api.NativeCtx) c_int {
-    const n: i32 = ctx.vm.bz_peek(0).integer();
+    const n = ctx.vm.bz_peek(0).integer();
     if (n < 0) {
         ctx.vm.pushError("errors.InvalidArgumentError", null);
 
@@ -596,8 +596,8 @@ pub export fn SocketServerStart(ctx: *api.NativeCtx) c_int {
     var len: usize = 0;
     const address_value = api.Value.bz_valueToString(ctx.vm.bz_peek(3), &len);
     const address = if (len > 0) address_value.?[0..len] else "";
-    const port: ?i32 = ctx.vm.bz_peek(2).integer();
-    if (port == null or port.? < 0) {
+    const port = ctx.vm.bz_peek(2).integer();
+    if (port < 0) {
         ctx.vm.pushError("errors.InvalidArgumentError", null);
 
         return -1;
@@ -608,7 +608,7 @@ pub export fn SocketServerStart(ctx: *api.NativeCtx) c_int {
 
     const resolved_address = std.net.Address.parseIp(
         address,
-        @intCast(port.?),
+        @intCast(port),
     ) catch {
         ctx.vm.pushError("errors.InvalidArgumentError", null);
 

@@ -6,7 +6,7 @@ const VM = _vm.VM;
 const TryCtx = _vm.TryCtx;
 const _obj = @import("obj.zig");
 const _value = @import("value.zig");
-const Integer = _value.Integer;
+const Integer = i64; // Not i48 because its not supported by C ABI
 const Float = _value.Float;
 const Value = _value.Value;
 const memory = @import("memory.zig");
@@ -93,7 +93,7 @@ export fn bz_pushFloat(self: *VM, value: Float) void {
 
 /// Push a integer value on the stack
 export fn bz_pushInteger(self: *VM, value: Integer) void {
-    self.push(Value.fromInteger(value));
+    self.push(Value.fromInteger(@intCast(value)));
 }
 
 /// Push null on the stack
@@ -536,8 +536,8 @@ export fn bz_newRange(vm: *VM, low: Integer, high: Integer) Value {
     return Value.fromObj((vm.gc.allocateObject(
         ObjRange,
         ObjRange{
-            .low = low,
-            .high = high,
+            .low = @truncate(low),
+            .high = @truncate(high),
         },
     ) catch @panic("Could not create range")).toObj());
 }
@@ -572,7 +572,7 @@ export fn bz_valueToList(value: Value) *ObjList {
     return ObjList.cast(value.obj()).?;
 }
 
-export fn bz_listGet(self: Value, index: i32, checked: bool) Value {
+export fn bz_listGet(self: Value, index: Integer, checked: bool) Value {
     const list = ObjList.cast(self.obj()).?;
 
     if (index < 0 or index >= list.items.items.len) {
@@ -1688,7 +1688,7 @@ export fn bz_readZigValueFromBuffer(
                     if (ztype.Int.signedness == .signed) {
                         break :integer Value.fromInteger(
                             std.mem.bytesToValue(
-                                Integer,
+                                i32,
                                 bytes[0..4],
                             ),
                         );

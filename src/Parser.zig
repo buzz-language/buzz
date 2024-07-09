@@ -6,6 +6,7 @@ const obj = @import("obj.zig");
 const Token = @import("Token.zig");
 const Chunk = @import("Chunk.zig");
 const Value = @import("value.zig").Value;
+const Integer = @import("value.zig").Integer;
 const FFI = @import("FFI.zig");
 const Ast = @import("Ast.zig");
 const GarbageCollector = @import("memory.zig").GarbageCollector;
@@ -6782,7 +6783,7 @@ fn enumDeclaration(self: *Self) Error!Ast.Node.Index {
     var cases = std.ArrayList(Ast.Enum.Case).init(self.gc.allocator);
     defer cases.shrinkAndFree(cases.items.len);
     var picked = std.ArrayList(bool).init(self.gc.allocator);
-    var case_index: i32 = 0;
+    var case_index: Integer = 0;
     while (!self.check(.RightBrace) and !self.check(.Eof)) : (case_index += 1) {
         if (case_index > 255) {
             self.reportError(.enum_cases_count, "Too many enum cases.");

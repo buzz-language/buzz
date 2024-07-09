@@ -963,9 +963,9 @@ pub const ObjString = struct {
         return vm.gc.copyString(new_string.items);
     }
 
-    pub fn next(self: *Self, vm: *VM, str_index: ?i32) !?i32 {
+    pub fn next(self: *Self, vm: *VM, str_index: ?Integer) !?Integer {
         if (str_index) |index| {
-            if (index < 0 or index >= @as(i32, @intCast(self.string.len))) {
+            if (index < 0 or index >= @as(Integer, @intCast(self.string.len))) {
                 try vm.throw(
                     VM.Error.OutOfBound,
                     (try vm.gc.copyString("Out of bound access to str")).toValue(),
@@ -974,12 +974,12 @@ pub const ObjString = struct {
                 );
             }
 
-            return if (index + 1 >= @as(i32, @intCast(self.string.len)))
+            return if (index + 1 >= @as(Integer, @intCast(self.string.len)))
                 null
             else
                 index + 1;
         } else {
-            return if (self.string.len > 0) @as(i32, 0) else null;
+            return if (self.string.len > 0) @as(Integer, 0) else null;
         }
     }
 
@@ -1961,9 +1961,9 @@ pub const ObjList = struct {
     }
 
     // Used also by the VM
-    pub fn rawNext(self: *Self, vm: *VM, list_index: ?i32) !?i32 {
+    pub fn rawNext(self: *Self, vm: *VM, list_index: ?Integer) !?Integer {
         if (list_index) |index| {
-            if (index < 0 or index >= @as(i32, @intCast(self.items.items.len))) {
+            if (index < 0 or index >= @as(Integer, @intCast(self.items.items.len))) {
                 try vm.throw(
                     VM.Error.OutOfBound,
                     (try vm.gc.copyString("Out of bound access to list")).toValue(),
@@ -1972,12 +1972,12 @@ pub const ObjList = struct {
                 );
             }
 
-            return if (index + 1 >= @as(i32, @intCast(self.items.items.len)))
+            return if (index + 1 >= @as(Integer, @intCast(self.items.items.len)))
                 null
             else
                 index + 1;
         } else {
-            return if (self.items.items.len > 0) @as(i32, 0) else null;
+            return if (self.items.items.len > 0) @as(Integer, 0) else null;
         }
     }
 

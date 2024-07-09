@@ -2,6 +2,7 @@ const std = @import("std");
 const mem = std.mem;
 const Allocator = mem.Allocator;
 const Token = @import("Token.zig");
+const value = @import("value.zig");
 
 pub const SourceLocation = struct {
     start: usize,
@@ -281,7 +282,7 @@ fn number(self: *Self) !Token {
     }
 
     const float = if (is_float)
-        std.fmt.parseFloat(f64, self.source[self.current.start..self.current.offset]) catch {
+        std.fmt.parseFloat(value.Float, self.source[self.current.start..self.current.offset]) catch {
             return self.makeToken(
                 .Error,
                 "float overflow",
@@ -293,7 +294,7 @@ fn number(self: *Self) !Token {
         null;
 
     const int = if (!is_float)
-        std.fmt.parseInt(i32, self.source[self.current.start..self.current.offset], 10) catch {
+        std.fmt.parseInt(value.Integer, self.source[self.current.start..self.current.offset], 10) catch {
             return self.makeToken(
                 .Error,
                 "int overflow",
@@ -368,7 +369,7 @@ fn binary(self: *Self) Token {
         .IntegerValue,
         null,
         null,
-        std.fmt.parseInt(i32, self.source[self.current.start + 2 .. self.current.offset], 2) catch {
+        std.fmt.parseInt(value.Integer, self.source[self.current.start + 2 .. self.current.offset], 2) catch {
             return self.makeToken(
                 .Error,
                 "int overflow",
@@ -400,7 +401,7 @@ fn hexa(self: *Self) Token {
         .IntegerValue,
         null,
         null,
-        std.fmt.parseInt(i32, self.source[self.current.start + 2 .. self.current.offset], 16) catch {
+        std.fmt.parseInt(value.Integer, self.source[self.current.start + 2 .. self.current.offset], 16) catch {
             return self.makeToken(
                 .Error,
                 "int overflow",
@@ -542,7 +543,7 @@ fn match(self: *Self, expected: u8) bool {
     return true;
 }
 
-fn makeToken(self: *Self, tag: Token.Type, literal_string: ?[]const u8, literal_float: ?f64, literal_integer: ?i32) Token {
+fn makeToken(self: *Self, tag: Token.Type, literal_string: ?[]const u8, literal_float: ?value.Float, literal_integer: ?value.Integer) Token {
     self.token_index += 1;
     return Token{
         .tag = tag,

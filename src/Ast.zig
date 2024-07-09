@@ -909,11 +909,11 @@ fn binaryValue(self: Self, node: Node.Index, gc: *GarbageCollector) !?Value {
                 if (right_float) |rf| {
                     return Value.fromBoolean(lf > rf);
                 } else {
-                    return Value.fromBoolean(lf > @as(f64, @floatFromInt(right_integer.?)));
+                    return Value.fromBoolean(lf > @as(v.Float, @floatFromInt(right_integer.?)));
                 }
             } else {
                 if (right_float) |rf| {
-                    return Value.fromBoolean(@as(f64, @floatFromInt(left_integer.?)) > rf);
+                    return Value.fromBoolean(@as(v.Float, @floatFromInt(left_integer.?)) > rf);
                 } else {
                     return Value.fromBoolean(left_integer.? > right_integer.?);
                 }
@@ -926,11 +926,11 @@ fn binaryValue(self: Self, node: Node.Index, gc: *GarbageCollector) !?Value {
                 if (right_float) |rf| {
                     return Value.fromBoolean(lf < rf);
                 } else {
-                    return Value.fromBoolean(lf < @as(f64, @floatFromInt(right_integer.?)));
+                    return Value.fromBoolean(lf < @as(v.Float, @floatFromInt(right_integer.?)));
                 }
             } else {
                 if (right_float) |rf| {
-                    return Value.fromBoolean(@as(f64, @floatFromInt(left_integer.?)) < rf);
+                    return Value.fromBoolean(@as(v.Float, @floatFromInt(left_integer.?)) < rf);
                 } else {
                     return Value.fromBoolean(left_integer.? < right_integer.?);
                 }
@@ -943,11 +943,11 @@ fn binaryValue(self: Self, node: Node.Index, gc: *GarbageCollector) !?Value {
                 if (right_float) |rf| {
                     return Value.fromBoolean(lf >= rf);
                 } else {
-                    return Value.fromBoolean(lf >= @as(f64, @floatFromInt(right_integer.?)));
+                    return Value.fromBoolean(lf >= @as(v.Float, @floatFromInt(right_integer.?)));
                 }
             } else {
                 if (right_float) |rf| {
-                    return Value.fromBoolean(@as(f64, @floatFromInt(left_integer.?)) >= rf);
+                    return Value.fromBoolean(@as(v.Float, @floatFromInt(left_integer.?)) >= rf);
                 } else {
                     return Value.fromBoolean(left_integer.? >= right_integer.?);
                 }
@@ -960,11 +960,11 @@ fn binaryValue(self: Self, node: Node.Index, gc: *GarbageCollector) !?Value {
                 if (right_float) |rf| {
                     return Value.fromBoolean(lf <= rf);
                 } else {
-                    return Value.fromBoolean(lf <= @as(f64, @floatFromInt(right_integer.?)));
+                    return Value.fromBoolean(lf <= @as(v.Float, @floatFromInt(right_integer.?)));
                 }
             } else {
                 if (right_float) |rf| {
-                    return Value.fromBoolean(@as(f64, @floatFromInt(left_integer.?)) <= rf);
+                    return Value.fromBoolean(@as(v.Float, @floatFromInt(left_integer.?)) <= rf);
                 } else {
                     return Value.fromBoolean(left_integer.? <= right_integer.?);
                 }

@@ -135,7 +135,7 @@ const Buffer = struct {
         try self.buffer.append(if (value) 1 else 0);
     }
 
-    pub fn readInteger(self: *Self) !?i32 {
+    pub fn readInteger(self: *Self) !?api.Integer {
         if (self.cursor > self.buffer.items.len) {
             return null;
         }
@@ -143,22 +143,21 @@ const Buffer = struct {
         var buffer_stream = std.io.fixedBufferStream(self.buffer.items[self.cursor..self.buffer.items.len]);
         var reader = buffer_stream.reader();
 
-        const number = try reader.readInt(i32, builtin.cpu.arch.endian());
+        const number = try reader.readInt(api.Integer, builtin.cpu.arch.endian());
 
-        self.cursor += @sizeOf(i32);
+        self.cursor += @divExact(@typeInfo(api.Integer).Int.bits, 8);
 
         return number;
     }
 
-    pub fn writeInteger(self: *Self, integer: i32) !void {
+    pub fn writeInteger(self: *Self, integer: api.Integer) !void {
         if (self.cursor > 0) {
             return Error.WriteWhileReading;
         }
 
         var writer = self.buffer.writer();
 
-        // Flag so we know it an integer
-        try writer.writeInt(i32, integer, native_endian);
+        try writer.writeInt(api.Integer, integer, native_endian);
     }
 
     pub fn readUserData(self: *Self, vm: *api.VM) !?*api.ObjUserData {
@@ -191,7 +190,7 @@ const Buffer = struct {
         );
     }
 
-    pub fn readFloat(self: *Self) !?f64 {
+    pub fn readFloat(self: *Self) !?api.Float {
         if (self.cursor > self.buffer.items.len) {
             return null;
         }
@@ -201,19 +200,18 @@ const Buffer = struct {
 
         const number = try reader.readInt(u64, builtin.cpu.arch.endian());
 
-        self.cursor += @sizeOf(f64);
+        self.cursor += @sizeOf(api.Float);
 
         return @bitCast(number);
     }
 
-    pub fn writeFloat(self: *Self, float: f64) !void {
+    pub fn writeFloat(self: *Self, float: api.Float) !void {
         if (self.cursor > 0) {
             return Error.WriteWhileReading;
         }
 
         var writer = self.buffer.writer();
 
-        // Flag so we know it an float
         try writer.writeInt(
             u64,
             @as(u64, @bitCast(float)),
@@ -528,6 +526,8 @@ inline fn rawWriteZ(
         if (!ctx.vm.bz_checkBuzzType(value, zig_type.?, obj_typedef)) {
             return false;
         }
+
+        // TODO: If expected zig type is i32, make sure the buzz integer fits in
 
         const len = api.VM.bz_zigValueSize(zig_type.?);
 

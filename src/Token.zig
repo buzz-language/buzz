@@ -1,4 +1,5 @@
 const std = @import("std");
+const value = @import("value.zig");
 const mem = std.mem;
 
 const Self = @This();
@@ -10,8 +11,8 @@ tag: Type,
 lexeme: []const u8,
 // Literal is either a string or a number
 literal_string: ?[]const u8 = null,
-literal_float: ?f64 = null,
-literal_integer: ?i32 = null,
+literal_float: ?value.Float = null,
+literal_integer: ?value.Integer = null,
 line: usize,
 column: usize,
 offset: usize = 0,

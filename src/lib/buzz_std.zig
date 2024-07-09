@@ -1,5 +1,7 @@
 const std = @import("std");
 const api = @import("buzz_api.zig");
+const Integer = api.Integer;
+const Float = api.Float;
 const builtin = @import("builtin");
 const is_wasm = builtin.cpu.arch.isWasm();
 const io = @import("io.zig");
@@ -21,7 +23,7 @@ pub export fn random(ctx: *api.NativeCtx) c_int {
     ctx.vm.bz_push(
         api.Value.fromInteger(
             std.crypto.random.intRangeAtMost(
-                i32,
+                Integer,
                 if (min.isInteger())
                     min.integer()
                 else
@@ -83,6 +85,7 @@ pub export fn toFloat(ctx: *api.NativeCtx) c_int {
 
 pub export fn toUd(ctx: *api.NativeCtx) c_int {
     const value = ctx.vm.bz_peek(0);
+
     const ud: u64 = if (value.isInteger())
         @intCast(value.integer())
     else if (value.isFloat())
@@ -114,7 +117,7 @@ pub export fn parseInt(ctx: *api.NativeCtx) c_int {
 
     const string_slice = string.?[0..len];
 
-    const number = std.fmt.parseInt(i32, string_slice, 10) catch {
+    const number = std.fmt.parseInt(Integer, string_slice, 10) catch {
         ctx.vm.bz_push(api.Value.Null);
 
         return 1;
@@ -169,7 +172,7 @@ pub export fn parseFloat(ctx: *api.NativeCtx) c_int {
 
     const string_slice = string.?[0..len];
 
-    const number = std.fmt.parseFloat(f64, string_slice) catch {
+    const number = std.fmt.parseFloat(Float, string_slice) catch {
         ctx.vm.bz_push(api.Value.Null);
 
         return 1;

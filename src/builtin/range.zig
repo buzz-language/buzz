@@ -21,7 +21,7 @@ pub fn toList(ctx: *obj.NativeCtx) c_int {
     ctx.vm.push(Value.fromObj(list.toObj()));
 
     if (range.low < range.high) {
-        var i: i32 = range.low;
+        var i = range.low;
         while (i < range.high) : (i += 1) {
             list.rawAppend(ctx.vm.gc, Value.fromInteger(i)) catch {
                 ctx.vm.panic("Out of memory");
@@ -29,7 +29,7 @@ pub fn toList(ctx: *obj.NativeCtx) c_int {
             };
         }
     } else {
-        var i: i32 = range.low;
+        var i = range.low;
         while (i > range.high) : (i -= 1) {
             list.rawAppend(ctx.vm.gc, Value.fromInteger(i)) catch {
                 ctx.vm.panic("Out of memory");

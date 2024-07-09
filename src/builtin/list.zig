@@ -8,6 +8,7 @@ const ObjTypeDef = _obj.ObjTypeDef;
 const ObjClosure = _obj.ObjClosure;
 const NativeCtx = _obj.NativeCtx;
 const VM = @import("../vm.zig").VM;
+const Integer = @import("../value.zig").Integer;
 const Value = @import("../value.zig").Value;
 const buzz_api = @import("../buzz_api.zig");
 
@@ -36,7 +37,7 @@ pub fn insert(ctx: *NativeCtx) c_int {
     if (index < 0 or list.items.items.len == 0) {
         index = 0;
     } else if (index >= list.items.items.len) {
-        index = @as(i32, @intCast(list.items.items.len)) - 1;
+        index = @as(Integer, @intCast(list.items.items.len)) - 1;
     }
 
     list.rawInsert(
@@ -56,7 +57,7 @@ pub fn insert(ctx: *NativeCtx) c_int {
 pub fn len(ctx: *NativeCtx) c_int {
     const list: *ObjList = ObjList.cast(ctx.vm.peek(0).obj()).?;
 
-    ctx.vm.push(Value.fromInteger(@as(i32, @intCast(list.items.items.len))));
+    ctx.vm.push(Value.fromInteger(@intCast(list.items.items.len)));
 
     return 1;
 }
@@ -172,7 +173,7 @@ pub fn indexOf(ctx: *NativeCtx) c_int {
     }
 
     ctx.vm.push(if (index) |uindex|
-        Value.fromInteger(@as(i32, @intCast(uindex)))
+        Value.fromInteger(@intCast(uindex))
     else
         Value.Null);
 
@@ -290,7 +291,7 @@ pub fn next(ctx: *NativeCtx) c_int {
     const list: *ObjList = ObjList.cast(list_value.obj()).?;
     const list_index: Value = ctx.vm.peek(0);
 
-    const next_index: ?i32 = list.rawNext(
+    const next_index = list.rawNext(
         ctx.vm,
         list_index.integerOrNull(),
     ) catch {
@@ -313,7 +314,7 @@ pub fn forEach(ctx: *NativeCtx) c_int {
     const closure = ObjClosure.cast(ctx.vm.peek(0).obj()).?;
 
     for (list.items.items, 0..) |item, index| {
-        const index_value = Value.fromInteger(@as(i32, @intCast(index)));
+        const index_value = Value.fromInteger(@intCast(index));
 
         var args = [_]*const Value{ &index_value, &item };
 
@@ -335,7 +336,7 @@ pub fn reduce(ctx: *NativeCtx) c_int {
     var accumulator = ctx.vm.peek(0);
 
     for (list.items.items, 0..) |item, index| {
-        const index_value = Value.fromInteger(@as(i32, @intCast(index)));
+        const index_value = Value.fromInteger(@intCast(index));
 
         var args = [_]*const Value{
             &index_value,
@@ -378,7 +379,7 @@ pub fn filter(ctx: *NativeCtx) c_int {
     };
 
     for (list.items.items, 0..) |item, index| {
-        const index_value = Value.fromInteger(@as(i32, @intCast(index)));
+        const index_value = Value.fromInteger(@intCast(index));
         var args = [_]*const Value{ &index_value, &item };
 
         buzz_api.bz_call(
@@ -422,7 +423,7 @@ pub fn map(ctx: *NativeCtx) c_int {
     };
 
     for (list.items.items, 0..) |item, index| {
-        const index_value = Value.fromInteger(@as(i32, @intCast(index)));
+        const index_value = Value.fromInteger(@intCast(index));
         var args = [_]*const Value{ &index_value, &item };
 
         buzz_api.bz_call(
