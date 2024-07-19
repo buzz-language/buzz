@@ -280,7 +280,13 @@ fn valueDump(value: Value, vm: *VM, seen: *std.AutoHashMap(*_obj.Obj, void), dep
                                 },
                             );
 
-                            if (if (field.static) object.fields[field.index] else object.defaults[field.index]) |v| {
+                            if (if (field.static)
+                                object.fields[field.index]
+                            else if (!field.method)
+                                object.defaults[field.index]
+                            else
+                                null) |v|
+                            {
                                 io.print(" = ", .{});
                                 valueDump(v, vm, seen, depth + 1);
                             }

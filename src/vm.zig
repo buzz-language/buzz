@@ -555,17 +555,10 @@ pub const VM = struct {
     }
 
     pub inline fn cloneValue(self: *Self, value: Value) !Value {
-        return if (value.isObj()) try cloneObject(value.obj(), self) else value;
-    }
-
-    inline fn clone(self: *Self) !void {
-        self.push(try self.cloneValue(self.pop()));
-    }
-
-    inline fn swap(self: *Self, from: u8, to: u8) void {
-        const temp: Value = (self.current_fiber.stack_top - to - 1)[0];
-        (self.current_fiber.stack_top - to - 1)[0] = (self.current_fiber.stack_top - from - 1)[0];
-        (self.current_fiber.stack_top - from - 1)[0] = temp;
+        return if (value.isObj())
+            try cloneObject(value.obj(), self)
+        else
+            value;
     }
 
     pub inline fn currentFrame(self: *Self) ?*CallFrame {
@@ -993,10 +986,12 @@ pub const VM = struct {
     }
 
     fn OP_CLONE(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
-        self.clone() catch {
-            self.panic("Out of memory");
-            unreachable;
-        };
+        self.push(
+            self.cloneValue(self.pop()) catch {
+                self.panic("Out of memory");
+                unreachable;
+            },
+        );
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
@@ -1013,7 +1008,12 @@ pub const VM = struct {
     }
 
     fn OP_SWAP(self: *Self, _: *CallFrame, _: u32, _: OpCode, arg: u24) void {
-        self.swap(@as(u8, @intCast(arg)), self.readByte());
+        const from = @as(u8, @intCast(arg));
+        const to = self.readByte();
+
+        const temp: Value = (self.current_fiber.stack_top - to - 1)[0];
+        (self.current_fiber.stack_top - to - 1)[0] = (self.current_fiber.stack_top - from - 1)[0];
+        (self.current_fiber.stack_top - from - 1)[0] = temp;
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
@@ -4333,6 +4333,7 @@ pub const VM = struct {
 
                 // The now compile hotspot must be a new constant for the current function
                 self.currentFrame().?.closure.function.chunk.constants.append(
+                    self.currentFrame().?.closure.function.chunk.allocator,
                     obj_native.toValue(),
                 ) catch {
                     self.panic("Out of memory");
@@ -5212,12 +5213,14 @@ pub const VM = struct {
         };
 
         try chunk.code.replaceRange(
+            chunk.allocator,
             to - hotspot_call.len,
             hotspot_call.len,
             &hotspot_call,
         );
 
         try chunk.lines.replaceRange(
+            chunk.allocator,
             to - hotspot_call.len,
             hotspot_call.len,
             &[_]Ast.TokenIndex{

@@ -1,5 +1,4 @@
 const std = @import("std");
-const Allocator = std.mem.Allocator;
 const Ast = @import("Ast.zig");
 const Value = @import("value.zig").Value;
 const VM = @import("vm.zig").VM;
@@ -141,37 +140,40 @@ const Self = @This();
 
 pub const max_constants: u24 = std.math.maxInt(u24);
 
+allocator: std.mem.Allocator,
+/// AST
 ast: Ast,
 /// List of opcodes to execute
-code: std.ArrayList(u32),
+code: std.ArrayListUnmanaged(u32),
 /// List of locations
-lines: std.ArrayList(Ast.TokenIndex),
+lines: std.ArrayListUnmanaged(Ast.TokenIndex),
 /// List of constants defined in this chunk
-constants: std.ArrayList(Value),
+constants: std.ArrayListUnmanaged(Value),
 
-pub fn init(allocator: Allocator, ast: Ast) Self {
+pub fn init(allocator: std.mem.Allocator, ast: Ast) Self {
     return Self{
+        .allocator = allocator,
         .ast = ast,
-        .code = std.ArrayList(u32).init(allocator),
-        .constants = std.ArrayList(Value).init(allocator),
-        .lines = std.ArrayList(Ast.TokenIndex).init(allocator),
+        .code = std.ArrayListUnmanaged(u32){},
+        .constants = std.ArrayListUnmanaged(Value){},
+        .lines = std.ArrayListUnmanaged(Ast.TokenIndex){},
     };
 }
 
 pub fn deinit(self: *Self) void {
-    self.code.deinit();
-    self.constants.deinit();
-    self.lines.deinit();
+    self.code.deinit(self.allocator);
+    self.constants.deinit(self.allocator);
+    self.lines.deinit(self.allocator);
 }
 
 pub fn write(self: *Self, code: u32, where: Ast.TokenIndex) !void {
-    try self.code.append(code);
-    try self.lines.append(where);
+    try self.code.append(self.allocator, code);
+    try self.lines.append(self.allocator, where);
 }
 
 pub fn addConstant(self: *Self, vm: ?*VM, value: Value) !u24 {
     if (vm) |uvm| uvm.push(value);
-    try self.constants.append(value);
+    try self.constants.append(self.allocator, value);
     if (vm) |uvm| _ = uvm.pop();
 
     return @intCast(self.constants.items.len - 1);
