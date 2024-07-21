@@ -40,6 +40,8 @@ const CodeGen = @import("Codegen.zig");
 const Scanner = @import("Scanner.zig");
 const io = @import("io.zig");
 
+pub const PROMPT = "> ";
+
 pub fn printBanner(out: anytype, full: bool) void {
     out.print(
         "\n👨‍🚀 buzz {}-{s} Copyright (C) 2021-present Benoit Giannangeli\n",
@@ -162,7 +164,7 @@ pub fn repl(allocator: std.mem.Allocator) !void {
     var previous_globals = try vm.globals.clone();
     var previous_type_registry = try gc.type_registry.registry.clone();
     while (true) {
-        const read_source = ln.linenoise("> ");
+        const read_source = ln.linenoise(PROMPT);
 
         if (read_source == null) {
             std.process.exit(0);
@@ -174,6 +176,18 @@ pub fn repl(allocator: std.mem.Allocator) !void {
         _ = ln.linenoiseHistorySave(@ptrCast(buzz_history_path.items.ptr));
 
         if (source.len > 0) {
+            // Highlight input
+            var source_scanner = Scanner.init(
+                gc.allocator,
+                "REPL",
+                source,
+            );
+            // Go up one line, erase it
+            stdout.print("\x1b[1A\r\x1b[2K{s}", .{PROMPT}) catch unreachable;
+            // Output highlighted user input
+            source_scanner.highlight(stdout, true_color);
+            stdout.writeAll("\n") catch unreachable;
+
             const expr = runSource(
                 source,
                 "REPL",
@@ -190,14 +204,6 @@ pub fn repl(allocator: std.mem.Allocator) !void {
             };
 
             if (!parser.reporter.had_error and !codegen.reporter.had_error) {
-                // var source_scanner = Scanner.init(
-                //     gc.allocator,
-                //     "REPL",
-                //     source,
-                // );
-                // source_scanner.highlight(stdout, true_color);
-                // stdout.writeAll("\n") catch unreachable;
-
                 // FIXME: why can't I deinit those?
                 // previous_parser_globals.deinit();
                 previous_parser_globals = try parser.globals.clone();

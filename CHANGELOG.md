@@ -17,6 +17,7 @@ list[?10] == null;
 
 "hello"[?20] == null;
 ```
+- In REPL, user input is syntax highlighted (https://github.com/buzz-language/buzz/issues/217)
 
 ## Modified
 - Enum can now have `rg`, `ud`, `void`, `pat` has value type
