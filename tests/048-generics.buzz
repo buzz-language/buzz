@@ -47,7 +47,7 @@ test "Generic within anonymous object and map" {
 }
 
 fun countShuffleGenerics::<A, B>() > Function([A] a, [B] b) > int {
-    return fun ([A] a, [B] b) > int -> a.len() + b.len();
+    return fun ([A] a, [B] b) > int => a.len() + b.len();
 }
 
 test "Generic in lambda function definition" {
@@ -101,7 +101,7 @@ fun doubleGeneric::<A, B>(Function::<C, D>() > int lambda) > int {
 test "Generic with generic lambda parameter" {
     std.assert(
         doubleGeneric::<str, int>(
-            fun::<E, F>() > int -> 12
+            fun::<E, F>() > int => 12
         ) == 12,
         message: "could defined multiple generics"
     );

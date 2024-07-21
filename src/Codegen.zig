@@ -307,6 +307,8 @@ pub fn identifierConstant(self: *Self, name: []const u8) !u24 {
 
 // Unlocated error, should not be used
 fn reportError(self: *Self, error_type: Reporter.Error, message: []const u8) void {
+    @setCold(true);
+
     if (self.reporter.panic_mode) {
         return;
     }
@@ -388,7 +390,7 @@ fn endScope(self: *Self, node: Ast.Node.Index) Error!void {
     }
 }
 
-inline fn generateNode(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.ObjFunction {
+fn generateNode(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.ObjFunction {
     if (self.synchronize(node)) {
         return null;
     }

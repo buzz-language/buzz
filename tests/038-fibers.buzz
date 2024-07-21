@@ -54,13 +54,13 @@ test "Throw inside a fiber" {
 fun closedUpvalue() > Function() > str {
     str upvalue = "joe";
 
-    return fun () > str -> "hello {upvalue}";
+    return fun () > str => "hello {upvalue}";
 }
 
 test "Opened upvalue in fiber" {
     str upvalue = "world";
 
-    Function() > str fiberFn = fun () > str -> "hello {upvalue}";
+    Function() > str fiberFn = fun () > str => "hello {upvalue}";
 
     std.assert(resolve &fiberFn() == "hello world", message: "Fiber could use an opened upvalue");
 }
@@ -71,7 +71,7 @@ test "Closed upvalue in fiber" {
 
 test "Wrapping call inside complex expressions" {
     {str: Function() > str} map = {
-        "hello": fun () > str -> "hello world",
+        "hello": fun () > str => "hello world",
     };
 
     std.assert(resolve &map["hello"]?() == "hello world", message:"Could warp function call in a complex expression");

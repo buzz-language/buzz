@@ -103,6 +103,7 @@ pub const Type = enum {
     LessEqual, // <=
     QuestionQuestion, // ??
     Arrow, // ->
+    DoubleArrow, // =>
     True, // true
     False, // false
     Null, // null

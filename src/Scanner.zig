@@ -115,7 +115,20 @@ pub fn scanToken(self: *Self) !Token {
             self.makeToken(.DoubleColon, null, null, null)
         else
             self.makeToken(.Colon, null, null, null),
-        '=' => self.makeToken(if (self.match('=')) .EqualEqual else .Equal, null, null, null),
+        '=' => if (self.match('>'))
+            self.makeToken(
+                .DoubleArrow,
+                null,
+                null,
+                null,
+            )
+        else
+            self.makeToken(
+                if (self.match('=')) .EqualEqual else .Equal,
+                null,
+                null,
+                null,
+            ),
         '"' => self.string(false),
         '`' => self.string(true),
         '\'' => self.byte(),
@@ -682,6 +695,7 @@ pub fn highlight(self: *Self, out: anytype, true_color: bool) void {
                     .Colon,
                     .DoubleColon,
                     .Arrow,
+                    .DoubleArrow,
                     .Ampersand,
                     .Spread,
                     => if (true_color) Color.punctuation else Color.bright_white,

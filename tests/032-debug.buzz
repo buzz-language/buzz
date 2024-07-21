@@ -6,7 +6,7 @@ import "debug";
 |     str source = debug.ast(`
 |         import \"std\";
 |
-|         fun main([str] _) > void -> std.print(\"hello world\");
+|         fun main([str] _) > void => std.print(\"hello world\");
 |     `, scriptName: "test");
 |
 |     Boxed jsonAST = jsonDecode(source);

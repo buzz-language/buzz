@@ -501,7 +501,7 @@ pub export fn BufferAt(ctx: *api.NativeCtx) c_int {
     return 1;
 }
 
-inline fn rawWriteZ(
+fn rawWriteZ(
     ctx: *api.NativeCtx,
     buffer: *Buffer,
     ztype: []const u8,
@@ -584,7 +584,7 @@ pub export fn BufferWriteZAt(ctx: *api.NativeCtx) c_int {
     )) -1 else 0;
 }
 
-inline fn rawWriteStruct(
+fn rawWriteStruct(
     vm: *api.VM,
     buffer: *Buffer,
     at: usize,
@@ -666,7 +666,7 @@ pub export fn BufferWriteStructAt(ctx: *api.NativeCtx) c_int {
     )) -1 else 0;
 }
 
-inline fn rawReadStruct(
+fn rawReadStruct(
     vm: *api.VM,
     buffer: *Buffer,
     at: ?usize,

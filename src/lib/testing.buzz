@@ -38,28 +38,28 @@ export fun color(str text, Color color, bool reset = true) > str {
     return "\27[{color.value}m{text}{if (reset) "\27[0m" else ""}";
 }
 
-export fun bright(str text) -> color(text, color: Color.bright);
-export fun dim(str text) -> color(text, color: Color.dim);
-export fun underscore(str text) -> color(text, color: Color.underscore);
-export fun blink(str text) -> color(text, color: Color.blink);
-export fun reverse(str text) -> color(text, color: Color.reverse);
-export fun hidden(str text) -> color(text, color: Color.hidden);
-export fun black(str text) -> color(text, color: Color.black);
-export fun red(str text) -> color(text, color: Color.red);
-export fun green(str text) -> color(text, color: Color.green);
-export fun yellow(str text) -> color(text, color: Color.yellow);
-export fun blue(str text) -> color(text, color: Color.blue);
-export fun magenta(str text) -> color(text, color: Color.magenta);
-export fun cyan(str text) -> color(text, color: Color.cyan);
-export fun white(str text) -> color(text, color: Color.white);
-export fun onblack(str text) -> color(text, color: Color.onblack);
-export fun onred(str text) -> color(text, color: Color.onred);
-export fun ongreen(str text) -> color(text, color: Color.ongreen);
-export fun onyellow(str text) -> color(text, color: Color.onyellow);
-export fun onblue(str text) -> color(text, color: Color.onblue);
-export fun onmagenta(str text) -> color(text, color: Color.onmagenta);
-export fun oncyan(str text) -> color(text, color: Color.oncyan);
-export fun onwhite(str text) -> color(text, color: Color.onwhite);
+export fun bright(str text) => color(text, color: Color.bright);
+export fun dim(str text) => color(text, color: Color.dim);
+export fun underscore(str text) => color(text, color: Color.underscore);
+export fun blink(str text) => color(text, color: Color.blink);
+export fun reverse(str text) => color(text, color: Color.reverse);
+export fun hidden(str text) => color(text, color: Color.hidden);
+export fun black(str text) => color(text, color: Color.black);
+export fun red(str text) => color(text, color: Color.red);
+export fun green(str text) => color(text, color: Color.green);
+export fun yellow(str text) => color(text, color: Color.yellow);
+export fun blue(str text) => color(text, color: Color.blue);
+export fun magenta(str text) => color(text, color: Color.magenta);
+export fun cyan(str text) => color(text, color: Color.cyan);
+export fun white(str text) => color(text, color: Color.white);
+export fun onblack(str text) => color(text, color: Color.onblack);
+export fun onred(str text) => color(text, color: Color.onred);
+export fun ongreen(str text) => color(text, color: Color.ongreen);
+export fun onyellow(str text) => color(text, color: Color.onyellow);
+export fun onblue(str text) => color(text, color: Color.onblue);
+export fun onmagenta(str text) => color(text, color: Color.onmagenta);
+export fun oncyan(str text) => color(text, color: Color.oncyan);
+export fun onwhite(str text) => color(text, color: Color.onwhite);
 
 export object Tester {
     [bool] tests = [<bool>],
@@ -99,7 +99,7 @@ export object Tester {
     fun failedAsserts() > int {
         return this.asserts.reduce::<int>(
             fun (int _, bool success, int accumulator)
-                -> accumulator + if (success) 0 else 1,
+                => accumulator + if (success) 0 else 1,
             initial: 0,
         );
     }
@@ -107,7 +107,7 @@ export object Tester {
     fun failedTests() > int {
         return this.tests.reduce::<int>(
             fun (int _, bool success, int accumulator)
-                -> accumulator + if (success) 0 else 1,
+                => accumulator + if (success) 0 else 1,
             initial: 0,
         );
     }
@@ -115,7 +115,7 @@ export object Tester {
     fun succeededTests() > int {
         return this.tests.reduce::<int>(
             fun (int _, bool success, int accumulator)
-                -> accumulator + if (success) 1 else 0,
+                => accumulator + if (success) 1 else 0,
             initial: 0,
         );
     }

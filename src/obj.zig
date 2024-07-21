@@ -62,7 +62,7 @@ pub const Obj = struct {
     is_dirty: bool = false,
     node: ?*std.DoublyLinkedList(*Obj).Node = null,
 
-    pub inline fn cast(obj: *Obj, comptime T: type, obj_type: ObjType) ?*T {
+    pub fn cast(obj: *Obj, comptime T: type, obj_type: ObjType) ?*T {
         if (obj.obj_type != obj_type) {
             return null;
         }
@@ -70,7 +70,7 @@ pub const Obj = struct {
         return @alignCast(@fieldParentPtr("obj", obj));
     }
 
-    pub inline fn access(obj: *Obj, comptime T: type, obj_type: ObjType, gc: *GarbageCollector) ?*T {
+    pub fn access(obj: *Obj, comptime T: type, obj_type: ObjType, gc: *GarbageCollector) ?*T {
         if (BuildOptions.gc_debug_access) {
             gc.debugger.?.accessed(obj, gc.where);
         }

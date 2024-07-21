@@ -1,5 +1,4 @@
 const builtin = @import("builtin");
-const is_wasm = builtin.cpu.arch.isWasm();
 const std = @import("std");
 const _obj = @import("../obj.zig");
 const ObjString = _obj.ObjString;

@@ -402,6 +402,7 @@ const rules = [_]ParseRule{
     .{ .prefix = null, .infix = binary, .precedence = .Comparison }, // LessEqual
     .{ .prefix = null, .infix = binary, .precedence = .NullCoalescing }, // QuestionQuestion
     .{ .prefix = null, .infix = null, .precedence = .None }, // Arrow
+    .{ .prefix = null, .infix = null, .precedence = .None }, // DoubleArrow
     .{ .prefix = literal, .infix = null, .precedence = .None }, // True
     .{ .prefix = literal, .infix = null, .precedence = .None }, // False
     .{ .prefix = literal, .infix = null, .precedence = .None }, // Null
@@ -530,7 +531,8 @@ pub fn deinit(self: *Self) void {
     self.ffi.deinit();
 }
 
-inline fn reportErrorAtCurrent(self: *Self, error_type: Reporter.Error, message: []const u8) void {
+fn reportErrorAtCurrent(self: *Self, error_type: Reporter.Error, message: []const u8) void {
+    @setCold(true);
     self.reporter.reportErrorAt(
         error_type,
         self.ast.tokens.get(self.current_token.?),
@@ -538,7 +540,8 @@ inline fn reportErrorAtCurrent(self: *Self, error_type: Reporter.Error, message:
     );
 }
 
-pub inline fn reportError(self: *Self, error_type: Reporter.Error, message: []const u8) void {
+pub fn reportError(self: *Self, error_type: Reporter.Error, message: []const u8) void {
+    @setCold(true);
     self.reporter.reportErrorAt(
         error_type,
         self.ast.tokens.get(if (self.current_token.? > 0) self.current_token.? - 1 else 0),
@@ -546,7 +549,8 @@ pub inline fn reportError(self: *Self, error_type: Reporter.Error, message: []co
     );
 }
 
-inline fn reportErrorFmt(self: *Self, error_type: Reporter.Error, comptime fmt: []const u8, args: anytype) void {
+fn reportErrorFmt(self: *Self, error_type: Reporter.Error, comptime fmt: []const u8, args: anytype) void {
+    @setCold(true);
     self.reporter.reportErrorFmt(
         error_type,
         self.ast.tokens.get(if (self.current_token.? > 0) self.current_token.? - 1 else 0),
@@ -2241,7 +2245,7 @@ fn parseVariable(
     );
 }
 
-inline fn markInitialized(self: *Self) void {
+fn markInitialized(self: *Self) void {
     if (self.current.?.scope_depth == 0) {
         // assert(!self.globals.items[self.globals.items.len - 1].initialized);
         self.globals.items[self.globals.items.len - 1].initialized = true;
@@ -4930,7 +4934,7 @@ fn inlineIf(self: *Self, _: bool) Error!Ast.Node.Index {
     return try self.@"if"(false, null);
 }
 
-inline fn isAs(self: *Self, left: Ast.Node.Index, is_expr: bool) Error!Ast.Node.Index {
+fn isAs(self: *Self, left: Ast.Node.Index, is_expr: bool) Error!Ast.Node.Index {
     const start_location = self.ast.nodes.items(.location)[left];
     const constant = try self.parseTypeDef(null, true);
     const type_def = self.ast.nodes.items(.type_def)[constant].?;
@@ -5370,7 +5374,7 @@ fn function(
 
         const end_token: Token.Type = if (function_type.canOmitBody()) .Semicolon else .LeftBrace;
 
-        while (!self.check(end_token) and !self.check(.Arrow) and !self.check(.Eof)) {
+        while (!self.check(end_token) and !self.check(.DoubleArrow) and !self.check(.Eof)) {
             const error_type_node = try self.parseTypeDef(
                 self.ast.nodes.items(.type_def)[function_node].?.resolved_type.?.Function.generic_types,
                 true,
@@ -5384,7 +5388,7 @@ fn function(
                 self.reportError(.error_type, "Error type can't be optional");
             }
 
-            if (!self.check(end_token) and !self.check(.Arrow)) {
+            if (!self.check(end_token) and !self.check(.DoubleArrow)) {
                 try self.consume(.Comma, "Expected `,` after error type");
             }
         }
@@ -5397,7 +5401,7 @@ fn function(
     self.ast.nodes.items(.components)[function_signature].FunctionType.error_types = error_types.items;
 
     // Parse body
-    if (try self.match(.Arrow)) {
+    if (try self.match(.DoubleArrow)) {
         function_typedef.resolved_type.?.Function.lambda = true;
         self.ast.nodes.items(.components)[function_signature].FunctionType.lambda = true;
         const expr = try self.expression(false);
