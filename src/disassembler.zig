@@ -596,7 +596,13 @@ pub const DumpState = struct {
                                 },
                             ) catch unreachable;
 
-                            if (object.defaults[field.index]) |v| {
+                            if (if (field.static)
+                                object.fields[field.index]
+                            else if (field.has_default)
+                                object.defaults[field.index]
+                            else
+                                null) |v|
+                            {
                                 out.print(" = ", .{}) catch unreachable;
                                 state.valueDump(
                                     v,

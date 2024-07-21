@@ -282,7 +282,7 @@ fn valueDump(value: Value, vm: *VM, seen: *std.AutoHashMap(*_obj.Obj, void), dep
 
                             if (if (field.static)
                                 object.fields[field.index]
-                            else if (!field.method)
+                            else if (field.has_default)
                                 object.defaults[field.index]
                             else
                                 null) |v|
