@@ -508,7 +508,7 @@ pub const Obj = struct {
         }
     }
 
-    pub fn toString(obj: *Obj, writer: *const std.ArrayList(u8).Writer) (Allocator.Error || std.fmt.BufPrintError)!void {
+    pub fn toString(obj: *Obj, writer: anytype) (Allocator.Error || std.fmt.BufPrintError)!void {
         return switch (obj.obj_type) {
             .String => {
                 const str = ObjString.cast(obj).?.string;
@@ -4384,6 +4384,14 @@ pub const ObjTypeDef = struct {
         // FIXME
     }
 
+    pub fn jsonStringify(self: *Self, jw: anytype) !void {
+        try jw.valueStart();
+        try jw.stream.writeByte('\"');
+        try self.toString(jw.stream);
+        try jw.stream.writeByte('\"');
+        try jw.valueDone();
+    }
+
     // FIXME: return slice
     pub fn toStringAlloc(self: *const Self, allocator: Allocator) (Allocator.Error || std.fmt.BufPrintError)!std.ArrayList(u8) {
         var str = std.ArrayList(u8).init(allocator);
@@ -4393,15 +4401,15 @@ pub const ObjTypeDef = struct {
         return str;
     }
 
-    pub fn toString(self: *const Self, writer: *const std.ArrayList(u8).Writer) (Allocator.Error || std.fmt.BufPrintError)!void {
+    pub fn toString(self: *const Self, writer: anytype) (Allocator.Error || std.fmt.BufPrintError)!void {
         try self.toStringRaw(writer, true);
     }
 
-    pub fn toStringUnqualified(self: *const Self, writer: *const std.ArrayList(u8).Writer) (Allocator.Error || std.fmt.BufPrintError)!void {
+    pub fn toStringUnqualified(self: *const Self, writer: anytype) (Allocator.Error || std.fmt.BufPrintError)!void {
         try self.toStringRaw(writer, false);
     }
 
-    fn toStringRaw(self: *const Self, writer: *const std.ArrayList(u8).Writer, qualified: bool) (Allocator.Error || std.fmt.BufPrintError)!void {
+    fn toStringRaw(self: *const Self, writer: anytype, qualified: bool) (Allocator.Error || std.fmt.BufPrintError)!void {
         switch (self.def_type) {
             .Generic => try writer.print("generic type #{}-{}", .{ self.resolved_type.?.Generic.origin, self.resolved_type.?.Generic.index }),
             .UserData => try writer.writeAll("ud"),

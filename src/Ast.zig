@@ -49,6 +49,10 @@ pub inline fn appendToken(self: *Self, token: Token) !TokenIndex {
     return @intCast(self.tokens.len - 1);
 }
 
+pub fn jsonStringify(self: *const Self, jw: anytype) !void {
+    try self.nodes.get(self.root.?).jsonStringify(self, jw);
+}
+
 pub const Node = struct {
     tag: Tag,
     /// First token of this node
@@ -78,6 +82,26 @@ pub const Node = struct {
     compilable: bool = true,
 
     pub const Index = u32;
+
+    pub fn jsonStringify(self: *const Node, ast: *const Self, jw: anytype) !void {
+        try std.json.stringify(
+            .{
+                .tag = @tagName(self.tag),
+                .location = ast.tokens.get(self.location),
+                .end_location = ast.tokens.get(self.end_location),
+                .dockblock = if (self.docblock) |docblock|
+                    ast.tokens.get(docblock)
+                else
+                    null,
+                .type_def = self.type_def,
+                .patch_opt_jumps = self.patch_opt_jumps,
+                .ends_scope = self.ends_scope,
+                .components = try self.components.jsonStringify(ast, jw),
+            },
+            jw.options,
+            jw.stream,
+        );
+    }
 
     pub const Tag = enum(u8) {
         AnonymousObjectType,
@@ -220,6 +244,87 @@ pub const Node = struct {
         While: WhileDoUntil,
         Yield: Node.Index,
         Zdef: Zdef,
+
+        pub fn jsonStringify(self: Components, ast: *const Self, jw: anytype) !void {
+            switch (self) {
+                .Boolean => try jw.write(self.Boolean),
+                .Float => try jw.write(self.Float),
+                .Integer => try jw.write(self.Integer),
+                .Pattern => try jw.write(self.Pattern.source),
+                .StringLiteral => try jw.write(self.StringLiteral.string),
+                .AnonymousObjectType => try self.AnonymousObjectType.jsonStringify(ast, jw),
+                .As => try self.As.jsonStringify(ast, jw),
+                .Is => try self.Is.jsonStringify(ast, jw),
+                .Binary => try self.Binary.jsonStringify(ast, jw),
+                .Call => try self.Call.jsonStringify(ast, jw),
+                .Dot => try self.Dot.jsonStringify(ast, jw),
+                .Enum => try self.Enum.jsonStringify(ast, jw),
+                .Export => try self.Export.jsonStringify(ast, jw),
+                .FiberType => try self.FiberType.jsonStringify(ast, jw),
+                .For => try self.For.jsonStringify(ast, jw),
+                .ForEach => try self.ForEach.jsonStringify(ast, jw),
+                .Function => try self.Functionh.jsonStringify(ast, jw),
+                .FunctionType => try self.FunctionTypeh.jsonStringify(ast, jw),
+                .FunDeclaration => try self.FunDeclaration.jsonStringify(ast, jw),
+                .GenericResolveType => try self.GenericResolveType.jsonStringify(ast, jw),
+                .If => try self.If.jsonStringify(ast, jw),
+                .Import => try self.Import.jsonStringify(ast, jw),
+                .List => try self.List.jsonStringify(ast, jw),
+                .ListType => try self.ListType.jsonStringify(ast, jw),
+                .Map => try self.Map.jsonStringify(ast, jw),
+                .MapType => try self.MapType.jsonStringify(ast, jw),
+                .NamedVariable => try self.NamedVariable.jsonStringify(ast, jw),
+                .ObjectDeclaration => try self.ObjectDeclaration.jsonStringify(ast, jw),
+                .ObjectInit => try self.ObjectInit.jsonStringify(ast, jw),
+                .ProtocolDeclaration => try self.ProtocolDeclaration.jsonStringify(ast, jw),
+                .Range => try self.Range.jsonStringify(ast, jw),
+                .Return => try self.Return.jsonStringify(ast, jw),
+                .Subscript => try self.Subscript.jsonStringify(ast, jw),
+                .Throw => try self.Throw.jsonStringify(ast, jw),
+                .Try => try self.Try.jsonStringify(ast, jw),
+                .Unary => try self.Unary.jsonStringify(ast, jw),
+                .UserType => try self.UserType.jsonStringify(ast, jw),
+                .VarDeclaration => try self.VarDeclaration.jsonStringify(ast, jw),
+                .While => try self.While.jsonStringify(ast, jw),
+                .DoUntil => try self.DoUntil.jsonStringify(ast, jw),
+                .Zdef => try self.Zdef.jsonStringify(ast, jw),
+                .AsyncCall => try ast.nodes.get(self.AsyncCall).jsonStringify(ast, jw),
+                .Expression => try ast.nodes.get(self.Expression).jsonStringify(ast, jw),
+                .GenericResolve => try ast.nodes.get(self.GenericResolve).jsonStringify(ast, jw),
+                .Grouping => try ast.nodes.get(self.Grouping).jsonStringify(ast, jw),
+                .Out => try ast.nodes.get(self.Out).jsonStringify(ast, jw),
+                .Resolve => try ast.nodes.get(self.Resolve).jsonStringify(ast, jw),
+                .Resume => try ast.nodes.get(self.Resume).jsonStringify(ast, jw),
+                .TypeExpression => try ast.nodes.get(self.TypeExpression).jsonStringify(ast, jw),
+                .TypeOfExpression => try ast.nodes.get(self.TypeOfExpression).jsonStringify(ast, jw),
+                .Yield => try ast.nodes.get(self.Yield).jsonStringify(ast, jw),
+                .Break => try ast.nodes.get(self.Break).jsonStringify(ast, jw),
+                .Continue => try ast.nodes.get(self.Continue).jsonStringify(ast, jw),
+                .Unwrap => try ast.nodes.get(self.Unwrap).jsonStringify(ast, jw),
+                .ForceUnwrap => try ast.nodes.get(self.ForceUnwrap).jsonStringify(ast, jw),
+                .Namespace => try jw.write(ast.tokens.get(self.Namespace)),
+                .GenericType,
+                .Null,
+                .SimpleType,
+                .Void,
+                => try jw.write(.{}),
+                .Block => {
+                    try jw.beginArray();
+                    for (self.Block) |node| try ast.nodes.get(node).jsonStringify(ast, jw);
+                    try jw.endArray();
+                },
+                .BlockExpression => {
+                    try jw.beginArray();
+                    for (self.BlockExpression) |node| try ast.nodes.get(node).jsonStringify(ast, jw);
+                    try jw.endArray();
+                },
+                .String => {
+                    try jw.beginArray();
+                    for (self.String) |node| try ast.nodes.get(node).jsonStringify(ast, jw);
+                    try jw.endArray();
+                },
+            }
+        }
     };
 };
 
@@ -389,12 +494,44 @@ pub const AnonymousObjectType = struct {
         name: TokenIndex,
         type: Node.Index,
     };
+
+    pub fn jsonStringify(self: AnonymousObjectType, ast: *const Self, jw: anytype) !void {
+        try jw.beginArray();
+        for (self.fields) |field| {
+            try jw.beginObject();
+            try jw.objectField("name");
+            try std.json.stringify(
+                ast.tokens.get(field.name),
+                jw.options,
+                jw.stream,
+            );
+            try jw.objectField("type");
+            try ast.nodes.get(field.type).jsonStringify(ast, jw);
+            try jw.endObject();
+        }
+        try jw.endArray();
+    }
 };
 
 pub const Binary = struct {
     left: Node.Index,
     right: Node.Index,
     operator: Token.Type,
+
+    pub fn jsonStringify(self: Binary, ast: *const Self, jw: anytype) !void {
+        try jw.beginObject();
+        try jw.objectField("left");
+        try ast.nodes.get(self.left).jsonStringify(ast, jw);
+        try jw.objectField("right");
+        try ast.nodes.get(self.right).jsonStringify(ast, jw);
+        try jw.objectField("operator");
+        try std.json.stringify(
+            ast.tokens.get(self.operator),
+            jw.options,
+            jw.stream,
+        );
+        try jw.endObject();
+    }
 };
 
 pub const Call = struct {
@@ -410,6 +547,54 @@ pub const Call = struct {
         name: ?TokenIndex,
         value: Node.Index,
     };
+
+    pub fn jsonStringify(self: Call, ast: *const Self, jw: anytype) !void {
+        try jw.beginObject();
+        try jw.objectField("is_async");
+        try jw.valueStart();
+        try jw.stream.writeAll(if (self.is_async) "true" else "false");
+        try jw.valueDone();
+        if (ast.nodes.items(.tag)[self.callee] != .Dot) {
+            try jw.objectField("callee");
+            try ast.nodes.get(self.callee).jsonStringify(ast, jw);
+        }
+        try jw.objectField("callee_type_def");
+        try std.json.stringify(
+            self.callee_type_def,
+            jw.options,
+            jw.stream,
+        );
+        try jw.objectField("arguments");
+        try jw.beginArray();
+        for (self.arguments) |arg| {
+            try jw.beginObject();
+            try jw.objectField("name");
+            if (arg.name) |name| {
+                try jw.stringValue(name);
+            } else {
+                try self.valueStart();
+                try self.stream.writeAll("null");
+                self.valueDone();
+            }
+            try jw.objectField("value");
+            try ast.nodes.get(arg.value).jsonStringify(ast, jw);
+            try jw.endObject();
+        }
+        try jw.endArray();
+        try jw.objectField("catch_default");
+        if (self.catch_default) |catch_default| {
+            try ast.nodes.get(catch_default).jsonStringify(ast, jw);
+        } else {
+            try self.valueStart();
+            try self.stream.writeAll("null");
+            self.valueDone();
+        }
+        try jw.objectField("tail_call");
+        try jw.valueStart();
+        try jw.stream.writeAll(if (self.tail_call) "true" else "false");
+        try jw.valueDone();
+        try jw.endObject();
+    }
 };
 
 pub const Dot = struct {
@@ -433,6 +618,50 @@ pub const Dot = struct {
     value_or_call_or_enum: Member,
     generic_resolve: ?Node.Index,
     member_type_def: *obj.ObjTypeDef,
+
+    pub fn jsonStringify(self: Dot, ast: *const Self, jw: anytype) !void {
+        try jw.beginObject();
+        try jw.objectField("callee");
+        try ast.nodes.get(self.callee).jsonStringify(ast, jw);
+        try jw.objectField("identifier");
+        try std.json.stringify(
+            ast.tokens.get(self.identifier),
+            jw.options,
+            jw.stream,
+        );
+        switch (self.member_kind) {
+            .Ref => {},
+            .Value => {
+                try jw.objectField("value");
+                try ast.nodes.get(self.value_or_call_or_enum.Value).jsonStringify(ast, jw);
+            },
+            .Call => {
+                try jw.objectField("call");
+                try ast.nodes.get(self.value_or_call_or_enum.Call).jsonStringify(ast, jw);
+            },
+            .EnumCase => {
+                try jw.objectField("enum_case");
+                try jw.valueStart();
+                try jw.print("{}", .{self.value_or_call_or_enum.EnumCase});
+                try jw.valueDone();
+            },
+        }
+        try jw.objectField("generic_resolve");
+        if (self.generic_resolve) |generic_resolve| {
+            try ast.nodes.get(generic_resolve).jsonStringify(ast, jw);
+        } else {
+            try jw.valueStart();
+            try jw.stream.writeAll("null");
+            try jw.valueDone();
+        }
+        try jw.objectField("member_type_def");
+        try std.json.stringify(
+            self.member_type_def,
+            jw.options,
+            jw.stream,
+        );
+        try jw.endObject();
+    }
 };
 
 pub const Enum = struct {
@@ -446,17 +675,119 @@ pub const Enum = struct {
         docblock: ?TokenIndex,
         value: ?Node.Index,
     };
+
+    pub fn jsonStringify(self: Enum, ast: *const Self, jw: anytype) !void {
+        try jw.beginObject();
+        try jw.objectField("name");
+        try std.json.stringify(
+            ast.tokens.get(self.name),
+            jw.options,
+            jw.stream,
+        );
+        try jw.objectField("case_type");
+        if (self.case_type) |case_type| {
+            try ast.nodes.get(case_type).jsonStringify(ast, jw);
+        } else {
+            try jw.valueStart();
+            try jw.stream.writeAll("null");
+            try jw.valueDone();
+        }
+        try jw.objectField("slot");
+        try jw.valueStart();
+        try jw.stream.print("{}", .{self.slot});
+        try jw.valueEnd();
+        try jw.objectField("cases");
+        try jw.beginArray();
+        for (self.cases) |case| {
+            try jw.beginObject();
+            try jw.objectField("name");
+            try std.json.stringify(
+                ast.tokens.get(case.name),
+                jw.options,
+                jw.stream,
+            );
+            try jw.objectField("docblock");
+            if (case.docblock) |db| {
+                try std.json.stringify(
+                    ast.tokens.get(db),
+                    jw.options,
+                    jw.stream,
+                );
+            } else {
+                try jw.valueStart();
+                try jw.stream.writeAll("null");
+                try jw.valueDone();
+            }
+            try jw.objectField("value");
+            if (case.value) |value| {
+                try ast.nodes.get(value).jsonStringify(ast, jw);
+            } else {
+                try jw.valueStart();
+                try jw.stream.writeAll("null");
+                try jw.valueDone();
+            }
+            try jw.endObject();
+        }
+        try jw.endArray();
+        try jw.endObject();
+    }
 };
 
 pub const Export = struct {
     identifier: ?TokenIndex,
     alias: ?TokenIndex,
     declaration: ?Node.Index,
+
+    pub fn jsonStringify(self: Export, ast: *const Self, jw: anytype) !void {
+        try jw.beginObject();
+        try jw.objectField("identifier");
+        if (self.identifier) |identifier| {
+            try std.json.stringify(
+                ast.tokens.get(identifier),
+                jw.options,
+                jw.stream,
+            );
+        } else {
+            try jw.valueStart();
+            try jw.stream.writeAll("null");
+            try jw.valueDone();
+        }
+        try jw.objectField("alias");
+        if (self.alias) |alias| {
+            try std.json.stringify(
+                ast.tokens.get(alias),
+                jw.options,
+                jw.stream,
+            );
+        } else {
+            try jw.valueStart();
+            try jw.stream.writeAll("null");
+            try jw.valueDone();
+        }
+        try jw.objectField("declaration");
+        if (self.declaration) |declaration| {
+            try ast.nodes.get(declaration).jsonStringify(ast, jw);
+        } else {
+            try jw.valueStart();
+            try jw.stream.writeAll("null");
+            try jw.valueDone();
+        }
+        try jw.endObject();
+    }
 };
 
 pub const FiberType = struct {
     return_type: Node.Index,
     yield_type: Node.Index,
+
+    pub fn jsonStringify(self: FiberType, ast: *const Self, jw: anytype) !void {
+        try jw.beginObject();
+        try jw.objectField("return_type");
+        try ast.nodes.get(self.return_type).jsonStringify(ast, jw);
+        try jw.objectField("yield_type");
+        try ast.nodes.get(self.yield_type).jsonStringify(ast, jw);
+        try jw.endObject();
+    }
 };
 
 pub const For = struct {
@@ -465,6 +796,39 @@ pub const For = struct {
     post_loop: []const Node.Index,
     body: Node.Index,
     label: ?TokenIndex,
+
+    pub fn jsonStringify(self: For, ast: *const Self, jw: anytype) !void {
+        try jw.beginObject();
+        try jw.objectField("init_declarations");
+        try jw.beginArray();
+        for (self.init_declarations) |decl| {
+            try ast.nodes.get(decl).jsonStringify(ast, jw);
+        }
+        try jw.endArray();
+        try jw.objectField("condition");
+        try ast.nodes.get(self.condition).jsonStringify(ast, jw);
+        try jw.objectField("post_loop");
+        try jw.beginArray();
+        for (self.post_loop) |stmt| {
+            try ast.nodes.get(stmt).jsonStringify(ast, jw);
+        }
+        try jw.endArray();
+        try jw.objectField("body");
+        try ast.nodes.get(self.body).jsonStringify(ast, jw);
+        try jw.objectField("label");
+        if (self.label) |label| {
+            try std.json.stringify(
+                ast.tokens.get(label),
+                jw.options,
+                jw.stream,
+            );
+        } else {
+            try jw.valueStart();
+            try jw.stream.writeAll("null");
+            try jw.valueDone();
+        }
+        try jw.endObject();
+    }
 };
 
 pub const ForEach = struct {
@@ -474,6 +838,35 @@ pub const ForEach = struct {
     body: Node.Index,
     key_omitted: bool,
     label: ?TokenIndex,
+
+    pub fn jsonStringify(self: ForEach, ast: *const Self, jw: anytype) !void {
+        try jw.beginObject();
+        try jw.objectField("iterable");
+        try ast.nodes.get(self.iterable).jsonStringify(ast, jw);
+        try jw.objectField("key");
+        try ast.nodes.get(self.key).jsonStringify(ast, jw);
+        try jw.objectField("value");
+        try ast.nodes.get(self.value).jsonStringify(ast, jw);
+        try jw.objectField("body");
+        try ast.nodes.get(self.body).jsonStringify(ast, jw);
+        try jw.objectField("key_omitted");
+        try jw.valueStart();
+        try jw.stream.writeAll(if (self.key_omitted) "true" else "false");
+        try jw.valueDone();
+        try jw.objectField("label");
+        if (self.label) |label| {
+            try std.json.stringify(
+                ast.tokens.get(label),
+                jw.options,
+                jw.stream,
+            );
+        } else {
+            try jw.valueStart();
+            try jw.stream.writeAll("null");
+            try jw.valueDone();
+        }
+        try jw.endObject();
+    }
 };
 
 pub const Function = struct {
@@ -513,6 +906,110 @@ pub const Function = struct {
         test_locations: []const TokenIndex,
         exported_count: usize = 0,
     };
+
+    pub fn jsonStringify(self: Function, ast: *const Self, jw: anytype) !void {
+        try jw.beginObject();
+        try jw.objectField("id");
+        try jw.valueStart();
+        try jw.stream.print("{}", .{self.id});
+        try jw.valueDone();
+        try jw.objectField("body");
+        if (self.body) |body| {
+            try ast.nodes.get(body).jsonStringify(ast, jw);
+        } else {
+            try jw.valueStart();
+            try jw.stream.writeAll("null");
+            try jw.valueDone();
+        }
+        try jw.objectField("docblock");
+        if (self.docblock) |db| {
+            try std.json.stringify(
+                ast.tokens.get(db),
+                jw.options,
+                jw.stream,
+            );
+        } else {
+            try jw.valueStart();
+            try jw.stream.writeAll("null");
+            try jw.valueDone();
+        }
+        try jw.objectField("test_message");
+        if (self.test_message) |tm| {
+            try std.json.stringify(
+                ast.tokens.get(tm),
+                jw.options,
+                jw.stream,
+            );
+        } else {
+            try jw.valueStart();
+            try jw.stream.writeAll("null");
+            try jw.valueDone();
+        }
+        try jw.objectField("function_signature");
+        if (self.function_signature) |fs| {
+            try ast.nodes.get(fs).jsonStringify(ast, jw);
+        } else {
+            try jw.valueStart();
+            try jw.stream.writeAll("null");
+            try jw.valueDone();
+        }
+        try jw.objectField("entry");
+        if (self.entry) |entry| {
+            try jw.beginObject();
+            try jw.objectField("main_slot");
+            try jw.valueStart();
+            if (entry.main_slot) |ms| {
+                try jw.stream.print("{}", .{ms});
+            } else {
+                try jw.stream.writeAll("null");
+            }
+            try jw.valueDone();
+            try jw.objectField("main_location");
+            if (entry.main_location) |ml| {
+                try std.json.stringify(
+                    ast.tokens.get(ml),
+                    jw.options,
+                    jw.stream,
+                );
+            } else {
+                try jw.valueStart();
+                try jw.stream.writeAll("null");
+                try jw.valueDone();
+            }
+            try jw.objectField("test_slots");
+            try jw.beginArray();
+            for (entry.test_slots) |ts| {
+                try jw.valueStart();
+                try jw.stream.print("{}", .{ts});
+                try jw.valueDone();
+            }
+            try jw.endArray();
+            try jw.objectField("test_locations");
+            try jw.beginArray();
+            for (entry.test_locations) |ts| {
+                try std.json.stringify(
+                    ast.tokens.get(ts),
+                    jw.options,
+                    jw.stream,
+                );
+            }
+            try jw.endArray();
+            try jw.objectField("exported_count");
+            try jw.valueStart();
+            try jw.stream.print("{}", .{entry.exported_count});
+            try jw.valueDone();
+            try jw.endObject();
+        } else {
+            try jw.valueStart();
+            try jw.stream.writeAll("null");
+            try jw.valueDone();
+        }
+        try jw.objectField("import_root");
+        try jw.valueStart();
+        try jw.stream.writeAll(if (self.import_root) "true" else "false");
+        try jw.valueDone();
+        try jw.endObject();
+    }
 };
 
 pub const FunctionType = struct {
@@ -529,6 +1026,78 @@ pub const FunctionType = struct {
         type: Node.Index,
         default: ?Node.Index,
     };
+
+    pub fn jsonStringify(self: FunctionType, ast: *const Self, jw: anytype) !void {
+        try jw.beginObject();
+        try jw.objectField("name");
+        if (self.name) |name| {
+            try std.json.stringify(
+                ast.tokens.get(name),
+                jw.options,
+                jw.stream,
+            );
+        } else {
+            try jw.valueStart();
+            try jw.stream.writeAll("null");
+            try jw.valueDone();
+        }
+        try jw.objectField("return_type");
+        if (self.return_type) |rt| {
+            try ast.nodes.get(rt).jsonStringify(ast, jw);
+        } else {
+            try jw.valueStart();
+            try jw.stream.writeAll("null");
+            try jw.valueDone();
+        }
+        try jw.objectField("yield_type");
+        if (self.yield_type) |yt| {
+            try ast.nodes.get(yt).jsonStringify(ast, jw);
+        } else {
+            try jw.valueStart();
+            try jw.stream.writeAll("null");
+            try jw.valueDone();
+        }
+        try jw.objectField("error_types");
+        try jw.beginArray();
+        for (self.error_types) |error_type| {
+            try ast.nodes.get(error_type).jsonStringify(ast, jw);
+        }
+        try jw.endArray();
+        try jw.objectField("arguments");
+        try jw.beginArray();
+        for (self.arguments) |arg| {
+            try jw.beginObject();
+            try jw.objectField("name");
+            try std.json.stringify(
+                ast.tokens.get(arg.name),
+                jw.options,
+                jw.stream,
+            );
+            try jw.objectField("type");
+            try ast.nodes.get(arg.type).jsonStringify(ast, jw);
+            try jw.objectField("default");
+            if (arg.default) |d| {
+                try ast.nodes.get(d).jsonStringify(ast, jw);
+            } else {
+                try jw.valueStart();
+                try jw.stream.writeAll("null");
+                try jw.valueDone();
+            }
+            try jw.endObject();
+        }
+        try jw.endArray();
+        try jw.objectField("generic_types");
+        try jw.beginArray();
+        for (self.generic_types) |generic_type| {
+            try ast.nodes.get(generic_type).jsonStringify(ast, jw);
+        }
+        try jw.endArray();
+        try jw.objectField("lambda");
+        try jw.valueStart();
+        try jw.stream.writeAll(if (self.lambda) "true" else "false");
+        try jw.valueDone();
+        try jw.endObject();
+    }
 };
 
 pub const FunDeclaration = struct {
@@ -536,10 +1105,34 @@ pub const FunDeclaration = struct {
 
     slot: Slot,
     slot_type: SlotType,
+
+    pub fn jsonStringify(self: FunDeclaration, ast: *const Self, jw: anytype) !void {
+        try jw.beginObject();
+        try jw.objectField("function");
+        try ast.nodes.get(self.function).jsonStringify(ast, jw);
+        try jw.objectField("slot");
+        try jw.valueStart();
+        try jw.stream.print("{}", .{self.slot});
+        try jw.valueDone();
+        try jw.objectField("slot_type");
+        try jw.stringValue(@tagName(self.slot_type));
+        try jw.endObject();
+    }
 };
 
 pub const GenericResolveType = struct {
     resolved_types: []const Node.Index,
+
+    pub fn jsonStringify(self: GenericResolveType, ast: *const Self, jw: anytype) !void {
+        try jw.beginObject();
+        try jw.objectField("resolved_types");
+        try jw.beginArray();
+        for (self.resolved_types) |rt| {
+            try ast.nodes.get(rt).jsonStringify(ast, jw);
+        }
+        try jw.endArray();
+        try jw.endObject();
+    }
 };
 
 pub const If = struct {
@@ -549,6 +1142,47 @@ pub const If = struct {
     body: Node.Index,
     else_branch: ?Node.Index,
     is_statement: bool,
+
+    pub fn jsonStringify(self: If, ast: *const Self, jw: anytype) !void {
+        try jw.beginObject();
+        try jw.objectField("condition");
+        try ast.nodes.get(self.condition).jsonStringify(ast, jw);
+        try jw.objectField("unwrapped_identifier");
+        if (self.unwrapped_identifier) |ui| {
+            try std.json.stringify(
+                ast.tokens.get(ui),
+                jw.options,
+                jw.stream,
+            );
+        } else {
+            try jw.valueStart();
+            try jw.stream.writeAll("null");
+            try jw.valueDone();
+        }
+        try jw.objectField("casted_type");
+        if (self.casted_type) |ct| {
+            try ast.nodes.get(ct).jsonStringify(ast, jw);
+        } else {
+            try jw.valueStart();
+            try jw.stream.writeAll("null");
+            try jw.valueDone();
+        }
+        try jw.objectField("body");
+        try ast.nodes.get(self.body).jsonStringify(ast, jw);
+        try jw.objectField("else_branch");
+        if (self.else_branch) |eb| {
+            try ast.nodes.get(eb).jsonStringify(ast, jw);
+        } else {
+            try jw.valueStart();
+            try jw.stream.writeAll("null");
+            try jw.valueDone();
+        }
+        try jw.objectField("is_statement");
+        try jw.valueStart();
+        try jw.stream.writeAll(if (self.is_statement) "true" else "false");
+        try jw.valueDone();
+        try jw.endObject();
+    }
 };
 
 pub const Import = struct {
@@ -556,20 +1190,93 @@ pub const Import = struct {
     prefix: ?TokenIndex,
     path: TokenIndex,
     import: ?Parser.ScriptImport,
+
+    pub fn jsonStringify(self: Import, ast: *const Self, jw: anytype) !void {
+        try jw.beginObject();
+        try jw.objectField("imported_symbols");
+        try jw.beginArray();
+        for (self.imported_symbols) |is| {
+            try std.json.stringify(
+                ast.tokens.get(is),
+                jw.options,
+                jw.stream,
+            );
+        }
+        try jw.endArray();
+        try jw.objectField("prefix");
+        if (self.prefix) |prefix| {
+            try std.json.stringify(
+                ast.tokens.get(prefix),
+                jw.options,
+                jw.stream,
+            );
+        } else {
+            try jw.valueStart();
+            try jw.stream.writeAll("null");
+            try jw.valueDone();
+        }
+        try jw.objectField("path");
+        try std.json.stringify(
+            ast.tokens.get(self.path),
+            jw.options,
+            jw.stream,
+        );
+        try jw.objectField("import");
+        try jw.endObject();
+    }
 };
 
 pub const IsAs = struct {
     left: Node.Index,
     constant: Node.Index,
+
+    pub fn jsonStringify(self: IsAs, ast: *const Self, jw: anytype) !void {
+        try jw.beginObject();
+        try jw.objectField("left");
+        try ast.nodes.get(self.left).jsonStringify(ast, jw);
+        try jw.objectField("constant");
+        try ast.nodes.get(self.constant).jsonStringify(ast, jw);
+        try jw.endObject();
+    }
 };
 
 pub const List = struct {
     explicit_item_type: ?TokenIndex,
     items: []const Node.Index,
+
+    pub fn jsonStringify(self: List, ast: *const Self, jw: anytype) !void {
+        try jw.beginObject();
+        try jw.objectField("explicit_item_type");
+        if (self.explicit_item_type) |explicit_item_type| {
+            try std.json.stringify(
+                ast.tokens.get(explicit_item_type),
+                jw.options,
+                jw.stream,
+            );
+        } else {
+            try jw.valueStart();
+            try jw.stream.writeAll("null");
+            try jw.valueDone();
+        }
+        try jw.objectField("items");
+        try jw.beginArray();
+        for (self.items) |item| {
+            try ast.nodes.get(item).jsonStringify(ast, jw);
+        }
+        try jw.endArray();
+        try jw.endObject();
+    }
 };
 
 pub const ListType = struct {
     item_type: Node.Index,
+
+    pub fn jsonStringify(self: ListType, ast: *const Self, jw: anytype) !void {
+        try jw.beginObject();
+        try jw.objectField("item_type");
+        try ast.nodes.get(self.item_type).jsonStringify(ast, jw);
+        try jw.endObject();
+    }
 };
 
 pub const Map = struct {
@@ -582,11 +1289,52 @@ pub const Map = struct {
         key: Node.Index,
         value: Node.Index,
     };
+
+    pub fn jsonStringify(self: Map, ast: *const Self, jw: anytype) !void {
+        try jw.beginObject();
+        try jw.objectField("explicit_key_type");
+        if (self.explicit_key_type) |kt| {
+            try ast.nodes.get(kt).jsonStringify(ast, jw);
+        } else {
+            try jw.valueStart();
+            try jw.stream.writeAll("null");
+            try jw.valueDone();
+        }
+        try jw.objectField("explicit_value_type");
+        if (self.explicit_value_type) |vt| {
+            try ast.nodes.get(vt).jsonStringify(ast, jw);
+        } else {
+            try jw.valueStart();
+            try jw.stream.writeAll("null");
+            try jw.valueDone();
+        }
+        try jw.objectField("entries");
+        try jw.beginArray();
+        for (self.entries) |entry| {
+            try jw.beginObject();
+            try jw.objectField("key");
+            try ast.nodes.get(entry.key).jsonStringify(ast, jw);
+            try jw.objectField("value");
+            try ast.nodes.get(entry.value).jsonStringify(ast, jw);
+            try jw.endObject();
+        }
+        try jw.endArray();
+        try jw.endObject();
+    }
 };
 
 pub const MapType = struct {
     key_type: Node.Index,
     value_type: Node.Index,
+
+    pub fn jsonStringify(self: MapType, ast: *const Self, jw: anytype) !void {
+        try jw.beginObject();
+        try jw.objectField("key_type");
+        try ast.nodes.get(self.key_type).jsonStringify(ast, jw);
+        try jw.objectField("value_type");
+        try ast.nodes.get(self.value_type).jsonStringify(ast, jw);
+        try jw.endObject();
+    }
 };
 
 pub const SlotType = enum(u8) {
@@ -603,6 +1351,35 @@ pub const NamedVariable = struct {
     slot: Slot,
     slot_type: SlotType,
     slot_constant: bool,
+
+    pub fn jsonStringify(self: NamedVariable, ast: *const Self, jw: anytype) !void {
+        try jw.beginObject();
+        try jw.objectField("identifier");
+        try std.json.stringify(
+            ast.tokens.get(self.identifier),
+            jw.options,
+            jw.stream,
+        );
+        try jw.objectField("value");
+        if (self.value) |value| {
+            try ast.nodes.get(value).jsonStringify(ast, jw);
+        } else {
+            try jw.valueStart();
+            try jw.stream.writeAll("null");
+            try jw.valueDone();
+        }
+        try jw.objectField("slot");
+        try jw.valueStart();
+        try jw.stream.print("{}", .{self.slot});
+        try jw.valueDone();
+        try jw.objectField("slot_type");
+        try jw.stringValue(@tagName(self.slot_type));
+        try jw.objectField("slot_constant");
+        try jw.valueStart();
+        try jw.stream.writeAll(if (self.slot_constant) "true" else "false");
+        try jw.valueDone();
+        try jw.endObject();
+    }
 };
 
 pub const ObjectDeclaration = struct {
@@ -619,6 +1396,72 @@ pub const ObjectDeclaration = struct {
         method: bool,
         method_or_default_value: ?Node.Index,
     };
+
+    pub fn jsonStringify(self: ObjectDeclaration, ast: *const Self, jw: anytype) !void {
+        try jw.beginObject();
+        try jw.objectField("name");
+        try std.json.stringify(
+            ast.tokens.get(self.name),
+            jw.options,
+            jw.stream,
+        );
+        try jw.objectField("slot");
+        try jw.valueStart();
+        try jw.stream.print("{}", .{self.slot});
+        try jw.valueDone();
+        try jw.objectField("protocols");
+        try jw.beginArray();
+        for (self.protocols) |protocol| {
+            try ast.nodes.get(protocol).jsonStringify(ast, jw);
+        }
+        try jw.endArray();
+        try jw.objectField("generics");
+        try jw.beginArray();
+        for (self.generics) |generic| {
+            try std.json.stringify(
+                ast.tokens.get(generic),
+                jw.options,
+                jw.stream,
+            );
+        }
+        try jw.endArray();
+        try jw.objectField("members");
+        try jw.beginArray();
+        for (self.members) |member| {
+            try jw.objectField("name");
+            try std.json.stringify(
+                ast.tokens.get(member.name),
+                jw.options,
+                jw.stream,
+            );
+            try jw.objectField("docblock");
+            if (member.docblock) |db| {
+                try std.json.stringify(
+                    ast.tokens.get(db),
+                    jw.options,
+                    jw.stream,
+                );
+            } else {
+                try jw.valueStart();
+                try jw.stream.writeAll("null");
+                try jw.value.Done();
+            }
+            if (member.method) {
+                try jw.objectField("method");
+            } else {
+                try jw.objectField("default_value");
+            }
+            if (member.method_or_default_value) |value| {
+                try ast.nodes.get(value).jsonStringify(ast, jw);
+            } else {
+                try jw.valueStart();
+                try jw.stream.writeAll("null");
+                try jw.value.Done();
+            }
+        }
+        try jw.endArray();
+        try jw.endObject();
+    }
 };
 
 pub const ObjectInit = struct {
@@ -629,6 +1472,32 @@ pub const ObjectInit = struct {
         name: TokenIndex,
         value: Node.Index,
     };
+
+    pub fn jsonStringify(self: ObjectInit, ast: *const Self, jw: anytype) !void {
+        try jw.beginObject();
+        try jw.objectField("object");
+        if (self.object) |object| {
+            try ast.nodes.get(object).jsonStringify(ast, jw);
+        } else {
+            try jw.valueStart();
+            try jw.stream.writeAll("null");
+            try jw.value.Done();
+        }
+        try jw.objectField("properties");
+        try jw.beginArray();
+        for (self.properties) |prop| {
+            try jw.objectField("name");
+            try std.json.stringify(
+                ast.tokens.get(prop.name),
+                jw.options,
+                jw.stream,
+            );
+            try jw.objectField("value");
+            try ast.nodes.get(prop.value).jsonStringify(ast, jw);
+        }
+        try jw.endArray();
+        try jw.endObject();
+    }
 };
 
 pub const ProtocolDeclaration = struct {
@@ -640,18 +1509,78 @@ pub const ProtocolDeclaration = struct {
         docblock: ?TokenIndex,
         method: Node.Index,
     };
+
+    pub fn jsonStringify(self: ProtocolDeclaration, ast: *const Self, jw: anytype) !void {
+        try jw.beginObject();
+        try jw.objectField("name");
+        try std.json.stringify(
+            ast.tokens.get(self.name),
+            jw.options,
+            jw.stream,
+        );
+        try jw.objectField("slot");
+        try jw.valueStart();
+        try jw.stream.print("{}", .{self.slot});
+        try jw.valueDone();
+        try jw.objectField("methods");
+        try jw.beginArray();
+        for (self.methods) |method| {
+            try jw.beginObject();
+            try jw.objectField("docblock");
+            if (method.docblock) |db| {
+                try std.json.stringify(
+                    ast.tokens.get(db),
+                    jw.options,
+                    jw.stream,
+                );
+            } else {
+                try jw.valueStart();
+                try jw.stream.writeAll("null");
+                try jw.value.Done();
+            }
+            try jw.objectField("method");
+            try ast.nodes.get(method.method).jsonStringify(ast, jw);
+            try jw.endObject();
+        }
+        try jw.endArray();
+        try jw.endObject();
+    }
 };
 
 pub const Range = struct {
     low: Node.Index,
     high: Node.Index,
-};
 
-pub const Resume = struct {};
+    pub fn jsonStringify(self: Range, ast: *const Self, jw: anytype) !void {
+        try jw.beginObject();
+        try jw.objectField("low");
+        try ast.nodes.get(self.low).jsonStringify(ast, jw);
+        try jw.objectField("high");
+        try ast.nodes.get(self.high).jsonStringify(ast, jw);
+        try jw.endObject();
+    }
+};
 
 pub const Return = struct {
     value: ?Node.Index,
     unconditional: bool,
+
+    pub fn jsonStringify(self: Return, ast: *const Self, jw: anytype) !void {
+        try jw.beginObject();
+        try jw.objectField("value");
+        if (self.value) |value| {
+            try ast.nodes.get(value).jsonStringify(ast, jw);
+        } else {
+            try jw.valueStart();
+            try jw.stream.writeAll("null");
+            try jw.value.Done();
+        }
+        try jw.objectField("unconditional");
+        try jw.valueStart();
+        try jw.stream.writeAll(if (self.slot_constant) "true" else "false");
+        try jw.valueDone();
+        try jw.endObject();
+    }
 };
 
 pub const Subscript = struct {
@@ -659,11 +1588,43 @@ pub const Subscript = struct {
     index: Node.Index,
     value: ?Node.Index,
     checked: bool,
+
+    pub fn jsonStringify(self: Subscript, ast: *const Self, jw: anytype) !void {
+        try jw.beginObject();
+        try jw.objectField("subscripted");
+        try ast.nodes.get(self.subscripted).jsonStringify(ast, jw);
+        try jw.objectField("index");
+        try ast.nodes.get(self.index).jsonStringify(ast, jw);
+        try jw.objectField("value");
+        if (self.value) |value| {
+            try ast.nodes.get(value).jsonStringify(ast, jw);
+        } else {
+            try jw.valueStart();
+            try jw.stream.writeAll("null");
+            try jw.value.Done();
+        }
+        try jw.objectField("checked");
+        try jw.valueStart();
+        try jw.stream.writeAll(if (self.checked) "true" else "false");
+        try jw.valueDone();
+        try jw.endObject();
+    }
 };
 
 pub const Throw = struct {
     expression: Node.Index,
     unconditional: bool,
+
+    pub fn jsonStringify(self: Throw, ast: *const Self, jw: anytype) !void {
+        try jw.beginObject();
+        try jw.objectField("expression");
+        try ast.nodes.get(self.expression).jsonStringify(ast, jw);
+        try jw.objectField("unconditional");
+        try jw.valueStart();
+        try jw.stream.writeAll(if (self.unconditional) "true" else "false");
+        try jw.valueDone();
+        try jw.endObject();
+    }
 };
 
 pub const Try = struct {
@@ -677,21 +1638,98 @@ pub const Try = struct {
         type_def: Node.Index,
         body: Node.Index,
     };
+
+    pub fn jsonStringify(self: Try, ast: *const Self, jw: anytype) !void {
+        try jw.beginObject();
+        try jw.objectField("body");
+        try ast.nodes.get(self.body).jsonStringify(ast, jw);
+        try jw.objectField("clauses");
+        try jw.beginArray();
+        for (self.clauses) |clause| {
+            try jw.beginObject();
+            try jw.objectField("identifier");
+            try std.json.stringify(
+                ast.tokens.get(clause.identifier),
+                jw.options,
+                jw.stream,
+            );
+            try jw.objectField("type_def");
+            try ast.nodes.get(clause.type_def).jsonStringify(ast, jw);
+            try jw.objectField("body");
+            try ast.nodes.get(clause.body).jsonStringify(ast, jw);
+            try jw.endObject();
+        }
+        try jw.endArray();
+        try jw.objectField("unconditional_clause");
+        if (self.unconditional_clause) |clause| {
+            try ast.nodes.get(clause).jsonStringify(ast, jw);
+        } else {
+            try jw.valueStart();
+            try jw.stream.writeAll("null");
+            try jw.value.Done();
+        }
+        try jw.endObject();
+    }
 };
 
 pub const Unary = struct {
     operator: Token.Type,
     expression: Node.Index,
+
+    pub fn jsonStringify(self: Unary, ast: *const Self, jw: anytype) !void {
+        try jw.beginObject();
+        try jw.objectField("operator");
+        try std.json.stringify(
+            ast.tokens.get(self.operator),
+            jw.options,
+            jw.stream,
+        );
+        try jw.objectField("expression");
+        try ast.nodes.get(self.expression).jsonStringify(ast, jw);
+        try jw.endObject();
+    }
 };
 
 pub const Unwrap = struct {
     unwrapped: Node.Index,
     original_type: *obj.ObjTypeDef,
+
+    pub fn jsonStringify(self: Unwrap, ast: *const Self, jw: anytype) !void {
+        try jw.beginObject();
+        try jw.objectField("unwrapped");
+        try ast.nodes.get(self.unwrapped).jsonStringify(ast, jw);
+        try jw.objectField("original_type");
+        try std.json.stringify(
+            self.original_type,
+            jw.options,
+            jw.stream,
+        );
+        try jw.endObject();
+    }
 };
 
 pub const UserType = struct {
     identifier: TokenIndex,
     generic_resolve: ?Node.Index,
+
+    pub fn jsonStringify(self: UserType, ast: *const Self, jw: anytype) !void {
+        try jw.beginObject();
+        try jw.objectField("identifier");
+        try std.json.stringify(
+            self.identifier,
+            jw.options,
+            jw.stream,
+        );
+        try jw.objectField("generic_resolve");
+        if (self.generic_resolve) |gr| {
+            try ast.nodes.get(gr).jsonStringify(ast, jw);
+        } else {
+            try jw.valueStart();
+            try jw.stream.writeAll("null");
+            try jw.value.Done();
+        }
+        try jw.endObject();
+    }
 };
 
 pub const VarDeclaration = struct {
@@ -701,12 +1739,70 @@ pub const VarDeclaration = struct {
     constant: bool,
     slot: Slot,
     slot_type: SlotType,
+
+    pub fn jsonStringify(self: VarDeclaration, ast: *const Self, jw: anytype) !void {
+        try jw.beginObject();
+        try jw.objectField("name");
+        try std.json.stringify(
+            self.name,
+            jw.options,
+            jw.stream,
+        );
+        try jw.objectField("value");
+        if (self.value) |value| {
+            try ast.nodes.get(value).jsonStringify(ast, jw);
+        } else {
+            try jw.valueStart();
+            try jw.stream.writeAll("null");
+            try jw.value.Done();
+        }
+        try jw.objectField("type");
+        if (self.type) |t| {
+            try ast.nodes.get(t).jsonStringify(ast, jw);
+        } else {
+            try jw.valueStart();
+            try jw.stream.writeAll("null");
+            try jw.value.Done();
+        }
+        try jw.objectField("constant");
+        try jw.valueStart();
+        try jw.stream.writeAll(if (self.constant) "true" else "false");
+        try jw.valueDone();
+        try jw.objectField("slot");
+        try jw.valueStart();
+        try jw.stream.print("{}", .{self.slot});
+        try jw.valueDone();
+        try jw.objectField("slot_type");
+        try jw.stringValue(@tagName(self.slot_type));
+        try jw.endObject();
+    }
 };
 
 pub const WhileDoUntil = struct {
     condition: Node.Index,
     body: Node.Index,
     label: ?TokenIndex,
+
+    pub fn jsonStringify(self: WhileDoUntil, ast: *const Self, jw: anytype) !void {
+        try jw.beginObject();
+        try jw.objectField("condition");
+        try ast.nodes.get(self.condition).jsonStringify(ast, jw);
+        try jw.objectField("body");
+        try ast.nodes.get(self.body).jsonStringify(ast, jw);
+        try jw.objectField("label");
+        if (self.label) |label| {
+            try std.json.stringify(
+                label,
+                jw.options,
+                jw.stream,
+            );
+        } else {
+            try jw.valueStart();
+            try jw.stream.writeAll("null");
+            try jw.value.Done();
+        }
+        try jw.endObject();
+    }
 };
 
 pub const Zdef = struct {
@@ -722,6 +1818,48 @@ pub const Zdef = struct {
         slot: Slot,
         // TODO: add TokenIndex which should wrap portion of the zdef string relative to this element
     };
+
+    pub fn jsonStringify(self: Zdef, _: *Self, jw: anytype) !void {
+        try jw.beginObject();
+        try jw.objectField("lib_name");
+        try std.json.stringify(
+            self.lib_name,
+            jw.options,
+            jw.stream,
+        );
+        try jw.objectField("source");
+        try std.json.stringify(
+            self.source,
+            jw.options,
+            jw.stream,
+        );
+        try jw.objectField("elements");
+        try jw.beginArray();
+        for (self.elements) |element| {
+            try jw.beginObject();
+            try jw.objectField("slot");
+            try jw.valueStart();
+            try jw.stream.print("{}", .{element.slot});
+            try jw.valueDone();
+            try jw.objectField("name");
+            try jw.stringValue(element.zdef.name);
+            try jw.objectField("type_def");
+            try std.json.stringify(
+                element.zdef.type_def,
+                jw.options,
+                jw.stream,
+            );
+            try jw.objectField("zig_type");
+            try std.json.stringify(
+                element.zdef.zig_type,
+                jw.options,
+                jw.stream,
+            );
+            try jw.endObject();
+        }
+        try jw.endArray();
+        try jw.endObject();
+    }
 };
 
 pub fn isConstant(self: Self, node: Node.Index) bool {

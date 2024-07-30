@@ -1,4 +1,5 @@
 const std = @import("std");
+const api = @import("buzz_api.zig");
 const Allocator = std.mem.Allocator;
 const StringHashMap = std.StringHashMap;
 const _obj = @import("obj.zig");
@@ -168,7 +169,7 @@ pub const Value = packed struct {
         return str;
     }
 
-    pub fn toString(self: Value, writer: *const std.ArrayList(u8).Writer) (Allocator.Error || std.fmt.BufPrintError)!void {
+    pub fn toString(self: Value, writer: anytype) (Allocator.Error || std.fmt.BufPrintError)!void {
         if (self.isObj()) {
             try self.obj().toString(writer);
 

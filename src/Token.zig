@@ -16,6 +16,21 @@ line: usize,
 column: usize,
 offset: usize = 0,
 
+pub fn jsonStringify(self: *Self, jw: anytype) !void {
+    std.json.stringify(
+        .{
+            .script_name = self.script_name,
+            .tag = @tagName(self.tag),
+            .lexeme = self.lexeme,
+            .line = self.line,
+            .column = self.column,
+            .offset = self.offset,
+        },
+        jw.options,
+        jw.stream,
+    );
+}
+
 pub fn eql(self: Self, other: Self) bool {
     return self.tag == other.tag and
         self.line == other.line and

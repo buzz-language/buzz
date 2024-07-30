@@ -176,29 +176,25 @@ fn runFile(allocator: Allocator, file_name: []const u8, args: [][:0]u8, flavor: 
             }
         } else {
             io.print("Formatting and Ast dump is deactivated", .{});
-            // switch (flavor) {
-            //     .Run, .Test => unreachable,
-            //     .Fmt => {
-            //         var formatted = std.ArrayList(u8).init(allocator);
-            //         defer formatted.deinit();
-            //
-            //         try function_node.render(function_node, &formatted.writer(), 0);
-            //
-            //         io.print("{s}", .{formatted.items});
-            //     },
-            //     .Ast => {
-            //         var json = std.ArrayList(u8).init(allocator);
-            //         defer json.deinit();
-            //
-            //         try function_node.toJson(function_node, &json.writer());
-            //
-            //         var without_nl = try std.mem.replaceOwned(u8, allocator, json.items, "\n", " ");
-            //         defer allocator.free(without_nl);
-            //
-            //         _ = try std.io.getStdOut().write(without_nl);
-            //     },
-            //     else => {},
-            // }
+            switch (flavor) {
+                .Run, .Test => unreachable,
+                .Fmt => {
+                    // var formatted = std.ArrayList(u8).init(allocator);
+                    // defer formatted.deinit();
+                    //
+                    // try function_node.render(function_node, &formatted.writer(), 0);
+                    //
+                    // io.print("{s}", .{formatted.items});
+                },
+                .Ast => {
+                    std.json.stringify(
+                        ast,
+                        .{},
+                        std.io.getStdOut().writer(),
+                    ) catch @panic("Could not serialize AST");
+                },
+                else => {},
+            }
         }
     } else {
         return Parser.CompileError.Recoverable;
@@ -220,6 +216,7 @@ pub fn main() u8 {
         \\-c, --check            Check script for error without running it
         \\-v, --version          Print version and exit
         \\-L, --library <str>... Add search path for external libraries
+        \\-A, --dump-ast         Dump script AST as JSON
         \\<str>...
         \\
     );
@@ -299,6 +296,8 @@ pub fn main() u8 {
         .Check
     else if (res.args.@"test" == 1)
         .Test
+    else if (res.args.@"dump-ast" == 1)
+        .Ast
     else if (res.positionals.len == 0)
         .Repl
     else
