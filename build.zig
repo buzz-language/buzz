@@ -293,6 +293,10 @@ pub fn build(b: *Build) !void {
         try buildLinenoise(b, target, build_mode)
     else
         null;
+    const lib_mir = if (!is_wasm)
+        try buildMir(b, target, build_mode)
+    else
+        null;
 
     var exe = b.addExecutable(.{
         .name = "buzz",
@@ -302,12 +306,16 @@ pub fn build(b: *Build) !void {
     });
     b.installArtifact(exe);
 
-    var exe_check = b.addExecutable(.{
-        .name = "buzz",
-        .root_source_file = b.path("src/main.zig"),
-        .target = target,
-        .optimize = build_mode,
-    });
+    var exe_check = b.addExecutable(
+        .{
+            .name = "buzz",
+            .root_source_file = b.path("src/main.zig"),
+            .target = target,
+            .optimize = build_mode,
+        },
+    );
+
+    exe.root_module.sanitize_c = false;
 
     const check = b.step("check", "Check if buzz compiles");
     check.dependOn(&exe_check.step);
@@ -386,11 +394,16 @@ pub fn build(b: *Build) !void {
         if (lib_pcre2) |pcre| {
             lib.linkLibrary(pcre);
         }
+
         if (lib_mimalloc) |mimalloc| {
             lib.linkLibrary(mimalloc);
             if (lib.root_module.resolved_target.?.result.os.tag == .windows) {
                 lib.linkSystemLibrary("bcrypt");
             }
+        }
+
+        if (lib_mir) |mir| {
+            lib.linkLibrary(mir);
         }
 
         // So that JIT compiled function can reference buzz_api
@@ -484,6 +497,11 @@ pub fn build(b: *Build) !void {
                     std_lib.linkSystemLibrary("bcrypt");
                 }
             }
+
+            if (lib_mir) |mir| {
+                std_lib.linkLibrary(mir);
+            }
+
             std_lib.linkLibrary(lib);
             std_lib.root_module.addImport("build_options", build_option_module);
 
@@ -518,6 +536,9 @@ pub fn build(b: *Build) !void {
         if (tests.root_module.resolved_target.?.result.os.tag == .windows) {
             tests.linkSystemLibrary("bcrypt");
         }
+    }
+    if (lib_mir) |mir| {
+        tests.linkLibrary(mir);
     }
     tests.root_module.addImport("build_options", build_option_module);
 
@@ -698,4 +719,60 @@ pub fn buildWasmReplDemo(b: *Build, exe: *Build.Step.Compile) void {
         "repl.html",
     );
     b.getInstallStep().dependOn(&copyRepl.step);
+}
+
+pub fn buildMir(b: *Build, target: Build.ResolvedTarget, optimize: std.builtin.OptimizeMode) !*Build.Step.Compile {
+    const lib = b.addStaticLibrary(
+        .{
+            .name = "mir",
+            .target = target,
+            .optimize = optimize,
+        },
+    );
+
+    lib.addIncludePath(b.path("./vendors/mir"));
+    lib.linkLibC();
+
+    if (lib.root_module.resolved_target.?.result.os.tag == .windows) {
+        lib.addSystemIncludePath(
+            b.path((std.process.Child.run(.{
+                .allocator = b.allocator,
+                .argv = &.{
+                    "xcrun",
+                    "--show-sdk-path",
+                },
+            }) catch {
+                std.debug.print("Failed to get MacOSX sdk path", .{});
+                unreachable;
+            }).stdout),
+        );
+        // Github macos-12 runner (https://github.com/actions/runner-images/blob/main/images/macos/macos-12-Readme.md).
+        lib.addSystemIncludePath(b.path("/Applications/Xcode_14.0.1.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include"));
+        lib.addSystemIncludePath(b.path("/Library/Developer/CommandLineTools/SDKs/MacOSX14.0.sdk/usr/include"));
+        lib.addSystemIncludePath(b.path("/Library/Developer/CommandLineTools/SDKs/MacOSX13.3.sdk/usr/include"));
+        lib.addSystemIncludePath(b.path("/Library/Developer/CommandLineTools/SDKs/MacOSX12.3.sdk/usr/include"));
+        lib.addSystemIncludePath(b.path("/Library/Developer/CommandLineTools/SDKs/MacOSX12.1.sdk/usr/include"));
+    }
+
+    lib.addCSourceFiles(
+        .{
+            .files = &.{
+                "./vendors/mir/mir.c",
+                "./vendors/mir/mir-gen.c",
+                "./vendors/mir/c2mir/c2mir.c",
+            },
+            .flags = &.{
+                "-fsigned-char",
+                "-O3",
+                "-DNDEBUG=1",
+                "-DMIR_PARALLEL_GEN=1",
+                // "-DADDITIONAL_INCLUDE_PATH=\"/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include\"",
+            },
+        },
+    );
+
+    // lib.linkSystemLibrary("m");
+    // lib.linkSystemLibrary("dl");
+
+    return lib;
 }
