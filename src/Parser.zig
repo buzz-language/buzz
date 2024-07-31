@@ -618,7 +618,21 @@ pub fn consume(self: *Self, tag: Token.Type, message: []const u8) !void {
         return;
     }
 
-    self.reportErrorAtCurrent(.syntax, message);
+    // If in repl mode and unclosed brace, we dont print out the error
+    switch (tag) {
+        .RightBracket,
+        .RightParen,
+        .RightBrace,
+        => {
+            if (self.flavor == .Repl) {
+                self.reporter.panic_mode = true;
+                self.reporter.last_error = .unclosed;
+            } else {
+                self.reportErrorAtCurrent(.unclosed, message);
+            }
+        },
+        else => self.reportErrorAtCurrent(.syntax, message),
+    }
 }
 
 // Check next token
@@ -836,7 +850,7 @@ pub fn parse(self: *Self, source: []const u8, file_name: []const u8) !?Ast {
 
     try self.beginFrame(function_type, function_node, null);
 
-    self.reporter.had_error = false;
+    self.reporter.last_error = null;
     self.reporter.panic_mode = false;
 
     try self.advancePastEof();
@@ -945,9 +959,9 @@ pub fn parse(self: *Self, source: []const u8, file_name: []const u8) !?Ast {
 
     self.ast.nodes.items(.components)[function_node].Function.entry = entry;
 
-    self.ast.root = if (self.reporter.had_error) null else self.endFrame();
+    self.ast.root = if (self.reporter.last_error != null) null else self.endFrame();
 
-    return if (self.reporter.had_error) null else self.ast;
+    return if (self.reporter.last_error != null) null else self.ast;
 }
 
 fn beginFrame(self: *Self, function_type: obj.ObjFunction.FunctionType, function_node: Ast.Node.Index, this: ?*obj.ObjTypeDef) !void {
@@ -1201,7 +1215,7 @@ fn block(self: *Self, loop_scope: ?LoopScope) Error!Ast.Node.Index {
         }
     }
 
-    try self.consume(.RightBrace, "Expected `}}` after block.");
+    try self.consume(.RightBrace, "Expected `}` after block.");
 
     return try self.ast.appendNode(
         .{
@@ -1670,13 +1684,13 @@ pub fn resolveGlobal(self: *Self, prefix: ?[]const u8, name: []const u8) Error!?
             return i;
             // Is it an import prefix?
         } else if (global.prefix != null and std.mem.eql(u8, name, global.prefix.?)) {
-            const had_error = self.reporter.had_error;
+            const had_error = self.reporter.last_error != null;
 
             try self.consume(.Dot, "Expected `.` after import prefix.");
             try self.consume(.Identifier, "Expected identifier after import prefix.");
 
             // Avoid infinite recursion
-            if (!had_error and self.reporter.had_error) {
+            if (!had_error and self.reporter.last_error != null) {
                 return null;
             }
 
@@ -3439,7 +3453,12 @@ fn list(self: *Self, _: bool) Error!Ast.Node.Index {
         }
 
         if (self.ast.tokens.items(.tag)[self.current_token.? - 1] != .RightBracket) {
-            self.reportErrorAtCurrent(.syntax, "Expected `]`");
+            if (self.flavor == .Repl) {
+                self.reporter.panic_mode = true;
+                self.reporter.last_error = .unclosed;
+            } else {
+                self.reportErrorAtCurrent(.unclosed, "Expected `]`");
+            }
         }
 
         item_type = item_type orelse common_type;
@@ -3659,7 +3678,7 @@ fn call(self: *Self, _: bool, callee: Ast.Node.Index) Error!Ast.Node.Index {
                     .callee = callee,
                     // We do this because the callee type will change in the dot.call usecase
                     .callee_type_def = self.ast.nodes.items(.type_def)[callee] orelse callee_td: {
-                        std.debug.assert(self.reporter.had_error);
+                        std.debug.assert(self.reporter.last_error != null);
 
                         break :callee_td self.gc.type_registry.void_type;
                     },
@@ -7766,7 +7785,7 @@ fn importStatement(self: *Self) Error!Ast.Node.Index {
 
     try self.consume(.Semicolon, "Expected `;` after statement.");
 
-    const import = if (!self.reporter.had_error)
+    const import = if (self.reporter.last_error == null)
         try self.importScript(
             path_token,
             file_name,

@@ -154,7 +154,7 @@ pub inline fn currentCode(self: *Self) usize {
 
 pub fn generate(self: *Self, ast: Ast) Error!?*obj.ObjFunction {
     self.ast = ast;
-    self.reporter.had_error = false;
+    self.reporter.last_error = null;
     self.reporter.panic_mode = false;
 
     // if (BuildOptions.debug) {
@@ -168,7 +168,7 @@ pub fn generate(self: *Self, ast: Ast) Error!?*obj.ObjFunction {
 
     const function = self.generateNode(self.ast.root.?, null);
 
-    return if (self.reporter.had_error) null else function;
+    return if (self.reporter.last_error != null) null else function;
 }
 
 pub fn emit(self: *Self, location: Ast.TokenIndex, code: u32) !void {
@@ -735,7 +735,7 @@ fn generateBinary(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*o
                 .Integer => .OP_ADD_I,
                 .Float => .OP_ADD_F,
                 else => other: {
-                    std.debug.assert(self.reporter.had_error);
+                    std.debug.assert(self.reporter.last_error != null);
 
                     break :other .OP_ADD_I;
                 },
@@ -1367,7 +1367,7 @@ fn generateCall(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj
                     .Map => .OP_MAP_INVOKE,
                     .Range => .OP_RANGE_INVOKE,
                     else => unexpected: {
-                        std.debug.assert(self.reporter.had_error);
+                        std.debug.assert(self.reporter.last_error != null);
                         break :unexpected .OP_INSTANCE_INVOKE;
                     },
                 },
@@ -1380,7 +1380,7 @@ fn generateCall(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj
                         .Map => obj.ObjMap.members_name.get(member_lexeme).?,
                         .Range => obj.ObjRange.members_name.get(member_lexeme).?,
                         else => unexpected: {
-                            std.debug.assert(self.reporter.had_error);
+                            std.debug.assert(self.reporter.last_error != null);
                             break :unexpected 0;
                         },
                     },
@@ -1659,7 +1659,7 @@ fn generateDot(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.
             }
         },
 
-        else => std.debug.assert(self.reporter.had_error),
+        else => std.debug.assert(self.reporter.last_error != null),
     }
 
     try self.patchOptJumps(node);
@@ -2128,7 +2128,7 @@ fn generateForEach(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*
             .String => obj.ObjString.cast(iterable).?.string.len == 0,
             .Enum => obj.ObjEnum.cast(iterable).?.cases.len == 0,
             .Range => obj.ObjRange.cast(iterable).?.high == obj.ObjRange.cast(iterable).?.low,
-            else => self.reporter.had_error,
+            else => self.reporter.last_error != null,
         }) {
             try self.patchOptJumps(node);
             return null;
@@ -2154,7 +2154,7 @@ fn generateForEach(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*
             .Fiber => .OP_FIBER_FOREACH,
             .Range => .OP_RANGE_FOREACH,
             else => unexpected: {
-                std.debug.assert(self.reporter.had_error);
+                std.debug.assert(self.reporter.last_error != null);
                 break :unexpected .OP_STRING_FOREACH;
             },
         },

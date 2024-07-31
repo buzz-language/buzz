@@ -12,6 +12,11 @@ const io = @import("io.zig");
 
 const Self = @This();
 
+allocator: std.mem.Allocator,
+panic_mode: bool = false,
+last_error: ?Error = null,
+error_prefix: ?[]const u8 = null,
+
 // Do not reorder without updating documentation, values are explicit so they can be retrieved easily
 pub const Error = enum(u8) {
     already_conforming_protocol = 0,
@@ -113,6 +118,7 @@ pub const Error = enum(u8) {
     constant_property = 96,
     tuple_limit = 97,
     mix_tuple = 98,
+    unclosed = 99,
 };
 
 // Inspired by https://github.com/zesterer/ariadne
@@ -501,11 +507,6 @@ pub const Report = struct {
     }
 };
 
-allocator: std.mem.Allocator,
-panic_mode: bool = false,
-had_error: bool = false,
-error_prefix: ?[]const u8 = null,
-
 pub fn warn(self: *Self, error_type: Error, token: Token, message: []const u8) void {
     var error_report = Report{
         .message = message,
@@ -525,7 +526,7 @@ pub fn warn(self: *Self, error_type: Error, token: Token, message: []const u8) v
 
 pub fn report(self: *Self, error_type: Error, token: Token, message: []const u8) void {
     self.panic_mode = true;
-    self.had_error = true;
+    self.last_error = error_type;
 
     var error_report = Report{
         .message = message,
@@ -607,7 +608,7 @@ pub fn reportWithOrigin(
     };
 
     self.panic_mode = true;
-    self.had_error = true;
+    self.last_error = error_type;
 
     decl_report.reportStderr(self) catch @panic("Could not report error");
 }
@@ -682,7 +683,7 @@ pub fn reportTypeCheck(
         };
 
     self.panic_mode = true;
-    self.had_error = true;
+    self.last_error = error_type;
 
     check_report.reportStderr(self) catch @panic("Could not report error");
 }

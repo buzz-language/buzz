@@ -40,7 +40,8 @@ const CodeGen = @import("Codegen.zig");
 const Scanner = @import("Scanner.zig");
 const io = @import("io.zig");
 
-pub const PROMPT = "> ";
+pub const PROMPT = ">>> ";
+pub const MULTILINE_PROMPT = "... ";
 
 pub fn printBanner(out: anytype, full: bool) void {
     out.print(
@@ -163,14 +164,22 @@ pub fn repl(allocator: std.mem.Allocator) !void {
     var previous_parser_globals = try parser.globals.clone();
     var previous_globals = try vm.globals.clone();
     var previous_type_registry = try gc.type_registry.registry.clone();
+    var previous_input: ?[]u8 = null;
+
     while (true) {
-        const read_source = ln.linenoise(PROMPT);
+        const read_source = ln.linenoise(
+            if (previous_input != null)
+                MULTILINE_PROMPT
+            else
+                PROMPT,
+        );
 
         if (read_source == null) {
             std.process.exit(0);
         }
 
-        const source = std.mem.span(read_source.?);
+        var source = std.mem.span(read_source.?);
+        const original_source = source;
 
         _ = ln.linenoiseHistoryAdd(source);
         _ = ln.linenoiseHistorySave(@ptrCast(buzz_history_path.items.ptr));
@@ -180,13 +189,35 @@ pub fn repl(allocator: std.mem.Allocator) !void {
             var source_scanner = Scanner.init(
                 gc.allocator,
                 "REPL",
-                source,
+                original_source,
             );
             // Go up one line, erase it
-            stdout.print("\x1b[1A\r\x1b[2K{s}", .{PROMPT}) catch unreachable;
+            stdout.print(
+                "\x1b[1A\r\x1b[2K{s}",
+                .{
+                    if (previous_input != null)
+                        MULTILINE_PROMPT
+                    else
+                        PROMPT,
+                },
+            ) catch unreachable;
             // Output highlighted user input
             source_scanner.highlight(stdout, true_color);
             stdout.writeAll("\n") catch unreachable;
+
+            if (previous_input) |previous| {
+                source = std.mem.concatWithSentinel(
+                    gc.allocator,
+                    u8,
+                    &.{
+                        previous,
+                        source,
+                    },
+                    0,
+                ) catch @panic("Out of memory");
+                gc.allocator.free(previous);
+                previous_input = null;
+            }
 
             const expr = runSource(
                 source,
@@ -203,7 +234,7 @@ pub fn repl(allocator: std.mem.Allocator) !void {
                 break :failed null;
             };
 
-            if (!parser.reporter.had_error and !codegen.reporter.had_error) {
+            if (parser.reporter.last_error == null and codegen.reporter.last_error == null) {
                 // FIXME: why can't I deinit those?
                 // previous_parser_globals.deinit();
                 previous_parser_globals = try parser.globals.clone();
@@ -249,11 +280,17 @@ pub fn repl(allocator: std.mem.Allocator) !void {
 
                 // gc.type_registry.registry.deinit();
                 gc.type_registry.registry = previous_type_registry;
+
+                // If syntax error was unclosed block, keep previous input
+                if (parser.reporter.last_error == .unclosed) {
+                    previous_input = gc.allocator.alloc(u8, source.len) catch @panic("Out of memory");
+                    std.mem.copyForwards(u8, previous_input.?, source);
+                }
             }
 
-            parser.reporter.had_error = false;
+            parser.reporter.last_error = null;
             parser.reporter.panic_mode = false;
-            codegen.reporter.had_error = false;
+            codegen.reporter.last_error = null;
             codegen.reporter.panic_mode = false;
         }
     }
@@ -316,6 +353,8 @@ fn runSource(
                 },
             );
         }
+    } else if (parser.reporter.last_error == .unclosed) {
+        return null;
     } else {
         return CompileError.Recoverable;
     }

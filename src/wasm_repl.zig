@@ -125,7 +125,7 @@ pub export fn runLine(ctx: *ReplCtx) void {
         break :failed null;
     };
 
-    if (!ctx.parser.reporter.had_error and !ctx.codegen.reporter.had_error) {
+    if (ctx.parser.reporter.last_error == null and ctx.codegen.reporter.last_error == null) {
         // FIXME: why can't I deinit those?
         // previous_parser_globals.deinit();
         previous_parser_globals = ctx.parser.globals.clone() catch unreachable;
@@ -173,9 +173,9 @@ pub export fn runLine(ctx: *ReplCtx) void {
         ctx.vm.gc.type_registry.registry = previous_type_registry;
     }
 
-    ctx.parser.reporter.had_error = false;
+    ctx.parser.reporter.last_error = null;
     ctx.parser.reporter.panic_mode = false;
-    ctx.codegen.reporter.had_error = false;
+    ctx.codegen.reporter.last_error = null;
     ctx.codegen.reporter.panic_mode = false;
 }
 
