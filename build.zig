@@ -283,7 +283,7 @@ pub fn build(b: *Build) !void {
         try buildMimalloc(b, target, build_mode)
     else
         null;
-    const lib_linenoise = if (!is_wasm)
+    const lib_linenoise = if (!is_wasm and target.result.os.tag != .windows)
         try buildLinenoise(b, target, build_mode)
     else
         null;
@@ -738,10 +738,17 @@ pub fn buildMir(b: *Build, target: Build.ResolvedTarget, optimize: std.builtin.O
                 "-O3",
                 "-DNDEBUG=1",
                 "-DMIR_PARALLEL_GEN=1",
-                "-fno-sanitize=undefined", // MIR has some undefined behaviour somewhere so we need this
+                "-fno-sanitize=undefined",
+                // "-fsanitize=address",
+                // "-fno-sanitize=alignment",
             },
         },
     );
+
+    if (target.result.os.tag == .windows) {
+        lib.linkSystemLibrary("kernel32");
+        lib.linkSystemLibrary("psapi");
+    }
 
     return lib;
 }

@@ -31,7 +31,7 @@ const ObjForeignContainer = _obj.ObjForeignContainer;
 const Parser = @import("Parser.zig");
 const CompileError = Parser.CompileError;
 const JIT = @import("Jit.zig");
-const ln = @import("linenoise.zig");
+const ln = if (builtin.os.tag != .windows) @import("linenoise.zig") else void;
 const Value = @import("value.zig").Value;
 const disassembler = @import("disassembler.zig");
 const dumpStack = disassembler.dumpStack;
@@ -146,8 +146,10 @@ pub fn repl(allocator: std.mem.Allocator) !void {
         .{std.posix.getenv("HOME") orelse "."},
     );
 
-    _ = ln.linenoiseHistorySetMaxLen(100);
-    _ = ln.linenoiseHistoryLoad(@ptrCast(buzz_history_path.items.ptr));
+    if (builtin.os.tag != .windows) {
+        _ = ln.linenoiseHistorySetMaxLen(100);
+        _ = ln.linenoiseHistoryLoad(@ptrCast(buzz_history_path.items.ptr));
+    }
 
     // Import std and debug as commodity
     _ = runSource(
@@ -163,8 +165,17 @@ pub fn repl(allocator: std.mem.Allocator) !void {
     var previous_parser_globals = try parser.globals.clone();
     var previous_globals = try vm.globals.clone();
     var previous_type_registry = try gc.type_registry.registry.clone();
+    const stdin_buffer = if (builtin.os.tag == .windows)
+        gc.allocator.alloc(u8, 2048) catch @panic("Out of memory")
+    else
+        null;
+
     while (true) {
-        const read_source = ln.linenoise(PROMPT);
+        const read_source = if (builtin.os.tag != .windows)
+            ln.linenoise(PROMPT)
+        else
+            std.io.getStdIn().reader().readUntilDelimiterOrEof(stdin_buffer, '\n') catch |err|
+                std.debug.panic("{}\n", .{err});
 
         if (read_source == null) {
             std.process.exit(0);
@@ -172,8 +183,10 @@ pub fn repl(allocator: std.mem.Allocator) !void {
 
         const source = std.mem.span(read_source.?);
 
-        _ = ln.linenoiseHistoryAdd(source);
-        _ = ln.linenoiseHistorySave(@ptrCast(buzz_history_path.items.ptr));
+        if (builtin.os.tag != .windows) {
+            _ = ln.linenoiseHistoryAdd(source);
+            _ = ln.linenoiseHistorySave(@ptrCast(buzz_history_path.items.ptr));
+        }
 
         if (source.len > 0) {
             // Highlight input
