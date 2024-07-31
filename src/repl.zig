@@ -181,9 +181,6 @@ pub fn repl(allocator: std.mem.Allocator) !void {
         var source = std.mem.span(read_source.?);
         const original_source = source;
 
-        _ = ln.linenoiseHistoryAdd(source);
-        _ = ln.linenoiseHistorySave(@ptrCast(buzz_history_path.items.ptr));
-
         if (source.len > 0) {
             // Highlight input
             var source_scanner = Scanner.init(
@@ -235,6 +232,8 @@ pub fn repl(allocator: std.mem.Allocator) !void {
             };
 
             if (parser.reporter.last_error == null and codegen.reporter.last_error == null) {
+                _ = ln.linenoiseHistoryAdd(source);
+                _ = ln.linenoiseHistorySave(@ptrCast(buzz_history_path.items.ptr));
                 // FIXME: why can't I deinit those?
                 // previous_parser_globals.deinit();
                 previous_parser_globals = try parser.globals.clone();
@@ -285,6 +284,9 @@ pub fn repl(allocator: std.mem.Allocator) !void {
                 if (parser.reporter.last_error == .unclosed) {
                     previous_input = gc.allocator.alloc(u8, source.len) catch @panic("Out of memory");
                     std.mem.copyForwards(u8, previous_input.?, source);
+                } else {
+                    _ = ln.linenoiseHistoryAdd(source);
+                    _ = ln.linenoiseHistorySave(@ptrCast(buzz_history_path.items.ptr));
                 }
             }
 

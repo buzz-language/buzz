@@ -43,12 +43,7 @@ fn printBanner(out: anytype, full: bool) void {
             "Built with Zig {} {s}\nAllocator: {s}, Memory limit: {} {s}\nJIT: {s}, CPU limit: {} {s}\n",
             .{
                 builtin.zig_version,
-                switch (builtin.mode) {
-                    .ReleaseFast => "release-fast",
-                    .ReleaseSafe => "release-safe",
-                    .ReleaseSmall => "release-small",
-                    .Debug => "debug",
-                },
+                @tagName(builtin.mode),
                 if (builtin.mode == .Debug)
                     "gpa"
                 else if (BuildOptions.mimalloc) "mimalloc" else "c_allocator",
