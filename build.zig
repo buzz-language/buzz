@@ -116,20 +116,14 @@ pub fn build(b: *Build) !void {
         .sha = std.posix.getenv("GIT_SHA") orelse
             std.posix.getenv("GITHUB_SHA") orelse std.mem.trim(
             u8,
-            (std.process.Child.run(.{
-                .allocator = b.allocator,
-                .argv = &.{
+            b.run(
+                &.{
                     "git",
                     "rev-parse",
                     "--short",
                     "HEAD",
                 },
-                .cwd = b.pathFromRoot("."),
-                .expand_arg0 = .expand,
-            }) catch {
-                std.debug.print("Warning: failed to get git HEAD", .{});
-                unreachable;
-            }).stdout,
+            ),
             "\n \t",
         ),
         .cycle_limit = b.option(
@@ -731,28 +725,6 @@ pub fn buildMir(b: *Build, target: Build.ResolvedTarget, optimize: std.builtin.O
     );
 
     lib.addIncludePath(b.path("./vendors/mir"));
-    lib.linkLibC();
-
-    if (lib.root_module.resolved_target.?.result.os.tag == .windows) {
-        lib.addSystemIncludePath(
-            b.path((std.process.Child.run(.{
-                .allocator = b.allocator,
-                .argv = &.{
-                    "xcrun",
-                    "--show-sdk-path",
-                },
-            }) catch {
-                std.debug.print("Failed to get MacOSX sdk path", .{});
-                unreachable;
-            }).stdout),
-        );
-        // Github macos-12 runner (https://github.com/actions/runner-images/blob/main/images/macos/macos-12-Readme.md).
-        lib.addSystemIncludePath(b.path("/Applications/Xcode_14.0.1.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include"));
-        lib.addSystemIncludePath(b.path("/Library/Developer/CommandLineTools/SDKs/MacOSX14.0.sdk/usr/include"));
-        lib.addSystemIncludePath(b.path("/Library/Developer/CommandLineTools/SDKs/MacOSX13.3.sdk/usr/include"));
-        lib.addSystemIncludePath(b.path("/Library/Developer/CommandLineTools/SDKs/MacOSX12.3.sdk/usr/include"));
-        lib.addSystemIncludePath(b.path("/Library/Developer/CommandLineTools/SDKs/MacOSX12.1.sdk/usr/include"));
-    }
 
     lib.addCSourceFiles(
         .{
@@ -766,13 +738,10 @@ pub fn buildMir(b: *Build, target: Build.ResolvedTarget, optimize: std.builtin.O
                 "-O3",
                 "-DNDEBUG=1",
                 "-DMIR_PARALLEL_GEN=1",
-                // "-DADDITIONAL_INCLUDE_PATH=\"/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include\"",
+                "-fno-sanitize=undefined", // MIR has some undefined behaviour somewhere so we need this
             },
         },
     );
-
-    // lib.linkSystemLibrary("m");
-    // lib.linkSystemLibrary("dl");
 
     return lib;
 }

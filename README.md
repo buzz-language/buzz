@@ -42,10 +42,11 @@ _Latest zig version supported: 0.14.0-dev.121+ab4c461b7_
 ### Build
 1. Clone the project: `git clone https://github.com/buzz-language/buzz <buzz_dir>`
 2. Checkout submodules: `git submodule update --init`
-3. Build MIR:
+3. Run configure for pcre2:
 ```bash
-cd vendors/mir
-make
+cd vendors/pcre2
+./configure
+cd ../..
 ```
 4. Have fun: `zig build run -- <myscript.buzz>`
 
