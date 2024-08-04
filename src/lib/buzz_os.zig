@@ -32,10 +32,16 @@ pub export fn env(ctx: *api.NativeCtx) c_int {
 
     // FIXME: don't use std.posix directly
     if (std.posix.getenv(key_slice)) |value| {
-        ctx.vm.bz_pushString(api.ObjString.bz_string(ctx.vm, if (value.len > 0) @as([*]const u8, @ptrCast(value)) else null, value.len) orelse {
-            ctx.vm.bz_panic("Out of memory", "Out of memory".len);
-            unreachable;
-        });
+        ctx.vm.bz_pushString(
+            api.ObjString.bz_string(
+                ctx.vm,
+                if (value.len > 0) @as([*]const u8, @ptrCast(value)) else null,
+                value.len,
+            ) orelse {
+                ctx.vm.bz_panic("Out of memory", "Out of memory".len);
+                unreachable;
+            },
+        );
 
         return 1;
     }
@@ -48,7 +54,11 @@ pub export fn env(ctx: *api.NativeCtx) c_int {
 fn sysTempDir() []const u8 {
     return switch (builtin.os.tag) {
         .windows => unreachable, // TODO: GetTempPath
-        else => std.posix.getenv("TMPDIR") orelse std.posix.getenv("TMP") orelse std.posix.getenv("TEMP") orelse std.posix.getenv("TEMPDIR") orelse "/tmp",
+        else => std.posix.getenv("TMPDIR") orelse
+            std.posix.getenv("TMP") orelse
+            std.posix.getenv("TEMP") orelse
+            std.posix.getenv("TEMPDIR") orelse
+            "/tmp",
     };
 }
 
@@ -77,7 +87,10 @@ pub export fn tmpFilename(ctx: *api.NativeCtx) c_int {
         unreachable;
     };
 
-    var random_part_b64 = std.ArrayList(u8).initCapacity(api.VM.allocator, std.base64.standard.Encoder.calcSize(random_part.items.len)) catch {
+    var random_part_b64 = std.ArrayList(u8).initCapacity(
+        api.VM.allocator,
+        std.base64.standard.Encoder.calcSize(random_part.items.len),
+    ) catch {
         ctx.vm.bz_panic("Out of memory", "Out of memory".len);
         unreachable;
     };
@@ -94,10 +107,19 @@ pub export fn tmpFilename(ctx: *api.NativeCtx) c_int {
         unreachable;
     };
 
-    ctx.vm.bz_pushString(api.ObjString.bz_string(ctx.vm, if (final.items.len > 0) @as([*]const u8, @ptrCast(final.items)) else null, final.items.len) orelse {
-        ctx.vm.bz_panic("Out of memory", "Out of memory".len);
-        unreachable;
-    });
+    ctx.vm.bz_pushString(
+        api.ObjString.bz_string(
+            ctx.vm,
+            if (final.items.len > 0)
+                @as([*]const u8, @ptrCast(final.items))
+            else
+                null,
+            final.items.len,
+        ) orelse {
+            ctx.vm.bz_panic("Out of memory", "Out of memory".len);
+            unreachable;
+        },
+    );
 
     return 1;
 }

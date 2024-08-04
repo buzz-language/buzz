@@ -138,7 +138,7 @@ pub const OpCode = enum(u8) {
 /// A chunk of code to execute
 const Self = @This();
 
-pub const max_constants: u24 = std.math.maxInt(u24);
+pub const max_constants = std.math.maxInt(u24);
 
 allocator: std.mem.Allocator,
 /// AST

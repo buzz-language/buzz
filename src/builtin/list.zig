@@ -149,6 +149,7 @@ pub fn sort(ctx: *NativeCtx) c_int {
         },
         lessThan,
     );
+    ctx.vm.gc.markObjDirty(self.toObj()) catch @panic("Out of memory");
 
     ctx.vm.push(self.toValue());
 
