@@ -133,7 +133,7 @@ pub export fn buzzExit(ctx: *api.NativeCtx) c_int {
     return 0;
 }
 
-fn handleSpawnError(ctx: *api.NativeCtx, err: anytype) void {
+fn handleRunError(ctx: *api.NativeCtx, err: anytype) void {
     switch (err) {
         error.AccessDenied,
         error.BadPathName,
@@ -152,6 +152,9 @@ fn handleSpawnError(ctx: *api.NativeCtx, err: anytype) void {
         error.SystemFdQuotaExceeded,
         error.SystemResources,
         error.FileNotFound,
+        error.InputOutput,
+        error.SocketNotConnected,
+        error.WouldBlock,
         => ctx.vm.pushErrorEnum("errors.FileSystemError", @errorName(err)),
 
         error.CurrentWorkingDirectoryUnlinked,
@@ -163,6 +166,20 @@ fn handleSpawnError(ctx: *api.NativeCtx, err: anytype) void {
         error.WaitAbandoned,
         error.WaitTimeOut,
         => ctx.vm.pushErrorEnum("errors.ExecError", @errorName(err)),
+
+        error.NetworkSubsystemFailed,
+        => ctx.vm.pushErrorEnum("errors.SocketError", @errorName(err)),
+
+        error.OperationAborted,
+        error.BrokenPipe,
+        error.ConnectionResetByPeer,
+        error.ConnectionTimedOut,
+        error.NotOpenForReading,
+        => ctx.vm.pushErrorEnum("errors.ReadWriteError", @errorName(err)),
+
+        error.StdoutStreamTooLong,
+        error.StderrStreamTooLong,
+        => ctx.vm.pushErrorEnum("errors.ReadWriteError", "StreamTooLong"),
 
         error.OutOfMemory => {
             ctx.vm.bz_panic("Out of memory", "Out of memory".len);
@@ -197,21 +214,60 @@ pub export fn execute(ctx: *api.NativeCtx) c_int {
         };
     }
 
-    var child_process = std.process.Child.init(command.items, api.VM.allocator);
-    child_process.disable_aslr = builtin.target.isDarwin();
-
-    const term = child_process.spawnAndWait() catch |err| {
-        handleSpawnError(ctx, err);
+    const result = std.process.Child.run(.{
+        .allocator = api.VM.allocator,
+        .argv = command.items,
+    }) catch |err| {
+        handleRunError(ctx, err);
 
         return -1;
     };
 
-    switch (term) {
-        .Exited => ctx.vm.bz_pushInteger(@intCast(term.Exited)),
-        .Signal => ctx.vm.bz_pushInteger(@intCast(term.Signal)),
-        .Stopped => ctx.vm.bz_pushInteger(@intCast(term.Stopped)),
-        .Unknown => ctx.vm.bz_pushInteger(@intCast(term.Unknown)),
-    }
+    const runResult = api.ObjObject.bz_instanceQualified(
+        ctx.vm,
+        "os.RunResult", // FIXME: doesn't work if user renames namespace
+        "os.RunResult".len,
+    );
+
+    ctx.vm.bz_push(runResult);
+
+    api.ObjObject.bz_setInstanceProperty(
+        ctx.vm,
+        runResult,
+        0,
+        api.Value.fromInteger(switch (result.term) {
+            .Exited => @intCast(result.term.Exited),
+            .Signal => @intCast(result.term.Signal),
+            .Stopped => @intCast(result.term.Stopped),
+            .Unknown => @intCast(result.term.Unknown),
+        }),
+    );
+
+    api.ObjObject.bz_setInstanceProperty(
+        ctx.vm,
+        runResult,
+        1,
+        api.ObjString.bz_objStringToValue(
+            api.ObjString.bz_string(
+                ctx.vm,
+                result.stdout.ptr,
+                result.stdout.len,
+            ) orelse @panic("Out of memory"),
+        ),
+    );
+
+    api.ObjObject.bz_setInstanceProperty(
+        ctx.vm,
+        runResult,
+        2,
+        api.ObjString.bz_objStringToValue(
+            api.ObjString.bz_string(
+                ctx.vm,
+                result.stderr.ptr,
+                result.stderr.len,
+            ) orelse @panic("Out of memory"),
+        ),
+    );
 
     return 1;
 }

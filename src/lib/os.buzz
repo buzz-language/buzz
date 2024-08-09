@@ -25,10 +25,16 @@ extern fun buzzExit(int exitCode) > void;
 
 export buzzExit as exit;
 
+export object RunResult {
+    int term,
+    str stdout,
+    str stderr,
+}
+
 || Execute command and return its exit code
 || @param command command to execute
 || @return exit code of the command
-export extern fun execute([str] command) > int !> errors.FileSystemError, errors.UnexpectedError;
+export extern fun execute([str] command) > RunResult !> errors.FileSystemError, errors.UnexpectedError, errors.ReadWriteError, errors.SocketError;
 
 || @private
 extern fun SocketConnect(str address, int port, int netProtocol) > int !> errors.InvalidArgumentError, errors.SocketError, errors.NotYetImplementedError;
