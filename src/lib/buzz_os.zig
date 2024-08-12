@@ -193,14 +193,23 @@ pub export fn execute(ctx: *api.NativeCtx) c_int {
     var command = std.ArrayList([]const u8).init(api.VM.allocator);
     defer command.deinit();
 
+    const cmd = ctx.vm.bz_peek(1);
+    var cmd_len: usize = 0;
+    var cmd_str = cmd.bz_valueToString(&cmd_len);
+
+    command.append(cmd_str.?[0..cmd_len]) catch {
+        ctx.vm.bz_panic("Out of memory", "Out of memory".len);
+        unreachable;
+    };
+
     const argv_value = ctx.vm.bz_peek(0);
     const argv = api.ObjList.bz_valueToList(argv_value);
     const len = argv.bz_listLen();
-    var i: usize = 0;
+    var i: i32 = 0;
     while (i < len) : (i += 1) {
         const arg = api.ObjList.bz_listGet(
             argv_value,
-            @intCast(i),
+            i,
             false,
         );
         var arg_len: usize = 0;
@@ -214,10 +223,12 @@ pub export fn execute(ctx: *api.NativeCtx) c_int {
         };
     }
 
-    const result = std.process.Child.run(.{
-        .allocator = api.VM.allocator,
-        .argv = command.items,
-    }) catch |err| {
+    const result = std.process.Child.run(
+        .{
+            .allocator = api.VM.allocator,
+            .argv = command.items,
+        },
+    ) catch |err| {
         handleRunError(ctx, err);
 
         return -1;

@@ -19,7 +19,7 @@ test "os.tmpFilename" {
 }
 
 test "os.execute" {
-    const result = os.execute(["./zig-out/bin/buzz", "--version"]);
+    const result = os.execute("./zig-out/bin/buzz", args: ["--version"]);
     std.assert(result.term == 0, message: "Could execute a command");
     std.assert(result.stdout.startsWith("\n👨‍🚀 buzz"));
 }

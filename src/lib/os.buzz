@@ -34,7 +34,7 @@ export object RunResult {
 || Execute command and return its exit code
 || @param command command to execute
 || @return exit code of the command
-export extern fun execute([str] command) > RunResult !> errors.FileSystemError, errors.UnexpectedError, errors.ReadWriteError, errors.SocketError;
+export extern fun execute(str command, [str] args = [<str>]) > RunResult !> errors.FileSystemError, errors.UnexpectedError, errors.ReadWriteError, errors.SocketError;
 
 || @private
 extern fun SocketConnect(str address, int port, int netProtocol) > int !> errors.InvalidArgumentError, errors.SocketError, errors.NotYetImplementedError;
