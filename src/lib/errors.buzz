@@ -52,6 +52,9 @@ export enum ExecError {
     TooBig,
     WaitAbandoned,
     WaitTimeOut,
+    ProcessAlreadyExec,
+    InvalidProcessGroupId,
+    ProcessNotFound,
 }
 
 export enum SocketError {
@@ -67,6 +70,7 @@ export enum SocketError {
     ConnectionRefused,
     ConnectionResetByPeer,
     ConnectionTimedOut,
+    Canceled,
     FileDescriptorNotASocket,
     HostLacksNetworkAddresses,
     Incomplete,

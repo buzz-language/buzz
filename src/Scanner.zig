@@ -51,8 +51,8 @@ pub fn scanToken(self: *Self) !Token {
 
     const char: u8 = self.advance();
     return try switch (char) {
-        'b' => self.identifier(),
-        'a', 'c'...'z', 'A'...'Z' => self.identifier(),
+        'b' => try self.identifier(),
+        'a', 'c'...'z', 'A'...'Z' => try self.identifier(),
         // `_` identifier is used to discard expressions or locals, but we don't allow identifiers starting with `_`, so we stop there
         '_' => self.makeToken(
             .Identifier,
@@ -129,12 +129,12 @@ pub fn scanToken(self: *Self) !Token {
                 null,
                 null,
             ),
-        '"' => self.string(false),
-        '`' => self.string(true),
+        '"' => try self.string(false),
+        '`' => try self.string(true),
         '\'' => self.byte(),
-        '@' => self.atIdentifier(),
-        '|' => self.docblock(),
-        '$' => self.pattern(),
+        '@' => try self.atIdentifier(),
+        '|' => try self.docblock(),
+        '$' => try self.pattern(),
 
         else => self.makeToken(.Error, "Unexpected character.", null, null),
     };

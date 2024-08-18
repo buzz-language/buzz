@@ -876,7 +876,7 @@ pub const VM = struct {
     }
 
     pub fn panic(self: *Self, msg: []const u8) void {
-        @setCold(true);
+        @branchHint(.cold);
 
         self.reportRuntimeErrorWithCurrentStack(msg);
 

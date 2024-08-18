@@ -307,7 +307,7 @@ pub fn identifierConstant(self: *Self, name: []const u8) !u24 {
 
 // Unlocated error, should not be used
 fn reportError(self: *Self, error_type: Reporter.Error, message: []const u8) void {
-    @setCold(true);
+    @branchHint(.cold);
 
     if (self.reporter.panic_mode) {
         return;
