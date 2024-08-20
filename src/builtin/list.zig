@@ -117,7 +117,7 @@ pub fn remove(ctx: *NativeCtx) c_int {
 }
 
 const SortContext = struct {
-    sort_closure: *ObjClosure,
+    sort_closure: Value,
     ctx: *NativeCtx,
 };
 
@@ -138,7 +138,7 @@ fn lessThan(context: SortContext, lhs: Value, rhs: Value) bool {
 pub fn sort(ctx: *NativeCtx) c_int {
     var self = ObjList.cast(ctx.vm.peek(1).obj()).?;
     // fun compare(T lhs, T rhs) > bool
-    const sort_closure = ObjClosure.cast(ctx.vm.peek(0).obj()).?;
+    const sort_closure = ctx.vm.peek(0);
 
     std.sort.insertion(
         Value,
@@ -310,7 +310,7 @@ pub fn next(ctx: *NativeCtx) c_int {
 
 pub fn forEach(ctx: *NativeCtx) c_int {
     const list = ObjList.cast(ctx.vm.peek(1).obj()).?;
-    const closure = ObjClosure.cast(ctx.vm.peek(0).obj()).?;
+    const closure = ctx.vm.peek(0);
 
     for (list.items.items, 0..) |item, index| {
         const index_value = Value.fromInteger(@as(i32, @intCast(index)));
@@ -331,7 +331,7 @@ pub fn forEach(ctx: *NativeCtx) c_int {
 
 pub fn reduce(ctx: *NativeCtx) c_int {
     const list = ObjList.cast(ctx.vm.peek(2).obj()).?;
-    const closure = ObjClosure.cast(ctx.vm.peek(1).obj()).?;
+    const closure = ctx.vm.peek(1);
     var accumulator = ctx.vm.peek(0);
 
     for (list.items.items, 0..) |item, index| {
@@ -361,7 +361,7 @@ pub fn reduce(ctx: *NativeCtx) c_int {
 
 pub fn filter(ctx: *NativeCtx) c_int {
     const list = ObjList.cast(ctx.vm.peek(1).obj()).?;
-    const closure = ObjClosure.cast(ctx.vm.peek(0).obj()).?;
+    const closure = ctx.vm.peek(0);
 
     var new_list: *ObjList = ctx.vm.gc.allocateObject(
         ObjList,
@@ -404,9 +404,9 @@ pub fn filter(ctx: *NativeCtx) c_int {
 
 pub fn map(ctx: *NativeCtx) c_int {
     const list = ObjList.cast(ctx.vm.peek(1).obj()).?;
-    const closure = ObjClosure.cast(ctx.vm.peek(0).obj()).?;
+    const closure = ctx.vm.peek(0);
 
-    const mapped_type = closure.function.type_def.resolved_type.?.Function.return_type;
+    const mapped_type = ObjClosure.cast(closure.obj()).?.function.type_def.resolved_type.?.Function.return_type;
     var new_list: *ObjList = ctx.vm.gc.allocateObject(
         ObjList,
         ObjList.init(

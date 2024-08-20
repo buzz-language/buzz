@@ -1158,7 +1158,7 @@ fn buildValueToOptionalCString(self: *Self, value: m.MIR_op_t, dest: m.MIR_op_t)
 
 fn buildValueFromCString(self: *Self, value: m.MIR_op_t, dest: m.MIR_op_t) !void {
     try self.buildExternApiCall(
-        .bz_stringZ,
+        .bz_stringToValueZ,
         dest,
         &[_]m.MIR_op_t{
             m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
@@ -1182,7 +1182,7 @@ fn buildValueFromOptionalCString(self: *Self, value: m.MIR_op_t, dest: m.MIR_op_
     );
 
     try self.buildExternApiCall(
-        .bz_stringZ,
+        .bz_stringToValueZ,
         dest,
         &[_]m.MIR_op_t{
             m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
@@ -1195,7 +1195,7 @@ fn buildValueFromOptionalCString(self: *Self, value: m.MIR_op_t, dest: m.MIR_op_
 
 fn buildValueToUserData(self: *Self, value: m.MIR_op_t, dest: m.MIR_op_t) !void {
     try self.buildExternApiCall(
-        .bz_valueToUserData,
+        .bz_getUserDataPtr,
         dest,
         &[_]m.MIR_op_t{value},
     );
@@ -1211,7 +1211,7 @@ fn buildValueToForeignContainerPtr(self: *Self, value: m.MIR_op_t, dest: m.MIR_o
 
 fn buildValueFromForeignContainerPtr(self: *Self, type_def: *o.ObjTypeDef, value: m.MIR_op_t, dest: m.MIR_op_t) !void {
     try self.buildExternApiCall(
-        .bz_containerFromSlice,
+        .bz_newForeignContainerFromSlice,
         dest,
         &[_]m.MIR_op_t{
             m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
@@ -1237,7 +1237,7 @@ fn buildValueFromOptionalForeignContainerPtr(self: *Self, type_def: *o.ObjTypeDe
     );
 
     try self.buildExternApiCall(
-        .bz_containerFromSlice,
+        .bz_newForeignContainerFromSlice,
         dest,
         &[_]m.MIR_op_t{
             m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
@@ -1275,9 +1275,12 @@ fn buildValueToOptionalForeignContainerPtr(self: *Self, value: m.MIR_op_t, dest:
 
 fn buildValueFromUserData(self: *Self, value: m.MIR_op_t, dest: m.MIR_op_t) !void {
     try self.buildExternApiCall(
-        .bz_userDataToValue,
+        .bz_newUserData,
         dest,
-        &[_]m.MIR_op_t{value},
+        &[_]m.MIR_op_t{
+            m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
+            value,
+        },
     );
 }
 
@@ -1296,9 +1299,12 @@ fn buildValueFromOptionalUserData(self: *Self, value: m.MIR_op_t, dest: m.MIR_op
     );
 
     try self.buildExternApiCall(
-        .bz_userDataToValue,
+        .bz_newUserData,
         dest,
-        &[_]m.MIR_op_t{value},
+        &[_]m.MIR_op_t{
+            m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
+            value,
+        },
     );
 
     self.append(null_label);
@@ -1319,7 +1325,7 @@ fn buildValueToOptionalUserData(self: *Self, value: m.MIR_op_t, dest: m.MIR_op_t
     );
 
     try self.buildExternApiCall(
-        .bz_valueToUserData,
+        .bz_getUserDataPtr,
         dest,
         &[_]m.MIR_op_t{value},
     );
@@ -1642,11 +1648,11 @@ fn generateString(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
             );
 
             try self.buildExternApiCall(
-                .bz_toString,
+                .bz_valueCastToString,
                 dest,
                 &[_]m.MIR_op_t{
-                    m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
                     value,
+                    m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
                 },
             );
 
@@ -1660,12 +1666,12 @@ fn generateString(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
             );
 
             try self.buildExternApiCall(
-                .bz_objStringConcat,
+                .bz_stringConcat,
                 dest,
                 &[_]m.MIR_op_t{
-                    m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
                     uprevious,
                     value,
+                    m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
                 },
             );
 
@@ -1783,9 +1789,9 @@ fn generateCall(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
             .bz_getEnumCaseFromValue,
             m.MIR_new_reg_op(self.ctx, result_reg),
             &[_]m.MIR_op_t{
-                m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
                 (try self.generateNode(components.callee)).?,
                 (try self.generateNode(components.arguments[0].value)).?,
+                m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
             },
         );
 
@@ -1834,20 +1840,20 @@ fn generateCall(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
 
                 break :instance try self.buildExternApiCall(
                     if (field.method)
-                        .bz_getInstanceMethod
+                        .bz_getObjectInstanceMethod
                     else
-                        .bz_getInstanceProperty,
+                        .bz_getObjectInstanceProperty,
                     callee,
                     if (field.method)
                         &[_]m.MIR_op_t{
-                            // vm
-                            m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
                             // subject
                             subject.?,
                             // member
                             m.MIR_new_uint_op(self.ctx, field.index),
                             // bound
                             m.MIR_new_uint_op(self.ctx, 0),
+                            // vm
+                            m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
                         }
                     else
                         &[_]m.MIR_op_t{
@@ -1877,30 +1883,42 @@ fn generateCall(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
                     else => unreachable,
                 },
                 callee,
-                &[_]m.MIR_op_t{
-                    // vm
-                    m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
-                    // subject
-                    subject.?,
-                    // member
-                    m.MIR_new_uint_op(
-                        self.ctx,
-                        switch (invoked_on.?) {
-                            .String => o.ObjString.members_name.get(member_lexeme).?,
-                            .Pattern => o.ObjPattern.members_name.get(member_lexeme).?,
-                            .Fiber => o.ObjFiber.members_name.get(member_lexeme).?,
-                            .Range => o.ObjRange.members_name.get(member_lexeme).?,
-                            .List => o.ObjList.members_name.get(member_lexeme).?,
-                            .Map => o.ObjMap.members_name.get(member_lexeme).?,
-                            .ProtocolInstance => (try self.vm.gc.copyString(
+                if (invoked_on.? != .ProtocolInstance)
+                    &[_]m.MIR_op_t{
+                        // vm
+                        m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
+                        // subject
+                        subject.?,
+                        // member
+                        m.MIR_new_uint_op(
+                            self.ctx,
+                            switch (invoked_on.?) {
+                                .String => o.ObjString.members_name.get(member_lexeme).?,
+                                .Pattern => o.ObjPattern.members_name.get(member_lexeme).?,
+                                .Fiber => o.ObjFiber.members_name.get(member_lexeme).?,
+                                .Range => o.ObjRange.members_name.get(member_lexeme).?,
+                                .List => o.ObjList.members_name.get(member_lexeme).?,
+                                .Map => o.ObjMap.members_name.get(member_lexeme).?,
+                                else => unreachable,
+                            },
+                        ),
+                        // bound
+                        m.MIR_new_uint_op(self.ctx, 0),
+                    }
+                else
+                    &[_]m.MIR_op_t{
+                        // subject
+                        subject.?,
+                        // member
+                        m.MIR_new_uint_op(
+                            self.ctx,
+                            (try self.vm.gc.copyString(
                                 self.state.?.ast.tokens.items(.lexeme)[node_components[dot.?].Dot.identifier],
                             )).toValue().val,
-                            else => unreachable,
-                        },
-                    ),
-                    // bound
-                    m.MIR_new_uint_op(self.ctx, 0),
-                },
+                        ),
+                        // vm
+                        m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
+                    },
             ),
             else => unreachable,
         }
@@ -2616,12 +2634,12 @@ fn generateBinary(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
                         },
                         .String => {
                             try self.buildExternApiCall(
-                                .bz_objStringConcat,
+                                .bz_stringConcat,
                                 res,
                                 &[_]m.MIR_op_t{
-                                    m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
                                     left,
                                     right,
+                                    m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
                                 },
                             );
                         },
@@ -2630,9 +2648,9 @@ fn generateBinary(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
                                 .bz_listConcat,
                                 res,
                                 &[_]m.MIR_op_t{
-                                    m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
                                     left,
                                     right,
+                                    m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
                                 },
                             );
                         },
@@ -2641,9 +2659,9 @@ fn generateBinary(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
                                 .bz_mapConcat,
                                 res,
                                 &[_]m.MIR_op_t{
-                                    m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
                                     left,
                                     right,
+                                    m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
                                 },
                             );
                         },
@@ -3076,9 +3094,9 @@ fn generateList(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
             .bz_listAppend,
             null,
             &[_]m.MIR_op_t{
-                m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
                 new_list,
                 (try self.generateNode(item)).?,
+                m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
             },
         );
     }
@@ -3135,10 +3153,10 @@ fn generateMap(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
             .bz_mapSet,
             null,
             &[_]m.MIR_op_t{
-                m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
                 new_map,
                 (try self.generateNode(entry.key)).?,
                 (try self.generateNode(entry.value)).?,
+                m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
             },
         );
     }
@@ -3278,10 +3296,10 @@ fn generateDot(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
                         .bz_setObjectField,
                         null,
                         &[_]m.MIR_op_t{
-                            m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
                             (try self.generateNode(components.callee)).?,
                             m.MIR_new_uint_op(self.ctx, field.index),
                             gen_value,
+                            m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
                         },
                     );
 
@@ -3318,10 +3336,9 @@ fn generateDot(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
                     const gen_value = (try self.generateNode(components.value_or_call_or_enum.Value)).?;
 
                     try self.buildExternApiCall(
-                        .bz_setInstanceProperty,
+                        .bz_setObjectInstanceProperty,
                         null,
                         &[_]m.MIR_op_t{
-                            m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
                             (try self.generateNode(components.callee)).?,
                             m.MIR_new_uint_op(
                                 self.ctx,
@@ -3330,6 +3347,7 @@ fn generateDot(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
                                     .get(member_lexeme).?.index,
                             ),
                             gen_value,
+                            m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
                         },
                     );
 
@@ -3351,18 +3369,18 @@ fn generateDot(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
                     if (field) |f| {
                         if (f.method) {
                             try self.buildExternApiCall(
-                                .bz_getInstanceMethod,
+                                .bz_getObjectInstanceMethod,
                                 res,
                                 &[_]m.MIR_op_t{
-                                    m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
                                     (try self.generateNode(components.callee)).?,
                                     m.MIR_new_uint_op(self.ctx, f.index),
                                     m.MIR_new_uint_op(self.ctx, 1),
+                                    m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
                                 },
                             );
                         } else {
                             try self.buildExternApiCall(
-                                .bz_getInstanceProperty,
+                                .bz_getObjectInstanceProperty,
                                 res,
                                 &[_]m.MIR_op_t{
                                     (try self.generateNode(components.callee)).?,
@@ -3375,10 +3393,9 @@ fn generateDot(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
                             .bz_getProtocolMethod,
                             res,
                             &[_]m.MIR_op_t{
-                                m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
                                 (try self.generateNode(components.callee)).?,
                                 m.MIR_new_uint_op(self.ctx, member_identifier),
-                                m.MIR_new_uint_op(self.ctx, 1),
+                                m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
                             },
                         );
                     }
@@ -3395,10 +3412,9 @@ fn generateDot(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
                     const gen_value = (try self.generateNode(components.value_or_call_or_enum.Value)).?;
 
                     try self.buildExternApiCall(
-                        .bz_containerSet,
+                        .bz_foreignContainerSet,
                         null,
                         &[_]m.MIR_op_t{
-                            m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
                             (try self.generateNode(components.callee)).?,
                             m.MIR_new_uint_op(
                                 self.ctx,
@@ -3407,6 +3423,7 @@ fn generateDot(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
                                     .getIndex(member_lexeme).?,
                             ),
                             gen_value,
+                            m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
                         },
                     );
 
@@ -3419,10 +3436,9 @@ fn generateDot(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
                     );
 
                     try self.buildExternApiCall(
-                        .bz_containerGet,
+                        .bz_foreignContainerGet,
                         res,
                         &[_]m.MIR_op_t{
-                            m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
                             (try self.generateNode(components.callee)).?,
                             m.MIR_new_uint_op(
                                 self.ctx,
@@ -3430,6 +3446,7 @@ fn generateDot(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
                                     .fields
                                     .getIndex(member_lexeme).?,
                             ),
+                            m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
                         },
                     );
 
@@ -3447,9 +3464,9 @@ fn generateDot(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
                 .bz_getEnumCase,
                 res,
                 &[_]m.MIR_op_t{
-                    m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
                     (try self.generateNode(components.callee)).?,
                     m.MIR_new_uint_op(self.ctx, member_identifier),
+                    m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
                 },
             );
 
@@ -3462,7 +3479,7 @@ fn generateDot(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
                 try self.REG("res", m.MIR_T_I64),
             );
             try self.buildExternApiCall(
-                .bz_getEnumCaseValue,
+                .bz_getEnumInstanceValue,
                 res,
                 &[_]m.MIR_op_t{
                     (try self.generateNode(components.callee)).?,
@@ -3546,10 +3563,10 @@ fn generateSubscript(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
                     .bz_listSet,
                     null,
                     &[_]m.MIR_op_t{
-                        m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
                         subscripted,
                         index,
                         val,
+                        m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
                     },
                 );
 
@@ -3583,16 +3600,16 @@ fn generateSubscript(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
             );
 
             try self.buildExternApiCall(
-                .bz_objStringSubscript,
+                .bz_stringSubscript,
                 res,
                 &[_]m.MIR_op_t{
-                    m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
                     subscripted,
                     index_val,
                     m.MIR_new_uint_op(
                         self.ctx,
                         if (components.checked) 1 else 0,
                     ),
+                    m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
                 },
             );
 
@@ -3604,10 +3621,10 @@ fn generateSubscript(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
                     .bz_mapSet,
                     null,
                     &[_]m.MIR_op_t{
-                        m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
                         subscripted,
                         index_val,
                         val,
+                        m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
                     },
                 );
 
@@ -4020,7 +4037,7 @@ fn generateObjectInit(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
         try self.REG("instance", m.MIR_T_I64),
     );
     try self.buildExternApiCall(
-        .bz_instance,
+        .bz_newObjectInstance,
         instance,
         &[_]m.MIR_op_t{
             m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
@@ -4034,10 +4051,9 @@ fn generateObjectInit(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
 
     for (components.properties) |property| {
         try self.buildExternApiCall(
-            .bz_setInstanceProperty,
+            .bz_setObjectInstanceProperty,
             null,
             &[_]m.MIR_op_t{
-                m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
                 instance,
                 m.MIR_new_uint_op(
                     self.ctx,
@@ -4046,6 +4062,7 @@ fn generateObjectInit(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
                         .get(lexemes[property.name]).?.index,
                 ),
                 (try self.generateNode(property.value)).?,
+                m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
             },
         );
     }
@@ -4066,7 +4083,7 @@ fn generateForeignContainerInit(self: *Self, node: Ast.Node.Index) Error!?m.MIR_
         try self.REG("instance", m.MIR_T_I64),
     );
     try self.buildExternApiCall(
-        .bz_containerInstance,
+        .bz_newForeignContainerInstance,
         instance,
         &[_]m.MIR_op_t{
             m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
@@ -4079,10 +4096,9 @@ fn generateForeignContainerInit(self: *Self, node: Ast.Node.Index) Error!?m.MIR_
 
     for (components.properties) |property| {
         try self.buildExternApiCall(
-            .bz_containerSet,
+            .bz_foreignContainerSet,
             null,
             &[_]m.MIR_op_t{
-                m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
                 instance,
                 m.MIR_new_uint_op(
                     self.ctx,
@@ -4091,6 +4107,7 @@ fn generateForeignContainerInit(self: *Self, node: Ast.Node.Index) Error!?m.MIR_
                         .getIndex(lexemes[property.name]).?,
                 ),
                 (try self.generateNode(property.value)).?,
+                m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
             },
         );
     }
@@ -4272,9 +4289,9 @@ fn generateForEach(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
             .bz_enumNext,
             try self.LOAD(value_ptr),
             &[_]m.MIR_op_t{
-                m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
                 iterable,
                 try self.LOAD(value_ptr),
+                m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
             },
         );
 
@@ -4310,12 +4327,19 @@ fn generateForEach(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
                 else => unreachable,
             },
             try self.LOAD(value_ptr),
-            &[_]m.MIR_op_t{
-                m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
-                iterable,
-                // Pass ptr so the method can put he new key in it
-                key_ptr,
-            },
+            if (iterable_type_def.?.def_type == .Map)
+                &[_]m.MIR_op_t{
+                    iterable,
+                    // Pass ptr so the method can put he new key in it
+                    key_ptr,
+                }
+            else
+                &[_]m.MIR_op_t{
+                    iterable,
+                    // Pass ptr so the method can put he new key in it
+                    key_ptr,
+                    m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
+                },
         );
 
         // If next key is null stop, otherwise loop
@@ -5525,7 +5549,7 @@ fn buildZdefUnionGetter(
     switch (zig_type.*) {
         .Struct, .Union => {
             try self.buildExternApiCall(
-                .bz_containerFromSlice,
+                .bz_newForeignContainerFromSlice,
                 result_value,
                 &[_]m.MIR_op_t{
                     m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),

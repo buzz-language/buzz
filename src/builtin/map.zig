@@ -41,7 +41,7 @@ pub fn clone(ctx: *NativeCtx) c_int {
 
 pub fn reduce(ctx: *NativeCtx) c_int {
     const self = ObjMap.cast(ctx.vm.peek(2).obj()).?;
-    const closure = ObjClosure.cast(ctx.vm.peek(1).obj()).?;
+    const closure = ctx.vm.peek(1);
     var accumulator = ctx.vm.peek(0);
 
     var it = self.map.iterator();
@@ -66,7 +66,7 @@ pub fn reduce(ctx: *NativeCtx) c_int {
 
 pub fn filter(ctx: *NativeCtx) c_int {
     const self = ObjMap.cast(ctx.vm.peek(1).obj()).?;
-    const closure = ObjClosure.cast(ctx.vm.peek(0).obj()).?;
+    const closure = ctx.vm.peek(0);
 
     var new_map: *ObjMap = ctx.vm.gc.allocateObject(
         ObjMap,
@@ -109,7 +109,7 @@ pub fn filter(ctx: *NativeCtx) c_int {
 
 pub fn forEach(ctx: *NativeCtx) c_int {
     const self = ObjMap.cast(ctx.vm.peek(1).obj()).?;
-    const closure = ObjClosure.cast(ctx.vm.peek(0).obj()).?;
+    const closure = ctx.vm.peek(0);
 
     var it = self.map.iterator();
     while (it.next()) |kv| {
@@ -129,9 +129,9 @@ pub fn forEach(ctx: *NativeCtx) c_int {
 
 pub fn map(ctx: *NativeCtx) c_int {
     const self = ObjMap.cast(ctx.vm.peek(1).obj()).?;
-    const closure = ObjClosure.cast(ctx.vm.peek(0).obj()).?;
+    const closure = ctx.vm.peek(0);
 
-    const mapped_type = closure.function.type_def.resolved_type.?.Function
+    const mapped_type = ObjClosure.cast(closure.obj()).?.function.type_def.resolved_type.?.Function
         .return_type.resolved_type.?.ObjectInstance
         .resolved_type.?.Object;
 
@@ -196,7 +196,7 @@ pub fn map(ctx: *NativeCtx) c_int {
 }
 
 const SortContext = struct {
-    sort_closure: *ObjClosure,
+    sort_closure: Value,
     ctx: *NativeCtx,
     map: *ObjMap,
 
@@ -221,7 +221,7 @@ const SortContext = struct {
 
 pub fn sort(ctx: *NativeCtx) c_int {
     const self: *ObjMap = ObjMap.cast(ctx.vm.peek(1).obj()).?;
-    const sort_closure = ObjClosure.cast(ctx.vm.peek(0).obj()).?;
+    const sort_closure = ctx.vm.peek(0);
 
     self.map.sort(
         SortContext{

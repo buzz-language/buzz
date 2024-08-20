@@ -14,9 +14,9 @@ pub const ExternApi = enum {
     nativefn,
     rawfn,
 
-    bz_objStringConcat,
-    bz_objStringSubscript,
-    bz_toString,
+    bz_stringConcat,
+    bz_stringSubscript,
+    bz_valueCastToString,
     bz_newList,
     bz_newRange,
     bz_listAppend,
@@ -38,10 +38,10 @@ pub const ExternApi = enum {
     bz_setUpValue,
     bz_closure,
     bz_context,
-    bz_instance,
-    bz_setInstanceProperty,
-    bz_getInstanceProperty,
-    bz_getInstanceMethod,
+    bz_newObjectInstance,
+    bz_setObjectInstanceProperty,
+    bz_getObjectInstanceProperty,
+    bz_getObjectInstanceMethod,
     bz_getProtocolMethod,
     bz_getObjectField,
     bz_setObjectField,
@@ -49,7 +49,7 @@ pub const ExternApi = enum {
     bz_getPatternProperty,
     bz_getFiberProperty,
     bz_getEnumCase,
-    bz_getEnumCaseValue,
+    bz_getEnumInstanceValue,
     bz_getListProperty,
     bz_getMapProperty,
     bz_getRangeProperty,
@@ -62,15 +62,15 @@ pub const ExternApi = enum {
     bz_rangeNext,
     bz_clone,
     bz_valueToCString,
-    bz_valueToUserData,
-    bz_userDataToValue,
+    bz_getUserDataPtr,
+    bz_newUserData,
     bz_valueToForeignContainerPtr,
-    bz_stringZ,
-    bz_containerGet,
-    bz_containerSet,
-    bz_containerInstance,
+    bz_stringToValueZ,
+    bz_foreignContainerGet,
+    bz_foreignContainerSet,
+    bz_newForeignContainerInstance,
     bz_valueTypeOf,
-    bz_containerFromSlice,
+    bz_newForeignContainerFromSlice,
 
     bz_dumpStack,
 
@@ -78,11 +78,10 @@ pub const ExternApi = enum {
     setjmp,
     // libc exit: https://man7.org/linux/man-pages/man3/exit.3.html
     exit,
-    memcpy,
 
-    dumpInt,
     bz_valueDump,
     fmod,
+    memcpy,
 
     pub fn declare(self: ExternApi, jit: *JIT) !m.MIR_item_t {
         const prototype = jit.state.?.prototypes.get(self) orelse self.proto(jit.ctx);
@@ -96,20 +95,16 @@ pub const ExternApi = enum {
         return prototype;
     }
 
+    // FIXME: this could all be down at comptime by looking at each function type
     fn proto(self: ExternApi, ctx: m.MIR_context_t) m.MIR_item_t {
         return switch (self) {
-            .bz_objStringSubscript => m.MIR_new_proto_arr(
+            .bz_stringSubscript => m.MIR_new_proto_arr(
                 ctx,
                 self.pname(),
                 1,
                 &[_]m.MIR_type_t{m.MIR_T_U64},
                 4,
                 &[_]m.MIR_var_t{
-                    .{
-                        .type = m.MIR_T_P,
-                        .name = "vm",
-                        .size = undefined,
-                    },
                     .{
                         .type = m.MIR_T_U64,
                         .name = "obj_string",
@@ -123,6 +118,11 @@ pub const ExternApi = enum {
                     .{
                         .type = m.MIR_T_U8,
                         .name = "checked",
+                        .size = undefined,
+                    },
+                    .{
+                        .type = m.MIR_T_P,
+                        .name = "vm",
                         .size = undefined,
                     },
                 },
@@ -140,7 +140,7 @@ pub const ExternApi = enum {
                         .size = undefined,
                     },
                     .{
-                        .type = m.MIR_T_P,
+                        .type = m.MIR_T_U32,
                         .name = "function_node",
                         .size = undefined,
                     },
@@ -156,7 +156,7 @@ pub const ExternApi = enum {
                     },
                 },
             ),
-            .bz_toString, .bz_newList, .bz_newMap => m.MIR_new_proto_arr(
+            .bz_valueCastToString, .bz_newList, .bz_newMap => m.MIR_new_proto_arr(
                 ctx,
                 self.pname(),
                 1,
@@ -164,13 +164,13 @@ pub const ExternApi = enum {
                 2,
                 &[_]m.MIR_var_t{
                     .{
-                        .type = m.MIR_T_P,
-                        .name = "vm",
+                        .type = m.MIR_T_U64,
+                        .name = "value",
                         .size = undefined,
                     },
                     .{
-                        .type = m.MIR_T_U64,
-                        .name = "value",
+                        .type = m.MIR_T_P,
+                        .name = "vm",
                         .size = undefined,
                     },
                 },
@@ -207,11 +207,6 @@ pub const ExternApi = enum {
                 3,
                 &[_]m.MIR_var_t{
                     .{
-                        .type = m.MIR_T_P,
-                        .name = "vm",
-                        .size = undefined,
-                    },
-                    .{
                         .type = m.MIR_T_U64,
                         .name = "list",
                         .size = undefined,
@@ -219,6 +214,11 @@ pub const ExternApi = enum {
                     .{
                         .type = m.MIR_T_U64,
                         .name = "value",
+                        .size = undefined,
+                    },
+                    .{
+                        .type = m.MIR_T_P,
+                        .name = "vm",
                         .size = undefined,
                     },
                 },
@@ -274,11 +274,6 @@ pub const ExternApi = enum {
                 4,
                 &[_]m.MIR_var_t{
                     .{
-                        .type = m.MIR_T_P,
-                        .name = "vm",
-                        .size = undefined,
-                    },
-                    .{
                         .type = m.MIR_T_U64,
                         .name = "list",
                         .size = undefined,
@@ -291,6 +286,11 @@ pub const ExternApi = enum {
                     .{
                         .type = m.MIR_T_U64,
                         .name = "value",
+                        .size = undefined,
+                    },
+                    .{
+                        .type = m.MIR_T_P,
+                        .name = "vm",
                         .size = undefined,
                     },
                 },
@@ -316,8 +316,8 @@ pub const ExternApi = enum {
             ),
             .bz_listConcat,
             .bz_mapConcat,
-            .bz_objStringConcat,
-            .bz_instance,
+            .bz_stringConcat,
+            .bz_newObjectInstance,
             => m.MIR_new_proto_arr(
                 ctx,
                 self.pname(),
@@ -325,11 +325,6 @@ pub const ExternApi = enum {
                 &[_]m.MIR_type_t{m.MIR_T_U64},
                 3,
                 &[_]m.MIR_var_t{
-                    .{
-                        .type = m.MIR_T_P,
-                        .name = "vm",
-                        .size = undefined,
-                    },
                     .{
                         .type = m.MIR_T_U64,
                         .name = "list",
@@ -340,20 +335,22 @@ pub const ExternApi = enum {
                         .name = "other_list",
                         .size = undefined,
                     },
+                    .{
+                        .type = m.MIR_T_P,
+                        .name = "vm",
+                        .size = undefined,
+                    },
                 },
             ),
-            .bz_getEnumCaseFromValue, .bz_getEnumCase => m.MIR_new_proto_arr(
+            .bz_getEnumCaseFromValue,
+            .bz_getEnumCase,
+            => m.MIR_new_proto_arr(
                 ctx,
                 self.pname(),
                 1,
                 &[_]m.MIR_type_t{m.MIR_T_U64},
                 3,
                 &[_]m.MIR_var_t{
-                    .{
-                        .type = m.MIR_T_P,
-                        .name = "vm",
-                        .size = undefined,
-                    },
                     .{
                         .type = m.MIR_T_U64,
                         .name = "enum",
@@ -364,9 +361,14 @@ pub const ExternApi = enum {
                         .name = "value",
                         .size = undefined,
                     },
+                    .{
+                        .type = m.MIR_T_P,
+                        .name = "vm",
+                        .size = undefined,
+                    },
                 },
             ),
-            .bz_getEnumCaseValue => m.MIR_new_proto_arr(
+            .bz_getEnumInstanceValue => m.MIR_new_proto_arr(
                 ctx,
                 self.pname(),
                 1,
@@ -382,7 +384,7 @@ pub const ExternApi = enum {
             ),
             .bz_getObjectField,
             .bz_valueIs,
-            .bz_getInstanceProperty,
+            .bz_getObjectInstanceProperty,
             => m.MIR_new_proto_arr(
                 ctx,
                 self.pname(),
@@ -408,8 +410,6 @@ pub const ExternApi = enum {
             .bz_getStringProperty,
             .bz_getPatternProperty,
             .bz_getFiberProperty,
-            .bz_getInstanceMethod,
-            .bz_getProtocolMethod,
             => m.MIR_new_proto_arr(
                 ctx,
                 self.pname(),
@@ -439,7 +439,62 @@ pub const ExternApi = enum {
                     },
                 },
             ),
-            .bz_setInstanceProperty,
+            .bz_getProtocolMethod,
+            => m.MIR_new_proto_arr(
+                ctx,
+                self.pname(),
+                1,
+                &[_]m.MIR_type_t{m.MIR_T_U64},
+                3,
+                &[_]m.MIR_var_t{
+                    .{
+                        .type = m.MIR_T_U64,
+                        .name = "subject",
+                        .size = undefined,
+                    },
+                    .{
+                        .type = m.MIR_T_U64,
+                        .name = "field",
+                        .size = undefined,
+                    },
+                    .{
+                        .type = m.MIR_T_P,
+                        .name = "vm",
+                        .size = undefined,
+                    },
+                },
+            ),
+            .bz_getObjectInstanceMethod,
+            => m.MIR_new_proto_arr(
+                ctx,
+                self.pname(),
+                1,
+                &[_]m.MIR_type_t{m.MIR_T_U64},
+                4,
+                &[_]m.MIR_var_t{
+                    .{
+                        .type = m.MIR_T_U64,
+                        .name = "subject",
+                        .size = undefined,
+                    },
+                    .{
+                        .type = m.MIR_T_U64,
+                        .name = "field",
+                        .size = undefined,
+                    },
+                    .{
+                        .type = m.MIR_T_U8,
+                        .name = "bind",
+                        .size = undefined,
+                    },
+                    .{
+                        .type = m.MIR_T_P,
+                        .name = "vm",
+                        .size = undefined,
+                    },
+                },
+            ),
+            .bz_setObjectInstanceProperty,
             .bz_setObjectField,
             .bz_bindMethod,
             => m.MIR_new_proto_arr(
@@ -449,11 +504,6 @@ pub const ExternApi = enum {
                 null,
                 4,
                 &[_]m.MIR_var_t{
-                    .{
-                        .type = m.MIR_T_P,
-                        .name = "vm",
-                        .size = undefined,
-                    },
                     .{
                         .type = m.MIR_T_U64,
                         .name = "instance",
@@ -467,6 +517,11 @@ pub const ExternApi = enum {
                     .{
                         .type = m.MIR_T_U64,
                         .name = "value",
+                        .size = undefined,
+                    },
+                    .{
+                        .type = m.MIR_T_P,
+                        .name = "vm",
                         .size = undefined,
                     },
                 },
@@ -678,7 +733,6 @@ pub const ExternApi = enum {
             ),
             .bz_stringNext,
             .bz_listNext,
-            .bz_mapNext,
             .bz_enumNext,
             => m.MIR_new_proto_arr(
                 ctx,
@@ -688,10 +742,29 @@ pub const ExternApi = enum {
                 3,
                 &[_]m.MIR_var_t{
                     .{
+                        .type = m.MIR_T_U64,
+                        .name = "iterable",
+                        .size = undefined,
+                    },
+                    .{
+                        .type = m.MIR_T_P,
+                        .name = "key",
+                        .size = undefined,
+                    },
+                    .{
                         .type = m.MIR_T_P,
                         .name = "vm",
                         .size = undefined,
                     },
+                },
+            ),
+            .bz_mapNext => m.MIR_new_proto_arr(
+                ctx,
+                self.pname(),
+                1,
+                &[_]m.MIR_type_t{m.MIR_T_U64},
+                2,
+                &[_]m.MIR_var_t{
                     .{
                         .type = m.MIR_T_U64,
                         .name = "iterable",
@@ -751,20 +824,6 @@ pub const ExternApi = enum {
                     },
                 },
             ),
-            .dumpInt => m.MIR_new_proto_arr(
-                ctx,
-                self.pname(),
-                0,
-                null,
-                1,
-                &[_]m.MIR_var_t{
-                    .{
-                        .type = m.MIR_T_U64,
-                        .name = "value",
-                        .size = undefined,
-                    },
-                },
-            ),
             .bz_valueDump => m.MIR_new_proto_arr(
                 ctx,
                 self.pname(),
@@ -798,7 +857,7 @@ pub const ExternApi = enum {
                     },
                 },
             ),
-            .bz_valueToUserData => m.MIR_new_proto_arr(
+            .bz_getUserDataPtr => m.MIR_new_proto_arr(
                 ctx,
                 self.pname(),
                 1,
@@ -812,13 +871,18 @@ pub const ExternApi = enum {
                     },
                 },
             ),
-            .bz_userDataToValue => m.MIR_new_proto_arr(
+            .bz_newUserData => m.MIR_new_proto_arr(
                 ctx,
                 self.pname(),
                 1,
                 &[_]m.MIR_type_t{m.MIR_T_I64},
                 1,
                 &[_]m.MIR_var_t{
+                    .{
+                        .type = m.MIR_T_P,
+                        .name = "vm",
+                        .size = undefined,
+                    },
                     .{
                         .type = m.MIR_T_P,
                         .name = "value",
@@ -840,7 +904,7 @@ pub const ExternApi = enum {
                     },
                 },
             ),
-            .bz_stringZ => m.MIR_new_proto_arr(
+            .bz_stringToValueZ => m.MIR_new_proto_arr(
                 ctx,
                 self.pname(),
                 1,
@@ -859,18 +923,13 @@ pub const ExternApi = enum {
                     },
                 },
             ),
-            .bz_containerGet => m.MIR_new_proto_arr(
+            .bz_foreignContainerGet => m.MIR_new_proto_arr(
                 ctx,
                 self.pname(),
                 1,
                 &[_]m.MIR_type_t{m.MIR_T_I64},
                 3,
                 &[_]m.MIR_var_t{
-                    .{
-                        .type = m.MIR_T_P,
-                        .name = "vm",
-                        .size = undefined,
-                    },
                     .{
                         .type = m.MIR_T_U64,
                         .name = "value",
@@ -881,20 +940,20 @@ pub const ExternApi = enum {
                         .name = "field_idx",
                         .size = undefined,
                     },
+                    .{
+                        .type = m.MIR_T_P,
+                        .name = "vm",
+                        .size = undefined,
+                    },
                 },
             ),
-            .bz_containerSet => m.MIR_new_proto_arr(
+            .bz_foreignContainerSet => m.MIR_new_proto_arr(
                 ctx,
                 self.pname(),
                 0,
                 null,
                 4,
                 &[_]m.MIR_var_t{
-                    .{
-                        .type = m.MIR_T_P,
-                        .name = "vm",
-                        .size = undefined,
-                    },
                     .{
                         .type = m.MIR_T_U64,
                         .name = "value",
@@ -910,9 +969,14 @@ pub const ExternApi = enum {
                         .name = "new_value",
                         .size = undefined,
                     },
+                    .{
+                        .type = m.MIR_T_P,
+                        .name = "vm",
+                        .size = undefined,
+                    },
                 },
             ),
-            .bz_containerInstance => m.MIR_new_proto_arr(
+            .bz_newForeignContainerInstance => m.MIR_new_proto_arr(
                 ctx,
                 self.pname(),
                 1,
@@ -950,7 +1014,7 @@ pub const ExternApi = enum {
                     },
                 },
             ),
-            .bz_containerFromSlice => m.MIR_new_proto_arr(
+            .bz_newForeignContainerFromSlice => m.MIR_new_proto_arr(
                 ctx,
                 self.pname(),
                 1,
@@ -975,6 +1039,25 @@ pub const ExternApi = enum {
                     .{
                         .type = m.MIR_T_U64,
                         .name = "len",
+                        .size = undefined,
+                    },
+                },
+            ),
+            .fmod => m.MIR_new_proto_arr(
+                ctx,
+                self.pname(),
+                1,
+                &[_]m.MIR_type_t{m.MIR_T_I64},
+                2,
+                &[_]m.MIR_var_t{
+                    .{
+                        .type = m.MIR_T_D,
+                        .name = "lhs",
+                        .size = undefined,
+                    },
+                    .{
+                        .type = m.MIR_T_D,
+                        .name = "rhs",
                         .size = undefined,
                     },
                 },
@@ -1008,56 +1091,37 @@ pub const ExternApi = enum {
                     },
                 },
             ),
-            .fmod => m.MIR_new_proto_arr(
-                ctx,
-                self.pname(),
-                1,
-                &[_]m.MIR_type_t{m.MIR_T_I64},
-                2,
-                &[_]m.MIR_var_t{
-                    .{
-                        .type = m.MIR_T_D,
-                        .name = "lhs",
-                        .size = undefined,
-                    },
-                    .{
-                        .type = m.MIR_T_D,
-                        .name = "rhs",
-                        .size = undefined,
-                    },
-                },
-            ),
         };
     }
 
     pub fn ptr(self: ExternApi) *anyopaque {
         return switch (self) {
-            .bz_toString => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.ObjString.bz_toString))),
-            .bz_objStringConcat => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.ObjString.bz_objStringConcat))),
-            .bz_objStringSubscript => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.ObjString.bz_objStringSubscript))),
-            .bz_stringNext => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.ObjString.bz_stringNext))),
-            .bz_newList => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.ObjList.bz_newList))),
-            .bz_newRange => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.ObjRange.bz_newRange))),
-            .bz_rangeNext => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.ObjRange.bz_rangeNext))),
-            .bz_listAppend => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.ObjList.bz_listAppend))),
-            .bz_listGet => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.ObjList.bz_listGet))),
-            .bz_listSet => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.ObjList.bz_listSet))),
-            .bz_listConcat => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.ObjList.bz_listConcat))),
-            .bz_listNext => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.ObjList.bz_listNext))),
-            .bz_newMap => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.ObjMap.bz_newMap))),
-            .bz_mapGet => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.ObjMap.bz_mapGet))),
-            .bz_mapSet => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.ObjMap.bz_mapSet))),
-            .bz_mapNext => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.ObjMap.bz_mapNext))),
-            .bz_mapConcat => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.ObjMap.bz_mapConcat))),
+            .bz_valueCastToString => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.Value.bz_valueCastToString))),
+            .bz_stringConcat => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.Value.bz_stringConcat))),
+            .bz_stringSubscript => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.Value.bz_stringSubscript))),
+            .bz_stringNext => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.Value.bz_stringNext))),
+            .bz_newList => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.VM.bz_newList))),
+            .bz_newRange => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.VM.bz_newRange))),
+            .bz_rangeNext => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.Value.bz_rangeNext))),
+            .bz_listAppend => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.Value.bz_listAppend))),
+            .bz_listGet => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.Value.bz_listGet))),
+            .bz_listSet => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.Value.bz_listSet))),
+            .bz_listConcat => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.Value.bz_listConcat))),
+            .bz_listNext => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.Value.bz_listNext))),
+            .bz_newMap => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.VM.bz_newMap))),
+            .bz_mapGet => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.Value.bz_mapGet))),
+            .bz_mapSet => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.Value.bz_mapSet))),
+            .bz_mapNext => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.Value.bz_mapNext))),
+            .bz_mapConcat => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.Value.bz_mapConcat))),
             .bz_valueEqual => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.Value.bz_valueEqual))),
             .bz_valueIs => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.Value.bz_valueIs))),
             .bz_closure => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.VM.bz_closure))),
             .bz_context => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.VM.bz_context))),
-            .bz_instance => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.ObjObject.bz_instance))),
-            .bz_setInstanceProperty => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.ObjObject.bz_setInstanceProperty))),
-            .bz_getInstanceProperty => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.ObjObject.bz_getInstanceProperty))),
-            .bz_getInstanceMethod => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.ObjObject.bz_getInstanceMethod))),
-            .bz_getProtocolMethod => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.ObjObject.bz_getProtocolMethod))),
+            .bz_newObjectInstance => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.VM.bz_newObjectInstance))),
+            .bz_setObjectInstanceProperty => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.Value.bz_setObjectInstanceProperty))),
+            .bz_getObjectInstanceProperty => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.Value.bz_getObjectInstanceProperty))),
+            .bz_getObjectInstanceMethod => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.Value.bz_getObjectInstanceMethod))),
+            .bz_getProtocolMethod => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.Value.bz_getProtocolMethod))),
             .bz_rethrow => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.VM.bz_rethrow))),
             .bz_throw => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.VM.bz_throw))),
             .bz_bindMethod => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.VM.bz_bindMethod))),
@@ -1066,31 +1130,30 @@ pub const ExternApi = enum {
             .bz_closeUpValues => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.VM.bz_closeUpValues))),
             .bz_clone => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.VM.bz_clone))),
             .bz_dumpStack => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.VM.bz_dumpStack))),
-            .bz_getEnumCaseFromValue => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.ObjEnum.bz_getEnumCaseFromValue))),
-            .bz_getEnumCase => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.ObjEnum.bz_getEnumCase))),
-            .bz_enumNext => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.ObjEnum.bz_enumNext))),
-            .bz_getEnumCaseValue => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.ObjEnumInstance.bz_getEnumCaseValue))),
-            .bz_setObjectField => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.ObjObject.bz_setObjectField))),
-            .bz_getObjectField => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.ObjObject.bz_getObjectField))),
-            .bz_getListProperty => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.ObjList.bz_getListProperty))),
-            .bz_getMapProperty => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.ObjMap.bz_getMapProperty))),
-            .bz_getRangeProperty => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.ObjRange.bz_getRangeProperty))),
-            .bz_getStringProperty => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.ObjString.bz_getStringProperty))),
-            .bz_getPatternProperty => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.ObjPattern.bz_getPatternProperty))),
-            .bz_getFiberProperty => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.ObjFiber.bz_getFiberProperty))),
+            .bz_getEnumCaseFromValue => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.Value.bz_getEnumCaseFromValue))),
+            .bz_getEnumCase => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.Value.bz_getEnumCase))),
+            .bz_enumNext => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.Value.bz_enumNext))),
+            .bz_getEnumInstanceValue => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.Value.bz_getEnumInstanceValue))),
+            .bz_setObjectField => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.Value.bz_setObjectField))),
+            .bz_getObjectField => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.Value.bz_getObjectField))),
+            .bz_getListProperty => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.VM.bz_getListProperty))),
+            .bz_getMapProperty => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.VM.bz_getMapProperty))),
+            .bz_getRangeProperty => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.Value.bz_getRangeProperty))),
+            .bz_getStringProperty => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.VM.bz_getStringProperty))),
+            .bz_getPatternProperty => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.VM.bz_getPatternProperty))),
+            .bz_getFiberProperty => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.VM.bz_getFiberProperty))),
             .bz_setTryCtx => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.VM.bz_setTryCtx))),
             .bz_popTryCtx => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.VM.bz_popTryCtx))),
             .bz_valueToCString => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.Value.bz_valueToCString))),
-            .bz_valueToUserData => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.Value.bz_valueToUserData))),
-            .bz_userDataToValue => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.ObjUserData.bz_userDataToValue))),
+            .bz_getUserDataPtr => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.Value.bz_getUserDataPtr))),
+            .bz_newUserData => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.VM.bz_newUserData))),
             .bz_valueToForeignContainerPtr => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.Value.bz_valueToForeignContainerPtr))),
-            .bz_stringZ => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.ObjString.bz_stringZ))),
-            .bz_containerGet => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.ObjForeignContainer.bz_containerGet))),
-            .bz_containerSet => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.ObjForeignContainer.bz_containerSet))),
-            .bz_containerInstance => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.ObjForeignContainer.bz_containerInstance))),
+            .bz_stringToValueZ => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.VM.bz_stringToValueZ))),
+            .bz_foreignContainerGet => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.Value.bz_foreignContainerGet))),
+            .bz_foreignContainerSet => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.Value.bz_foreignContainerSet))),
+            .bz_newForeignContainerInstance => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.VM.bz_newForeignContainerInstance))),
             .bz_valueTypeOf => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.Value.bz_valueTypeOf))),
-            .bz_containerFromSlice => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.ObjForeignContainer.bz_containerFromSlice))),
-            .memcpy => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.bz_memcpy))),
+            .bz_newForeignContainerFromSlice => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.VM.bz_newForeignContainerFromSlice))),
             .setjmp => @as(
                 *anyopaque,
                 @ptrFromInt(
@@ -1099,9 +1162,9 @@ pub const ExternApi = enum {
             ),
             .exit => @as(*anyopaque, @ptrFromInt(@intFromPtr(&bz_exit))),
 
-            .dumpInt => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.dumpInt))),
             .bz_valueDump => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.Value.bz_valueDump))),
             .fmod => @as(*anyopaque, @ptrFromInt(@intFromPtr(&JIT.fmod))),
+            .memcpy => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.bz_memcpy))),
             else => {
                 io.print("{s}\n", .{self.name()});
                 unreachable;
@@ -1115,9 +1178,9 @@ pub const ExternApi = enum {
             .nativefn => "NativeFn",
             .rawfn => "RawFn",
 
-            .bz_objStringConcat => "bz_objStringConcat",
-            .bz_objStringSubscript => "bz_objStringSubscript",
-            .bz_toString => "bz_toString",
+            .bz_stringConcat => "bz_stringConcat",
+            .bz_stringSubscript => "bz_stringSubscript",
+            .bz_valueCastToString => "bz_valueCastToString",
             .bz_newList => "bz_newList",
             .bz_newRange => "bz_newRange",
             .bz_rangeNext => "bz_rangeNext",
@@ -1140,10 +1203,10 @@ pub const ExternApi = enum {
             .bz_closeUpValues => "bz_closeUpValues",
             .bz_closure => "bz_closure",
             .bz_context => "bz_context",
-            .bz_instance => "bz_instance",
-            .bz_setInstanceProperty => "bz_setInstanceProperty",
-            .bz_getInstanceProperty => "bz_getInstanceProperty",
-            .bz_getInstanceMethod => "bz_getInstanceMethod",
+            .bz_newObjectInstance => "bz_newObjectInstance",
+            .bz_setObjectInstanceProperty => "bz_setObjectInstanceProperty",
+            .bz_getObjectInstanceProperty => "bz_getObjectInstanceProperty",
+            .bz_getObjectInstanceMethod => "bz_getObjectInstanceMethod",
             .bz_getProtocolMethod => "bz_getProtocolMethod",
             .bz_setObjectField => "bz_setObjectField",
             .bz_getObjectField => "bz_getObjectField",
@@ -1152,7 +1215,7 @@ pub const ExternApi = enum {
             .bz_getFiberProperty => "bz_getFiberProperty",
             .bz_getRangeProperty => "bz_getRangeProperty",
             .bz_getEnumCase => "bz_getEnumCase",
-            .bz_getEnumCaseValue => "bz_getEnumCaseValue",
+            .bz_getEnumInstanceValue => "bz_getEnumInstanceValue",
             .bz_getListProperty => "bz_getListProperty",
             .bz_getMapProperty => "bz_getMapProperty",
             .bz_getEnumCaseFromValue => "bz_getEnumCaseFromValue",
@@ -1163,25 +1226,24 @@ pub const ExternApi = enum {
             .bz_enumNext => "bz_enumNext",
             .bz_clone => "bz_clone",
             .bz_valueToCString => "bz_valueToCString",
-            .bz_valueToUserData => "bz_valueToUserData",
-            .bz_userDataToValue => "bz_userDataToValue",
+            .bz_getUserDataPtr => "bz_getUserDataPtr",
+            .bz_newUserData => "bz_newUserData",
             .bz_valueToForeignContainerPtr => "bz_valueToForeignContainerPtr",
-            .bz_stringZ => "bz_stringZ",
-            .bz_containerGet => "bz_containerGet",
-            .bz_containerSet => "bz_containerSet",
-            .bz_containerInstance => "bz_containerInstance",
+            .bz_stringToValueZ => "bz_stringToValueZ",
+            .bz_foreignContainerGet => "bz_foreignContainerGet",
+            .bz_foreignContainerSet => "bz_foreignContainerSet",
+            .bz_newForeignContainerInstance => "bz_newForeignContainerInstance",
             .bz_valueTypeOf => "bz_valueTypeOf",
-            .bz_containerFromSlice => "bz_containerFromSlice",
-            .memcpy => "bz_memcpy",
+            .bz_newForeignContainerFromSlice => "bz_newForeignContainerFromSlice",
 
             .setjmp => if (builtin.os.tag == .macos or builtin.os.tag == .linux or builtin.os.tag == .windows) "_setjmp" else "setjmp",
             .exit => "bz_exit",
 
             .bz_dumpStack => "bz_dumpStack",
 
-            .dumpInt => "dumpInt",
             .bz_valueDump => "bz_valueDump",
             .fmod => "fmod",
+            .memcpy => "memcpy",
         };
     }
 
@@ -1190,9 +1252,9 @@ pub const ExternApi = enum {
             .nativefn => "p_NativeFn",
             .rawfn => "p_RawFn",
 
-            .bz_objStringConcat => "p_bz_objStringConcat",
-            .bz_objStringSubscript => "p_bz_objStringSubscript",
-            .bz_toString => "p_bz_toString",
+            .bz_stringConcat => "p_bconcatString",
+            .bz_stringSubscript => "p_bz_objStringSubscript",
+            .bz_valueCastToString => "p_bz_valueCastToString",
             .bz_newList => "p_bz_newList",
             .bz_newRange => "p_bz_newRange",
             .bz_rangeNext => "p_bz_rangeNext",
@@ -1215,10 +1277,10 @@ pub const ExternApi = enum {
             .bz_closeUpValues => "p_bz_closeUpValues",
             .bz_closure => "p_bz_closure",
             .bz_context => "p_bz_context",
-            .bz_instance => "p_bz_instance",
-            .bz_setInstanceProperty => "p_bz_setInstanceProperty",
-            .bz_getInstanceProperty => "p_bz_getInstanceProperty",
-            .bz_getInstanceMethod => "p_bz_getInstanceMethod",
+            .bz_newObjectInstance => "p_bz_instance",
+            .bz_setObjectInstanceProperty => "p_bz_setInstanceProperty",
+            .bz_getObjectInstanceProperty => "p_bz_getInstanceProperty",
+            .bz_getObjectInstanceMethod => "p_bz_getInstanceMethod",
             .bz_getProtocolMethod => "p_bz_getProtocolMethod",
             .bz_setObjectField => "p_bz_setObjectField",
             .bz_getObjectField => "p_bz_getObjectField",
@@ -1227,7 +1289,7 @@ pub const ExternApi = enum {
             .bz_getFiberProperty => "p_bz_getFiberProperty",
             .bz_getRangeProperty => "p_bz_getRangeProperty",
             .bz_getEnumCase => "p_bz_getEnumCase",
-            .bz_getEnumCaseValue => "p_bz_getEnumCaseValue",
+            .bz_getEnumInstanceValue => "p_bz_getEnumCaseValue",
             .bz_getListProperty => "p_bz_getListProperty",
             .bz_getMapProperty => "p_bz_getMapProperty",
             .bz_getEnumCaseFromValue => "p_bz_getEnumCaseFromValue",
@@ -1238,25 +1300,24 @@ pub const ExternApi = enum {
             .bz_enumNext => "p_bz_enumNext",
             .bz_clone => "p_bz_clone",
             .bz_valueToCString => "p_bz_valueToCString",
-            .bz_valueToUserData => "p_bz_valueToUserData",
-            .bz_userDataToValue => "p_bz_userDataToValue",
+            .bz_getUserDataPtr => "p_bz_getUserDataPtr",
+            .bz_newUserData => "p_bz_userDataToValue",
             .bz_valueToForeignContainerPtr => "p_bz_valueToForeignContainerPtr",
-            .bz_stringZ => "p_bz_stringZ",
-            .bz_containerGet => "p_bz_containerGet",
-            .bz_containerSet => "p_bz_containerSet",
-            .bz_containerInstance => "p_bz_containerInstance",
+            .bz_stringToValueZ => "p_bz_stringZ",
+            .bz_foreignContainerGet => "p_bz_containerGet",
+            .bz_foreignContainerSet => "p_bz_containerSet",
+            .bz_newForeignContainerInstance => "p_bz_containerInstance",
             .bz_valueTypeOf => "p_bz_valueTypeOf",
-            .bz_containerFromSlice => "p_bz_containerFromSlice",
-            .memcpy => "p_bz_memcpy",
+            .bz_newForeignContainerFromSlice => "p_bz_containerFromSlice",
 
             .setjmp => if (builtin.os.tag == .macos or builtin.os.tag == .linux or builtin.os.windows) "p__setjmp" else "p_setjmp",
             .exit => "p_exit",
 
             .bz_dumpStack => "p_bz_dumpStack",
 
-            .dumpInt => "p_dumpInt",
             .bz_valueDump => "p_bz_valueDump",
             .fmod => "p_fmod",
+            .memcpy => "p_memcpy",
         };
     }
 };

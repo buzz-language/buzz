@@ -302,10 +302,7 @@ pub export fn list(ctx: *api.NativeCtx) c_int {
             return -1;
         };
 
-    const file_list = api.ObjList.bz_newList(
-        ctx.vm,
-        api.ObjTypeDef.bz_stringType(ctx.vm),
-    );
+    const file_list = ctx.vm.bz_newList(ctx.vm.bz_stringType());
 
     ctx.vm.bz_push(file_list);
 
@@ -316,16 +313,15 @@ pub export fn list(ctx: *api.NativeCtx) c_int {
 
         return -1;
     }) |element| {
-        ctx.vm.bz_pushString(api.ObjString.bz_string(
-            ctx.vm,
-            if (element.name.len > 0) @as([*]const u8, @ptrCast(element.name)) else null,
-            element.name.len,
-        ) orelse {
-            ctx.vm.bz_panic("Out of memory", "Out of memory".len);
-            unreachable;
-        });
+        ctx.vm.bz_push(
+            api.VM.bz_stringToValue(
+                ctx.vm,
+                if (element.name.len > 0) @as([*]const u8, @ptrCast(element.name)) else null,
+                element.name.len,
+            ),
+        );
 
-        api.ObjList.bz_listAppend(ctx.vm, file_list, ctx.vm.bz_pop());
+        file_list.bz_listAppend(ctx.vm.bz_pop(), ctx.vm);
     }
 
     return 1;
@@ -348,7 +344,7 @@ pub export fn exists(ctx: *api.NativeCtx) c_int {
         };
     }
 
-    ctx.vm.bz_pushBool(accessed);
+    ctx.vm.bz_push(api.Value.fromBoolean(accessed));
 
     return 1;
 }

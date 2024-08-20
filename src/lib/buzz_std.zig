@@ -83,19 +83,15 @@ pub export fn toFloat(ctx: *api.NativeCtx) c_int {
 
 pub export fn toUd(ctx: *api.NativeCtx) c_int {
     const value = ctx.vm.bz_peek(0);
-    const ud: u64 = if (value.isInteger())
-        @intCast(value.integer())
-    else if (value.isFloat())
-        @intFromFloat(value.float())
-    else
-        0;
 
-    const userdata = api.ObjUserData.bz_newUserData(
-        ctx.vm,
-        ud,
-    ).?.bz_userDataToValue();
-
-    ctx.vm.bz_push(userdata);
+    ctx.vm.bz_push(
+        ctx.vm.bz_newUserData(if (value.isInteger())
+            @intCast(value.integer())
+        else if (value.isFloat())
+            @intFromFloat(value.float())
+        else
+            0),
+    );
 
     return 1;
 }
@@ -145,14 +141,14 @@ pub export fn parseUd(ctx: *api.NativeCtx) c_int {
         return 1;
     };
 
-    if (api.ObjUserData.bz_newUserData(ctx.vm, number)) |userdata| {
-        ctx.vm.bz_pushUserData(userdata);
+    ctx.vm.bz_push(
+        api.VM.bz_newUserData(
+            ctx.vm,
+            number,
+        ),
+    );
 
-        return 1;
-    } else {
-        ctx.vm.bz_panic("Out of memory", "Out of memory".len);
-        unreachable;
-    }
+    return 1;
 }
 
 pub export fn parseFloat(ctx: *api.NativeCtx) c_int {
@@ -193,14 +189,11 @@ pub export fn char(ctx: *api.NativeCtx) c_int {
 
     const str = [_]u8{@as(u8, @intCast(byte))};
 
-    if (api.ObjString.bz_string(ctx.vm, str[0..], 1)) |obj_string| {
-        ctx.vm.bz_push(obj_string.bz_objStringToValue());
+    ctx.vm.bz_push(
+        api.VM.bz_stringToValue(ctx.vm, str[0..], 1),
+    );
 
-        return 1;
-    }
-
-    ctx.vm.bz_panic("Out of memory", "Out of memory".len);
-    unreachable;
+    return 1;
 }
 
 pub export fn assert(ctx: *api.NativeCtx) c_int {

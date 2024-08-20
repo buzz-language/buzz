@@ -19,7 +19,7 @@ pub export fn env(ctx: *api.NativeCtx) c_int {
     const key = ctx.vm.bz_peek(0).bz_valueToString(&len);
 
     if (len == 0) {
-        ctx.vm.bz_pushNull();
+        ctx.vm.bz_push(api.Value.Null);
 
         return 1;
     }
@@ -32,21 +32,18 @@ pub export fn env(ctx: *api.NativeCtx) c_int {
 
     // FIXME: don't use std.posix directly
     if (std.posix.getenv(key_slice)) |value| {
-        ctx.vm.bz_pushString(
-            api.ObjString.bz_string(
+        ctx.vm.bz_push(
+            api.VM.bz_stringToValue(
                 ctx.vm,
                 if (value.len > 0) @as([*]const u8, @ptrCast(value)) else null,
                 value.len,
-            ) orelse {
-                ctx.vm.bz_panic("Out of memory", "Out of memory".len);
-                unreachable;
-            },
+            ),
         );
 
         return 1;
     }
 
-    ctx.vm.bz_pushNull();
+    ctx.vm.bz_push(api.Value.Null);
 
     return 1;
 }
@@ -65,10 +62,13 @@ fn sysTempDir() []const u8 {
 pub export fn tmpDir(ctx: *api.NativeCtx) c_int {
     const tmp_dir: []const u8 = sysTempDir();
 
-    ctx.vm.bz_pushString(api.ObjString.bz_string(ctx.vm, if (tmp_dir.len > 0) @as([*]const u8, @ptrCast(tmp_dir)) else null, tmp_dir.len) orelse {
-        ctx.vm.bz_panic("Out of memory", "Out of memory".len);
-        unreachable;
-    });
+    ctx.vm.bz_push(
+        api.VM.bz_stringToValue(
+            ctx.vm,
+            if (tmp_dir.len > 0) @as([*]const u8, @ptrCast(tmp_dir)) else null,
+            tmp_dir.len,
+        ),
+    );
 
     return 1;
 }
@@ -107,18 +107,15 @@ pub export fn tmpFilename(ctx: *api.NativeCtx) c_int {
         unreachable;
     };
 
-    ctx.vm.bz_pushString(
-        api.ObjString.bz_string(
+    ctx.vm.bz_push(
+        api.VM.bz_stringToValue(
             ctx.vm,
             if (final.items.len > 0)
                 @as([*]const u8, @ptrCast(final.items))
             else
                 null,
             final.items.len,
-        ) orelse {
-            ctx.vm.bz_panic("Out of memory", "Out of memory".len);
-            unreachable;
-        },
+        ),
     );
 
     return 1;
@@ -176,13 +173,11 @@ pub export fn execute(ctx: *api.NativeCtx) c_int {
     var command = std.ArrayList([]const u8).init(api.VM.allocator);
     defer command.deinit();
 
-    const argv_value = ctx.vm.bz_peek(0);
-    const argv = api.ObjList.bz_valueToList(argv_value);
+    const argv = ctx.vm.bz_peek(0);
     const len = argv.bz_listLen();
     var i: usize = 0;
     while (i < len) : (i += 1) {
-        const arg = api.ObjList.bz_listGet(
-            argv_value,
+        const arg = argv.bz_listGet(
             @intCast(i),
             false,
         );
@@ -207,10 +202,10 @@ pub export fn execute(ctx: *api.NativeCtx) c_int {
     };
 
     switch (term) {
-        .Exited => ctx.vm.bz_pushInteger(@intCast(term.Exited)),
-        .Signal => ctx.vm.bz_pushInteger(@intCast(term.Signal)),
-        .Stopped => ctx.vm.bz_pushInteger(@intCast(term.Stopped)),
-        .Unknown => ctx.vm.bz_pushInteger(@intCast(term.Unknown)),
+        .Exited => ctx.vm.bz_push(api.Value.fromInteger(@intCast(term.Exited))),
+        .Signal => ctx.vm.bz_push(api.Value.fromInteger(@intCast(term.Signal))),
+        .Stopped => ctx.vm.bz_push(api.Value.fromInteger(@intCast(term.Stopped))),
+        .Unknown => ctx.vm.bz_push(api.Value.fromInteger(@intCast(term.Unknown))),
     }
 
     return 1;
@@ -346,7 +341,7 @@ pub export fn SocketConnect(ctx: *api.NativeCtx) c_int {
                 return -1;
             };
 
-            ctx.vm.bz_pushInteger(@intCast(stream.handle));
+            ctx.vm.bz_push(api.Value.fromInteger(@intCast(stream.handle)));
 
             return 1;
         },
@@ -363,7 +358,7 @@ pub export fn SocketConnect(ctx: *api.NativeCtx) c_int {
                 return -1;
             };
 
-            ctx.vm.bz_pushInteger(@intCast(stream.handle));
+            ctx.vm.bz_push(api.Value.fromInteger(@intCast(stream.handle)));
 
             return 1;
         },
@@ -432,7 +427,7 @@ pub export fn SocketRead(ctx: *api.NativeCtx) c_int {
         unreachable;
     };
 
-    // bz_string will copy it
+    // bz_stringToValue will copy it
     defer api.VM.allocator.free(buffer);
 
     const read = reader.readAll(buffer) catch |err| {
@@ -442,12 +437,15 @@ pub export fn SocketRead(ctx: *api.NativeCtx) c_int {
     };
 
     if (read == 0) {
-        ctx.vm.bz_pushNull();
+        ctx.vm.bz_push(api.Value.Null);
     } else {
-        ctx.vm.bz_pushString(api.ObjString.bz_string(ctx.vm, if (buffer[0..read].len > 0) @as([*]const u8, @ptrCast(buffer[0..read])) else null, read) orelse {
-            ctx.vm.bz_panic("Out of memory", "Out of memory".len);
-            unreachable;
-        });
+        ctx.vm.bz_push(
+            api.VM.bz_stringToValue(
+                ctx.vm,
+                if (buffer[0..read].len > 0) @as([*]const u8, @ptrCast(buffer[0..read])) else null,
+                read,
+            ),
+        );
     }
 
     return 1;
@@ -510,19 +508,16 @@ pub export fn SocketReadLine(ctx: *api.NativeCtx) c_int {
 
     // EOF?
     if (buffer.len == 0) {
-        ctx.vm.bz_pushNull();
+        ctx.vm.bz_push(api.Value.Null);
     } else {
-        ctx.vm.bz_pushString(api.ObjString.bz_string(
+        ctx.vm.bz_push(api.VM.bz_stringToValue(
             ctx.vm,
             if (buffer.len > 0)
                 @as([*]const u8, @ptrCast(buffer))
             else
                 null,
             buffer.len,
-        ) orelse {
-            ctx.vm.bz_panic("Out of memory", "Out of memory".len);
-            unreachable;
-        });
+        ));
     }
 
     return 1;
@@ -555,19 +550,18 @@ pub export fn SocketReadAll(ctx: *api.NativeCtx) c_int {
 
     // EOF?
     if (buffer.len == 0) {
-        ctx.vm.bz_pushNull();
+        ctx.vm.bz_push(api.Value.Null);
     } else {
-        ctx.vm.bz_pushString(api.ObjString.bz_string(
-            ctx.vm,
-            if (buffer.len > 0)
-                @as([*]const u8, @ptrCast(buffer))
-            else
-                null,
-            buffer.len,
-        ) orelse {
-            ctx.vm.bz_panic("Out of memory", "Out of memory".len);
-            unreachable;
-        });
+        ctx.vm.bz_push(
+            api.VM.bz_stringToValue(
+                ctx.vm,
+                if (buffer.len > 0)
+                    @as([*]const u8, @ptrCast(buffer))
+                else
+                    null,
+                buffer.len,
+            ),
+        );
     }
 
     return 1;
@@ -677,7 +671,7 @@ pub export fn SocketServerStart(ctx: *api.NativeCtx) c_int {
         return -1;
     };
 
-    ctx.vm.bz_pushInteger(@intCast(server.stream.handle));
+    ctx.vm.bz_push(api.Value.fromInteger(@intCast(server.stream.handle)));
 
     return 1;
 }
@@ -713,7 +707,7 @@ pub export fn SocketServerAccept(ctx: *api.NativeCtx) c_int {
         return -1;
     };
 
-    ctx.vm.bz_pushInteger(@intCast(connection.stream.handle));
+    ctx.vm.bz_push(api.Value.fromInteger(@intCast(connection.stream.handle)));
 
     return 1;
 }

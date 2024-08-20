@@ -21,7 +21,7 @@ fn bin2hex(allocator: std.mem.Allocator, input: []const u8) std.ArrayList(u8) {
 }
 
 pub export fn hash(ctx: *api.NativeCtx) c_int {
-    const algo_index = api.ObjEnumInstance.bz_getEnumCaseValue(ctx.vm.bz_peek(1)).integer();
+    const algo_index = ctx.vm.bz_peek(1).bz_getEnumInstanceValue().integer();
     var data_len: usize = 0;
     const data = ctx.vm.bz_peek(0).bz_valueToString(&data_len) orelse @panic("Could not hash data");
 
@@ -97,13 +97,11 @@ pub export fn hash(ctx: *api.NativeCtx) c_int {
         else => @panic("Unknown hash algorithm"),
     }
 
-    ctx.vm.bz_pushString(
-        api.ObjString.bz_string(
+    ctx.vm.bz_push(
+        api.VM.bz_stringToValue(
             ctx.vm,
             result_hash.ptr,
             result_hash.len,
-        ) orelse @panic(
-            "Could not create hash",
         ),
     );
 

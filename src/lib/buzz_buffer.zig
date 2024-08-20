@@ -22,18 +22,18 @@ pub export fn BufferNew(ctx: *api.NativeCtx) c_int {
         unreachable;
     };
 
-    if (api.ObjUserData.bz_newUserData(ctx.vm, @intFromPtr(buffer))) |userdata| {
-        ctx.vm.bz_pushUserData(userdata);
+    ctx.vm.bz_push(
+        api.VM.bz_newUserData(
+            ctx.vm,
+            @intFromPtr(buffer),
+        ),
+    );
 
-        return 1;
-    } else {
-        ctx.vm.bz_panic("Out of memory", "Out of memory".len);
-        unreachable;
-    }
+    return 1;
 }
 
 pub export fn BufferDeinit(ctx: *api.NativeCtx) c_int {
-    const userdata = ctx.vm.bz_peek(0).bz_valueToUserData();
+    const userdata = ctx.vm.bz_peek(0).bz_getUserDataPtr();
 
     var buffer = Buffer.fromUserData(userdata);
 
@@ -161,7 +161,7 @@ const Buffer = struct {
         try writer.writeInt(i32, integer, native_endian);
     }
 
-    pub fn readUserData(self: *Self, vm: *api.VM) !?*api.ObjUserData {
+    pub fn readUserData(self: *Self, vm: *api.VM) !?api.Value {
         if (self.cursor > self.buffer.items.len) {
             return null;
         }
@@ -173,10 +173,10 @@ const Buffer = struct {
 
         self.cursor += @sizeOf(u64);
 
-        return api.ObjUserData.bz_newUserData(vm, number);
+        return vm.bz_newUserData(number);
     }
 
-    pub fn writeUserData(self: *Self, userdata: *api.ObjUserData) !void {
+    pub fn writeUserData(self: *Self, userdata: api.Value) !void {
         if (self.cursor > 0) {
             return Error.WriteWhileReading;
         }
@@ -228,25 +228,29 @@ const Buffer = struct {
 };
 
 pub export fn BufferRead(ctx: *api.NativeCtx) c_int {
-    var buffer = Buffer.fromUserData(ctx.vm.bz_peek(1).bz_valueToUserData());
+    var buffer = Buffer.fromUserData(ctx.vm.bz_peek(1).bz_getUserDataPtr());
     const n = ctx.vm.bz_peek(0).integer();
 
     const read_slice = buffer.read(@intCast(n));
     if (read_slice) |uread_slice| {
-        if (api.ObjString.bz_string(ctx.vm, if (uread_slice.len > 0) @as([*]const u8, @ptrCast(uread_slice)) else null, uread_slice.len)) |obj_string| {
-            ctx.vm.bz_pushString(obj_string);
+        ctx.vm.bz_push(
+            api.VM.bz_stringToValue(
+                ctx.vm,
+                if (uread_slice.len > 0) @as([*]const u8, @ptrCast(uread_slice)) else null,
+                uread_slice.len,
+            ),
+        );
 
-            return 1;
-        }
+        return 1;
     }
 
-    ctx.vm.bz_pushNull();
+    ctx.vm.bz_push(api.Value.Null);
 
     return 1;
 }
 
 pub export fn BufferWrite(ctx: *api.NativeCtx) c_int {
-    var buffer = Buffer.fromUserData(ctx.vm.bz_peek(1).bz_valueToUserData());
+    var buffer = Buffer.fromUserData(ctx.vm.bz_peek(1).bz_getUserDataPtr());
     var len: usize = 0;
     var bytes = ctx.vm.bz_peek(0).bz_valueToString(&len);
 
@@ -270,7 +274,7 @@ pub export fn BufferWrite(ctx: *api.NativeCtx) c_int {
 }
 
 pub export fn BufferSetAt(ctx: *api.NativeCtx) c_int {
-    var buffer = Buffer.fromUserData(ctx.vm.bz_peek(2).bz_valueToUserData());
+    var buffer = Buffer.fromUserData(ctx.vm.bz_peek(2).bz_getUserDataPtr());
     const index = ctx.vm.bz_peek(1).integer();
     const value = ctx.vm.bz_peek(0).integer();
 
@@ -286,19 +290,19 @@ pub export fn BufferSetAt(ctx: *api.NativeCtx) c_int {
 }
 
 pub export fn BufferReadBoolean(ctx: *api.NativeCtx) c_int {
-    var buffer = Buffer.fromUserData(ctx.vm.bz_peek(0).bz_valueToUserData());
+    var buffer = Buffer.fromUserData(ctx.vm.bz_peek(0).bz_getUserDataPtr());
 
     if (buffer.readBool()) |value| {
-        ctx.vm.bz_pushBool(value);
+        ctx.vm.bz_push(api.Value.fromBoolean(value));
     } else {
-        ctx.vm.bz_pushNull();
+        ctx.vm.bz_push(api.Value.Null);
     }
 
     return 1;
 }
 
 pub export fn BufferWriteBoolean(ctx: *api.NativeCtx) c_int {
-    var buffer = Buffer.fromUserData(ctx.vm.bz_peek(1).bz_valueToUserData());
+    var buffer = Buffer.fromUserData(ctx.vm.bz_peek(1).bz_getUserDataPtr());
     const value = ctx.vm.bz_peek(0).boolean();
 
     buffer.writeBool(value) catch |err| {
@@ -317,70 +321,70 @@ pub export fn BufferWriteBoolean(ctx: *api.NativeCtx) c_int {
 }
 
 pub export fn BufferReadInt(ctx: *api.NativeCtx) c_int {
-    const buffer = Buffer.fromUserData(ctx.vm.bz_peek(0).bz_valueToUserData());
+    const buffer = Buffer.fromUserData(ctx.vm.bz_peek(0).bz_getUserDataPtr());
 
     if (buffer.readInteger() catch |err| {
         switch (err) {
             error.EndOfStream => {
-                ctx.vm.bz_pushNull();
+                ctx.vm.bz_push(api.Value.Null);
 
                 return 1;
             },
         }
     }) |value| {
-        ctx.vm.bz_pushInteger(value);
+        ctx.vm.bz_push(api.Value.fromInteger(value));
 
         return 1;
     }
 
-    ctx.vm.bz_pushNull();
+    ctx.vm.bz_push(api.Value.Null);
     return 1;
 }
 
 pub export fn BufferReadUserData(ctx: *api.NativeCtx) c_int {
-    const buffer = Buffer.fromUserData(ctx.vm.bz_peek(0).bz_valueToUserData());
+    const buffer = Buffer.fromUserData(ctx.vm.bz_peek(0).bz_getUserDataPtr());
 
     if (buffer.readUserData(ctx.vm) catch |err| {
         switch (err) {
             error.EndOfStream => {
-                ctx.vm.bz_pushNull();
+                ctx.vm.bz_push(api.Value.Null);
 
                 return 1;
             },
         }
     }) |value| {
-        ctx.vm.bz_push(value.bz_userDataToValue());
+        ctx.vm.bz_push(value);
 
         return 1;
     }
 
-    ctx.vm.bz_pushNull();
+    ctx.vm.bz_push(api.Value.Null);
     return 1;
 }
 
 pub export fn BufferReadFloat(ctx: *api.NativeCtx) c_int {
-    const buffer = Buffer.fromUserData(ctx.vm.bz_peek(0).bz_valueToUserData());
+    const buffer = Buffer.fromUserData(ctx.vm.bz_peek(0).bz_getUserDataPtr());
 
     if (buffer.readFloat() catch |err| {
         switch (err) {
             error.EndOfStream => {
-                ctx.vm.bz_pushNull();
+                ctx.vm.bz_push(api.Value.Null);
 
                 return 1;
             },
         }
     }) |value| {
-        ctx.vm.bz_pushFloat(value);
+        ctx.vm.bz_push(api.Value.fromFloat(value));
 
         return 1;
     }
 
-    ctx.vm.bz_pushNull();
+    ctx.vm.bz_push(api.Value.Null);
     return 1;
 }
 
 pub export fn BufferWriteInt(ctx: *api.NativeCtx) c_int {
-    var buffer = Buffer.fromUserData(ctx.vm.bz_peek(1).bz_valueToUserData());
+    var buffer = Buffer.fromUserData(ctx.vm.bz_peek(1).bz_getUserDataPtr());
     const number = ctx.vm.bz_peek(0);
 
     buffer.writeInteger(number.integer()) catch |err| {
@@ -399,10 +403,10 @@ pub export fn BufferWriteInt(ctx: *api.NativeCtx) c_int {
 }
 
 pub export fn BufferWriteUserData(ctx: *api.NativeCtx) c_int {
-    var buffer = Buffer.fromUserData(ctx.vm.bz_peek(1).bz_valueToUserData());
+    var buffer = Buffer.fromUserData(ctx.vm.bz_peek(1).bz_getUserDataPtr());
     const userdata = ctx.vm.bz_peek(0);
 
-    buffer.writeUserData(userdata.bz_valueToObjUserData()) catch |err| {
+    buffer.writeUserData(userdata) catch |err| {
         switch (err) {
             Buffer.Error.WriteWhileReading => ctx.vm.pushError("buffer.WriteWhileReadingError", null),
             error.OutOfMemory => {
@@ -418,7 +422,7 @@ pub export fn BufferWriteUserData(ctx: *api.NativeCtx) c_int {
 }
 
 pub export fn BufferWriteFloat(ctx: *api.NativeCtx) c_int {
-    var buffer = Buffer.fromUserData(ctx.vm.bz_peek(1).bz_valueToUserData());
+    var buffer = Buffer.fromUserData(ctx.vm.bz_peek(1).bz_getUserDataPtr());
     const number = ctx.vm.bz_peek(0);
 
     buffer.writeFloat(number.float()) catch |err| {
@@ -437,7 +441,7 @@ pub export fn BufferWriteFloat(ctx: *api.NativeCtx) c_int {
 }
 
 pub export fn BufferEmpty(ctx: *api.NativeCtx) c_int {
-    var buffer = Buffer.fromUserData(ctx.vm.bz_peek(0).bz_valueToUserData());
+    var buffer = Buffer.fromUserData(ctx.vm.bz_peek(0).bz_getUserDataPtr());
 
     buffer.empty();
 
@@ -445,60 +449,94 @@ pub export fn BufferEmpty(ctx: *api.NativeCtx) c_int {
 }
 
 pub export fn BufferLen(ctx: *api.NativeCtx) c_int {
-    const buffer = Buffer.fromUserData(ctx.vm.bz_peek(1).bz_valueToUserData());
+    const buffer = Buffer.fromUserData(ctx.vm.bz_peek(1).bz_getUserDataPtr());
     const buf_align = ctx.vm.bz_peek(0).integer();
 
-    ctx.vm.bz_pushInteger(@intCast(buffer.buffer.items.len / @as(usize, @intCast(buf_align))));
+    ctx.vm.bz_push(api.Value.fromInteger(@intCast(buffer.buffer.items.len / @as(usize, @intCast(buf_align)))));
 
     return 1;
 }
 
 pub export fn BufferCursor(ctx: *api.NativeCtx) c_int {
-    const buffer = Buffer.fromUserData(ctx.vm.bz_peek(0).bz_valueToUserData());
+    const buffer = Buffer.fromUserData(ctx.vm.bz_peek(0).bz_getUserDataPtr());
 
-    ctx.vm.bz_pushInteger(@intCast(buffer.cursor));
+    ctx.vm.bz_push(api.Value.fromInteger(@intCast(buffer.cursor)));
 
     return 1;
 }
 
 pub export fn BufferBuffer(ctx: *api.NativeCtx) c_int {
-    const buffer = Buffer.fromUserData(ctx.vm.bz_peek(0).bz_valueToUserData());
+    const buffer = Buffer.fromUserData(ctx.vm.bz_peek(0).bz_getUserDataPtr());
 
-    if (api.ObjString.bz_string(ctx.vm, if (buffer.buffer.items.len > 0) @as(
-        [*]const u8,
-        @ptrCast(buffer.buffer.items),
-    ) else null, buffer.buffer.items.len)) |objstring| {
-        ctx.vm.bz_pushString(objstring);
-    } else {
-        ctx.vm.bz_panic("Out of memory", "Out of memory".len);
-        unreachable;
-    }
+    ctx.vm.bz_push(
+        ctx.vm.bz_stringToValue(
+            if (buffer.buffer.items.len > 0)
+                @as([*]const u8, @ptrCast(buffer.buffer.items))
+            else
+                null,
+            buffer.buffer.items.len,
+        ),
+    );
 
     return 1;
 }
 
 pub export fn BufferPtr(ctx: *api.NativeCtx) c_int {
-    const buffer = Buffer.fromUserData(ctx.vm.bz_peek(2).bz_valueToUserData());
+    const buffer = Buffer.fromUserData(ctx.vm.bz_peek(2).bz_getUserDataPtr());
     const at = ctx.vm.bz_peek(1).integer();
     const alignment = ctx.vm.bz_peek(0).integer();
 
     ctx.vm.bz_push(
-        api.ObjUserData.bz_newUserData(
-            ctx.vm,
+        ctx.vm.bz_newUserData(
             @intFromPtr(&buffer.buffer.items.ptr[@intCast(at * alignment)]),
-        ).?.bz_userDataToValue(),
+        ),
     );
 
     return 1;
 }
 
 pub export fn BufferAt(ctx: *api.NativeCtx) c_int {
-    const buffer = Buffer.fromUserData(ctx.vm.bz_peek(1).bz_valueToUserData());
+    const buffer = Buffer.fromUserData(ctx.vm.bz_peek(1).bz_getUserDataPtr());
     const number = ctx.vm.bz_peek(0).integer();
 
-    ctx.vm.bz_pushInteger(buffer.at(@intCast(number)));
+    ctx.vm.bz_push(api.Value.fromInteger(buffer.at(@intCast(number))));
 
     return 1;
+}
+
+fn checkBuzzType(
+    vm: *api.VM,
+    value: api.Value,
+    ztype: *api.ZigType,
+    btype: api.Value,
+) bool {
+    if (!value.bz_valueIs(btype).boolean()) {
+        var err = std.ArrayList(u8).init(api.VM.allocator);
+        defer err.deinit();
+
+        err.writer().print(
+            "Expected buzz value of type `{s}` to match FFI type `{s}`",
+            .{
+                btype.bz_valueCastToString(vm).bz_valueToCString().?,
+                ztype.bz_zigTypeToCString(vm),
+            },
+        ) catch {
+            const msg = "Out of memory";
+            vm.bz_panic(msg.ptr, msg.len);
+            unreachable;
+        };
+
+        vm.bz_pushError(
+            "ffi.FFITypeMismatchError",
+            "ffi.FFITypeMismatchError".len,
+            err.items.ptr,
+            err.items.len,
+        );
+
+        return false;
+    }
+
+    return true;
 }
 
 fn rawWriteZ(
@@ -506,10 +544,8 @@ fn rawWriteZ(
     buffer: *Buffer,
     ztype: []const u8,
     at: usize,
-    values_value: api.Value,
+    values: api.Value,
 ) bool {
-    const values = api.Value.bz_valueToObjList(values_value);
-
     var obj_typedef: api.Value = undefined;
     const zig_type = ctx.vm.bz_zigType(
         @ptrCast(ztype),
@@ -519,17 +555,16 @@ fn rawWriteZ(
 
     var index = at;
     for (0..values.bz_listLen()) |i| {
-        const value = api.ObjList.bz_listGet(
-            values_value,
+        const value = values.bz_listGet(
             @intCast(i),
             false,
         );
 
-        if (!ctx.vm.bz_checkBuzzType(value, zig_type.?, obj_typedef)) {
+        if (!checkBuzzType(ctx.vm, value, zig_type.?, obj_typedef)) {
             return false;
         }
 
-        const len = api.VM.bz_zigValueSize(zig_type.?);
+        const len = zig_type.?.bz_zigTypeSize();
 
         buffer.buffer.ensureTotalCapacityPrecise(buffer.buffer.items.len + len) catch {
             ctx.vm.bz_panic("Out of memory", "Out of memory".len);
@@ -554,9 +589,9 @@ fn rawWriteZ(
 }
 
 pub export fn BufferWriteZ(ctx: *api.NativeCtx) c_int {
-    const buffer = Buffer.fromUserData(ctx.vm.bz_peek(2).bz_valueToUserData());
+    const buffer = Buffer.fromUserData(ctx.vm.bz_peek(2).bz_getUserDataPtr());
     var len: usize = 0;
-    const ztype = ctx.vm.bz_peek(1).bz_valueToObjString().bz_objStringToString(&len).?;
+    const ztype = ctx.vm.bz_peek(1).bz_valueToString(&len).?;
     const values = ctx.vm.bz_peek(0);
 
     return if (!rawWriteZ(
@@ -569,10 +604,10 @@ pub export fn BufferWriteZ(ctx: *api.NativeCtx) c_int {
 }
 
 pub export fn BufferWriteZAt(ctx: *api.NativeCtx) c_int {
-    const buffer = Buffer.fromUserData(ctx.vm.bz_peek(3).bz_valueToUserData());
+    const buffer = Buffer.fromUserData(ctx.vm.bz_peek(3).bz_getUserDataPtr());
     const index = ctx.vm.bz_peek(2).integer();
     var len: usize = 0;
-    const ztype = ctx.vm.bz_peek(1).bz_valueToObjString().bz_objStringToString(&len).?;
+    const ztype = ctx.vm.bz_peek(1).bz_valueToString(&len).?;
     const values = ctx.vm.bz_peek(0);
 
     return if (!rawWriteZ(
@@ -589,14 +624,11 @@ fn rawWriteStruct(
     buffer: *Buffer,
     at: usize,
     type_def_value: api.Value,
-    values_value: api.Value,
+    values: api.Value,
 ) bool {
-    const values = api.Value.bz_valueToObjList(values_value);
-
     var index = at;
     for (0..values.bz_listLen()) |i| {
-        const value = api.ObjList.bz_listGet(
-            values_value,
+        const value = values.bz_listGet(
             @intCast(i),
             false,
         );
@@ -616,7 +648,7 @@ fn rawWriteStruct(
         }
 
         var len: usize = 0;
-        const ptr = api.ObjForeignContainer.bz_containerSlice(value, &len);
+        const ptr = value.bz_foreignContainerSlice(&len);
 
         buffer.buffer.ensureTotalCapacityPrecise(buffer.buffer.items.len + len) catch {
             vm.bz_panic("Out of memory", "Out of memory".len);
@@ -638,7 +670,7 @@ fn rawWriteStruct(
 }
 
 pub export fn BufferWriteStruct(ctx: *api.NativeCtx) c_int {
-    const buffer = Buffer.fromUserData(ctx.vm.bz_peek(2).bz_valueToUserData());
+    const buffer = Buffer.fromUserData(ctx.vm.bz_peek(2).bz_getUserDataPtr());
     const type_def = ctx.vm.bz_peek(1);
     const values = ctx.vm.bz_peek(0);
 
@@ -652,7 +684,7 @@ pub export fn BufferWriteStruct(ctx: *api.NativeCtx) c_int {
 }
 
 pub export fn BufferWriteStructAt(ctx: *api.NativeCtx) c_int {
-    const buffer = Buffer.fromUserData(ctx.vm.bz_peek(3).bz_valueToUserData());
+    const buffer = Buffer.fromUserData(ctx.vm.bz_peek(3).bz_getUserDataPtr());
     const type_def = ctx.vm.bz_peek(2);
     const index = ctx.vm.bz_peek(1).integer();
     const values = ctx.vm.bz_peek(0);
@@ -670,19 +702,18 @@ fn rawReadStruct(
     vm: *api.VM,
     buffer: *Buffer,
     at: ?usize,
-    type_def_value: api.Value,
+    type_def: api.Value,
 ) api.Value {
-    const type_def = type_def_value.bz_valueToObjTypeDef();
     const size = type_def.bz_containerTypeSize();
 
     const from = (at orelse buffer.cursor);
     const slice = buffer.buffer.items[from .. from + size];
 
-    return api.ObjForeignContainer.bz_containerFromSlice(vm, type_def, slice.ptr, slice.len);
+    return vm.bz_newForeignContainerFromSlice(type_def, slice.ptr, slice.len);
 }
 
 pub export fn BufferReadStruct(ctx: *api.NativeCtx) c_int {
-    const buffer = Buffer.fromUserData(ctx.vm.bz_peek(1).bz_valueToUserData());
+    const buffer = Buffer.fromUserData(ctx.vm.bz_peek(1).bz_getUserDataPtr());
     const type_def = ctx.vm.bz_peek(0);
 
     ctx.vm.bz_push(
@@ -698,7 +729,7 @@ pub export fn BufferReadStruct(ctx: *api.NativeCtx) c_int {
 }
 
 pub export fn BufferReadStructAt(ctx: *api.NativeCtx) c_int {
-    const buffer = Buffer.fromUserData(ctx.vm.bz_peek(2).bz_valueToUserData());
+    const buffer = Buffer.fromUserData(ctx.vm.bz_peek(2).bz_getUserDataPtr());
     const index: usize = @intCast(ctx.vm.bz_peek(1).integer());
     const type_def = ctx.vm.bz_peek(0);
 
@@ -722,7 +753,7 @@ fn rawReadZ(vm: *api.VM, buffer: *Buffer, at: ?usize, ztype: []const u8) c_int {
         &obj_typedef,
     );
 
-    const len = api.VM.bz_zigValueSize(zig_type.?);
+    const len = api.ZigType.bz_zigTypeSize(zig_type.?);
 
     const value = vm.bz_readZigValueFromBuffer(
         zig_type.?,
@@ -731,7 +762,7 @@ fn rawReadZ(vm: *api.VM, buffer: *Buffer, at: ?usize, ztype: []const u8) c_int {
         buffer.buffer.items.len,
     );
 
-    if (!vm.bz_checkBuzzType(value, zig_type.?, obj_typedef)) {
+    if (!checkBuzzType(vm, value, zig_type.?, obj_typedef)) {
         return -1;
     }
 
@@ -743,9 +774,9 @@ fn rawReadZ(vm: *api.VM, buffer: *Buffer, at: ?usize, ztype: []const u8) c_int {
 }
 
 pub export fn BufferReadZ(ctx: *api.NativeCtx) c_int {
-    const buffer = Buffer.fromUserData(ctx.vm.bz_peek(1).bz_valueToUserData());
+    const buffer = Buffer.fromUserData(ctx.vm.bz_peek(1).bz_getUserDataPtr());
     var len: usize = 0;
-    const ztype = ctx.vm.bz_peek(0).bz_valueToObjString().bz_objStringToString(&len).?;
+    const ztype = ctx.vm.bz_peek(0).bz_valueToString(&len).?;
 
     return rawReadZ(
         ctx.vm,
@@ -756,10 +787,10 @@ pub export fn BufferReadZ(ctx: *api.NativeCtx) c_int {
 }
 
 pub export fn BufferReadZAt(ctx: *api.NativeCtx) c_int {
-    const buffer = Buffer.fromUserData(ctx.vm.bz_peek(2).bz_valueToUserData());
+    const buffer = Buffer.fromUserData(ctx.vm.bz_peek(2).bz_getUserDataPtr());
     const index: usize = @intCast(ctx.vm.bz_peek(1).integer());
     var len: usize = 0;
-    const ztype = ctx.vm.bz_peek(0).bz_valueToObjString().bz_objStringToString(&len).?;
+    const ztype = ctx.vm.bz_peek(0).bz_valueToString(&len).?;
 
     return rawReadZ(
         ctx.vm,

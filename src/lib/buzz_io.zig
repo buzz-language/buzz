@@ -3,19 +3,19 @@ const api = @import("buzz_api.zig");
 const io = @import("io.zig");
 
 pub export fn getStdIn(ctx: *api.NativeCtx) c_int {
-    ctx.vm.bz_pushInteger(@intCast(std.io.getStdIn().handle));
+    ctx.vm.bz_push(api.Value.fromInteger(@intCast(std.io.getStdIn().handle)));
 
     return 1;
 }
 
 pub export fn getStdOut(ctx: *api.NativeCtx) c_int {
-    ctx.vm.bz_pushInteger(@intCast(std.io.getStdOut().handle));
+    ctx.vm.bz_push(api.Value.fromInteger(@intCast(std.io.getStdOut().handle)));
 
     return 1;
 }
 
 pub export fn getStdErr(ctx: *api.NativeCtx) c_int {
-    ctx.vm.bz_pushInteger(@intCast(std.io.getStdErr().handle));
+    ctx.vm.bz_push(api.Value.fromInteger(@intCast(std.io.getStdErr().handle)));
 
     return 1;
 }
@@ -25,7 +25,7 @@ pub export fn FileIsTTY(ctx: api.NativeCtx) c_int {
         ctx.vm.bz_peek(0).integer(),
     );
 
-    ctx.vm.bz_pushBool(std.posix.isatty(handle));
+    ctx.vm.bz_push(api.Value.fromBoolean(std.posix.isatty(handle)));
 
     return 1;
 }
@@ -94,7 +94,7 @@ pub export fn FileOpen(ctx: *api.NativeCtx) c_int {
         },
     };
 
-    ctx.vm.bz_pushInteger(@intCast(file.handle));
+    ctx.vm.bz_push(api.Value.fromInteger(@intCast(file.handle)));
 
     return 1;
 }
@@ -159,10 +159,13 @@ pub export fn FileReadAll(ctx: *api.NativeCtx) c_int {
         return -1;
     };
 
-    ctx.vm.bz_pushString(api.ObjString.bz_string(ctx.vm, if (content.len > 0) @as([*]const u8, @ptrCast(content)) else null, content.len) orelse {
-        ctx.vm.bz_panic("Out of memory", "Out of memory".len);
-        unreachable;
-    });
+    ctx.vm.bz_push(
+        api.VM.bz_stringToValue(
+            ctx.vm,
+            if (content.len > 0) @as([*]const u8, @ptrCast(content)) else null,
+            content.len,
+        ),
+    );
 
     return 1;
 }
@@ -217,18 +220,15 @@ pub export fn FileReadLine(ctx: *api.NativeCtx) c_int {
     };
 
     if (buffer) |ubuffer| {
-        ctx.vm.bz_pushString(
-            api.ObjString.bz_string(
+        ctx.vm.bz_push(
+            api.VM.bz_stringToValue(
                 ctx.vm,
                 if (ubuffer.len > 0) @as([*]const u8, @ptrCast(ubuffer)) else null,
                 ubuffer.len,
-            ) orelse {
-                ctx.vm.bz_panic("Out of memory", "Out of memory".len);
-                unreachable;
-            },
+            ),
         );
     } else {
-        ctx.vm.bz_pushNull();
+        ctx.vm.bz_push(api.Value.Null);
     }
 
     return 1;
@@ -275,7 +275,7 @@ pub export fn FileRead(ctx: *api.NativeCtx) c_int {
         unreachable;
     };
 
-    // bz_string will copy it
+    // bz_stringToValue will copy it
     defer api.VM.allocator.free(buffer);
 
     const read = reader.readAll(buffer) catch |err| {
@@ -285,12 +285,15 @@ pub export fn FileRead(ctx: *api.NativeCtx) c_int {
     };
 
     if (read == 0) {
-        ctx.vm.bz_pushNull();
+        ctx.vm.bz_push(api.Value.Null);
     } else {
-        ctx.vm.bz_pushString(api.ObjString.bz_string(ctx.vm, if (buffer[0..read].len > 0) @as([*]const u8, @ptrCast(buffer[0..read])) else null, read) orelse {
-            ctx.vm.bz_panic("Out of memory", "Out of memory".len);
-            unreachable;
-        });
+        ctx.vm.bz_push(
+            api.VM.bz_stringToValue(
+                ctx.vm,
+                if (buffer[0..read].len > 0) @as([*]const u8, @ptrCast(buffer[0..read])) else null,
+                read,
+            ),
+        );
     }
 
     return 1;

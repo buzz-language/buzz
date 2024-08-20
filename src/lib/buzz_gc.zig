@@ -10,7 +10,7 @@ else
     std.os;
 
 pub export fn allocated(ctx: *api.NativeCtx) c_int {
-    ctx.vm.bz_pushInteger(@intCast(ctx.vm.bz_allocated()));
+    ctx.vm.bz_push(api.Value.fromInteger(@intCast(ctx.vm.bz_allocated())));
 
     return 1;
 }

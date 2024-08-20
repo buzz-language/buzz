@@ -17,18 +17,18 @@ pub export fn HttpClientNew(ctx: *api.NativeCtx) c_int {
         unreachable;
     };
 
-    if (api.ObjUserData.bz_newUserData(ctx.vm, @intFromPtr(client))) |userdata| {
-        ctx.vm.bz_pushUserData(userdata);
+    ctx.vm.bz_push(
+        api.VM.bz_newUserData(
+            ctx.vm,
+            @intFromPtr(client),
+        ),
+    );
 
-        return 1;
-    } else {
-        ctx.vm.bz_panic("Out of memory", "Out of memory".len);
-        unreachable;
-    }
+    return 1;
 }
 
 pub export fn HttpClientDeinit(ctx: *api.NativeCtx) c_int {
-    const userdata = ctx.vm.bz_peek(0).bz_valueToUserData();
+    const userdata = ctx.vm.bz_peek(0).bz_getUserDataPtr();
     const client = @as(*http.Client, @ptrCast(@alignCast(@as(*anyopaque, @ptrFromInt(userdata)))));
 
     client.deinit();
@@ -38,15 +38,15 @@ pub export fn HttpClientDeinit(ctx: *api.NativeCtx) c_int {
 }
 
 pub export fn HttpClientSend(ctx: *api.NativeCtx) c_int {
-    const userdata = ctx.vm.bz_peek(3).bz_valueToUserData();
+    const userdata = ctx.vm.bz_peek(3).bz_getUserDataPtr();
     const client: *http.Client = @ptrCast(@alignCast(@as(*anyopaque, @ptrFromInt(userdata))));
 
     var len: usize = 0;
-    const method_str = api.ObjEnumInstance.bz_getEnumCaseValue(ctx.vm.bz_peek(2)).bz_valueToString(&len);
+    const method_str = ctx.vm.bz_peek(2).bz_getEnumInstanceValue().bz_valueToString(&len);
     const method: http.Method = @enumFromInt(http.Method.parse(method_str.?[0..len]));
 
     var uri_len: usize = 0;
-    const uri = ctx.vm.bz_peek(1).bz_valueToObjString().bz_objStringToString(&uri_len);
+    const uri = ctx.vm.bz_peek(1).bz_valueToString(&uri_len);
     if (uri == null) {
         ctx.vm.bz_panic("Out of memory", "Out of memory".len);
         unreachable;
@@ -55,16 +55,8 @@ pub export fn HttpClientSend(ctx: *api.NativeCtx) c_int {
     const header_values = ctx.vm.bz_peek(0);
     var headers = std.ArrayList(http.Header).init(api.VM.allocator);
     var next_header_key = api.Value.Null;
-    var next_header_value = api.ObjMap.bz_mapNext(
-        ctx.vm,
-        header_values,
-        &next_header_key,
-    );
-    while (next_header_key.val != api.Value.Null.val) : (next_header_value = api.ObjMap.bz_mapNext(
-        ctx.vm,
-        header_values,
-        &next_header_key,
-    )) {
+    var next_header_value = header_values.bz_mapNext(&next_header_key);
+    while (next_header_key.val != api.Value.Null.val) : (next_header_value = header_values.bz_mapNext(&next_header_key)) {
         var key_len: usize = 0;
         const key = next_header_key.bz_valueToString(&key_len);
         var value_len: usize = 0;
@@ -118,19 +110,19 @@ pub export fn HttpClientSend(ctx: *api.NativeCtx) c_int {
         return -1;
     };
 
-    if (api.ObjUserData.bz_newUserData(ctx.vm, @intFromPtr(request))) |request_ud| {
-        ctx.vm.bz_pushUserData(request_ud);
+    ctx.vm.bz_push(
+        api.VM.bz_newUserData(
+            ctx.vm,
+            @intFromPtr(request),
+        ),
+    );
 
-        return 1;
-    } else {
-        ctx.vm.bz_panic("Out of memory", "Out of memory".len);
-        unreachable;
-    }
+    return 1;
 }
 
 pub export fn HttpRequestWait(ctx: *api.NativeCtx) c_int {
     const userdata_value = ctx.vm.bz_peek(0);
-    const userdata = userdata_value.bz_valueToUserData();
+    const userdata = userdata_value.bz_getUserDataPtr();
     const request = @as(
         *http.Client.Request,
         @ptrCast(
@@ -153,7 +145,7 @@ pub export fn HttpRequestWait(ctx: *api.NativeCtx) c_int {
 
 pub export fn HttpRequestDeinit(ctx: *api.NativeCtx) c_int {
     const userdata_value = ctx.vm.bz_peek(0);
-    const userdata = userdata_value.bz_valueToUserData();
+    const userdata = userdata_value.bz_getUserDataPtr();
     const request = @as(
         *http.Client.Request,
         @ptrCast(
@@ -171,7 +163,7 @@ pub export fn HttpRequestDeinit(ctx: *api.NativeCtx) c_int {
 
 pub export fn HttpRequestRead(ctx: *api.NativeCtx) c_int {
     const userdata_value = ctx.vm.bz_peek(0);
-    const userdata = userdata_value.bz_valueToUserData();
+    const userdata = userdata_value.bz_getUserDataPtr();
     const request = @as(
         *http.Client.Request,
         @ptrCast(
@@ -191,83 +183,61 @@ pub export fn HttpRequestRead(ctx: *api.NativeCtx) c_int {
     };
 
     // Create http.Response instance
-    const response = api.ObjObject.bz_instanceQualified(
-        ctx.vm,
+    const response = ctx.vm.bz_newQualifiedObjectInstance(
         "http.Response",
         "http.Response".len,
     );
 
     // Set body
-    api.ObjObject.bz_setInstanceProperty(
-        ctx.vm,
-        response,
+    response.bz_setObjectInstanceProperty(
         2,
         if (body_raw.items.len == 0)
             api.Value.Null
         else
-            api.ObjString.bz_objStringToValue(
-                api.ObjString.bz_string(
-                    ctx.vm,
-                    body_raw.items.ptr,
-                    body_raw.items.len,
-                ) orelse {
-                    ctx.vm.bz_panic("Out of memory", "Out of memory".len);
-                    unreachable;
-                },
+            api.VM.bz_stringToValue(
+                ctx.vm,
+                body_raw.items.ptr,
+                body_raw.items.len,
             ),
+        ctx.vm,
     );
 
     // Set status
-    api.ObjObject.bz_setInstanceProperty(
-        ctx.vm,
-        response,
+    response.bz_setObjectInstanceProperty(
         0,
         api.Value.fromInteger(@intFromEnum(request.response.status)),
+        ctx.vm,
     );
 
     // Set headers
-    const string_type = api.ObjTypeDef.bz_stringType(ctx.vm);
-    const headers = api.ObjMap.bz_newMap(
-        ctx.vm,
-        api.ObjTypeDef.bz_mapType(
-            ctx.vm,
+    const string_type = ctx.vm.bz_stringType();
+    const headers = ctx.vm.bz_newMap(
+        ctx.vm.bz_mapType(
             string_type,
             string_type,
         ),
     );
 
-    api.ObjObject.bz_setInstanceProperty(
-        ctx.vm,
-        response,
+    response.bz_setObjectInstanceProperty(
         1,
         headers,
+        ctx.vm,
     );
 
     var header_it = request.response.iterateHeaders();
     while (header_it.next()) |header| {
-        api.ObjMap.bz_mapSet(
+        headers.bz_mapSet(
+            api.VM.bz_stringToValue(
+                ctx.vm,
+                header.name.ptr,
+                header.name.len,
+            ),
+            api.VM.bz_stringToValue(
+                ctx.vm,
+                header.value.ptr,
+                header.value.len,
+            ),
             ctx.vm,
-            headers,
-            api.ObjString.bz_objStringToValue(
-                api.ObjString.bz_string(
-                    ctx.vm,
-                    header.name.ptr,
-                    header.name.len,
-                ) orelse {
-                    ctx.vm.bz_panic("Out of memory", "Out of memory".len);
-                    unreachable;
-                },
-            ),
-            api.ObjString.bz_objStringToValue(
-                api.ObjString.bz_string(
-                    ctx.vm,
-                    header.value.ptr,
-                    header.value.len,
-                ) orelse {
-                    ctx.vm.bz_panic("Out of memory", "Out of memory".len);
-                    unreachable;
-                },
-            ),
         );
     }
 

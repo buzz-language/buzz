@@ -75,10 +75,8 @@ pub export fn dump(ctx: *api.NativeCtx) c_int {
 //             return -1;
 //         };
 
-//         ctx.vm.bz_pushString(
-//             api.ObjString.bz_string(ctx.vm, if (out.items.len > 0) @as([*]const u8, @ptrCast(out.items)) else null, out.items.len) orelse {
-//                 @panic("Out of memory");
-//             },
+//         ctx.vm.bz_push(
+//             api.VM.bz_stringToValue(ctx.vm, if (out.items.len > 0) @as([*]const u8, @ptrCast(out.items)) else null, out.items.len,),
 //         );
 
 //         return 1;
