@@ -1,12 +1,12 @@
-| Property `name` does not exists
+// Property `name` does not exists
 import "errors";
 
 object Some {
-    str msg,
+    msg: str,
 }
 
 test "Badly initializing an object declared in another file" {
-    var _ = errors.CompileError{
+    var _ = errors\CompileError{
         name = "wtf",
     };
 }

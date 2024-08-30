@@ -1,7 +1,7 @@
 namespace a;
 
 object Hello {
-    str message,
+    message: str,
 }
 
 export Hello;

@@ -1,58 +1,58 @@
 namespace std;
 
-|| If condition is false print message and exit program
-|| @param condition assert condition
-|| @param message message printed if `condition` is false
-export extern fun assert(bool condition, str? message = null) > void;
+/// If condition is false print message and exit program
+/// @param condition assert condition
+/// @param message message printed if `condition` is false
+export extern fun assert(condition: bool, message: str? = null) > void;
 
-|| Prints value on stdout
-|| @param value value to print
-export extern fun print(str value) > void;
+/// Prints value on stdout
+/// @param value value to print
+export extern fun print(value: str) > void;
 
-|| Parse integer, returns false if string does not represent a integer
-|| @param string string to parse
-|| @return integer parsed or null
-export extern fun parseInt(str string) > int?;
+/// Parse integer, returns false if string does not represent a integer
+/// @param string string to parse
+/// @return integer parsed or null
+export extern fun parseInt(string: str) > int?;
 
-|| Parse float, returns false if string does not represent a float
-|| @param string string to parse
-|| @return float parsed or null
-export extern fun parseFloat(str string) > float?;
+/// Parse float, returns false if string does not represent a float
+/// @param string string to parse
+/// @return float parsed or null
+export extern fun parseFloat(string: str) > float?;
 
-|| Cast integer to a float value
-|| @param n value to cast
-|| @return casted value
-export extern fun toInt(float n) > int;
+/// Cast integer to a float value
+/// @param n value to cast
+/// @return casted value
+export extern fun toInt(n: float) > int;
 
-|| Cast float to a integer value
-|| @param n value to cast
-|| @return casted value
-export extern fun toFloat(int n) > float;
+/// Cast float to a integer value
+/// @param n value to cast
+/// @return casted value
+export extern fun toFloat(n: int) > float;
 
-| FIXME: once we have type composition this might be more elegant
-|| Cast float or integer to userdata
-|| @param n value to cast
-|| @return casted value or 0 if value provided is not a number
-export extern fun toUd(any n) > ud;
+// FIXME: once we have type composition this might be more elegant
+/// Cast float or integer to userdata
+/// @param n value to cast
+/// @return casted value or 0 if value provided is not a number
+export extern fun toUd(n: any) > ud;
 
-|| Parse ud, returns false if string does not represent a ud (u64)
-|| @param string string to parse
-|| @return ud parsed or null
-export extern fun parseUd(str string) > ud?;
+/// Parse ud, returns false if string does not represent a ud (u64)
+/// @param string string to parse
+/// @return ud parsed or null
+export extern fun parseUd(string: str) > ud?;
 
-|| Return ascii char for given byte
-export extern fun char(int byte) > str;
+/// Return ascii char for given byte
+export extern fun char(byte: int) > str;
 
-|| Return evenly distributed random number between `min` and `max`
-|| @param min Minimum value, if omitted `0`
-|| @param max Maximum value, if omitted `min + 1`
-|| @return Random value
-export extern fun random(int? min = null, int? max = null) > int;
+/// Return evenly distributed random number between `min` and `max`
+/// @param min Minimum value, if omitted `0`
+/// @param max Maximum value, if omitted `min + 1`
+/// @return Random value
+export extern fun random(min: int? = null, max: int? = null) > int;
 
-|| @return Current fiber
+/// @return Current fiber
 export extern fun currentFiber() > fib<any, any?>;
 
-|| Print message and exit program
-extern fun buzzPanic(str message) > void;
+/// Print message and exit program
+extern fun buzzPanic(message: str) > void;
 
 export buzzPanic as panic;

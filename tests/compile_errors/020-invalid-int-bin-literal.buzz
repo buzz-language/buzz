@@ -1,4 +1,4 @@
-| '_' must be between digits
+// '_' must be between digits
 test "invalid bin literal" {
-   int a = 0b_100;
+   _ = 0b_100;
 }

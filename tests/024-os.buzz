@@ -1,27 +1,27 @@
 import "std";
 import "os" as os;
 
-test "os.env" {
-    std.assert(os.env("HOME") != null, message: "could get env variable");
+test "os\env" {
+    std\assert(os\env("HOME") != null, message: "could get env variable");
 }
 
-test "os.time" {
-    std.assert(os.time() > 0, message: "Got time");
+test "os\time" {
+    std\assert(os\time() > 0, message: "Got time");
 }
 
-test "os.tmpDir" {
-    | TODO: replace by .len check
-    std.assert(os.tmpDir() != "", message: "Got system tmp dir");
+test "os\tmpDir" {
+    // TODO: replace by .len check
+    std\assert(os\tmpDir() != "", message: "Got system tmp dir");
 }
 
-test "os.tmpFilename" {
-    std.assert(os.tmpFilename("buzz_test") != "", message: "Got tmp file name");
+test "os\tmpFilename" {
+    std\assert(os\tmpFilename("buzz_test") != "", message: "Got tmp file name");
 }
 
-test "os.execute" {
-    std.assert(os.execute(["./zig-out/bin/buzz", "--version"]) == 0, message: "Could execute a command");
+test "os\execute" {
+    std\assert(os\execute(["./zig-out/bin/buzz", "--version"]) == 0, message: "Could execute a command");
 }
 
-test "os.sleep" {
-    os.sleep(500.0);
+test "os\sleep" {
+    os\sleep(500.0);
 }

@@ -1,16 +1,16 @@
-| `age` is constant
+// `age` is constant
 object Constant {
-	const str name,
-	const int age,
+	const name: str,
+	const age: int,
 }
 
 object PartiallyConstant {
-	const str name,
-	int age,
+	const name: str,
+	age: int,
 }
 
 test "Constant object" {
-	var constant = Constant{
+	const constant = Constant{
 		name = "Joe",
 		age = 35,
 	};

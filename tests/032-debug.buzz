@@ -1,18 +1,18 @@
 import "debug";
-| import "serialize";
+// import "serialize";
 
-| TODO: put back one debug.ast is reactivated
-| test "Get AST" {
-|     str source = debug.ast(`
-|         import \"std\";
-|
-|         fun main([str] _) > void => std.print(\"hello world\");
-|     `, scriptName: "test");
-|
-|     Boxed jsonAST = jsonDecode(source);
-|
-|     std.print(jsonEncode(jsonAST));
-| }
+// TODO: put back one debug\ast is reactivated
+// test "Get AST" {
+//     str source = debug\ast(`
+//         import \"std\";
+//
+//         fun main([str] _) > void => std\print(\"hello world\");
+//     `, scriptName: "test");
+//
+//     Boxed jsonAST = jsonDecode(source);
+//
+//     std\print(jsonEncode(jsonAST));
+// }
 
 enum MyEnum {
     One,
@@ -27,15 +27,15 @@ enum(str) MyStringEnum {
 }
 
 object Data {
-    [int] data,
+    data: [int],
 }
 
 object MyObject {
-    str name,
-    int age = 12,
-    Data data,
+    name: str,
+    age: int = 12,
+    data: Data,
 
-    static fun init(str name, int age) > MyObject {
+    static fun init(name: str, age: int) > MyObject {
         return MyObject{
             name = name,
             age = age,
@@ -45,14 +45,14 @@ object MyObject {
 }
 
 test "dump" {
-    [int] list = [1, 2, 3, 4];
-    {str: int} map = {
+    const list = [1, 2, 3, 4];
+    const map = {
         "one": 1,
         "two": 2,
         "three": 3,
     };
 
-    MyObject instance = MyObject{
+    const instance = MyObject{
         name = "joe",
         age = 35,
         data = Data{
@@ -60,11 +60,11 @@ test "dump" {
         },
     };
 
-    debug.dump(list);
-    debug.dump(map);
-    debug.dump(instance);
-    debug.dump(MyStringEnum.One);
-    debug.dump(MyEnum.One);
-    debug.dump("hello world");
-    debug.dump($"hello .*");
+    debug\dump(list);
+    debug\dump(map);
+    debug\dump(instance);
+    debug\dump(MyStringEnum.One);
+    debug\dump(MyEnum.One);
+    debug\dump("hello world");
+    debug\dump($"hello .*");
 }

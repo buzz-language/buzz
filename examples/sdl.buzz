@@ -1,22 +1,22 @@
 import "examples/sdl-wrapped" as _;
 
-| buzz -L/path/to/SDL2.dylib/so/dll examples/sdl.buzz
-fun main([str] _) > int !> SDLError {
-    SDL sdl = SDL.init([Subsystem.Video]);
+// buzz -L/path/to/SDL2.dylib/so/dll examples/sdl.buzz
+fun main(_: [str]) > int !> SDLError {
+    const sdl = SDL.init([Subsystem.Video]);
 
-    Window window = Window.init(
+    const window = Window.init(
         "SDL FFI test",
         width: 800,
         height: 600,
         flags: [WindowFlag.OpenGL, WindowFlag.AllowHighDPI],
     );
 
-    Renderer renderer = window.createRenderer(
+    const renderer = window.createRenderer(
         index: -1,
         flags: [RendererFlag.Accelerated, RendererFlag.TargetTexture],
     );
 
-    Texture texture = renderer.createTexture(
+    const texture = renderer.createTexture(
         format: PixelFormat.RGBA8888,
         access: TextureAccess.Target,
         width: 800,

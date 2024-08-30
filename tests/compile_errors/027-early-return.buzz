@@ -1,10 +1,10 @@
-| Code after return statement will never be reached
+// Code after return statement will never be reached
 import "std";
 
 test "Early return" {
-    std.print("I sure hope i'm not interrupted...");
+    std\print("I sure hope i'm not interrupted...");
 
     return;
 
-    std.print("Guess I was");
+    std\print("Guess I was");
 }

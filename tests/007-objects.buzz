@@ -1,32 +1,32 @@
 import "std";
 
 object First {
-    str name = "Joe",
-    int age = 10,
+    name: str = "Joe",
+    age: int = 10,
 
     fun sayHello() > void {
-        std.print("hello");
-        std.print(this.name);
+        std\print("hello");
+        std\print(this.name);
     }
 }
 
 test "Objects" {
-    First first = First {
+    const first = First {
         name = "John",
     };
 
-    std.assert(first.name == "John", message: "object instance, field access");
+    std\assert(first.name == "John", message: "object instance, field access");
 
     first.age = 21;
-    std.assert(first.age == 21, message: "field assignment");
+    std\assert(first.age == 21, message: "field assignment");
 
     first.sayHello();
 }
 
 object Second {
-    static int nextId = -1;
+    static nextId: int = -1;
 
-    int id,
+    id: int,
 
     static fun init() > Second {
         Second.nextId = Second.nextId + 1;
@@ -38,7 +38,7 @@ object Second {
 }
 
 test "Object with static fields" {
-    Second second = Second.init();
+    const second = Second.init();
 
-    std.assert(second.id == Second.nextId, message: "could use static fields");
+    std\assert(second.id == Second.nextId, message: "could use static fields");
 }

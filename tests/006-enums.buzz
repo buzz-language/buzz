@@ -10,7 +10,7 @@ enum(int) IntEnum {
     one = 1,
     two = 2,
     three = 3,
-    | wat = "wat",
+    // wat = "wat",
 }
 
 enum NaturalEnum {
@@ -19,32 +19,32 @@ enum NaturalEnum {
     two,
 }
 
-fun getValue(NaturalEnum case = NaturalEnum.zero) > int {
+fun getValue(case: NaturalEnum = NaturalEnum.zero) > int {
     return case.value;
 }
 
 object Natural {
-    NaturalEnum natural = NaturalEnum.zero,
+    natural: NaturalEnum = NaturalEnum.zero,
 }
 
 test "Enums" {
-    std.assert(StrEnum.one.value == "one", message: "str enum");
+    std\assert(StrEnum.one.value == "one", message: "str enum");
 
-    std.assert(IntEnum.one.value == 1, message: "int enum");
+    std\assert(IntEnum.one.value == 1, message: "int enum");
 
-    std.assert(NaturalEnum.zero.value == 0, message: "natural enum");
+    std\assert(NaturalEnum.zero.value == 0, message: "natural enum");
 
-    NaturalEnum myCase = NaturalEnum.two;
+    const myCase = NaturalEnum.two;
 
-    std.assert(myCase.value == 2, message: "enum instance");
+    std\assert(myCase.value == 2, message: "enum instance");
 
-    NaturalEnum? fromValue = NaturalEnum(0);
-    std.assert(fromValue != null, message: "Could get enum instance from value");
-    std.assert(fromValue?.value == 0, message: "Could get correct enum instance from value");
+    const fromValue = NaturalEnum(0);
+    std\assert(fromValue != null, message: "Could get enum instance from value");
+    std\assert(fromValue?.value == 0, message: "Could get correct enum instance from value");
 }
 
 test "Enum case as default value" {
-    std.assert(getValue() == 0, message: "Could use enum case as function argument default value");
+    std\assert(getValue() == 0, message: "Could use enum case as function argument default value");
 
-    std.assert(Natural{}.natural == NaturalEnum.zero, message: "Could use enum case as object field default value");
+    std\assert(Natural{}.natural == NaturalEnum.zero, message: "Could use enum case as object field default value");
 }

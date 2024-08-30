@@ -1,24 +1,24 @@
 import "std";
 import "examples/sdl-wrapped" as _;
 
-fun seed([[bool]] canvas) > void {
-    foreach (int i in 0..canvas.len()) {
+fun seed(canvas: [[bool]]) > void {
+    foreach (i in 0..canvas.len()) {
         canvas[0][i] = true;
         canvas[canvas.len() - 1][i] = true;
     }
 
-    foreach (int i in 0..canvas.len()) {
+    foreach (i in 0..canvas.len()) {
         canvas[i][0] = true;
         canvas[i][canvas[0].len() - 1] = true;
     }
 }
 
-fun setParticle([[bool]] canvas) > obj{ int x, int y } {
+fun setParticle(canvas: [[bool]]) > obj{ x: int, y: int } {
     var posX = 0;
     var posY = 0;
     do {
-        posX = std.random(min: 0, max: canvas.len() - 1);
-        posY = std.random(min: 0, max: canvas[0].len() - 1);
+        posX = std\random(min: 0, max: canvas.len() - 1);
+        posY = std\random(min: 0, max: canvas[0].len() - 1);
     } until (!canvas[posX][posY])
 
     return .{
@@ -27,13 +27,13 @@ fun setParticle([[bool]] canvas) > obj{ int x, int y } {
     };
 }
 
-fun iterate([[bool]] canvas, int numParticles) {
-    foreach (int _ in 0..numParticles) {
+fun iterate(canvas: [[bool]], numParticles: int) {
+    foreach (_ in 0..numParticles) {
         const pos = setParticle(canvas);
         
         while (true) {
-            const dx = std.random(min: 0, max: 5) - 3;
-            const dy = std.random(min: 0, max: 5) - 3;
+            const dx = std\random(min: 0, max: 5) - 3;
+            const dy = std\random(min: 0, max: 5) - 3;
 
             if (pos.x + dx >= 0 and pos.x + dx < canvas.len() and pos.y + dy >= 0 and pos.y + dy < canvas[0].len()) {
                 if (canvas[pos.x + dx][pos.y + dy]) {
@@ -48,9 +48,9 @@ fun iterate([[bool]] canvas, int numParticles) {
     }
 }
 
-fun draw([[bool]] canvas, Renderer renderer) > void !> SDLError {
-    foreach (int x in 0..canvas.len()) {
-        foreach (int y in 0..canvas[0].len()) {
+fun draw(canvas: [[bool]], renderer: Renderer) > void !> SDLError {
+    foreach (x in 0..canvas.len()) {
+        foreach (y in 0..canvas[0].len()) {
             renderer.setRenderDrawColor(
                 if (canvas[x][y])
                     Color{
@@ -71,16 +71,16 @@ fun draw([[bool]] canvas, Renderer renderer) > void !> SDLError {
     }
 }
 
-fun main([str] _) > void !> SDLError {
+fun main(_: [str]) > void !> SDLError {
     const sizeX = 200;
     const sizeY = 200;
     const numParticles = 16000;
 
-    [[bool]] canvas = [];
-    foreach (int i in 0..sizeX) {
+    var canvas: [[bool]] = [];
+    foreach (i in 0..sizeX) {
         canvas.append([<bool>]);
 
-        foreach (int _ in 0..sizeY) {
+        foreach (_ in 0..sizeY) {
             canvas[i].append(false);
         }
     }

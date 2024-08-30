@@ -3,40 +3,40 @@ import "io";
 import "fs";
 
 test "Write & read a file" {
-    var file = io.File.open("./hello.txt", mode: io.FileMode.write);
+    var file = io\File.open("./hello.txt", mode: io\FileMode.write);
 
     file.write("Hello World");
 
     file.close();
     
-    | Now read it
-    var fileB = io.File.open("./hello.txt", mode: io.FileMode.read);
+    // Now read it
+    var fileB = io\File.open("./hello.txt", mode: io\FileMode.read);
 
-    std.assert(file.readAll() == "Hello World", message: "Could write and read a file");
+    std\assert(file.readAll() == "Hello World", message: "Could write and read a file");
 
     fileB.close();
 
-    fs.delete("./hello.txt");
+    fs\delete("./hello.txt");
 }
 
 test "Write on stdout" {
-    io.stdout.write("Hello World !\n");
+    io\stdout.write("Hello World !\n");
 }
 
 test "Read by lines" {
-    var file = io.File.open("./README.md", mode: io.FileMode.read);
+    var file = io\File.open("./README.md", mode: io\FileMode.read);
 
-    for (int lines = 0, str? line = ""; line != null; line = file.readLine(), lines = lines + 1) {
-        std.print("{lines}: {line}");
+    for (lines: int = 0, line: str? = ""; line != null; line = file.readLine(), lines = lines + 1) {
+        std\print("{lines}: {line}");
     }
 
     file.close();
 }
 
 test "Read" {
-    var file = io.File.open("./README.md", mode: io.FileMode.read);
+    var file = io\File.open("./README.md", mode: io\FileMode.read);
 
-    std.assert(file.read(18) == "<p align=\"center\">", message: "Can read n bytes");
+    std\assert(file.read(18) == "<p align=\"center\">", message: "Can read n bytes");
 
     file.close();
 }

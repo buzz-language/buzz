@@ -1,5 +1,5 @@
 import "os";
 
-test "os.exit" {
-    os.exit(12);
+test "os\exit" {
+    os\exit(12);
 }

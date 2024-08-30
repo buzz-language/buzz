@@ -2,69 +2,69 @@ namespace math;
 
 import "errors";
 
-|| @return absolute value of n
-extern fun abs(float n) > float;
+/// @return absolute value of n
+extern fun abs(n: float) > float;
 
-|| @return acos of n
-extern fun acos(float n) > float;
+/// @return acos of n
+extern fun acos(n: float) > float;
 
-|| @return asin of n
-extern fun asin(float n) > float;
+/// @return asin of n
+extern fun asin(n: float) > float;
 
-|| @return atan of n
-extern fun atan(float n) > float;
+/// @return atan of n
+extern fun atan(n: float) > float;
 
-|| @return ceiled n
-extern fun bzceil(float n) > int;
+/// @return ceiled n
+extern fun bzceil(n: float) > int;
 
-|| @return cos of n
-extern fun bzcos(float n) > float;
+/// @return cos of n
+extern fun bzcos(n: float) > float;
 
-|| π constant
-const float pi = 3.1415926535898;
+/// π constant
+const pi: float = 3.1415926535898;
 
-|| Convert radian to degree
-fun deg(float n) > float {
+/// Convert radian to degree
+fun deg(n: float) > float {
     return n * 180.0 / pi;
 }
 
-|| @return exp of n
-extern fun bzexp(float n) > float;
+/// @return exp of n
+extern fun bzexp(n: float) > float;
 
-|| @returned floored n
-extern fun bzfloor(float n) > int;
+/// @returned floored n
+extern fun bzfloor(n: float) > int;
 
-|| @return log(base) of n
-extern fun bzlog(float base, float n) > float;
+/// @return log(base) of n
+extern fun bzlog(base: float, n: float) > float;
 
-|| @return max of a and b
-extern fun maxFloat(float a, float b) > float;
+/// @return max of a and b
+extern fun maxFloat(a: float, b: float) > float;
 
-|| @return min of a and b
-extern fun minFloat(float a, float b) > float;
+/// @return min of a and b
+extern fun minFloat(a: float, b: float) > float;
 
-|| @return max of a and b
-extern fun maxInt(int a, int b) > int;
+/// @return max of a and b
+extern fun maxInt(a: int, b: int) > int;
 
-|| @return min of a and b
-extern fun minInt(int a, int b) > int;
+/// @return min of a and b
+extern fun minInt(a: int, b: int) > int;
 
-|| Convert degree to radian
-fun rad(float n) > float {
+/// Convert degree to radian
+fun rad(n: float) > float {
     return n * pi / 180.0;
 }
 
-|| @return sin of n
-extern fun bzsin(float n) > float;
+/// @return sin of n
+extern fun bzsin(n: float) > float;
 
-|| @return square root of n
-extern fun bzsqrt(float n) > float;
+/// @return square root of n
+extern fun bzsqrt(n: float) > float;
 
-|| @return tan of n
-extern fun bztan(float n) > float;
+/// @return tan of n
+extern fun bztan(n: float) > float;
 
-|| @return `x`^`y`
-extern fun pow(float x, float y) > float !> errors.OverflowError, errors.UnderflowError;
+/// @return `x`^`y`
+extern fun pow(x: float, y: float) > float !> errors\OverflowError, errors\UnderflowError;
 
 export abs;
 export acos;

@@ -4577,7 +4577,7 @@ pub const VM = struct {
                         else
                             "  ╰─",
                         if (unext.closure.function.type_def.resolved_type.?.Function.function_type == .Test)
-                            function_name[(std.mem.indexOfScalar(u8, function_name, ' ').? + 1)..]
+                            function_name //[(std.mem.indexOfScalar(u8, function_name, ' ') orelse 0 + 1)..]
                         else
                             function_name,
                         if (frame.call_site) |call_site|
@@ -4605,13 +4605,15 @@ pub const VM = struct {
             }
 
             if (frame.call_site) |call_site| {
-                writer.print(
-                    ":{d}:{d}",
-                    .{
-                        self.current_ast.tokens.items(.line)[call_site] + 1,
-                        self.current_ast.tokens.items(.column)[call_site],
-                    },
-                ) catch @panic("Could not report error");
+                if (frame.closure.function.type_def.resolved_type.?.Function.function_type != .ScriptEntryPoint) {
+                    writer.print(
+                        ":{d}:{d}",
+                        .{
+                            self.current_ast.tokens.items(.line)[call_site] + 1,
+                            self.current_ast.tokens.items(.column)[call_site],
+                        },
+                    ) catch @panic("Could not report error");
+                }
             }
 
             notes.append(
@@ -4627,7 +4629,9 @@ pub const VM = struct {
             .error_type = .runtime,
             .items = &[_]Reporter.ReportItem{
                 .{
-                    .location = self.current_ast.tokens.get(error_site orelse stack[0].call_site.?),
+                    .location = self.current_ast.tokens.get(
+                        error_site orelse stack[0].call_site.?,
+                    ),
                     .kind = .@"error",
                     .message = message,
                 },
@@ -5245,7 +5249,10 @@ pub const VM = struct {
         self.currentFrame().?.ip = hotspot_call_start;
 
         if (BuildOptions.debug) {
-            disassembler.disassembleChunk(chunk, self.currentFrame().?.closure.function.name.string);
+            disassembler.disassembleChunk(
+                chunk,
+                self.currentFrame().?.closure.function.type_def.resolved_type.?.Function.name.string,
+            );
         }
     }
 };

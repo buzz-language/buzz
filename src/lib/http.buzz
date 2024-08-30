@@ -49,7 +49,7 @@ export enum HttpError {
     RequestCollected,
 }
 
-| https://datatracker.ietf.org/doc/html/rfc2616
+// https://datatracker.ietf.org/doc/html/rfc2616
 
 export enum(str) Method {
     GET,
@@ -63,18 +63,18 @@ export enum(str) Method {
     PATCH,
 }
 
-|| @private
+/// @private
 extern fun HttpClientNew() > ud;
-|| @private
-extern fun HttpClientDeinit(ud client) > void;
-|| @private
-extern fun HttpClientSend(ud client, Method method, str uri, {str: str} headers) > ud !> HttpError;
-|| @private
-extern fun HttpRequestWait(ud request) > void !> HttpError;
-|| @private
-extern fun HttpRequestRead(ud request) > Response !> HttpError;
-|| @private
-extern fun HttpRequestDeinit(ud request) > void;
+/// @private
+extern fun HttpClientDeinit(client: ud) > void;
+/// @private
+extern fun HttpClientSend(client: ud, method: Method, uri: str, headers: {str: str}) > ud !> HttpError;
+/// @private
+extern fun HttpRequestWait(request: ud) > void !> HttpError;
+/// @private
+extern fun HttpRequestRead(request: ud) > Response !> HttpError;
+/// @private
+extern fun HttpRequestDeinit(request: ud) > void;
 
 const {int: str} reasons = {
     100: "Continue",
@@ -147,19 +147,19 @@ const {int: str} reasons = {
 };
 
 export object HttpParseError{
-    str? message = null,
+    message: str? = null,
 }
 
 object Connection {
-    || @private
-    ud connection,
+    /// @private
+    connection: ud,
 }
 
 export object Client {
-    || @private
-    ud client,
-    || @private
-    bool collected = false,
+    /// @private
+    client: ud,
+    /// @private
+    collected: bool = false,
 
     static fun init() > Client {
         return Client{
@@ -167,7 +167,7 @@ export object Client {
         };
     }
 
-    fun send(Request request) > Response *> void !> HttpError, errors.InvalidArgumentError, HttpParseError {
+    fun send(request: Request) > Response *> void !> HttpError, errors\InvalidArgumentError, HttpParseError {
         _ = this.start(request);
 
         yield void;
@@ -175,7 +175,7 @@ export object Client {
         return request.wait();
     }
 
-    fun start(Request request) > Request !> HttpError {
+    fun start(request: Request) > Request !> HttpError {
         if (this.collected) {
             throw HttpError.ClientCollected;
         }
@@ -188,7 +188,7 @@ export object Client {
         );
 
         request.request = requestPtr;
-        | In case we're reusing the request object
+        // In case we're reusing the request object
         request.response = null;
 
         return request;
@@ -204,21 +204,21 @@ export object Client {
 }
 
 export object Request {
-    ud? request = null,
-    Response? response = null,
-    Method method,
-    {str: str} headers = {<str: str>},
-    str uri = "/",
-    str? body = null,
-    bool collected = false,
+    request: ud? = null,
+    response: Response? = null,
+    method: Method,
+    headers: {str: str}  = {<str str>},
+    uri: str = "/",
+    body: str? = null,
+    collected: bool = false,
 
-    fun wait() > Response !> HttpError, errors.InvalidArgumentError, HttpParseError {
+    fun wait() > Response !> HttpError, errors\InvalidArgumentError, HttpParseError {
         if (this.collected) {
             throw HttpError.RequestCollected;
         }
     
         if (this.response != null) {
-            throw errors.InvalidArgumentError{};
+            throw errors\InvalidArgumentError{};
         }
 
         if (this.request -> request) {
@@ -226,9 +226,9 @@ export object Request {
 
             const response = HttpRequestRead(request);
 
-            | - we don't need the request anymore
-            | - also this allows to properly reuse the Request object
-            | - finally the client can't be collected if there's opened connections
+            // - we don't need the request anymore
+            // - also this allows to properly reuse the Request object
+            // - finally the client can't be collected if there's opened connections
             HttpRequestDeinit(request);
 
             this.request = null;
@@ -237,12 +237,12 @@ export object Request {
             return response;
         }
 
-        throw errors.InvalidArgumentError{};
+        throw errors\InvalidArgumentError{};
     }
 
     fun toString() > str {
         try {
-            var result = buffer.Buffer.init();
+            var result = buffer\Buffer.init();
 
             result.write("{this.method.value} {this.uri} HTTP/1.1\r\n");
             foreach (str key, str value in this.headers) {
@@ -251,24 +251,22 @@ export object Request {
 
             result.write("{this.body ?? ""}\r\n");
 
-            str strResult = result.toString();
-
-            return strResult;
+            return result.toString();
         } catch {}
 
         return "";
     }
 }
 
-| Don't change proeprties order
+// Don't change proeprties order
 export object Response {
-    int status = 200,
-    {str: str} headers = {<str: str>},
-    str? body = null,
+    status: int = 200,
+    headers: {str: str} = {<str: str>},
+    body: str? = null,
 
     fun toString() > str {
         try {
-            var result = buffer.Buffer.init();
+            var result = buffer\Buffer.init();
 
             result.write("HTTP/1.1 {this.status} {reasons[this.status]}\r\n");
             foreach (str key, str value in this.headers) {
@@ -277,9 +275,7 @@ export object Response {
 
             result.write("\r\n{this.body ?? ""}\r\n");
 
-            str strResult = result.toString();
-
-            return strResult;
+            return result.toString();
         } catch {}
 
         return "HTTP/1.1 500 Internal Server Error";

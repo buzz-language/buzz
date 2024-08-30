@@ -1,9 +1,8 @@
 import "std";
 
 test "continue properly jumps and closes scope" {
-    [int] list = [1, 2, 3, 4, 5];
-    foreach (int value in list) {
-        str _ = "hello there!";
+    foreach (value in 1..5) {
+        _ = "hello there!";
         if (value == 3) {
             if (true) {
                 continue;
@@ -11,24 +10,23 @@ test "continue properly jumps and closes scope" {
         }
     }
 
-    str anotherRandomLocal = "bye there";
+    const anotherRandomLocal = "bye there";
 
-    std.assert(anotherRandomLocal == "bye there", message: "continue properly closed revelant scopes");
+    std\assert(anotherRandomLocal == "bye there", message: "continue properly closed revelant scopes");
 }
 
 test "break properly jumps and closes scope" {
-    [int] list = [1, 2, 3, 4, 5];
-    foreach (int value in list) {
-        str _ = "hello there!";
+    foreach (value in 1..5) {
+        _ = "hello there!";
         if (value == 3) {
             if (true) {
                 break;
             }
         }
-        str _ = "after break";
+        _ = "after break";
     }
 
-    str anotherRandomLocal = "bye there";
+    const anotherRandomLocal = "bye there";
 
-    std.assert(anotherRandomLocal == "bye there", message: "break properly closed revelant scopes");
+    std\assert(anotherRandomLocal == "bye there", message: "break properly closed revelant scopes");
 }

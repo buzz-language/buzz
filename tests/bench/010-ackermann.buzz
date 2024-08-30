@@ -1,10 +1,10 @@
 import "std";
 
 fun main([str] args) > void {
-    const m = (if (args.len() > 0) std.parseInt(args[0]) else null) ?? 3;
-    const n = (if (args.len() > 1) std.parseInt(args[1]) else null) ?? 8;
+    const m = (if (args.len() > 0) std\parseInt(args[0]) else null) ?? 3;
+    const n = (if (args.len() > 1) std\parseInt(args[1]) else null) ?? 8;
 
-    std.print("result: {ack(m, n)}");
+    std\print("result: {ack(m, n)}");
 }
 
 fun ack(int m, int n) > int {

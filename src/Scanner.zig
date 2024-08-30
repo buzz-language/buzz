@@ -51,9 +51,7 @@ pub fn scanToken(self: *Self) !Token {
 
     const char: u8 = self.advance();
     return try switch (char) {
-        'b' => self.identifier(),
-        'a', 'c'...'z', 'A'...'Z' => self.identifier(),
-        // `_` identifier is used to discard expressions or locals, but we don't allow identifiers starting with `_`, so we stop there
+        'a'...'z', 'A'...'Z' => self.identifier(),
         '_' => self.makeToken(
             .Identifier,
             self.source[self.current.start..self.current.offset],
@@ -94,7 +92,7 @@ pub fn scanToken(self: *Self) !Token {
             self.makeToken(.Less, null, null, null),
         '~' => self.makeToken(.Bnot, null, null, null),
         '^' => self.makeToken(.Xor, null, null, null),
-        '\\' => self.makeToken(.Bor, null, null, null),
+        '|' => self.makeToken(.Bor, null, null, null),
         '+' => self.makeToken(.Plus, null, null, null),
         '-' => if (self.match('>'))
             self.makeToken(.Arrow, null, null, null)
@@ -102,7 +100,10 @@ pub fn scanToken(self: *Self) !Token {
             self.makeToken(.Minus, null, null, null),
         '&' => self.makeToken(.Ampersand, null, null, null),
         '*' => self.makeToken(.Star, null, null, null),
-        '/' => self.makeToken(.Slash, null, null, null),
+        '/' => if (self.match('/'))
+            self.docblock()
+        else
+            self.makeToken(.Slash, null, null, null),
         '%' => self.makeToken(.Percent, null, null, null),
         '?' => self.makeToken(if (self.match('?')) .QuestionQuestion else .Question, null, null, null),
         '!' => if (self.match('='))
@@ -133,10 +134,15 @@ pub fn scanToken(self: *Self) !Token {
         '`' => self.string(true),
         '\'' => self.byte(),
         '@' => self.atIdentifier(),
-        '|' => self.docblock(),
         '$' => self.pattern(),
+        '\\' => self.makeToken(.AntiSlash, null, null, null),
 
-        else => self.makeToken(.Error, "Unexpected character.", null, null),
+        else => self.makeToken(
+            .Error,
+            "Unexpected character.",
+            null,
+            null,
+        ),
     };
 }
 
@@ -160,9 +166,14 @@ fn skipWhitespaces(self: *Self) void {
                     return;
                 }
             },
-            '|' => {
-                // It's a docblock, we don't skip it
-                if (self.peekNext() == '|') {
+            '/' => {
+                // It's a / operator
+                if (self.peekNext() != '/') {
+                    return;
+                }
+
+                // It's a docblock
+                if (self.peekNextNext() == '/') {
                     return;
                 }
 
@@ -184,7 +195,7 @@ fn isLetter(char: u8) bool {
 }
 
 fn docblock(self: *Self) !Token {
-    _ = self.advance(); // Skip second `|`
+    _ = self.advance(); // Skip third `/`
 
     var block = std.ArrayList(u8).init(self.allocator);
 
@@ -208,9 +219,10 @@ fn docblock(self: *Self) !Token {
 
         self.skipWhitespaces();
 
-        if (self.peek() != '|' or self.peekNext() != '|') {
+        if (self.peek() != '/' or self.peekNext() != '/' or self.peekNextNext() != '/') {
             break;
         } else {
+            _ = self.advance();
             _ = self.advance();
             _ = self.advance();
         }
@@ -533,6 +545,14 @@ fn peekNext(self: *Self) u8 {
     return self.source[self.current.offset + 1];
 }
 
+fn peekNextNext(self: *Self) u8 {
+    if (self.current.offset + 2 >= self.source.len) {
+        return '\x00';
+    }
+
+    return self.source[self.current.offset + 2];
+}
+
 fn advance(self: *Self) u8 {
     const char = self.source[self.current.offset];
 
@@ -612,6 +632,7 @@ pub fn highlight(self: *Self, out: anytype, true_color: bool) void {
                     .Minus,
                     .Star,
                     .Slash,
+                    .AntiSlash,
                     .Percent,
                     .Equal,
                     .EqualEqual,

@@ -1,11 +1,11 @@
 import "std";
 
-fun fibonacci(int n) > void *> int? {
+fun fibonacci(n: int) > void *> int? {
     var n1 = 0;
     var n2 = 1;
-    int? next = null;
+    var next: int? = null;
 
-    foreach (var _ in 0..n) {
+    foreach (_ in 0..n) {
         _ = yield n1;
         next = n1 + n2;
         n1 = n2;
@@ -13,10 +13,10 @@ fun fibonacci(int n) > void *> int? {
     }
 }
 
-fun main([str] args) > void {
-    const N = std.parseInt(args[?0] ?? "10") ?? 10;
+fun main(args: [str]) > void {
+    const N = std\parseInt(args[?0] ?? "10") ?? 10;
 
-    foreach (var n in &fibonacci(N)) {
-        std.print("{n}");
+    foreach (n in &fibonacci(N)) {
+        std\print("{n}");
     }
 }

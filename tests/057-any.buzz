@@ -1,66 +1,66 @@
 import "std";
 
 test "any" {
-    any anything = "hello";
+    const anything: any = "hello";
 
-    std.assert(anything is str, message: "can manipulate any typed value");
+    std\assert(anything is str, message: "can manipulate any typed value");
 
-    if (anything as str astring) {
-        std.assert(astring.len() == "hello".len(), message: "could cast any");
+    if (anything as astring: str) {
+        std\assert(astring.len() == "hello".len(), message: "could cast any");
     }
 }
 
 test "any placeholder" {
-    std.assert(placeholder is str, message: "can manipulate placeholder with any typed value");
+    std\assert(placeholder is str, message: "can manipulate placeholder with any typed value");
 
-    if (placeholder as str astring) {
-        std.assert(astring.len() == "hello".len(), message: "could cast placeholder any");
+    if (placeholder as astring: str) {
+        std\assert(astring.len() == "hello".len(), message: "could cast placeholder any");
     }
 }
 
-any placeholder = "hello";
+const placeholder: any = "hello";
 
 test "as?" {
-    any anything = 12;
+    const anything: any = 12;
 
-    std.assert((anything as? int) == 12, message: "as?");
+    std\assert((anything as? int) == 12, message: "as?");
 
-    std.assert((anything as? str) == null, message: "as?");
+    std\assert((anything as? str) == null, message: "as?");
 }
 
 test "list of any" {
-    [any] list = [ 1, true, 12.4, "hello" ];
+    const list = [ 1, true, 12.4, "hello" ];
 
-    foreach (any element in list) {
-        std.print("{element}");
+    foreach (element in list) {
+        std\print("{element}");
     }
 }
 
 test "map of any" {
-    {str: any} map = {
+    const map: {str: any} = {
         "hello": true,
         "world": "one",
     };
 
-    foreach (str key, any element in map) {
-        std.print("{key}: {element}");
+    foreach (key, element in map) {
+        std\print("{key}: {element}");
     }
 
-    {any: str} map2 = {
+    const map2: {any: str} = {
         "hello": "true",
         true: "one",
     };
 
-    foreach (any key, str element in map2) {
-        std.print("{key}: {element}");
+    foreach (key, element in map2) {
+        std\print("{key}: {element}");
     }
 
-    {any: any} map3 = {
+    const map3: {any: any} = {
         "hello": 1,
         true: "one",
     };
 
-    foreach (any key, any element in map3) {
-        std.print("{key}: {element}");
+    foreach (key, element in map3) {
+        std\print("{key}: {element}");
     }
 }

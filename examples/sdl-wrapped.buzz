@@ -149,7 +149,7 @@ export enum(int) Subsystem {
     Sensor         = 0x8000,
 }
 
-| Those don't seem to fit in i32
+// Those don't seem to fit in i32
 export enum(int) PixelFormat {
     UNKNOWN      = 0,
     INDEX1LSB    = 286261504,
@@ -203,19 +203,19 @@ export enum(int) TextureAccess {
 }
 
 export object SDLError {
-    str message,
+    message: str,
 }
 
 export object SDL {
-    SDL_Event event,
+    event: SDL_Event,
 
-    static fun init([Subsystem] subsystems) > SDL !> SDLError {
-        int flags = 0;
-        foreach (Subsystem subsystem in subsystems) {
-            flags = flags \ subsystem.value;
+    static fun init(subsystems: [Subsystem]) > SDL !> SDLError {
+        var flags = 0;
+        foreach (subsystem in subsystems) {
+            flags = flags | subsystem.value;
         }
 
-        if (SDL_Init(std.toFloat(flags)) != 0) {
+        if (SDL_Init(std\toFloat(flags)) != 0) {
             throw SDLError{
                 message = "SDL_Init error: {SDL_GetError()}",
             };
@@ -224,7 +224,7 @@ export object SDL {
         return SDL{
             event = SDL_Event{
                 @"type" = 0.0,
-                | Would be useful to define default values in zig and get them back in buzz
+                // Would be useful to define default values in zig and get them back in buzz
                 pad01 = 0,
                 pad02 = 0,
                 pad03 = 0,
@@ -254,7 +254,7 @@ export object SDL {
         return null;
     }
 
-    fun delay(float ms) > void {
+    fun delay(ms: float) > void {
         SDL_Delay(ms);
     }
 
@@ -264,7 +264,7 @@ export object SDL {
 }
 
 export object Texture {
-    SDL_Texture texture,
+    texture: SDL_Texture ,
 
     fun collect() > void {
         SDL_DestroyTexture(this.texture);
@@ -272,31 +272,31 @@ export object Texture {
 }
 
 export object Rect {
-    int x,
-    int y,
-    int width,
-    int height,
+    x: int,
+    y: int,
+    width: int,
+    height: int,
 }
 
 export object Color {
-    int red,
-    int green,
-    int blue,
-    int alpha = 0xff,
+    red: int,
+    green: int,
+    blue: int,
+    alpha: int= 0xff,
 }
 
 export object Renderer {
-    SDL_Renderer renderer,
+    renderer: SDL_Renderer,
 
     fun createTexture(
-        PixelFormat format,
-        TextureAccess access,
-        int width,
-        int height
+        format: PixelFormat,
+        access: TextureAccess,
+        width: int,
+        height: int
     ) > Texture !> SDLError {
-        const SDL_Texture? texture = SDL_CreateTexture(
+        const texture = SDL_CreateTexture(
             this.renderer,
-            format: std.toFloat(format.value),
+            format: std\toFloat(format.value),
             access: access.value,
             w: width,
             h: height,
@@ -313,13 +313,10 @@ export object Renderer {
         };
     }
 
-    fun setRenderTarget(Texture? texture) > void !> SDLError {
+    fun setRenderTarget(texture: Texture?) > void !> SDLError {
         const result = SDL_SetRenderTarget(
             this.renderer,
-            texture: if (texture != null)
-                texture!.texture
-            else 
-                null
+            texture: texture?.texture
         );
 
         if (result != 0) {
@@ -329,7 +326,7 @@ export object Renderer {
         }
     }
 
-    fun setRenderDrawColor(Color color) > void !> SDLError {
+    fun setRenderDrawColor(color: Color) > void !> SDLError {
         const result = SDL_SetRenderDrawColor(
             this.renderer,
             r: color.red,
@@ -345,7 +342,7 @@ export object Renderer {
         }
     }
 
-    fun fillRect(Rect rect) > void !> SDLError {
+    fun fillRect(rect: Rect) > void !> SDLError {
         const result = SDL_RenderFillRect(
             this.renderer,
             rect: SDL_Rect{
@@ -363,7 +360,7 @@ export object Renderer {
         }
     }
 
-    fun drawPoint(int x, int y) > void !> SDLError {
+    fun drawPoint(x: int, y: int) > void !> SDLError {
         const result = SDL_RenderDrawPoint(
             this.renderer,
             x, y,
@@ -376,24 +373,24 @@ export object Renderer {
         }
     }
 
-    fun renderCopy(Texture texture, Rect? srcRect = null, Rect? dstRect = null) > void !> SDLError {
+    fun renderCopy(texture: Texture, srcRect: Rect? = null, dstRect: Rect? = null) > void !> SDLError {
         const result = SDL_RenderCopy(
             this.renderer,
             texture: texture.texture,
-            srcrect: if (srcRect != null)
+            srcrect: if (srcRect -> rect)
                     SDL_Rect{
-                        x = srcRect!.x,
-                        y = srcRect!.y,
-                        w = srcRect!.width,
-                        h = srcRect!.height,
+                        x = rect.x,
+                        y = rect.y,
+                        w = rect.width,
+                        h = rect.height,
                     }
                 else null,
-            dstrect: if (dstRect != null)
+            dstrect: if (dstRect -> rect)
                     SDL_Rect{
-                        x = dstRect!.x,
-                        y = dstRect!.y,
-                        w = dstRect!.width,
-                        h = dstRect!.height,
+                        x = rect.x,
+                        y = rect.y,
+                        w = rect.width,
+                        h = rect.height,
                     }
                 else null,
         );
@@ -415,28 +412,28 @@ export object Renderer {
 }
 
 export object Window {
-    SDL_Window window,
+    window: SDL_Window,
 
     static fun init(
-        str name,
-        int x = 0x2FFF0000,
-        int y = 0x2FFF0000,
-        int width,
-        int height,
-        [WindowFlag] flags
+        name: str,
+        x: int= 0x2FFF0000,
+        y: int= 0x2FFF0000,
+        width: int,
+        height: int,
+        flags: [WindowFlag]
     ) > Window !> SDLError {
-        int windowFlags = 0;
-        foreach (WindowFlag flag in flags) {
-            windowFlags = windowFlags \ flag.value;
+        var windowFlags = 0;
+        foreach (flag in flags) {
+            windowFlags = windowFlags | flag.value;
         }
 
-        const SDL_Window? window = SDL_CreateWindow(
-            ffi.cstr(name),
+        const window = SDL_CreateWindow(
+            ffi\cstr(name),
             x,
             y,
             w: width,
             h: height,
-            flags: std.toFloat(windowFlags),
+            flags: std\toFloat(windowFlags),
         );
 
         if (window -> unwrapped) {
@@ -451,18 +448,18 @@ export object Window {
     }
 
     fun createRenderer(
-        int index,
-        [RendererFlag] flags
+        index: int,
+        flags: [RendererFlag]
     ) > Renderer !> SDLError {
-        int rendererFlags = 0;
-        foreach (RendererFlag flag in flags) {
-            rendererFlags = rendererFlags \ flag.value;
+        var rendererFlags = 0;
+        foreach (flag in flags) {
+            rendererFlags = rendererFlags | flag.value;
         }
 
-        const SDL_Renderer? renderer = SDL_CreateRenderer(
+        const renderer = SDL_CreateRenderer(
             this.window,
             index: index,
-            flags: std.toFloat(rendererFlags),
+            flags: std\toFloat(rendererFlags),
         );
 
         if (renderer -> unwrapped) {

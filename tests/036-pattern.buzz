@@ -1,38 +1,38 @@
 import "std";
 
 test "pattern.match" {
-    pat pattern = $"hello ([a-z]+)";
+    const pattern = $"hello ([a-z]+)";
 
-    [str]? results = pattern.match("All i want to say is hello joe! hello mundo!");
+    const results = pattern.match("All i want to say is hello joe! hello mundo!");
 
-    std.assert(results?.len() == 2, message: "1 match and 1 capture");
-    std.assert(results![0] == "hello joe", message: "first is match");
-    std.assert(results![1] == "joe", message: "second is capture");
+    std\assert(results?.len() == 2, message: "1 match and 1 capture");
+    std\assert(results![0] == "hello joe", message: "first is match");
+    std\assert(results![1] == "joe", message: "second is capture");
 }
 
 test "pattern.matchAll" {
-    pat pattern = $"hello ([a-z]+)";
+    const pattern = $"hello ([a-z]+)";
 
-    [[str]]? results = pattern.matchAll("All i want to say is hello joe!\nhello mundo!\nAnd hello neighbor...");
+    const results = pattern.matchAll("All i want to say is hello joe!\nhello mundo!\nAnd hello neighbor...");
 
-    std.assert(results?.len() == 3, message: "found 3 matches");
-    std.assert(results![2].len() == 2, message: "1 match and 1 capture");
-    std.assert(results![2][1] == "neighbor", message: "capture is correct");
+    std\assert(results?.len() == 3, message: "found 3 matches");
+    std\assert(results![2].len() == 2, message: "1 match and 1 capture");
+    std\assert(results![2][1] == "neighbor", message: "capture is correct");
 }
 
 test "Escaped pattern delimiter" {
-    pat pattern = $"hello \" world";
+    const pattern = $"hello \" world";
 
-    std.assert("{pattern}" == "hello \" world", message: "delimiter was properly escaped");
+    std\assert("{pattern}" == "hello \" world", message: "delimiter was properly escaped");
 }
 
 test "replace" {
-    std.assert(
+    std\assert(
         $"world".replace("All i want to say is hello world!", with: "mundo") == "All i want to say is hello mundo!",
         message: "replace"
     );
 
-    std.assert(
+    std\assert(
         $"alright".replaceAll("he says: alright, alright, alright!", with: "check") == "he says: check, check, check!",
         message: "replaceAll"
     );

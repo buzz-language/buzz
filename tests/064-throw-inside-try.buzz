@@ -13,10 +13,10 @@ fun run() > void {
         willFail();
 
         throw SomeError{};
-    } catch (str _) {
-        std.assert(false, message: "Could throw inside try/catch");
-    } catch (SomeError _) {
-        std.assert(true, message: "Could throw inside try/catch");
+    } catch (_: str) {
+        std\assert(false, message: "Could throw inside try/catch");
+    } catch (_: SomeError) {
+        std\assert(true, message: "Could throw inside try/catch");
     }
 }
 

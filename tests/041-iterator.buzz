@@ -1,11 +1,11 @@
 import "std";
 
-fun fibonacci(int n) > void *> int? {
-    int n1 = 0;
-    int n2 = 1;
-    int? next = null;
+fun fibonacci(n: int) > void *> int? {
+    var n1 = 0;
+    var n2 = 1;
+    var next: int? = null;
 
-    for (int i = 0; i < n; i = i + 1) {
+    for (i: int = 0; i < n; i = i + 1) {
         _ = yield n1;
         next = n1 + n2;
         n1 = n2;
@@ -14,10 +14,10 @@ fun fibonacci(int n) > void *> int? {
 }
 
 test "finobacci generator" {
-    [int] suite = [0, 1, 1, 2, 3, 5, 8, 13, 21, 34];
-    int i = 0;
-    foreach (int n in &fibonacci(10)) {
-        std.assert(suite[i] == n, message: "could iterate over fiber");
+    const suite = [0, 1, 1, 2, 3, 5, 8, 13, 21, 34];
+    var i = 0;
+    foreach (n in &fibonacci(10)) {
+        std\assert(suite[i] == n, message: "could iterate over fiber");
 
         i = i + 1;
     }
@@ -26,7 +26,7 @@ test "finobacci generator" {
 object Hello {
     fun getRange() > [int] *> int? {
         var list = [<int>];
-        foreach (int i in 0..10) {
+        foreach (i in 0..10) {
             _ = yield i;
 
             list.append(i);
@@ -39,7 +39,7 @@ object Hello {
 test "dot async call" {
     var hello = Hello{};
 
-    foreach (int i in &hello.getRange()) {
-        std.print("i {i}");
+    foreach (i in &hello.getRange()) {
+        std\print("i {i}");
     }
 }

@@ -1,17 +1,17 @@
 import "testing" as _;
 
 test "Test std lib" {
-    Tester t = Tester.init(
-        beforeAll: fun (Tester t) {
+    const t = Tester.init(
+        beforeAll: fun (t: Tester) {
             t.assert(true);
         },
-        afterAll: fun (Tester t) {
+        afterAll: fun (t: Tester) {
             t.assert(true);
         },
-        beforeEach: fun (Tester t) {
+        beforeEach: fun (t: Tester) {
             t.assert(true);
         },
-        afterEach: fun (Tester t) {
+        afterEach: fun (t: Tester) {
             t.assert(true);
         }
     );

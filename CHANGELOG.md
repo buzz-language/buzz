@@ -1,5 +1,19 @@
 # Unreleased
 
+## Major syntax changes
+- Types are now specified *after* the identifier + `:`. This includes:
+    - Variable declarations
+    - Function argument definitions
+    - Catch clauses
+    - `if (...: type as ...)`
+- Arrow function use `=>` instead of `->`
+- Comments and docblocks must now be prefixed by `//` and `///` instead of `|` and `||`
+- Bitwise or operator is `|` instead of `\`
+- Function type now use `fun` keyword instead of `Function`
+- If a function type has multiple error types, they must be put them in parenthesis
+- Namespace can now be multiple `\` separated identifiers
+- Qualified name now use `\` separator instead of `.`
+
 ## Added
 - Object can have `const` properties (https://github.com/buzz-language/buzz/issues/13). A object with only `const` properties is considered itself `const`. Although we don't do anything yet with that concept. https://github.com/buzz-language/buzz/issues/114 is the objective but it requires being able to build objects and instances at compile time which is not yet possible.
 - `rg.subsetOf`, `rg.intersect`, `rg.union`
@@ -22,7 +36,6 @@ list[?10] == null;
 
 ## Modified
 - Enum can now have `rg`, `ud`, `void`, `pat` has value type
-- `var` can be used for key and/or value type in `for` and `foreach` loop
 - Anonymous object can also omit property name when initial value is a named variable
 
 ## Fixed

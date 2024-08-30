@@ -1,14 +1,14 @@
 import "std";
 
 test "If arrow" {
-    int? opt = null;
-    str? optS = "hello";
+    const opt: int? = null;
+    const optS: str? = "hello";
 
     if (opt -> _) {
-        std.assert(false, message: "unreachable");
+        std\assert(false, message: "unreachable");
     }
 
     if (optS -> unwrapped) {
-        std.assert(unwrapped == "hello", message: "Could if-arrow unwrap");
+        std\assert(unwrapped == "hello", message: "Could if-arrow unwrap");
     }
 }

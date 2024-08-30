@@ -110,23 +110,23 @@ export enum ReadWriteError {
 }
 
 export object CompileError {
-    str message = "CompileError",
+    message: str = "CompileError",
 }
 export object InterpretError {
-    str message = "InterpretError",
+    message: str = "InterpretError",
 }
 export object InvalidArgumentError {
-    str message = "InvalidArgumentError",
+    message: str = "InvalidArgumentError",
 }
 export object NotYetImplementedError {
-    str message = "NotYetImplementedError",
+    message: str = "NotYetImplementedError",
 }
 export object OverflowError {
-    str message = "OverflowError",
+    message: str = "OverflowError",
 }
 export object UnderflowError {
-    str message = "UnderflowError",
+    message: str = "UnderflowError",
 }
 export object UnexpectedError {
-    str message = "UnexpectedError",
+    message: str = "UnexpectedError",
 }

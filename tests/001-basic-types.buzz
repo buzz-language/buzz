@@ -1,40 +1,40 @@
 import "std";
 
 test "Basic types" {
-    str _ = "hello world";
-    float _ = 3.14;
-    int _ = 3;
-    bool _ = true;
+    const _: str = "hello world";
+    const _: float = 3.14;
+    const _: int = 3;
+    const _: bool = true;
 }
 
 test "Underscore on number literals" {
-    int a = 100_000;
+    const a: int = 100_000;
 
-    std.assert(a == 100000, message: "Could use an underscore on an int");
+    std\assert(a == 100000, message: "Could use an underscore on an int");
 
-    float b = 3.1_4;
+    const b = 3.1_4;
 
-    std.assert(b == 3.14, message: "Could use an underscore on a float");
+    std\assert(b == 3.14, message: "Could use an underscore on a float");
 
-    int bin = 0b1_0001;
+    const bin = 0b1_0001;
 
-    std.assert(bin == 17, message: "Clould use an underscore on a binary int");
+    std\assert(bin == 17, message: "Clould use an underscore on a binary int");
 
-    int h = 0xF_FFF;
+    const h = 0xF_FFF;
 
-    std.assert(h == 65535, message: "Clould use an underscore on a hex int");
+    std\assert(h == 65535, message: "Clould use an underscore on a hex int");
 }
 
 test "Char literal" {
-    int char = 'A';
+    const char = 'A';
 
-    std.assert(char == 65, message: "Could use char literal");
+    std\assert(char == 65, message: "Could use char literal");
 
-    int quote = '\'';
+    const quote = '\'';
 
-    std.assert(quote == 39, message: "Could escape ' in char literal");
+    std\assert(quote == 39, message: "Could escape ' in char literal");
 
-    int slash = '\\';
+    const slash = '\\';
 
-    std.assert(slash == 92, message: "Could escape \\ in char literal");
+    std\assert(slash == 92, message: "Could escape \\ in char literal");
 }

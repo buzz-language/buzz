@@ -587,12 +587,12 @@ pub const DumpState = struct {
 
                         if (!field.method) {
                             out.print(
-                                "    {s}{s}{s} {s}",
+                                "    {s}{s}{s}: {s}",
                                 .{
                                     if (kv.value_ptr.*.static) "static " else "",
                                     if (kv.value_ptr.*.constant) "const " else "",
-                                    field_type_str.items,
                                     kv.key_ptr.*,
+                                    field_type_str.items,
                                 },
                             ) catch unreachable;
 

@@ -1,4 +1,4 @@
-| '_' must be between digits
+// '_' must be between digits
 test "invalid literals" {
-   int a = 100_;
+   _ = 100_;
 }

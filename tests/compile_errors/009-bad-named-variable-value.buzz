@@ -1,10 +1,10 @@
-| Bad value type: got type `int`, expected `str`
+// Bad value type: got type `int`, expected `str`
 test "bad named variable value" {
-    str hello = "hello";
+    var hello = "hello";
 
     hello = 12;
 
-    [int] list = [
+    _: [int] = [
         true,
         12,
     ];

@@ -3,42 +3,42 @@ namespace serialize;
 import "buffer";
 import "std";
 
-|| Utility object to manage deserialized data from, for example, decoded JSON
+/// Utility object to manage deserialized data from, for example, decoded JSON
 export object Boxed {
-    any data = null,
+    data: any = null,
 
-    static fun init(any data) > Boxed !> CircularReference, NotSerializable {
+    static fun init(data: any) > Boxed !> CircularReference, NotSerializable {
         return Boxed{
             data = serializeValue(data),
         };
     }
 
-    || When wrapped data is a string
+    /// When wrapped data is a string
     fun string() > str? {
         return this.data as? str;
     }
 
-    || When wrapped data is a boolean
+    /// When wrapped data is a boolean
     fun boolean() > bool? {
         return this.data as? bool;
     }
 
-    || When wrapped data is a int
+    /// When wrapped data is a int
     fun integer() > int? {
         return this.data as? int;
     }
 
-    || When wrapped data is a float
+    /// When wrapped data is a float
     fun floating() > float? {
         return this.data as? float;
     }
 
-    || When wrapped data is an object, object property values are themselves wrapped in a `Boxed`
+    /// When wrapped data is an object, object property values are themselves wrapped in a `Boxed`
     fun map() > {str: Boxed}? {
         if (this.data as? {str: any} -> dataMap) {
-            {str: Boxed} boxedMap = {<str: Boxed>};
+            var boxedMap = {<str: Boxed>};
 
-            foreach (str key, any value in dataMap) {
+            foreach (key, value in dataMap) {
                 boxedMap[key] = Boxed{ data = value };
             }
 
@@ -48,12 +48,12 @@ export object Boxed {
         return null;
     }
 
-    || When wrapped data is a list, list elements are themselves warpped in a `Boxed`
+    /// When wrapped data is a list, list elements are themselves warpped in a `Boxed`
     fun list() > [Boxed]? {
         if (this.data as? [any] -> dataList) {
-            [Boxed] boxedList = [<Boxed>];
+            var boxedList = [<Boxed>];
 
-            foreach (any element in dataList) {
+            foreach (element in dataList) {
                 boxedList.append(Boxed{ data = element });
             }
 
@@ -63,23 +63,23 @@ export object Boxed {
         return null;
     }
 
-    || @return wrapped data string value or empty string if not a string
+    /// @return wrapped data string value or empty string if not a string
     fun stringValue() > str => this.string() ?? ""
-    || @return wrapped data boolean value or `false` if not a boolean
+    /// @return wrapped data boolean value or `false` if not a boolean
     fun booleanValue() > bool => this.boolean() ?? false
-    || @return wrapped data number value or `0` if not an integer
+    /// @return wrapped data number value or `0` if not an integer
     fun integerValue() > int => this.integer() ?? 0
-    || @return wrapped data number value or `0` if not a float
+    /// @return wrapped data number value or `0` if not a float
     fun floatingValue() > float => this.floating() ?? 0.0
-    || @return wrapped data map value or empty map if not a map
+    /// @return wrapped data map value or empty map if not a map
     fun mapValue() > {str: Boxed} => this.map() ?? {<str: Boxed>}
-    || @return wrapped data list value or empty list if not a list
+    /// @return wrapped data list value or empty list if not a list
     fun listValue() > [Boxed] => this.list() ?? [<Boxed>]
 
-    || Query the json element at `path`, if nothing matches return `Boxed{}`
-    || @param path Path to query
-    || @return Found `Boxed` or `Boxed{}` (which is `null`)
-    fun q([str] path) > Boxed {
+    /// Query the json element at `path`, if nothing matches return `Boxed{}`
+    /// @param path Path to query
+    /// @return Found `Boxed` or `Boxed{}` (which is `null`)
+    fun q(path: [str]) > Boxed {
         if (this.map() -> map) {
             if (path.len() > 1) {
                 return (map[path[0]] ?? Boxed{}).q(path.sub(1));
@@ -95,33 +95,33 @@ export object Boxed {
 }
 
 export object CircularReference {
-    str message = "Circular reference",
+    message: str = "Circular reference",
 }
 
 export object NotSerializable {
-    str message = "Not serializable",
+    message: str = "Not serializable",
 }
 
-export extern fun serializeValue(any value) > any !> CircularReference, NotSerializable;
+export extern fun serializeValue(value: any) > any !> CircularReference, NotSerializable;
 
 export object JsonParseError {
-    str? message = null,
+    message: str? = null,
 }
 
-|| Parse JSON string into a `Json` tree
-|| @private
+/// Parse JSON string into a `Json` tree
+/// @private
 object JsonParser {
-    | TODO: comform to https://datatracker.ietf.org/doc/html/rfc8259
+    // TODO: comform to https://datatracker.ietf.org/doc/html/rfc8259
 
-    str source,
-    int offset = 0,
+    source: str,
+    offset: int = 0,
 
     fun advance() > str? {
         if (this.offset >= this.source.len()) {
             return null;
         }
 
-        str char = this.source[this.offset];
+        var char = this.source[this.offset];
 
         this.offset = this.offset + 1;
 
@@ -136,7 +136,7 @@ object JsonParser {
         return this.source[this.offset];
     }
 
-    fun match(str expected) > bool {
+    fun match(expected: str) > bool {
         if (this.offset > this.source.len() or this.source[this.offset] != expected) {
             return false;
         }
@@ -146,7 +146,7 @@ object JsonParser {
         return true;
     }
 
-    fun consume(str expected) > void !> JsonParseError {
+    fun consume(expected: str) > void !> JsonParseError {
         if (!this.match(expected)) {
             throw JsonParseError{ message = "Could not parse JSON: expected `{expected}` got `{this.peek()}` at offset {this.offset}" };
         }
@@ -154,7 +154,7 @@ object JsonParser {
 
     fun skipWhitespaces() > void {
         while (true) {
-            const str? char = this.peek();
+            const char = this.peek();
 
             if (char == " " or char == "\r" or char == "\t" or char == "\n") {
                 _ = this.advance();
@@ -164,15 +164,15 @@ object JsonParser {
         }
     }
 
-    fun next() > any !> JsonParseError, buffer.WriteWhileReadingError {
+    fun next() > any !> JsonParseError, buffer\WriteWhileReadingError {
         this.skipWhitespaces();
 
         if (this.offset >= this.source.len()) {
             throw JsonParseError{ message = "Could not parse JSON: end of string" };
         }
 
-        const str char = this.advance() ?? "";
-        const int byte = char.byte(0);
+        const char = this.advance() ?? "";
+        const byte = char.byte(0);
         if (char == "[") {
             return this.array();
         } else if (char == "\{") {
@@ -195,8 +195,8 @@ object JsonParser {
         throw JsonParseError{ message = "Could not parse JSON: unexpected character `{char}` at offset {this.offset}" };
     }
 
-    fun array() > [any] !> JsonParseError, buffer.WriteWhileReadingError {
-        [any] array = [<any>];
+    fun array() > [any] !> JsonParseError, buffer\WriteWhileReadingError {
+        var array = [<any>];
 
         while (true) {
             this.skipWhitespaces();
@@ -219,8 +219,8 @@ object JsonParser {
         return array;
     }
 
-    fun map() > {str: any} !> JsonParseError, buffer.WriteWhileReadingError {
-        {str: any} map = {<str: any>};
+    fun map() > {str: any} !> JsonParseError, buffer\WriteWhileReadingError {
+        var map = {<str: any>};
 
         while (true) {
             this.skipWhitespaces();
@@ -230,7 +230,7 @@ object JsonParser {
             }
 
             this.consume("\"");
-            const str key = this.string();
+            const key = this.string();
 
             this.skipWhitespaces();
 
@@ -252,12 +252,12 @@ object JsonParser {
         return map;
     }
 
-    fun number(str parsed) > any !> JsonParseError {
-        str number = parsed;
+    fun number(parsed: str) > any !> JsonParseError {
+        var number = parsed;
 
-        bool isFloat = false;
-        while (std.parseInt(this.peek() ?? "NaN") != null or this.peek() == ".") {
-            str? char = this.advance();
+        var isFloat = false;
+        while (std\parseInt(this.peek() ?? "NaN") != null or this.peek() == ".") {
+            var char = this.advance();
 
             if (char == null) {
                 break;
@@ -271,19 +271,19 @@ object JsonParser {
         }
 
         if (isFloat) {
-            if (std.parseFloat(number) -> floating) {
+            if (std\parseFloat(number) -> floating) {
                 return floating;
             }
-        } else if (std.parseInt(number) -> integer) {
+        } else if (std\parseInt(number) -> integer) {
             return integer;
         }
         
         throw JsonParseError{ message = "Could not parse JSON: `{number}` is not a number" };
     }
 
-    fun string() > str !> buffer.WriteWhileReadingError {
-        str? char = this.advance();
-        var string = buffer.Buffer.init();
+    fun string() > str !> buffer\WriteWhileReadingError {
+        var char = this.advance();
+        var string = buffer\Buffer.init();
         
         while (char != null and char != "\"") {
             if (char == "\\") {
@@ -305,15 +305,15 @@ object JsonParser {
             char = this.advance();
         }
 
-        str result = string.toString();
+        var result = string.toString();
 
         return result;
     }
 }
 
-|| Encode to a JSON string
-|| @return the JSON string
-export fun jsonEncode(Boxed data) > str !> CircularReference, NotSerializable {
+/// Encode to a JSON string
+/// @return the JSON string
+export fun jsonEncode(data: Boxed) > str !> CircularReference, NotSerializable {
     if (data.string() -> string) {
         return "\"{string}\"";
     } else if (data.boolean() -> boolean) {
@@ -323,10 +323,10 @@ export fun jsonEncode(Boxed data) > str !> CircularReference, NotSerializable {
     } else if (data.floating() -> floating) {
         return "{floating}";
     } else if (data.map() -> map) {
-        str json = "\{";
-        const int size = map.size();
-        int count = 0;
-        foreach (str key, Boxed value in map) {
+        var json = "\{";
+        const size = map.size();
+        var count = 0;
+        foreach (key, value in map) {
             json = json + "\"{key}\":{jsonEncode(value)}";
 
             if (count < size - 1) {
@@ -337,10 +337,10 @@ export fun jsonEncode(Boxed data) > str !> CircularReference, NotSerializable {
         }
         return json + "}";
     } else if (data.list() -> list) {
-        str json = "[";
+        var json = "[";
 
-        const int len = list.len();
-        foreach (int i, Boxed value in list) {
+        const len = list.len();
+        foreach (i, value in list) {
             json = json + jsonEncode(value);
 
             if (i < len - 1) {
@@ -354,10 +354,10 @@ export fun jsonEncode(Boxed data) > str !> CircularReference, NotSerializable {
     return "null";
 }
 
-|| Decode string into a Json instance
-|| @param str json The JSON string
-|| @return Boxed
-export fun jsonDecode(str json) > Boxed !> JsonParseError, buffer.WriteWhileReadingError {
+/// Decode string into a Json instance
+/// @param str json The JSON string
+/// @return Boxed
+export fun jsonDecode(json: str) > Boxed !> JsonParseError, buffer\WriteWhileReadingError {
     return Boxed{
         data = JsonParser{
             source = json

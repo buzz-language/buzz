@@ -1,14 +1,14 @@
 import  "std";
 
 fun main([str] args) > void {
-    const max = (if (args.len() > 0) std.parseInt(args[0]) else null) ?? 750;
+    const max = (if (args.len() > 0) std\parseInt(args[0]) else null) ?? 750;
 
     var list = init(max);
 
     bubblesort(list);
 
     foreach (int e in list) {
-        std.print("{e}");
+        std\print("{e}");
     }
 }
 

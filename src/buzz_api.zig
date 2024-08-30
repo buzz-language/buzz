@@ -229,12 +229,12 @@ fn valueDump(value: Value, vm: *VM, seen: *std.AutoHashMap(*_obj.Obj, void), dep
 
                         if (!field.method) {
                             io.print(
-                                "{s}{s}{s} {s}",
+                                "{s}{s}{s}: {s}",
                                 .{
                                     if (field.static) "static" else "",
                                     if (field.constant) "const" else "",
-                                    field_type_str.items,
                                     field.name,
+                                    field_type_str.items,
                                 },
                             );
 

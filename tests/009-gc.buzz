@@ -1,10 +1,10 @@
 import "std";
 import "gc";
 
-bool collectorCalled = false;
+var collectorCalled = false;
 
 object Kill {
-    int yo = -1,
+    yo: int = -1,
 
     fun collect() > void {
         collectorCalled = true;
@@ -12,18 +12,18 @@ object Kill {
 }
 
 test "GC, collecting unreferenced objects" {
-    int i = 0;
-    _ = Kill{}; | Should be kept longer
-    while (i < 100) {
-        _ = Kill{ yo = i }; | Should be collected since not referenced anywhere
+    var i = 0;
+    const _ = Kill{}; // Should be kept longer
+    while (i < 1000) {
+        const _ = Kill{ yo = i }; // Should be collected since not referenced anywhere
 
         i = i + 1;
     }
 
-    const int before = gc.allocated();
+    const before = gc\allocated();
 
-    gc.collect();
+    gc\collect();
 
-    std.assert(gc.allocated() <= before, message: "Garbage was collected");
-    std.assert(collectorCalled, message: "Object collector was called");
+    std\assert(gc\allocated() <= before, message: "Garbage was collected");
+    std\assert(collectorCalled, message: "Object collector was called");
 }

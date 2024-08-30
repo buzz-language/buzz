@@ -1,8 +1,8 @@
-| Bad function yield type
+// Type mismatch: got type `str`, expected `void`
 import "std";
 
 fun one() > void *> str? {
-    yield "hello";
+    _ = yield "hello";
 }
 
 fun two() > void {
@@ -10,6 +10,6 @@ fun two() > void {
 }
 
 test "Deep yield" {
-    fib<void, str?> fiber = &two();
-    std.print(resume fiber ?? "nope");
+    const fiber = &two();
+    std\print(resume fiber ?? "nope");
 }

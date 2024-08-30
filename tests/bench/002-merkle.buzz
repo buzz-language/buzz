@@ -50,7 +50,7 @@ fun calHash(Node tree) > void {
 fun main([str] args) > void !> any {
     int N = 6;
     if (args.len() > 0) {
-        N = std.parseInt(args[0]) ?? 6;
+        N = std\parseInt(args[0]) ?? 6;
     }
 
     int mindepth = 4;
@@ -63,11 +63,11 @@ fun main([str] args) > void !> any {
     Node stretchtree = makeTree(stretchdepth);
     calHash(stretchtree);
 
-    std.print("stretch tree of depth {stretchdepth}\t root hash: {stretchtree.hash ?? 0} check: {check(stretchtree)}");
+    std\print("stretch tree of depth {stretchdepth}\t root hash: {stretchtree.hash ?? 0} check: {check(stretchtree)}");
 
     Node longlivedtree = makeTree(maxdepth);
     for (int depth = mindepth; depth < maxdepth; depth = depth + 2) {
-        int iterations = std.toInt(math.pow(x: 2.0, y: std.toFloat(maxdepth - depth + mindepth)));
+        int iterations = std\toInt(math\pow(x: 2.0, y: std\toFloat(maxdepth - depth + mindepth)));
         int sum = 0;
         for (int i = 0; i < iterations; i = i + 1) {
             Node t = makeTree(depth);
@@ -75,9 +75,9 @@ fun main([str] args) > void !> any {
             sum = sum + t.hash ?? 0;
         }
 
-        std.print("{iterations}\t trees of depth {depth}\t root hash sum: {sum}");
+        std\print("{iterations}\t trees of depth {depth}\t root hash sum: {sum}");
     }
 
     calHash(longlivedtree);
-    std.print("long lived tree of depth {maxdepth}\t root hash: {longlivedtree.hash ?? 0} check: {check(longlivedtree)}");
+    std\print("long lived tree of depth {maxdepth}\t root hash: {longlivedtree.hash ?? 0} check: {check(longlivedtree)}");
 }

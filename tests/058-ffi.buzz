@@ -9,11 +9,11 @@ zdef("tests/utils/libforeign", `
 `);
 
 test "scalar type" {
-    std.assert(acos(0.12) == 1.4505064444001086, message: "Could call FFI function with scalar arguments");
+    std\assert(acos(0.12) == 1.4505064444001086, message: "Could call FFI function with scalar arguments");
 }
 
 test "cstring" {
-    fprint(ffi.cstr("hello world"));
+    fprint(ffi\cstr("hello world"));
 }
 
 test "pointer with Buffer" {
@@ -23,35 +23,35 @@ test "pointer with Buffer" {
     buffer.writeZ::<int>("i32", values: [1, 2, 3]);
 
     try {
-        | Arguably, the zig type parameter could a constant and be built at compile time
-        | But: that would require a new type
-        | Since we cache the result of the type parsing this is roughly equivalent
+        // Arguably, the zig type parameter could a constant and be built at compile time
+        // But: that would require a new type
+        // Since we cache the result of the type parsing this is roughly equivalent
         buffer.writeZ::<int>("u64", values: [1]);
-        std.assert(false, message: "Using bad buzz type triggers error");
-    } catch (ffi.FFITypeMismatchError _) {
-        std.assert(true, message: "Using bad buzz type triggers error");
+        std\assert(false, message: "Using bad buzz type triggers error");
+    } catch (_: ffi\FFITypeMismatchError) {
+        std\assert(true, message: "Using bad buzz type triggers error");
     }
 
-    int i32align = ffi.alignOf("i32");
-    int len = buffer.len(align: i32align);
-    std.assert(len == buffer.len() / 4, message: "Len align");
-    int total = sum(buffer.ptr(), len: len);
+    const i32align = ffi\alignOf("i32");
+    const len = buffer.len(align: i32align);
+    std\assert(len == buffer.len() / 4, message: "Len align");
+    const total = sum(buffer.ptr(), len: len);
 
-    std.assert(total == 12, message: "Could call FFI function with pointer argument");
+    std\assert(total == 12, message: "Could call FFI function with pointer argument");
 
-    int readTotal = 0;
-    foreach (int i in 0..buffer.len(align: i32align)) {
+    var readTotal = 0;
+    foreach (i in 0..buffer.len(align: i32align)) {
         readTotal = readTotal + buffer.readZAt::<int>(
             at: i,
             zigType: "i32"
         );
     }
 
-    std.assert(readTotal == total, message: "Could read from pointer");
+    std\assert(readTotal == total, message: "Could read from pointer");
 
-    int subTotal = sum(buffer.ptr(1, align: i32align), len: len - 1);
+    const subTotal = sum(buffer.ptr(1, align: i32align), len: len - 1);
 
-    std.assert(subTotal == 11, message: "Could get ptr at offset");
+    std\assert(subTotal == 11, message: "Could get ptr at offset");
 }
 
 zdef("tests/utils/libforeign", `
@@ -66,29 +66,29 @@ zdef("tests/utils/libforeign", `
 `);
 
 test "struct" {
-    Data data = Data{
-        msg = ffi.cstr("bye world"),
+    const data = Data{
+        msg = ffi\cstr("bye world"),
         id = 123,
         value = 42.0,
     };
 
-    std.assert(data.msg == "bye world\0", message: "Could instanciate Zig struct");
-    std.assert(data.id == 123, message: "Could instanciate Zig struct");
+    std\assert(data.msg == "bye world\0", message: "Could instanciate Zig struct");
+    std\assert(data.id == 123, message: "Could instanciate Zig struct");
 
     data.id = 42;
 
-    std.assert(data.id == 42, message: "Could set Zig struct field");
+    std\assert(data.id == 42, message: "Could set Zig struct field");
 
-    std.assert(get_data_msg(data) == "bye world\0", message: "Could use foreign function with struct ptr param");
+    std\assert(get_data_msg(data) == "bye world\0", message: "Could use foreign function with struct ptr param");
 
     set_data_id(data);
 
-    std.assert(data.id == 84, message: "Could use foreign function with struct ptr param that modifies the struct");
+    std\assert(data.id == 84, message: "Could use foreign function with struct ptr param that modifies the struct");
 }
 
 test "write/read struct in buffer" {
-    Data data = Data{
-        msg = ffi.cstr("bye world"),
+    const data = Data{
+        msg = ffi\cstr("bye world"),
         id = 123,
         value = 42.0,
     };
@@ -97,11 +97,11 @@ test "write/read struct in buffer" {
 
     buffer.writeStruct::<Data>(Data, values: [data]);
 
-    std.assert(buffer.toString().len() == ffi.sizeOfStruct(Data), message: "Could write struct to buffer");
+    std\assert(buffer.toString().len() == ffi\sizeOfStruct(Data), message: "Could write struct to buffer");
 
-    Data read = buffer.readStruct::<Data>(Data);
+    const read = buffer.readStruct::<Data>(Data);
 
-    std.assert(
+    std\assert(
         read.msg == data.msg and read.id == data.id,
         message: "Could read struct from buffer"
     );
@@ -125,26 +125,26 @@ zdef("tests/utils/libforeign", `
 `);
 
 test "union" {
-    Misc misc = Misc{
+    const misc = Misc{
         data = Data{
             id = 123,
-            msg = ffi.cstr("hello world"),
+            msg = ffi\cstr("hello world"),
             value = 42.0,
         }
     };
 
-    std.assert(get_misc_msg(misc) == ffi.cstr("hello world"), message: "Could read union field");
+    std\assert(get_misc_msg(misc) == ffi\cstr("hello world"), message: "Could read union field");
 
     misc.flag = Flag{
         id = 123,
         value = true,
     };
 
-    std.assert(get_misc_flag(misc), message: "Could read union field");
+    std\assert(get_misc_flag(misc), message: "Could read union field");
 
     misc.id = 321;
 
-    std.assert(misc.id == 321, message: "Got expected memory layout of a C union");
-    std.assert(misc.data.id == 321, message: "Got expected memory layout of a C union");
-    std.assert(misc.flag.id == 321, message: "Got expected memory layout of a C union");
+    std\assert(misc.id == 321, message: "Got expected memory layout of a C union");
+    std\assert(misc.data.id == 321, message: "Got expected memory layout of a C union");
+    std\assert(misc.flag.id == 321, message: "Got expected memory layout of a C union");
 }

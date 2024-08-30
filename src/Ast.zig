@@ -191,7 +191,7 @@ pub const Node = struct {
         ListType: ListType,
         Map: Map,
         MapType: MapType,
-        Namespace: TokenIndex,
+        Namespace: []const TokenIndex,
         NamedVariable: NamedVariable,
         Null: void,
         ObjectDeclaration: ObjectDeclaration,
@@ -449,7 +449,7 @@ pub const Enum = struct {
 };
 
 pub const Export = struct {
-    identifier: ?TokenIndex,
+    name: ?[]const TokenIndex,
     alias: ?TokenIndex,
     declaration: ?Node.Index,
 };
@@ -553,7 +553,7 @@ pub const If = struct {
 
 pub const Import = struct {
     imported_symbols: []const TokenIndex,
-    prefix: ?TokenIndex,
+    prefix: ?[]const TokenIndex,
     path: TokenIndex,
     import: ?Parser.ScriptImport,
 };
@@ -598,7 +598,7 @@ pub const SlotType = enum(u8) {
 pub const Slot = u32;
 
 pub const NamedVariable = struct {
-    identifier: TokenIndex,
+    name: []const TokenIndex,
     value: ?Node.Index,
     slot: Slot,
     slot_type: SlotType,
@@ -690,7 +690,7 @@ pub const Unwrap = struct {
 };
 
 pub const UserType = struct {
-    identifier: TokenIndex,
+    name: []const TokenIndex,
     generic_resolve: ?Node.Index,
 };
 

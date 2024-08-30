@@ -9,8 +9,8 @@ fun partialCatch() > void !> str {
         willFail();
 
         throw 12;
-    } catch (int _) {
-        std.assert(false, message: "unreachable");
+    } catch (_: int) {
+        std\assert(false, message: "unreachable");
     }
 }
 
@@ -19,7 +19,7 @@ fun returnFromCatch() > int {
         willFail();
 
         return 12;
-    } catch (str _) {
+    } catch (_: str) {
         return 21;
     }
 
@@ -27,10 +27,10 @@ fun returnFromCatch() > int {
 }
 
 test "Try catch" {
-    str setme = "";
+    var setme = "";
 
     try {
-        str _ = "i'm local to this try block";
+        _ = "i'm local to this try block";
 
         setme = "yes";
 
@@ -38,34 +38,34 @@ test "Try catch" {
 
         partialCatch();
 
-        std.assert(false, message: "unreachable");
-    } catch (str error) {
-        str _ = "a local in catch clause";
+        std\assert(false, message: "unreachable");
+    } catch (error: str) {
+        _ = "a local in catch clause";
 
-        std.assert(error == "Yolo", message: "caught error");
-    } catch (int _) {
-        std.assert(false, message: "unreachable");
+        std\assert(error == "Yolo", message: "caught error");
+    } catch (_: int) {
+        std\assert(false, message: "unreachable");
     } catch {
-        std.assert(false, message: "unreachable");
+        std\assert(false, message: "unreachable");
     }
 
-    str afterLocal = "bye";
+    const afterLocal = "bye";
 
-    std.assert(setme == "yes", message: "error was handled and code continues");
+    std\assert(setme == "yes", message: "error was handled and code continues");
 
-    std.assert(returnFromCatch() == 21, message: "return from catch clause works");
+    std\assert(returnFromCatch() == 21, message: "return from catch clause works");
 
-    std.assert(afterLocal == "bye", message: "catch closed its scope");
+    std\assert(afterLocal == "bye", message: "catch closed its scope");
 }
 
 test "catch any catches everything" {
     var caught = false;
     try {
         willFail();
-    } catch (any error) {
+    } catch (error: any) {
         caught = true;
-        std.assert(error is str, message: "Could cath any error");
+        std\assert(error is str, message: "Could cath any error");
     }
 
-    std.assert(caught, message: "Could catch any error");
+    std\assert(caught, message: "Could catch any error");
 }

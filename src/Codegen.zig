@@ -2074,10 +2074,13 @@ fn generateForEach(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*
             },
             .String => {
                 if (value_type_def.def_type != .String) {
-                    self.reporter.reportErrorAt(
+                    self.reporter.reportTypeCheck(
                         .foreach_value_type,
+                        self.ast.tokens.get(locations[components.iterable]),
+                        self.gc.type_registry.str_type,
                         self.ast.tokens.get(locations[components.value]),
-                        "Expected `str`.",
+                        value_type_def,
+                        "Bad value type",
                     );
                 }
             },
@@ -2226,6 +2229,7 @@ fn generateFunction(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?
 
     // If function is a test block and we're not testing/checking/etc. don't waste time generating the node
     if (self.flavor == .Run and function_type == .Test) {
+        try self.emitOpCode(locations[node], .OP_NULL);
         return null;
     }
 

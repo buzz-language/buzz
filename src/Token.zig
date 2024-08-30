@@ -90,6 +90,7 @@ pub const Type = enum {
     Minus, // -
     Star, // *
     Slash, // /
+    AntiSlash, // \
     Percent, // %
     Question, // ?
     Bang, // !

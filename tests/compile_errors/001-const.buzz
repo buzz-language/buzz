@@ -1,14 +1,14 @@
-| Invalid assignment target.
+// Can't assign to constant variable
 import "std";
 
 test "`const` variable" {
-    const str yo = "yo";
+    const yo = "yo";
 
     yo = "no way";
 }
 
-| function arguments are `const`
-fun illegal(str yo) > void {
+// function arguments are `const`
+fun illegal(yo: str) > void {
     yo = "no way";
 }
 

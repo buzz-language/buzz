@@ -1,16 +1,16 @@
 import "std";
 
 object A {
-    [A] list,
+    list: [A],
 
     fun hello() > A {
-        std.print("hello");
+        std\print("hello");
         return this;
     }
 }
 
 test "Chained invoke" {
-    A a = A{
+    const a = A{
         list = [
             A{
                 list = [ A{ list = [<A>] } ]

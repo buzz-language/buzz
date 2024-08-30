@@ -2,26 +2,26 @@ import "std";
 import "serialize";
 
 test "Json.encode" {
-    {str: any} data = {
+    const data = {
         "hello": "world",
         "bye": 42,
     };
 
-    std.assert(
-        serialize.jsonEncode(serialize.Boxed.init(data)) == `\{"hello":"world","bye":42}`,
+    std\assert(
+        serialize\jsonEncode(serialize\Boxed.init(data)) == `\{"hello":"world","bye":42}`,
         message: "valid encode"
     );
 }
 
 test "Json.decode" {
-    std.assert(
-        serialize.jsonDecode(`[ -12, true, "hello" ]`).listValue()[2].string() == "hello",
+    std\assert(
+        serialize\jsonDecode(`[ -12, true, "hello" ]`).listValue()[2].string() == "hello",
         message: "could decode simple JSON"
     );
 }
 
 test "Boxed.q" {
-    {str: any} data = {
+    const data = {
         "submap": {
             <str: any>,
             "subsubmap": {
@@ -32,7 +32,7 @@ test "Boxed.q" {
         }
     };
 
-    var boxed = serialize.Boxed.init(data);
+    var boxed = serialize\Boxed.init(data);
 
-    std.assert(boxed.q(["submap", "subsubmap", "one"]).integer() == 1, message: "Boxed.q");
+    std\assert(boxed.q(["submap", "subsubmap", "one"]).integer() == 1, message: "Boxed.q");
 }

@@ -1,15 +1,15 @@
 import "std";
 
 object A {
-    B b
+    b: B
 }
 
 object B {
-    A a
+    a: A
 }
 
 object Node {
-    Node another,
+    another: Node,
 
     fun something() > Node {
         return this.another.somethingelse();
@@ -21,6 +21,6 @@ object Node {
 }
 
 test "Cyclic placeholders" {
-    std.print("{A}");
-    std.print("{B}");
+    std\print("{A}");
+    std\print("{B}");
 }

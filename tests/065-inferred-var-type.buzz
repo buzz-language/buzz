@@ -1,21 +1,21 @@
 import "std";
 
 object Person {
-    str name = "Joe",
+    name: str = "Joe",
 }
 
 var integer = 42;
 const floating = 42.42;
 
 test "Inferring variable declaration type" {
-    std.assert(integer is int, message: "Could infer global variable declaration type");
-    std.assert(floating is float, message: "Could infer global constant declaration type");
+    std\assert(integer is int, message: "Could infer global variable declaration type");
+    std\assert(floating is float, message: "Could infer global constant declaration type");
 
     var string = "hello";
 
-    std.assert(string is str, message: "Could infer variable declaration type");
+    std\assert(string is str, message: "Could infer variable declaration type");
 
     const person = Person{};
 
-    std.assert(person is Person, message: "Could infer constant declaration type");
+    std\assert(person is Person, message: "Could infer constant declaration type");
 }

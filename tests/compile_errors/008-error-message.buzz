@@ -1,9 +1,9 @@
-| Hello world
-fun fail() > void !> obj{ str message } {
+// Hello world
+fun fail() > void !> obj{ message: str } {
     throw .{ message = "Hello world" };
 }
 
-fun depth() > void !> obj{ str message } {
+fun depth() > void !> obj{ message: str } {
     fail();
 }
 

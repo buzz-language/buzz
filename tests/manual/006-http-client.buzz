@@ -4,10 +4,10 @@ import "errors";
 import "serialize";
 
 fun main([str] _) > void !> any {
-    const client = http.Client.init();
+    const client = http\Client.init();
 
-    const request = http.Request{
-        method = http.Method.GET,
+    const request = http\Request{
+        method = http\Method.GET,
         headers = {
             "accept": "*/*",
             "user-agent": "buzz",
@@ -16,7 +16,7 @@ fun main([str] _) > void !> any {
     };
 
     const response = client.send(request);
-    const fact = serialize.jsonDecode(response.body ?? "null").q(["fact"]).stringValue();
+    const fact = serialize\jsonDecode(response.body ?? "null").q(["fact"]).stringValue();
 
-    debug.dump(fact);
+    debug\dump(fact);
 }

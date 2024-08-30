@@ -1,30 +1,30 @@
 import "std";
 
 test "locals inside a foreach" {
-    str hello = "";
+    const hello = "";
 
-    foreach (str _ in "hello world") {
-        str new = "yo";
-        str old = "lo";
+    foreach (_ in "hello world") {
+        const new = "yo";
+        const old = "lo";
 
-        foreach (str _ in "goodbye world") {
-            str newnew = "yoyo";
-            str oldold = "lolo";
+        foreach (_ in "goodbye world") {
+            const newnew = "yoyo";
+            const oldold = "lolo";
 
-            std.assert(new == "yo", message: "locals are ok");
-            std.assert(old == "lo", message: "locals are ok");
-            std.assert(newnew == "yoyo", message: "locals are ok");
-            std.assert(oldold == "lolo", message: "locals are ok");
+            std\assert(new == "yo", message: "locals are ok");
+            std\assert(old == "lo", message: "locals are ok");
+            std\assert(newnew == "yoyo", message: "locals are ok");
+            std\assert(oldold == "lolo", message: "locals are ok");
         }
 
-        std.assert(hello == "");
+        std\assert(hello == "");
     }
 
-    for (int i = 0; i < 3; i = i + 1) {
-        str new = "yo";
-        str old = "lo";
+    for (i: int = 0; i < 3; i = i + 1) {
+        const new = "yo";
+        const old = "lo";
 
-        std.assert(new == "yo", message: "locals are ok");
-        std.assert(old == "lo", message: "locals are ok");
+        std\assert(new == "yo", message: "locals are ok");
+        std\assert(old == "lo", message: "locals are ok");
     }
 }

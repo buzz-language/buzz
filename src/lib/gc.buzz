@@ -1,11 +1,11 @@
 namespace gc;
 
-|| Error occured while collecting
+/// Error occured while collecting
 object CollectError {}
 
-|| Returns the number of allocated bytes
-|| @return allocated bytes
+/// Returns the number of allocated bytes
+/// @return allocated bytes
 export extern fun allocated() > int;
 
-|| Triggers a GC sweep
+/// Triggers a GC sweep
 export extern fun collect() > void !> CollectError;

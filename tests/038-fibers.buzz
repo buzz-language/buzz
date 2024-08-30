@@ -1,34 +1,34 @@
 import "std";
 
 test "fiber" {
-    | Async call, creates a new fiber, yield type must be nullable because resume will return null when nothing yielded
-    fib<str, int?> counter = &count(10);
+    // Async call, creates a new fiber, yield type must be nullable because resume will return null when nothing yielded
+    const counter = &count(10);
 
-    | A fiber is over when a OP_RETURN as been executed
-    int sum = 0;
+    // A fiber is over when a OP_RETURN as been executed
+    var sum = 0;
     while (!counter.over()) {
-        | resume returns null if nothing was yielded and/or fiber is over
+        // resume returns null if nothing was yielded and/or fiber is over
         sum = sum + resume counter ?? 0;
     }
     
-    std.assert(counter.over(), message: "Fiber should be over now");
+    std\assert(counter.over(), message: "Fiber should be over now");
     
-    | resolve runs fiber until it's over and dismiss any yielded value along the way
-    std.assert(resolve counter == "Counting is done!", message: "Fiber is over we get its return value");
-    std.assert(sum == 45, message: "Sum is good");
+    // resolve runs fiber until it's over and dismiss any yielded value along the way
+    std\assert(resolve counter == "Counting is done!", message: "Fiber is over we get its return value");
+    std\assert(sum == 45, message: "Sum is good");
 
-    std.assert(resolve &count(10) == "Counting is done!", message: "Resolve without any resume");
+    std\assert(resolve &count(10) == "Counting is done!", message: "Resolve without any resume");
 
-    std.assert(std.currentFiber().isMain(), message: "We recognize main fiber");
+    std\assert(std\currentFiber().isMain(), message: "We recognize main fiber");
 }
 
-| returns str, yields int
-fun count(int n) > str *> int? {
-    std.assert(std.currentFiber() is fib<str, int?>, message: "Can get current fiber");
-    std.assert(!std.currentFiber().isMain(), message: "Can know if fiber is main one");
+// returns str, yields int
+fun count(n: int) > str *> int? {
+    std\assert(std\currentFiber() is fib<str, int?>, message: "Can get current fiber");
+    std\assert(!std\currentFiber().isMain(), message: "Can know if fiber is main one");
 
-    for (int i = 0; i < n; i = i + 1) {
-        | error or yield is ignored if not called with a async call?
+    for (i: int = 0; i < n; i = i + 1) {
+        // error or yield is ignored if not called with a async call?
         _ = yield i;
     }
 
@@ -42,37 +42,37 @@ fun fail() > bool !> str {
 }
 
 fun caughFiberFail() > bool !> str {
-    fib<bool, void> fiber = &fail();
+    const fiber = &fail();
 
     return resolve fiber;
 }
 
 test "Throw inside a fiber" {
-    std.assert(caughFiberFail() catch true, message: "Caught an error from a fiber");
+    std\assert(caughFiberFail() catch true, message: "Caught an error from a fiber");
 }
 
-fun closedUpvalue() > Function() > str {
-    str upvalue = "joe";
+fun closedUpvalue() > fun () > str {
+    const upvalue = "joe";
 
     return fun () > str => "hello {upvalue}";
 }
 
 test "Opened upvalue in fiber" {
-    str upvalue = "world";
+    const upvalue = "world";
 
-    Function() > str fiberFn = fun () > str => "hello {upvalue}";
+    const fiberFn = fun () > str => "hello {upvalue}";
 
-    std.assert(resolve &fiberFn() == "hello world", message: "Fiber could use an opened upvalue");
+    std\assert(resolve &fiberFn() == "hello world", message: "Fiber could use an opened upvalue");
 }
 
 test "Closed upvalue in fiber" {
-    std.assert(resolve &closedUpvalue()() == "hello joe", message: "Fiber could use a closed upvalue");
+    std\assert(resolve &closedUpvalue()() == "hello joe", message: "Fiber could use a closed upvalue");
 }
 
 test "Wrapping call inside complex expressions" {
-    {str: Function() > str} map = {
+    const map = {
         "hello": fun () > str => "hello world",
     };
 
-    std.assert(resolve &map["hello"]?() == "hello world", message:"Could warp function call in a complex expression");
+    std\assert(resolve &map["hello"]?() == "hello world", message:"Could warp function call in a complex expression");
 }

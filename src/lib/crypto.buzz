@@ -1,6 +1,6 @@
 namespace crypto;
 
-|| Hash algorithms
+/// Hash algorithms
 export enum HashAlgorithm {
     Md5,
     Sha1,
@@ -17,8 +17,8 @@ export enum HashAlgorithm {
     Sha3512,
 }
 
-|| Returns hash of data using given algorithm
-|| @param algo Hash algorithm to use
-|| @param data Data to hash
-|| @return Hash of data has hex string
-export extern fun hash(HashAlgorithm algo, str data) > str;
+/// Returns hash of data using given algorithm
+/// @param algo Hash algorithm to use
+/// @param data Data to hash
+/// @return Hash of data has hex string
+export extern fun hash(algo: HashAlgorithm, data: str) > str;

@@ -1,10 +1,10 @@
 import "tests/utils/testing" as testing;
 
-int mine = 42;
+const mine = 42;
 
 test "Using a function coming from an import" {
-    testing.PrefixMe me = testing.PrefixMe{};
-    testing.assert(me.name == "Joe", message: "prefixed global works as type");
-    testing.assert(testing.hey("world") == mine, message: "unexported symbol is reachable");
-    testing.assert(true, message: "yeah!");
+    const me = testing\PrefixMe{};
+    testing\assert(me.name == "Joe", message: "prefixed global works as type");
+    testing\assert(testing\hey("world") == mine, message: "unexported symbol is reachable");
+    testing\assert(true, message: "yeah!");
 }

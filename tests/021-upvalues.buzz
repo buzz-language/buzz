@@ -1,10 +1,10 @@
 import "std";
 
-fun upvals() > Function() {
-    int upvalue = 12;
-    str up = "up";
+fun upvals() > fun () {
+    const upvalue = 12;
+    const up = "up";
 
-    return fun () > void => std.print("{upvalue} {up}");
+    return fun () > void => std\print("{upvalue} {up}");
 }
 
 test "Upvalues" {

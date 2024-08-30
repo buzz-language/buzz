@@ -1,36 +1,36 @@
 import "std";
 
 test "foreach on list" {
-    [int] list = [1, 2, 3];
+    const list = [1, 2, 3];
 
-    int sum = 0;
-    foreach (int item in list) {
+    var sum = 0;
+    foreach (item in list) {
         sum = sum + item;
     }
 
-    std.assert(sum == 6, message: "foreach on list");
+    std\assert(sum == 6, message: "foreach on list");
 }
 
 test "list.next" {
-    [int] list = [1, 2, 3];
+    const list = [1, 2, 3];
 
-    std.assert(list.next(null) == 0, message: "calling next native");
-    std.assert(list.next(0) == 1, message: "calling next native");
+    std\assert(list.next(null) == 0, message: "calling next native");
+    std\assert(list.next(0) == 1, message: "calling next native");
 }
 
 test "foreach on map" {
-    {str: int} map = {
+    const map = {
         "one": 1,
         "two": 2,
         "three": 3
     };
 
-    int sum = 0;
-    foreach (int value in map) {
+    var sum = 0;
+    foreach (value in map) {
         sum = sum + value;
     }
 
-    std.assert(sum == 6, message: "foreach on map");
+    std\assert(sum == 6, message: "foreach on map");
 }
 
 enum Hey {
@@ -40,39 +40,39 @@ enum Hey {
 }
 
 test "foreach on enum" {
-    int sum = 0;
-    foreach (Hey case in Hey) {
+    var sum = 0;
+    foreach (case in Hey) {
         sum = sum + case.value;
     }
 
-    std.assert(sum == 3, message: "foreach on enum");
+    std\assert(sum == 3, message: "foreach on enum");
 }
 
 test "foreach on str" {
-    str hello = "";
-    foreach (str char in "hello world") {
+    var hello = "";
+    foreach (char in "hello world") {
         hello = "{hello}{char}";
     }
 
-    std.assert(hello == "hello world", message: "foreach on str");
+    std\assert(hello == "hello world", message: "foreach on str");
 }
 
 test "Omit key in foreach" {
-    int sum = 0;
-    foreach (int n in [1, 2, 3]) {
+    var sum = 0;
+    foreach (n in [1, 2, 3]) {
         sum = sum + n;
     }
-    std.assert(sum == 6, message: "Could omit list key");
+    std\assert(sum == 6, message: "Could omit list key");
 
-    str hello = "";
-    foreach (str char in "hello") {
+    var hello = "";
+    foreach (char in "hello") {
         hello = "{hello}{char}";
     }
-    std.assert(hello == "hello", message: "Could omit string key");
+    std\assert(hello == "hello", message: "Could omit string key");
 
     sum = 0;
-    foreach (int n in {"hello": 1, "world": 2}) {
+    foreach (n in {"hello": 1, "world": 2}) {
         sum = sum + n;
     }
-    std.assert(sum == 3, message: "Could omit map key");
+    std\assert(sum == 3, message: "Could omit map key");
 }

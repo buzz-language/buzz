@@ -1,38 +1,38 @@
 import "std";
 
 test "Binary operators" {
-    std.assert(12 == 12, message: "equality (number)");
-    std.assert(12 + 12 == 24, message: "addition");
-    std.assert(12 - 12 == 0, message: "substraction");
-    std.assert(12 * 12 == 144, message: "multiplication");
-    std.assert(12 / 12 == 1, message: "division");
-    std.assert(12 % 12 == 0, message: "modulo");
-    std.assert(12 != 13, message: "inequality");
-    std.assert(12 >= 12, message: "greater or equal");
-    std.assert(12 <= 12, message: "less or equal");
-    std.assert(12 > 11, message: "greater");
-    std.assert(12 < 13, message: "less");
-    std.assert(12 > 3 and 5 < 12, message: "and");
-    std.assert(12 > 3 or 12 < 5, message: "or");
+    std\assert(12 == 12, message: "equality (number)");
+    std\assert(12 + 12 == 24, message: "addition");
+    std\assert(12 - 12 == 0, message: "substraction");
+    std\assert(12 * 12 == 144, message: "multiplication");
+    std\assert(12 / 12 == 1, message: "division");
+    std\assert(12 % 12 == 0, message: "modulo");
+    std\assert(12 != 13, message: "inequality");
+    std\assert(12 >= 12, message: "greater or equal");
+    std\assert(12 <= 12, message: "less or equal");
+    std\assert(12 > 11, message: "greater");
+    std\assert(12 < 13, message: "less");
+    std\assert(12 > 3 and 5 < 12, message: "and");
+    std\assert(12 > 3 or 12 < 5, message: "or");
 }
 
 test "Binary operators for strings" {
-    std.assert("hello " + "world" == "hello world", message: "string concat");
-    std.assert("hello" == "hello", message: "equality (string");
+    std\assert("hello " + "world" == "hello world", message: "string concat");
+    std\assert("hello" == "hello", message: "equality (string");
 }
 
 test "Unary operators (constant folded)" {
-    std.assert(-12 < 0, message: "negate operator");
-    std.assert(!false, message: "not operator");
-    std.assert(~15 == -16, message: "~");
+    std\assert(-12 < 0, message: "negate operator");
+    std\assert(!false, message: "not operator");
+    std\assert(~15 == -16, message: "~");
 }
 
 test "Unary operators" {
-    int a = 12;
-    bool b = false;
-    int c = 15;
+    const a = 12;
+    const b = false;
+    const c = 15;
 
-    std.assert(-a < 0, message: "negate operator");
-    std.assert(!b, message: "not operator");
-    std.assert(~c == -16, message: "~");
+    std\assert(-a < 0, message: "negate operator");
+    std\assert(!b, message: "not operator");
+    std\assert(~c == -16, message: "~");
 }

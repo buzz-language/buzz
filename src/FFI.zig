@@ -650,7 +650,20 @@ fn identifier(self: *Self, decl_index: Ast.Node.Index) anyerror!*Zdef {
         null;
 
     if ((type_def == null or zig_type == null) and self.state.?.parser != null) {
-        const global_idx = try self.state.?.parser.?.resolveGlobal(null, id);
+        // FIXME: should this account for the current namespace?
+        const global_idx = glb: {
+            for (self.state.?.parser.?.globals.items, 0..) |global, idx| {
+                if (std.mem.eql(
+                    u8,
+                    id,
+                    self.state.?.parser.?.ast.tokens.items(.lexeme)[global.name[global.name.len - 1]],
+                )) {
+                    break :glb idx;
+                }
+            }
+            break :glb null;
+        };
+
         const global = if (global_idx) |idx|
             self.state.?.parser.?.globals.items[idx]
         else

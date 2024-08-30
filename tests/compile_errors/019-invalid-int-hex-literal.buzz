@@ -1,4 +1,4 @@
-| '_' must be between digits
+// '_' must be between digits
 test "invalid hex literal" {
-   int a = 0x_100;
+   _ = 0x_100;
 }

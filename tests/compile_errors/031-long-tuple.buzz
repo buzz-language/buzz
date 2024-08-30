@@ -1,4 +1,4 @@
-| Tuples can't have more than 4 elements
+// Tuples can't have more than 4 elements
 test "Long tuple" {
 	.{ 1, 2, 3, 4, 5 };
 }

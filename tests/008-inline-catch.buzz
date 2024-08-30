@@ -10,7 +10,7 @@ fun willFailVoid() > void !> str {
 }
 
 test "Inline catch clauses" {
-    std.assert((willFail() catch 0) == 0, message: "error or default value");
+    std\assert((willFail() catch 0) == 0, message: "error or default value");
 }
 
 test "Inline catch void" {

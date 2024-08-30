@@ -1,4 +1,4 @@
-| Expected `collect` method to be `fun collect() > void` got fun collect(str arg) > void
+// Expected `collect` method to be `fun collect() > void` got fun collect(_: str) > void
 object Collectable {
-    fun collect(str arg) > void {}
+    fun collect(_: str) > void {}
 }

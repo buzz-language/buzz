@@ -1,4 +1,4 @@
-| Expected `toString` method to be `fun toString() > str` got fun toString(str arg) > void
+// Expected `toString` method to be `fun toString() > str` got fun toString(_: str) > void
 object Printable {
-    fun toString(str arg) > void {}
+    fun toString(_: str) > void {}
 }

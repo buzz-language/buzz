@@ -1,19 +1,19 @@
 import "std";
 
 test "for loop" {
-    int sum = 0;
-    for (int i = 0; i < 10; i = i + 1) {
+    var sum = 0;
+    for (i: int = 0; i < 10; i = i + 1) {
         sum = sum + i;
     }
 
-    std.assert(sum == 45, message: "for loop");
+    std\assert(sum == 45, message: "for loop");
 }
 
 test "multiple variable and expressions in for loop" {
-    int sum = 0;
-    for (int i = 0, int j = 9; i < 10 and j >= 0; i = i + 1, j = j - 1) {
+    var sum = 0;
+    for (i: int = 0, j: int = 9; i < 10 and j >= 0; i = i + 1, j = j - 1) {
         sum = sum + i + j;
     }
 
-    std.assert(sum == 90, message: "multiple var loop");
+    std\assert(sum == 90, message: "multiple var loop");
 }

@@ -1,17 +1,17 @@
 import "std";
 
 test "ternary" {
-    int value = if (true) 12 else 0;
+    var value = if (true) 12 else 0;
 
-    std.assert(value == 12, message: "could use constant inline if");
+    std\assert(value == 12, message: "could use constant inline if");
 
     value = if ("hello".len() == 2) 0 else 12;
 
-    std.assert(value == 12, message: "could use inline if");
+    std\assert(value == 12, message: "could use inline if");
 }
 
 test "multiple branches" {
-    int value = 12;
+    const value = 12;
 
     const expr = if (value == 14)
         "hello"
@@ -20,13 +20,13 @@ test "multiple branches" {
     else
         null;
 
-    std.assert(expr == "yolo", message: "Could use multiple branches with inline if");
+    std\assert(expr == "yolo", message: "Could use multiple branches with inline if");
 }
 
 test "inline if in expression" {
-    int value = 12;
+    const value = 12;
 
-    std.assert(
+    std\assert(
         (if (value == 14)
             "hello"
         else if (value == 12)

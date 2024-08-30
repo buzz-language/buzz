@@ -4,7 +4,7 @@ import "os";
 import "io";
 
 export enum(int) Color {
-    | attributes
+    // attributes
     reset      = 0,
     bright     = 1,
     dim        = 2,
@@ -13,7 +13,7 @@ export enum(int) Color {
     reverse    = 7,
     hidden     = 8,
 
-    | foreground
+    // foreground
     black   = 30,
     red     = 31,
     green   = 32,
@@ -23,7 +23,7 @@ export enum(int) Color {
     cyan    = 36,
     white   = 37,
 
-    | background
+    // background
     onblack   = 40,
     onred     = 41,
     ongreen   = 42,
@@ -34,47 +34,47 @@ export enum(int) Color {
     onwhite   = 47,
 }
 
-export fun color(str text, Color color, bool reset = true) > str {
+export fun color(text: str, color: Color, reset: bool = true) > str {
     return "\27[{color.value}m{text}{if (reset) "\27[0m" else ""}";
 }
 
-export fun bright(str text) => color(text, color: Color.bright);
-export fun dim(str text) => color(text, color: Color.dim);
-export fun underscore(str text) => color(text, color: Color.underscore);
-export fun blink(str text) => color(text, color: Color.blink);
-export fun reverse(str text) => color(text, color: Color.reverse);
-export fun hidden(str text) => color(text, color: Color.hidden);
-export fun black(str text) => color(text, color: Color.black);
-export fun red(str text) => color(text, color: Color.red);
-export fun green(str text) => color(text, color: Color.green);
-export fun yellow(str text) => color(text, color: Color.yellow);
-export fun blue(str text) => color(text, color: Color.blue);
-export fun magenta(str text) => color(text, color: Color.magenta);
-export fun cyan(str text) => color(text, color: Color.cyan);
-export fun white(str text) => color(text, color: Color.white);
-export fun onblack(str text) => color(text, color: Color.onblack);
-export fun onred(str text) => color(text, color: Color.onred);
-export fun ongreen(str text) => color(text, color: Color.ongreen);
-export fun onyellow(str text) => color(text, color: Color.onyellow);
-export fun onblue(str text) => color(text, color: Color.onblue);
-export fun onmagenta(str text) => color(text, color: Color.onmagenta);
-export fun oncyan(str text) => color(text, color: Color.oncyan);
-export fun onwhite(str text) => color(text, color: Color.onwhite);
+export fun bright(text: str) => color(text, color: Color.bright);
+export fun dim(text: str) => color(text, color: Color.dim);
+export fun underscore(text: str) => color(text, color: Color.underscore);
+export fun blink(text: str) => color(text, color: Color.blink);
+export fun reverse(text: str) => color(text, color: Color.reverse);
+export fun hidden(text: str) => color(text, color: Color.hidden);
+export fun black(text: str) => color(text, color: Color.black);
+export fun red(text: str) => color(text, color: Color.red);
+export fun green(text: str) => color(text, color: Color.green);
+export fun yellow(text: str) => color(text, color: Color.yellow);
+export fun blue(text: str) => color(text, color: Color.blue);
+export fun magenta(text: str) => color(text, color: Color.magenta);
+export fun cyan(text: str) => color(text, color: Color.cyan);
+export fun white(text: str) => color(text, color: Color.white);
+export fun onblack(text: str) => color(text, color: Color.onblack);
+export fun onred(text: str) => color(text, color: Color.onred);
+export fun ongreen(text: str) => color(text, color: Color.ongreen);
+export fun onyellow(text: str) => color(text, color: Color.onyellow);
+export fun onblue(text: str) => color(text, color: Color.onblue);
+export fun onmagenta(text: str) => color(text, color: Color.onmagenta);
+export fun oncyan(text: str) => color(text, color: Color.oncyan);
+export fun onwhite(text: str) => color(text, color: Color.onwhite);
 
 export object Tester {
-    [bool] tests = [<bool>],
-    [bool] asserts = [<bool>],
-    float elapsed = 0.0,
-    Function(Tester t) > void? beforeAll,
-    Function(Tester t) > void? beforeEach,
-    Function(Tester t) > void? afterAll,
-    Function(Tester t) > void? afterEach,
+    tests: [bool] = [<bool>],
+    asserts: [bool] = [<bool>],
+    elapsed: float = 0.0,
+    beforeAll: fun (t: Tester) > void?,
+    beforeEach: fun (t: Tester) > void?,
+    afterAll: fun (t: Tester) > void?,
+    afterEach: fun (t: Tester) > void?,
 
     static fun init(
-        Function(Tester t) > void? beforeAll,
-        Function(Tester t) > void? beforeEach,
-        Function(Tester t) > void? afterAll,
-        Function(Tester t) > void? afterEach
+        beforeAll: fun (t: Tester) > void?,
+        beforeEach: fun (t: Tester) > void?,
+        afterAll: fun (t: Tester) > void?,
+        afterEach: fun (t: Tester) > void?
     ) > Tester {
         var t =  Tester{
             beforeAll = beforeAll,
@@ -98,7 +98,7 @@ export object Tester {
 
     fun failedAsserts() > int {
         return this.asserts.reduce::<int>(
-            fun (int _, bool success, int accumulator)
+            fun (_: int, success: bool, accumulator: int)
                 => accumulator + if (success) 0 else 1,
             initial: 0,
         );
@@ -106,7 +106,7 @@ export object Tester {
 
     fun failedTests() > int {
         return this.tests.reduce::<int>(
-            fun (int _, bool success, int accumulator)
+            fun (_: int, success: bool, accumulator: int)
                 => accumulator + if (success) 0 else 1,
             initial: 0,
         );
@@ -114,22 +114,22 @@ export object Tester {
 
     fun succeededTests() > int {
         return this.tests.reduce::<int>(
-            fun (int _, bool success, int accumulator)
+            fun (_: int, success: bool, accumulator: int)
                 => accumulator + if (success) 1 else 0,
             initial: 0,
         );
     }
 
-    fun it(str message, Function() > void fn) > void {
-        float startTime = os.time();
+    fun it(message: str, fn: fun () > void) > void {
+        var startTime = os\time();
 
-        io.stdout.write(yellow("▶ Test: {message}\n")) catch void;
+        io\stdout.write(yellow("▶ Test: {message}\n")) catch void;
 
         if (this.beforeEach -> beforeEach) {
             beforeEach(this);
         }
 
-        int previousFailCount = this.failedAsserts();
+        var previousFailCount = this.failedAsserts();
         fn();
 
         if (this.afterEach -> afterEach) {
@@ -138,7 +138,7 @@ export object Tester {
 
         this.tests.append(previousFailCount == this.failedAsserts());
 
-        this.elapsed = this.elapsed + (os.time() - startTime);
+        this.elapsed = this.elapsed + (os\time() - startTime);
     }
 
     fun summary() > void {
@@ -148,17 +148,17 @@ export object Tester {
 
         const failed = this.failedTests();
 
-        io.stdout.write("\n") catch void;
+        io\stdout.write("\n") catch void;
 
-        foreach (bool testStatus in this.tests) {
+        foreach (testStatus in this.tests) {
             if (testStatus) {
-                io.stdout.write(green("●")) catch void;
+                io\stdout.write(green("●")) catch void;
             } else {
-                io.stdout.write(yellow("●")) catch void;
+                io\stdout.write(yellow("●")) catch void;
             }
         }
 
-        io.stdout.write(
+        io\stdout.write(
             green("\n{this.succeededTests()}")
             + dim(" successes, ")
             + yellow("{failed}")
@@ -168,15 +168,15 @@ export object Tester {
         ) catch void;
 
         if (failed > 0) {
-            os.exit(1);
+            os\exit(1);
         }
     }
 
-    fun report(str? error, str? message) > void {
-        io.stderr.write(red("  Assert failed: {message ?? ""}") + dim("\n    {error}\n")) catch void;
+    fun report(error: str?, message: str?) > void {
+        io\stderr.write(red("  Assert failed: {message ?? ""}") + dim("\n    {error}\n")) catch void;
     }
 
-    fun assert(bool condition, str? error, str? message) > void {
+    fun assert(condition: bool, error: str?, message: str?) > void {
         if (!condition) {
             this.report(error, message: message);
 
@@ -186,7 +186,7 @@ export object Tester {
         }
     }
 
-    fun assertEqual::<T>(T actual, T expected, str? message) > void {
+    fun assertEqual::<T>(actual: T, expected: T, message: str?) > void {
         this.assert(
             actual == expected,
             error: "expected `{expected}` got `{actual}`",
@@ -194,7 +194,7 @@ export object Tester {
         );
     }
 
-    fun assertNotEqual::<T>(T actual, T expected, str? message) > void {
+    fun assertNotEqual::<T>(actual: T, expected: T, message: str?) > void {
         this.assert(
             actual != expected,
             error: "expected `{expected}` got `{actual}`",
@@ -202,14 +202,14 @@ export object Tester {
         );
     }
 
-    fun assertAreEqual::<T>([T] values, str? message) > void {
+    fun assertAreEqual::<T>(values: [T], message: str?) > void {
         if (values.len() < 2) {
             return;
         }
 
-        bool equal = true;
-        T previous = values[0];
-        foreach (T value in values) {
+        var equal = true;
+        var previous = values[0];
+        foreach (value in values) {
             if (value != previous) {
                 equal = false;
                 break;
@@ -225,14 +225,14 @@ export object Tester {
         );
     }
 
-    fun assertAreNotEqual::<T>([T] values, str? message) > void {
+    fun assertAreNotEqual::<T>(values: [T], message: str?) > void {
         if (values.len() < 2) {
             return;
         }
 
-        bool equal = true;
-        T previous = values[0];
-        foreach (int i, T value in values) {
+        var equal = true;
+        var previous = values[0];
+        foreach (i, value in values) {
             if (i > 0 and value == previous) {
                 equal = false;
                 break;
@@ -248,7 +248,7 @@ export object Tester {
         );
     }
 
-    fun assertOfType::<T>(any value, str? message) > void {
+    fun assertOfType::<T>(value: any, message: str?) > void {
         this.assert(
             !(value is T),
             error: "`{value}` type is `{typeof value}`",
@@ -256,10 +256,10 @@ export object Tester {
         );
     }
 
-    fun assertThrows::<T>(Function() > void !> T fn, str? message) > void {
+    fun assertThrows::<T>(fn: fun () > void !> T, message: str?) > void {
         try {
             fn();
-        } catch (any error) {
+        } catch (error: any) {
             this.assertOfType::<T>(error, message: message);
             return;
         }
@@ -267,10 +267,10 @@ export object Tester {
         this.assert(false, error: "Did not throw", message: message);
     }
 
-    fun assertDoesNotThrow::<T>(Function() > void fn, str? message) > void {
+    fun assertDoesNotThrow::<T>(fn: fun () > void, message: str?) > void {
         try {
             fn();
-        } catch (any error) {
+        } catch (error: any) {
             if (error is T) {
                 this.assert(false, error: "Did throw", message: message);
                 return;

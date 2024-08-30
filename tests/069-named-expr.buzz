@@ -1,9 +1,9 @@
 import "std";
 
 object Person {
-    str name,
-    int age,
-    bool sex,
+    name: str,
+    age: int,
+    sex: bool,
 }
 
 test "Named expr object properties" {
@@ -16,7 +16,7 @@ test "Named expr object properties" {
         sex = true,
     };
 
-    std.assert(
+    std\assert(
         person.name == "joe"
             and person.age == 24
             and person.sex,
@@ -24,7 +24,7 @@ test "Named expr object properties" {
     );
 }
 
-fun hello(str name, int age, bool sex) > Person {
+fun hello(name: str, age: int, sex: bool) > Person {
     return Person{
         name,
         age,
@@ -38,7 +38,7 @@ test "Name expr function argument" {
 
     var person = hello(name, age, sex: true);
     
-    std.assert(
+    std\assert(
         person.name == "joe"
             and person.age == 24
             and person.sex,

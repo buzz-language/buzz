@@ -1,0 +1,40 @@
+namespace examples\fizzbuzz;
+
+import "std";
+
+fun fizzBuzz(n: int) > str {
+    const fizz = n % 3 == 0;
+    const buzz = n % 5 == 0;
+
+    if (fizz and buzz) {
+        return "FizzBuzz";
+    } else if (fizz) {
+        return "Fizz";
+    } else if (buzz) {
+        return "Buzz";
+    }
+
+    return "{n}";
+}
+
+fun main(args: [str]) > void {
+    const limit = std\parseInt(args[?0] ?? "10") ?? 10;
+
+    foreach (n in 0..limit) {
+        std\print("{n}: {fizzBuzz(n)}");
+    }
+}
+
+test "FizzBuzz" {
+    std\assert(fizzBuzz(1) == "1");
+    std\assert(fizzBuzz(7) == "7");
+
+    std\assert(fizzBuzz(3) == "Fizz");
+    std\assert(fizzBuzz(9) == "Fizz");
+
+    std\assert(fizzBuzz(5) == "Buzz");
+    std\assert(fizzBuzz(20) == "Buzz");
+
+    std\assert(fizzBuzz(15) == "FizzBuzz");
+    std\assert(fizzBuzz(45) == "FizzBuzz");
+}

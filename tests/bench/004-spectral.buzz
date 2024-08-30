@@ -10,9 +10,9 @@ fun Av([float] x, [float] y, int N) > void {
     for (float i = 0.0; i < N; i = i + 1.0) {
         float a = 0.0;
         for (float j = 0.0; j < N; j = j + 1.0) {
-            a = a + x[std.toInt(j)] * A(i: i, j: j);
+            a = a + x[std\toInt(j)] * A(i: i, j: j);
         }
-        y[std.toInt(i)] = a;
+        y[std\toInt(i)] = a;
     }
 }
 
@@ -20,9 +20,9 @@ fun Atv([float] x, [float] y, int N) > void {
     for (float i = 0.0; i < N; i = i + 1.0) {
         float a = 0.0;
         for (float j = 0.0; j < N; j = j + 1.0) {
-            a = a + x[std.toInt(j)] * A(i: j, j: i);
+            a = a + x[std\toInt(j)] * A(i: j, j: i);
         }
-        y[std.toInt(i)] = a;
+        y[std\toInt(i)] = a;
     }
 }
 
@@ -34,7 +34,7 @@ fun AtAv([float] x, [float] y, [float] t, int N) > void {
 fun main([str] args) > void {
     int N = 100;
     if (args.len() > 0) {
-        N = std.parseInt(args[0]) ?? 100;
+        N = std\parseInt(args[0]) ?? 100;
     }
 
     [float] u = [<float>];
@@ -60,5 +60,5 @@ fun main([str] args) > void {
         vv = vv + vi * vi;
     }
 
-    std.print("{math.sqrt(vBv / vv)}");
+    std\print("{math\sqrt(vBv / vv)}");
 }

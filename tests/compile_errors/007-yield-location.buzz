@@ -1,4 +1,4 @@
-| Can't yield here
+// Can't yield here
 test "Bad yield" {
-    yield "yolo";
+    _ = yield "yolo";
 }

@@ -1,19 +1,19 @@
 import "std";
 
 test "Free identifiers" {
-    str @"non-standard-identifier" = "hello world";
+    const @"non-standard-identifier" = "hello world";
 
-    std.assert(@"non-standard-identifier" == "hello world", message: "Could use non-standard identifiers");
+    std\assert(@"non-standard-identifier" == "hello world", message: "Could use non-standard identifiers");
 }
 
 object A {
-    str @"type",
+    @"type": str,
 }
 
 test "Free identifier as object field" {
-    const A a = A{
+    const a = A{
         @"type" = "Hello",
     };
 
-    std.assert(a.@"type" == "Hello", message: "Could use non-standard identifiers as object field");
+    std\assert(a.@"type" == "Hello", message: "Could use non-standard identifiers as object field");
 }

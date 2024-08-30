@@ -2,20 +2,20 @@ namespace testing;
 
 import "std" as std;
 
-int unexported = 42;
+const unexported = 42;
 
-fun hey(str message) > int {
-    std.print(message);
+fun hey(message: str) > int {
+    std\print(message);
     return unexported;
 }
 
-str ignore = "ignore me!";
+const ignore = "ignore me!";
 
 object PrefixMe {
-    str name = "Joe",
+    name: str = "Joe",
 }
 
-export std.assert as assert;
+export std\assert as assert;
 export hey;
 export ignore;
 export PrefixMe;

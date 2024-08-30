@@ -10,12 +10,12 @@ test "labeled break" {
 		}
 	}
 
-	std.assert(i == 10);
+	std\assert(i == 10);
 }
 
 test "labeled break in nested loop" {
 	var i = 0;
-	foreach (int _ in 0..100) :here {
+	foreach (_ in 0..100) :here {
 		var _ = "hello";
 
 		while (i < 100) {
@@ -27,12 +27,12 @@ test "labeled break in nested loop" {
 		}
 	}
 
-	std.assert(i == 10);
+	std\assert(i == 10);
 }
 
 test "labeled break in deeply nested loop" {
 	var i = 0;
-	foreach (int j in 0..100) :here {
+	foreach (j in 0..100) :here {
 		var _ = "hello";
 
 		while (j < 100) {
@@ -48,12 +48,12 @@ test "labeled break in deeply nested loop" {
 		}
 	}
 
-	std.assert(i == 10);
+	std\assert(i == 10);
 }
 
 test "labeled continue" {
 	var i = 0;
-	foreach (int j in 0..10) :here {
+	foreach (j in 0..10) :here {
 		if (j == 3) {
 			continue here;
 		}
@@ -61,6 +61,6 @@ test "labeled continue" {
 		i = i + j;
 	}
 
-	std.assert(i == 42);
+	std\assert(i == 42);
 }
 

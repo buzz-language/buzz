@@ -2,44 +2,44 @@ namespace io;
 
 import "errors";
 
-|| @private
-extern fun FileOpen(str filename, int mode) > int !> errors.FileSystemError, errors.UnexpectedError;
-|| @private
-extern fun FileClose(int fd) > void;
-|| @private
-extern fun FileReadAll(int fd, int? maxSize) > str !> errors.ReadWriteError, errors.FileSystemError, errors.UnexpectedError;
-|| @private
-extern fun FileReadLine(int fd, int? maxSize) > str? !> errors.ReadWriteError, errors.FileSystemError, errors.UnexpectedError;
-|| @private
-extern fun FileRead(int fd, int n) > str? !> errors.ReadWriteError, errors.FileSystemError, errors.InvalidArgumentError, errors.UnexpectedError;
-|| @private
-extern fun FileWrite(int fd, str bytes) > void !> errors.FileSystemError, errors.ReadWriteError, errors.UnexpectedError;
-|| @private
+/// @private
+extern fun FileOpen(filename: str, mode: int) > int !> errors\FileSystemError, errors\UnexpectedError;
+/// @private
+extern fun FileClose(fd: int) > void;
+/// @private
+extern fun FileReadAll(fd: int, maxSize: int?) > str !> errors\ReadWriteError, errors\FileSystemError, errors\UnexpectedError;
+/// @private
+extern fun FileReadLine(fd: int, maxSize: int?) > str? !> errors\ReadWriteError, errors\FileSystemError, errors\UnexpectedError;
+/// @private
+extern fun FileRead(fd: int, n: int) > str? !> errors\ReadWriteError, errors\FileSystemError, errors\InvalidArgumentError, errors\UnexpectedError;
+/// @private
+extern fun FileWrite(fd: int, bytes: str) > void !> errors\FileSystemError, errors\ReadWriteError, errors\UnexpectedError;
+/// @private
 extern fun getStdIn() > int;
-|| @private
+/// @private
 extern fun getStdOut() > int;
-|| @private
+/// @private
 extern fun getStdErr() > int;
-|| @private
-extern fun FileIsTTY(int fd) > bool;
+/// @private
+extern fun FileIsTTY(fd: int) > bool;
 
-|| File mode with which you can open a file
+/// File mode with which you can open a file
 export enum FileMode {
     read,
     write,
     update,
 }
 
-|| Object to manipulate an opened file
+/// Object to manipulate an opened file
 export object File {
-    || File descriptor
-    int fd,
+    /// File descriptor
+    fd: int,
 
-    || Open file
-    || @param filename Path of file to open
-    || @param mode Mode with which to open it
-    || @return opened file
-    static fun open(str filename, FileMode mode) > File !> errors.FileSystemError, errors.UnexpectedError {
+    /// Open file
+    /// @param filename Path of file to open
+    /// @param mode Mode with which to open it
+    /// @return opened file
+    static fun open(filename: str, mode: FileMode) > File !> errors\FileSystemError, errors\UnexpectedError {
         return File {
             fd = FileOpen(filename, mode: mode.value),
         };
@@ -49,49 +49,49 @@ export object File {
         this.close();
     }
 
-    || Close file
+    /// Close file
     fun close() > void {
         FileClose(this.fd);
     }
 
-    || Reads file until `EOF`
-    || @return Read data
-    fun readAll(int? maxSize) > str !> errors.ReadWriteError, errors.FileSystemError, errors.UnexpectedError {
+    /// Reads file until `EOF`
+    /// @return Read data
+    fun readAll(maxSize: int?) > str !> errors\ReadWriteError, errors\FileSystemError, errors\UnexpectedError {
         return FileReadAll(this.fd, maxSize);
     }
 
-    || Reads next line, returns null if nothing to read
-    || @return Read data
-    fun readLine(int? maxSize) > str? !> errors.ReadWriteError, errors.FileSystemError, errors.UnexpectedError {
+    /// Reads next line, returns null if nothing to read
+    /// @return Read data
+    fun readLine(maxSize: int?) > str? !> errors\ReadWriteError, errors\FileSystemError, errors\UnexpectedError {
         return FileReadLine(this.fd, maxSize);
     }
 
-    || Reads `n` bytes, returns null if nothing to read
-    || @param n how many bytes to read
-    || @return Read data
-    fun read(int n) > str? !> errors.ReadWriteError, errors.FileSystemError, errors.InvalidArgumentError, errors.UnexpectedError {
+    /// Reads `n` bytes, returns null if nothing to read
+    /// @param n how many bytes to read
+    /// @return Read data
+    fun read(n: int) > str? !> errors\ReadWriteError, errors\FileSystemError, errors\InvalidArgumentError, errors\UnexpectedError {
         return FileRead(this.fd, n: n);
     }
 
-    || Write bytes
-    || @param bytes string to write
-    fun write(str bytes) > void !> errors.FileSystemError, errors.ReadWriteError, errors.UnexpectedError {
+    /// Write bytes
+    /// @param bytes string to write
+    fun write(bytes: str) > void !> errors\FileSystemError, errors\ReadWriteError, errors\UnexpectedError {
         FileWrite(this.fd, bytes: bytes);
     }
 
-    || @return true if file is TTY
+    /// @return true if file is TTY
     fun isTTY() > bool {
         return FileIsTTY(this.fd);
     }
 }
 
-|| stdin
-export const File stdin = File{ fd = getStdIn() };
-|| stdout
-export const File stdout = File{ fd = getStdOut() };
-|| stderr
-export const File stderr = File{ fd = getStdErr() };
+/// stdin
+export const stdin = File{ fd = getStdIn() };
+/// stdout
+export const stdout = File{ fd = getStdOut() };
+/// stderr
+export const stderr = File{ fd = getStdErr() };
 
-|| Run a buzz file
-|| @param filename path to buzz file
-export extern fun runFile(str filename) > void !> errors.CompileError, errors.InterpretError, errors.FileSystemError, errors.ReadWriteError;
+/// Run a buzz file
+/// @param filename path to buzz file
+export extern fun runFile(filename: str) > void !> errors\CompileError, errors\InterpretError, errors\FileSystemError, errors\ReadWriteError;

@@ -1,18 +1,18 @@
 import "std";
 
-fun mul(int a, int b) > int {
+fun mul(a: int, b: int) > int {
     return a * b;
 }
 
-fun tail(int a, int b) > int {
+fun tail(a: int, b: int) > int {
     return mul(a, b);
 }
 
 test "simple tail call" {
-    std.assert(tail(a: 5, b: 2) == 10);
+    std\assert(tail(a: 5, b: 2) == 10);
 }
 
-fun recursive(int limit, int current) > int {
+fun recursive(limit: int, current: int) > int {
     if (current > limit) {
         return current;
     }
@@ -21,18 +21,18 @@ fun recursive(int limit, int current) > int {
 }
 
 test "recursive tail call" {
-    std.assert(recursive(limit: 5, current: 0) == 6);
+    std\assert(recursive(limit: 5, current: 0) == 6);
 }
 
 object Tail {
-    int a,
-    int b,
+    a: int,
+    b: int,
 
-    fun mul(int c) > int {
+    fun mul(c: int) > int {
         return (this.a + this.b) * c;
     }
 
-    fun tail(int c) > int {
+    fun tail(c: int) > int {
         return this.mul(c);
     }
 }
@@ -43,5 +43,5 @@ test "dot tail call" {
         b = 2,
     }.tail(3);
 
-    std.print("{result}");
+    std\print("{result}");
 }

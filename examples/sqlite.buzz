@@ -9,7 +9,7 @@ zdef("sqlite3", `
     fn sqlite3_initialize() c_int;
     fn sqlite3_shutdown() c_int;
     // Right now we can't express a ptr to an opaque struct because we need to know its size
-    fn sqlite3_open_v2(filename: [*:0]const u8, ppDb: **anyopaque, flags: c_int, zVfs: ?[*:0]const u8) c_int;
+    fn sqlite3_open_v2(filename: [*:0]const u8, ppDb: **anyopaque, flags: c_int, zVfs\ ?[*:0]const u8) c_int;
     fn sqlite3_close_v2(db: *anyopaque) c_int;
     fn sqlite3_errmsg(db: *anyopaque) [*:0]const u8;
     fn sqlite3_prepare_v2(db: *anyopaque, zSql: [*:0]const u8, nBytes: c_int, ppStmt: **anyopaque, pzTail: ?*[*]const u8) c_int;
@@ -26,37 +26,37 @@ zdef("sqlite3", `
 `);
 
 enum(int) ResultCode {
-    Ok         = 0,   | Successful result
-    Error      = 1,   | Generic error
-    Internal   = 2,   | Internal logic error in SQLite
-    Perm       = 3,   | Access permission denied
-    Abort      = 4,   | Callback routine requested an abort
-    Busy       = 5,   | The database file is locked
-    Locked     = 6,   | A table in the database is locked
-    NoMem      = 7,   | A malloc() failed
-    Readonly   = 8,   | Attempt to write a readonly database
-    Interrupt  = 9,   | Operation terminated by sqlite3_interrupt(
-    IoErr      = 10,  | Some kind of disk I/O error occurred
-    Corrupt    = 11,  | The database disk image is malformed
-    NotFound   = 12,  | Unknown opcode in sqlite3_file_control()
-    Full       = 13,  | Insertion failed because database is full
-    CantOpen   = 14,  | Unable to open the database file
-    Protocol   = 15,  | Database lock protocol error
-    Empty      = 16,  | Internal use only
-    Schema     = 17,  | The database schema changed
-    TooBig     = 18,  | String or BLOB exceeds size limit
-    Constraint = 19,  | Abort due to constraint violation
-    Mismatch   = 20,  | Data type mismatch
-    Misuse     = 21,  | Library used incorrectly
-    NoLfs      = 22,  | Uses OS features not supported on host
-    Auth       = 23,  | Authorization denied
-    Format     = 24,  | Not used
-    Range      = 25,  | 2nd parameter to sqlite3_bind out of range
-    NotADB     = 26,  | File opened that is not a database file
-    Notice     = 27,  | Notifications from sqlite3_log()
-    Warning    = 28,  | Warnings from sqlite3_log()
-    Row        = 100, | sqlite3_step() has another row ready
-    Done       = 101, | sqlite3_step() has finished executing
+    Ok         = 0,   // Successful result
+    Error      = 1,   // Generic error
+    Internal   = 2,   // Internal logic error in SQLite
+    Perm       = 3,   // Access permission denied
+    Abort      = 4,   // Callback routine requested an abort
+    Busy       = 5,   // The database file is locked
+    Locked     = 6,   // A table in the database is locked
+    NoMem      = 7,   // A malloc() failed
+    Readonly   = 8,   // Attempt to write a readonly database
+    Interrupt  = 9,   // Operation terminated by sqlite3_interrupt(
+    IoErr      = 10,  // Some kind of disk I/O error occurred
+    Corrupt    = 11,  // The database disk image is malformed
+    NotFound   = 12,  // Unknown opcode in sqlite3_file_control()
+    Full       = 13,  // Insertion failed because database is full
+    CantOpen   = 14,  // Unable to open the database file
+    Protocol   = 15,  // Database lock protocol error
+    Empty      = 16,  // Internal use only
+    Schema     = 17,  // The database schema changed
+    TooBig     = 18,  // String or BLOB exceeds size limit
+    Constraint = 19,  // Abort due to constraint violation
+    Mismatch   = 20,  // Data type mismatch
+    Misuse     = 21,  // Library used incorrectly
+    NoLfs      = 22,  // Uses OS features not supported on host
+    Auth       = 23,  // Authorization denied
+    Format     = 24,  // Not used
+    Range      = 25,  // 2nd parameter to sqlite3_bind out of range
+    NotADB     = 26,  // File opened that is not a database file
+    Notice     = 27,  // Notifications from sqlite3_log()
+    Warning    = 28,  // Warnings from sqlite3_log()
+    Row        = 100, // sqlite3_step() has another row ready
+    Done       = 101, // sqlite3_step() has finished executing
 }
 
 export object SQLiteError {
@@ -153,7 +153,7 @@ export object Statement {
     ud stmt,
 
     fun execute() > [[Boxed]] *> [Boxed]? !> SQLiteError {
-        std.print("Executing query `{this.query}`");
+        std\print("Executing query `{this.query}`");
         ResultCode code = ResultCode.Ok;
 
         [[Boxed]] rows = [<[Boxed]>];
@@ -223,14 +223,14 @@ export object Database {
 
     fun prepareRaw(str query) > Statement !> SQLiteError {
         Buffer buffer = Buffer.init();
-        buffer.writeUserData(std.toUd(0)) catch void;
+        buffer\writeUserData(std\toUd(0)) catch void;
 
         const ResultCode code = ResultCode(
             sqlite3_prepare_v2(
                 db: this.db,
-                zSql: ffi.cstr(query),
+                zSql: ffi\cstr(query),
                 nBytes: -1,
-                ppStmt: buffer.ptr(),
+                ppStmt: buffer\ptr(),
                 pzTail: null,
             )
         ) ?? ResultCode.Error;
@@ -243,7 +243,7 @@ export object Database {
 
         return Statement{
             query = query,
-            stmt = buffer.readUserData()!,
+            stmt = buffer\readUserData()!,
             db = this.db,
         };
     }
@@ -263,7 +263,7 @@ export object SQLite {
     }
 
     static fun escape(str string) > str {
-        return sqlite3_mprintf(ffi.cstr(string)) ?? "";
+        return sqlite3_mprintf(ffi\cstr(string)) ?? "";
     } 
 
     fun collect() > void {
@@ -273,18 +273,18 @@ export object SQLite {
     fun open(str filename, [OpenFlag] flags) > Database !> SQLiteError {
         int cFlags = 0;
         foreach (OpenFlag flag in flags) {
-            cFlags = cFlags \ flag.value;
+            cFlags = cFlags | flag.value;
         }
 
         Buffer buffer = Buffer.init();
-        buffer.writeUserData(std.toUd(0)) catch void;
+        buffer\writeUserData(std\toUd(0)) catch void;
 
         const ResultCode code = ResultCode(
             sqlite3_open_v2(
-                filename: ffi.cstr(filename),
-                ppDb: buffer.ptr(),
+                filename: ffi\cstr(filename),
+                ppDb: buffer\ptr(),
                 flags: cFlags,
-                zVfs: null
+                zVfs\ null
             )
         ) ?? ResultCode.Error;
 
@@ -295,10 +295,10 @@ export object SQLite {
             };
         }
 
-        std.print("Database `{filename}` opened");
+        std\print("Database `{filename}` opened");
 
         return Database {
-            db = buffer.readUserData()!,
+            db = buffer\readUserData()!,
         };
     }
 }
@@ -329,6 +329,6 @@ test "Testing sqlite" {
         .prepare(database);
 
     foreach ([Boxed] row in &select.execute()) {
-        std.print("{row[0].integerValue()}: {row[1].stringValue()}");
+        std\print("{row[0].integerValue()}: {row[1].stringValue()}");
     }
 }

@@ -1,37 +1,37 @@
 import "std";
 
-fun hello([str] name = ["John", "Doe"], {str: str} address = { "street": "somewhere street", "town": "New York" }) > void {
-    std.assert(name.len() == 2, message: "default arg is clone of the default value");
-    std.assert(address.size() == 2, message: "default arg is clone of the default value");
+fun hello(name: [str] = ["John", "Doe"], address: {str: str} = { "street": "somewhere street", "town": "New York" }) > void {
+    std\assert(name.len() == 2, message: "default arg is clone of the default value");
+    std\assert(address.size() == 2, message: "default arg is clone of the default value");
 
-    std.print("Hello I'm {name[0]} {name[1]} I live at {address["street"]} in {address["town"]}");
+    std\print("Hello I'm {name[0]} {name[1]} I live at {address["street"]} in {address["town"]}");
 
     name.append("Yolo");
     address["country"] = "US";
 }
 
 object A {
-    [int] list = [1, 2, 3],
-    {str: int} map = { "yo": 1 },
+    list: [int] = [1, 2, 3],
+    map: {str: int} = { "yo": 1 },
 }
 
 test "Constant expression" {
     hello();
     hello();
 
-    A a = A{};
-    A b = A{};
+    const a = A{};
+    const b = A{};
 
-    std.assert(a.list != b.list, message: "object default value were cloned");
-    std.assert(a.map != b.map, message: "object default value were cloned");
+    std\assert(a.list != b.list, message: "object default value were cloned");
+    std\assert(a.map != b.map, message: "object default value were cloned");
 
     a.list.append(4);
 
-    std.assert(a.list.len() == 4, message: "object default value were cloned");
-    std.assert(b.list.len() == 3, message: "object default value were cloned");
+    std\assert(a.list.len() == 4, message: "object default value were cloned");
+    std\assert(b.list.len() == 3, message: "object default value were cloned");
 
     a.map["lo"] = 4;
 
-    std.assert(a.map.size() == 2, message: "object default value were cloned");
-    std.assert(b.map.size() == 1, message: "object default value were cloned");
+    std\assert(a.map.size() == 2, message: "object default value were cloned");
+    std\assert(b.map.size() == 1, message: "object default value were cloned");
 }

@@ -12,5 +12,5 @@ fun main([str] _) > void {
         sum = sum + v;
     }
 
-    std.print("{sum}");
+    std\print("{sum}");
 }

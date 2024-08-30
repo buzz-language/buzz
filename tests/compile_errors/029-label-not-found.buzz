@@ -1,4 +1,4 @@
-| Label `somewhere` does not exists.
+// Label `somewhere` does not exists.
 test "using a label that does not exists" {
 	while (true) {
 		break somewhere;

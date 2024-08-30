@@ -715,9 +715,9 @@ pub const ObjFiber = struct {
     };
 
     pub const members_typedef = [_][]const u8{
-        "extern Function cancel() > void",
-        "extern Function isMain() > bool",
-        "extern Function over() > bool",
+        "extern fun cancel() > void",
+        "extern fun isMain() > bool",
+        "extern fun over() > bool",
     };
 
     pub const members_name = std.StaticStringMap(usize).initComptime(
@@ -835,15 +835,15 @@ pub const ObjPattern = struct {
 
     const members_typedef = if (!is_wasm)
         [_][]const u8{
-            "extern Function match(str subject) > [str]?",
-            "extern Function matchAll(str subject) > [[str]]?",
-            "extern Function replace(str subject, str with) > str",
-            "extern Function replaceAll(str subject, str with) > str",
+            "extern fun match(subject: str) > [str]?",
+            "extern fun matchAll(subject: str) > [[str]]?",
+            "extern fun replace(subject: str, with: str) > str",
+            "extern fun replaceAll(subject: str, with: str) > str",
         }
     else
         [_][]const u8{
-            "extern Function replace(str subject, str with) > str",
-            "extern Function replaceAll(str subject, str with) > str",
+            "extern fun replace(subject: str, with: str) > str",
+            "extern fun replaceAll(subject: str, with: str) > str",
         };
 
     pub const members_name = std.StaticStringMap(usize).initComptime(
@@ -1006,25 +1006,25 @@ pub const ObjString = struct {
     };
 
     pub const members_typedef = [_][]const u8{
-        "extern Function bin() > str",
-        "extern Function byte(int at = 0) > int",
-        "extern Function decodeBase64() > str",
-        "extern Function encodeBase64() > str",
-        "extern Function endsWith(str needle) > bool",
-        "extern Function hex() > str",
-        "extern Function indexOf(str needle) > int?",
-        "extern Function len() > int",
-        "extern Function lower() > str",
-        "extern Function repeat(int n) > str",
-        "extern Function replace(str needle, str with) > str",
-        "extern Function split(str separator) > [str]",
-        "extern Function startsWith(str needle) > bool",
-        "extern Function sub(int start, int? len) > str",
-        "extern Function trim() > str",
-        "extern Function upper() > str",
-        "extern Function utf8Codepoints() > [str]",
-        "extern Function utf8Len() > int",
-        "extern Function utf8Valid() > bool",
+        "extern fun bin() > str",
+        "extern fun byte(at: int = 0) > int",
+        "extern fun decodeBase64() > str",
+        "extern fun encodeBase64() > str",
+        "extern fun endsWith(needle: str) > bool",
+        "extern fun hex() > str",
+        "extern fun indexOf(needle: str) > int?",
+        "extern fun len() > int",
+        "extern fun lower() > str",
+        "extern fun repeat(n: int) > str",
+        "extern fun replace(needle: str, with: str) > str",
+        "extern fun split(separator: str) > [str]",
+        "extern fun startsWith(needle: str) > bool",
+        "extern fun sub(start: int, len: int?) > str",
+        "extern fun trim() > str",
+        "extern fun upper() > str",
+        "extern fun utf8Codepoints() > [str]",
+        "extern fun utf8Len() > int",
+        "extern fun utf8Valid() > bool",
     };
 
     pub const members_name = std.StaticStringMap(usize).initComptime(
@@ -1295,13 +1295,25 @@ pub const ObjFunction = struct {
     pub fn mark(self: *Self, gc: *GarbageCollector) !void {
         try gc.markObj(@constCast(self.type_def.toObj()));
         if (BuildOptions.gc_debug) {
-            io.print("MARKING CONSTANTS OF FUNCTION @{} {s}\n", .{ @intFromPtr(self), self.name.string });
+            io.print(
+                "MARKING CONSTANTS OF FUNCTION @{} {s}\n",
+                .{
+                    @intFromPtr(self),
+                    self.type_def.resolved_type.?.Function.name.string,
+                },
+            );
         }
         for (self.chunk.constants.items) |constant| {
             try gc.markValue(constant);
         }
         if (BuildOptions.gc_debug) {
-            io.print("DONE MARKING CONSTANTS OF FUNCTION @{} {s}\n", .{ @intFromPtr(self), self.name.string });
+            io.print(
+                "DONE MARKING CONSTANTS OF FUNCTION @{} {s}\n",
+                .{
+                    @intFromPtr(self),
+                    self.type_def.resolved_type.?.Function.name.string,
+                },
+            );
         }
     }
 
@@ -2835,14 +2847,14 @@ pub const ObjRange = struct {
     };
 
     const members_typedef = [_][]const u8{
-        "extern Function high() > int",
-        "extern Function intersect(rg other) > rg",
-        "extern Function invert() > rg",
-        "extern Function len() > int",
-        "extern Function low() > int",
-        "extern Function subsetOf(rg other) > bool",
-        "extern Function toList() > [int]",
-        "extern Function union(rg other) > rg",
+        "extern fun high() > int",
+        "extern fun intersect(other: rg) > rg",
+        "extern fun invert() > rg",
+        "extern fun len() > int",
+        "extern fun low() > int",
+        "extern fun subsetOf(other: rg) > bool",
+        "extern fun toList() > [int]",
+        "extern fun union(other: rg) > rg",
     };
 
     pub const members_name = std.StaticStringMap(usize).initComptime(
@@ -4075,13 +4087,13 @@ pub const ObjTypeDef = struct {
                         type_registry,
                         visited_ptr,
                     ),
-                    .yield_type = try self.resolved_type.?.Fiber.yield_type.populateGenerics(
+                    .yield_type = try (try self.resolved_type.?.Fiber.yield_type.populateGenerics(
                         where,
                         origin,
                         generics,
                         type_registry,
                         visited_ptr,
-                    ),
+                    )).cloneOptional(type_registry),
                 };
 
                 const resolved = ObjTypeDef.TypeUnion{ .Fiber = new_fiber_def };
@@ -4286,14 +4298,17 @@ pub const ObjTypeDef = struct {
                         generics,
                         type_registry,
                         visited_ptr,
-                    )).toInstance(type_registry.gc.allocator, type_registry),
-                    .yield_type = try (try old_fun_def.yield_type.populateGenerics(
+                    ))
+                        .toInstance(type_registry.gc.allocator, type_registry),
+                    .yield_type = try (try (try old_fun_def.yield_type.populateGenerics(
                         where,
                         origin,
                         generics,
                         type_registry,
                         visited_ptr,
-                    )).toInstance(type_registry.gc.allocator, type_registry),
+                    ))
+                        .toInstance(type_registry.gc.allocator, type_registry))
+                        .cloneOptional(type_registry),
                     .error_types = if (error_types) |types| types.items else null,
                     .parameters = parameters,
                     .defaults = old_fun_def.defaults,
@@ -4430,8 +4445,8 @@ pub const ObjTypeDef = struct {
                     const count = object_def.fields.count();
                     var i: usize = 0;
                     while (it.next()) |kv| {
+                        try writer.print("{s}: ", .{kv.key_ptr.*});
                         try kv.value_ptr.*.type_def.toStringRaw(writer, qualified);
-                        try writer.print(" {s}", .{kv.key_ptr.*});
 
                         if (i < count - 1) {
                             try writer.writeAll(", ");
@@ -4496,8 +4511,8 @@ pub const ObjTypeDef = struct {
                     const count = object_def.fields.count();
                     var i: usize = 0;
                     while (it.next()) |kv| {
+                        try writer.print("{s}: ", .{kv.key_ptr.*});
                         try kv.value_ptr.*.type_def.toStringRaw(writer, qualified);
-                        try writer.print(" {s}", .{kv.key_ptr.*});
 
                         if (i < count - 1) {
                             try writer.writeAll(", ");
@@ -4612,9 +4627,9 @@ pub const ObjTypeDef = struct {
                     var i: usize = 0;
                     var it = function_def.parameters.iterator();
                     while (it.next()) |kv| : (i = i + 1) {
-                        try kv.value_ptr.*.toStringRaw(writer, qualified);
-                        try writer.writeAll(" ");
                         try writer.writeAll(kv.key_ptr.*.string);
+                        try writer.writeAll(": ");
+                        try kv.value_ptr.*.toStringRaw(writer, qualified);
 
                         if (i < size - 1) {
                             try writer.writeAll(", ");
@@ -4840,7 +4855,11 @@ pub const ObjTypeDef = struct {
 
     // Compare two type definitions
     pub fn eql(expected: *Self, actual: *Self) bool {
-        if (expected == actual or (expected.optional and actual.def_type == .Void) or expected.def_type == .Any) {
+        if (expected == actual or
+            (expected.optional and actual.def_type == .Void) or
+            (actual.optional and expected.def_type == .Void) or
+            expected.def_type == .Any)
+        {
             return true;
         }
 
@@ -5006,21 +5025,21 @@ pub const PlaceholderDef = struct {
             return;
         }
 
-        if (child.resolved_type.?.Placeholder.parent != null) {
-            if (BuildOptions.debug_placeholders) {
-                io.print(
-                    ">>> Placeholder @{} ({s}) has already a {} relation with @{} ({s})\n",
-                    .{
-                        @intFromPtr(child),
-                        if (child.resolved_type.?.Placeholder.name) |name| name.string else "unknown",
-                        child.resolved_type.?.Placeholder.parent_relation.?,
-                        @intFromPtr(child.resolved_type.?.Placeholder.parent.?),
-                        if (child.resolved_type.?.Placeholder.parent.?.resolved_type.?.Placeholder.name) |name| name.string else "unknown",
-                    },
-                );
-            }
-            return;
-        }
+        // if (child.resolved_type.?.Placeholder.parent != null) {
+        //     if (BuildOptions.debug_placeholders) {
+        //         io.print(
+        //             ">>> Placeholder @{} ({s}) has already a {} relation with @{} ({s})\n",
+        //             .{
+        //                 @intFromPtr(child),
+        //                 if (child.resolved_type.?.Placeholder.name) |name| name.string else "unknown",
+        //                 child.resolved_type.?.Placeholder.parent_relation.?,
+        //                 @intFromPtr(child.resolved_type.?.Placeholder.parent.?),
+        //                 if (child.resolved_type.?.Placeholder.parent.?.resolved_type.?.Placeholder.name) |name| name.string else "unknown",
+        //             },
+        //         );
+        //     }
+        //     return;
+        // }
 
         child.resolved_type.?.Placeholder.parent = parent;
         try parent.resolved_type.?.Placeholder.children.append(child);

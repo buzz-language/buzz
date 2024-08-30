@@ -9,5 +9,5 @@ fun fibonnacci(int n) > int {
 }
 
 fun main([str] _) > void {
-    std.print("{fibonnacci(30)}");
+    std\print("{fibonnacci(30)}");
 }

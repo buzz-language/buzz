@@ -1,51 +1,51 @@
 import "std";
 import "fs" as fs;
 
-test "fs.cwd" {
-    std.assert(fs.currentDirectory() != "", message: "Could get cwd");
+test "fs\cwd" {
+    std\assert(fs\currentDirectory() != "", message: "Could get cwd");
 }
 
 test "mkDir/rm" {
-    fs.makeDirectory("yo");
-    fs.makeDirectory("{fs.currentDirectory()}/yo2");
+    fs\makeDirectory("yo");
+    fs\makeDirectory("{fs\currentDirectory()}/yo2");
 
-    fs.delete("yo");
-    fs.delete("{fs.currentDirectory()}/yo2");
+    fs\delete("yo");
+    fs\delete("{fs\currentDirectory()}/yo2");
 }
 
 test "ls" {
-    bool containsREADME = false;
-    foreach (str el in fs.list(fs.currentDirectory())) {
-        str _ = "hello there!";
+    var containsREADME = false;
+    foreach (el in fs\list(fs\currentDirectory())) {
+        _ = "hello there!";
         if (el == "README.md") {
             containsREADME = true;
             break;
         }
     }
 
-    str anotherRandomLocal = "bye there!";
+    const anotherRandomLocal = "bye there!";
 
-    std.assert(anotherRandomLocal == "bye there!", message: "foreach break is wrong");
+    std\assert(anotherRandomLocal == "bye there!", message: "foreach break is wrong");
 
-    std.assert(containsREADME, message: "Could list element in current directory");
+    std\assert(containsREADME, message: "Could list element in current directory");
 
-    foreach (str el in fs.list("/doesnotexist") catch ["wentwrong"]) {
-        std.assert(el == "wentwrong", message: "Trying to list a non existent directory raised an error");
+    foreach (el in fs\list("/doesnotexist") catch ["wentwrong"]) {
+        std\assert(el == "wentwrong", message: "Trying to list a non existent directory raised an error");
     }
 }
 
 test "move" {
-    fs.move(source: "README.md", destination: "src/README.md");
+    fs\move(source: "README.md", destination: "src/README.md");
 
-    std.assert(
-        fs.list("src").indexOf("README.md") != null,
+    std\assert(
+        fs\list("src").indexOf("README.md") != null,
         message: "Moved file to expected location"
     );
 
-    fs.move(source: "src/README.md", destination: "README.md");
+    fs\move(source: "src/README.md", destination: "README.md");
 
-    std.assert(
-        fs.list(".").indexOf("README.md") != null,
+    std\assert(
+        fs\list(".").indexOf("README.md") != null,
         message: "Moved file to expected location"
     );
 }

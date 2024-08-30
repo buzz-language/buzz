@@ -166,31 +166,27 @@ pub const CompileError = error{
 };
 
 pub const Local = struct {
-    name: *obj.ObjString,
-    name_token: Ast.TokenIndex,
-    location: Ast.TokenIndex,
+    name: Ast.TokenIndex,
     type_def: *obj.ObjTypeDef,
     depth: i32,
     is_captured: bool,
     constant: bool,
     referenced: bool = false,
 
-    pub fn isReferenced(self: Local) bool {
+    pub fn isReferenced(self: Local, ast: Ast) bool {
+        const lexemes = ast.tokens.items(.lexeme);
         return self.referenced or
             self.type_def.def_type == .Void or
             self.type_def.def_type == .Placeholder or
-            self.name.string[0] == '$' or
-            (self.name.string[0] == '_' and self.name.string.len == 1);
+            lexemes[self.name][0] == '$' or
+            (lexemes[self.name][0] == '_' and lexemes[self.name].len == 1);
     }
 };
 
 pub const Global = struct {
-    prefix: ?[]const u8,
-    name: *obj.ObjString,
-    name_token: Ast.TokenIndex,
-    location: Ast.TokenIndex,
+    name: []const Ast.TokenIndex,
     type_def: *obj.ObjTypeDef,
-    export_alias: ?[]const u8 = null,
+    export_alias: ?Ast.TokenIndex = null,
     imported_from: ?[]const u8 = null,
 
     initialized: bool = false,
@@ -199,7 +195,8 @@ pub const Global = struct {
     constant: bool,
     referenced: bool = false,
 
-    pub fn isReferenced(self: Global) bool {
+    pub fn isReferenced(self: Global, ast: Ast) bool {
+        const lexemes = ast.tokens.items(.lexeme);
         const function_type = if (self.type_def.def_type == .Function)
             self.type_def.resolved_type.?.Function.function_type
         else
@@ -209,9 +206,35 @@ pub const Global = struct {
             self.type_def.def_type == .Void or
             self.type_def.def_type == .Placeholder or
             (function_type != null and (function_type == .Extern or function_type == .Abstract or function_type == .EntryPoint or function_type == .ScriptEntryPoint or function_type != .Repl)) or
-            self.name.string[0] == '$' or
-            (self.name.string[0] == '_' and self.name.string.len == 1) or
+            lexemes[self.name[self.name.len - 1]][0] == '$' or
+            (lexemes[self.name[self.name.len - 1]][0] == '_' and lexemes[self.name[self.name.len - 1]].len == 1) or
             self.exported;
+    }
+
+    fn match(self: Global, ast: Ast, qualified: []const Ast.TokenIndex, name: ?Ast.TokenIndex) bool {
+        if (self.name.len != qualified.len + 1) {
+            return false;
+        }
+
+        const lexemes = ast.tokens.items(.lexeme);
+
+        if (qualified.len > 0) {
+            for (qualified[0 .. qualified.len - 1], 0..) |name_token, i| {
+                if (!std.mem.eql(u8, lexemes[name_token], lexemes[self.name[i]])) {
+                    return false;
+                }
+            }
+        }
+
+        return name == null or std.mem.eql(u8, lexemes[name.?], lexemes[self.name[self.name.len - 1]]);
+    }
+
+    pub fn matchName(self: Global, ast: Ast, namespace: []const Ast.TokenIndex, name: Ast.TokenIndex) bool {
+        return self.match(ast, namespace, name);
+    }
+
+    pub fn matchNamespace(self: Global, ast: Ast, namespace: []const Ast.TokenIndex) bool {
+        return self.match(ast, namespace, null);
     }
 };
 
@@ -389,6 +412,7 @@ const rules = [_]ParseRule{
     .{ .prefix = unary, .infix = binary, .precedence = .Term }, // Minus
     .{ .prefix = null, .infix = binary, .precedence = .Factor }, // Star
     .{ .prefix = null, .infix = binary, .precedence = .Factor }, // Slash
+    .{ .prefix = null, .infix = null, .precedence = .None }, // AntiSlash
     .{ .prefix = null, .infix = binary, .precedence = .Factor }, // Percent
     .{ .prefix = null, .infix = gracefulUnwrap, .precedence = .Call }, // Question
     .{ .prefix = unary, .infix = forceUnwrap, .precedence = .Call }, // Bang
@@ -492,7 +516,7 @@ test_count: u64 = 0,
 current: ?*Frame = null,
 current_object: ?ObjectFrame = null,
 globals: std.ArrayList(Global),
-namespace: ?[]const u8 = null,
+namespace: ?[]const Ast.TokenIndex = null,
 flavor: RunFlavor,
 ffi: FFI,
 reporter: Reporter,
@@ -523,6 +547,9 @@ pub fn init(
 }
 
 pub fn deinit(self: *Self) void {
+    // for (self.globals.items) |global| {
+    //     self.gc.allocator.free(global.name);
+    // }
     self.globals.deinit();
     self.script_imports.deinit();
     if (self.opt_jumps) |jumps| {
@@ -856,48 +883,28 @@ pub fn parse(self: *Self, source: []const u8, file_name: []const u8) !?Ast {
     try self.advancePastEof();
 
     while (!(try self.match(.Eof))) {
-        if (function_type == .Repl) {
-            // When running in REPL, global scope is allowed to run statements since the global scope becomes procedural
-            if (self.declarationOrStatement(null) catch |err| {
-                if (BuildOptions.debug) {
-                    io.print("Parsing failed with error {}\n", .{err});
-                }
-                return null;
-            }) |decl| {
-                var statements = std.ArrayList(Ast.Node.Index).fromOwnedSlice(
-                    self.gc.allocator,
-                    @constCast(self.ast.nodes.items(.components)[body_node].Block),
-                );
-                defer statements.shrinkAndFree(statements.items.len);
-
-                try statements.append(decl);
-
-                self.ast.nodes.items(.components)[body_node].Block = statements.items;
+        if (self.declarationOrStatement(null) catch |err| {
+            if (function_type != .Repl and err == error.ReachedMaximumMemoryUsage) {
+                return err;
             }
+
+            if (BuildOptions.debug) {
+                io.print("Parsing failed with error {}\n", .{err});
+            }
+            return null;
+        }) |decl| {
+            var statements = std.ArrayList(Ast.Node.Index).fromOwnedSlice(
+                self.gc.allocator,
+                @constCast(self.ast.nodes.items(.components)[body_node].Block),
+            );
+            defer statements.shrinkAndFree(statements.items.len);
+
+            try statements.append(decl);
+
+            self.ast.nodes.items(.components)[body_node].Block = statements.items;
         } else {
-            if (self.declaration() catch |err| {
-                if (err == error.ReachedMaximumMemoryUsage) {
-                    return err;
-                }
-
-                if (BuildOptions.debug) {
-                    io.print("Parsing failed with error {}\n", .{err});
-                }
-                return null;
-            }) |decl| {
-                var statements = std.ArrayList(Ast.Node.Index).fromOwnedSlice(
-                    self.gc.allocator,
-                    @constCast(self.ast.nodes.items(.components)[body_node].Block),
-                );
-                defer statements.shrinkAndFree(statements.items.len);
-
-                try statements.append(decl);
-
-                self.ast.nodes.items(.components)[body_node].Block = statements.items;
-            } else {
-                self.reportError(.syntax, "Expected statement");
-                break;
-            }
+            self.reportError(.syntax, "Expected statement");
+            break;
         }
     }
 
@@ -905,9 +912,14 @@ pub fn parse(self: *Self, source: []const u8, file_name: []const u8) !?Ast {
     // Then put any exported globals on the stack
     if (function_type == .ScriptEntryPoint) {
         for (self.globals.items, 0..) |global, index| {
-            if (std.mem.eql(u8, global.name.string, "main") and !global.hidden and (self.namespace == null or global.prefix == null or std.mem.eql(u8, global.prefix.?, self.namespace.?))) {
+            if (std.mem.eql(u8, self.ast.tokens.items(.lexeme)[global.name[global.name.len - 1]], "main") and
+                !global.hidden and
+                (self.namespace == null or
+                global.name.len == 1 or
+                global.matchNamespace(self.ast, self.namespace.?)))
+            {
                 entry.main_slot = index;
-                entry.main_location = global.location;
+                entry.main_location = global.name[global.name.len - 1];
                 break;
             }
         }
@@ -919,7 +931,7 @@ pub fn parse(self: *Self, source: []const u8, file_name: []const u8) !?Ast {
     for (self.globals.items, 0..) |global, index| {
         if (global.type_def.def_type == .Function and global.type_def.resolved_type.?.Function.function_type == .Test) {
             try test_slots.append(index);
-            try test_locations.append(global.location);
+            try test_locations.append(global.name[0]);
         }
     }
 
@@ -982,7 +994,7 @@ fn beginFrame(self: *Self, function_type: obj.ObjFunction.FunctionType, function
     }
 
     // First local is reserved for an eventual `this` or cli arguments
-    var local: *Local = &self.current.?.locals[self.current.?.local_count];
+    var local = &self.current.?.locals[self.current.?.local_count];
     self.current.?.local_count += 1;
     local.depth = 0;
     local.is_captured = false;
@@ -1012,14 +1024,23 @@ fn beginFrame(self: *Self, function_type: obj.ObjFunction.FunctionType, function
         },
     }
 
-    const name: []const u8 = switch (function_type) {
-        .Method => "this",
-        .EntryPoint => "$args",
-        .ScriptEntryPoint => "$args",
-        else => "_",
-    };
+    var location = Token.identifier(
+        switch (function_type) {
+            .Method => "this",
+            .EntryPoint => "$args",
+            .ScriptEntryPoint => "$args",
+            else => "_",
+        },
+    );
+    location.source = self.scanner.?.source;
+    location.script_name = self.script_name;
 
-    local.name = try self.gc.copyString(name);
+    if (self.current_token != null) {
+        local.name = try self.insertUtilityToken(location);
+    } else {
+        local.name = try self.ast.appendToken(location);
+        _ = try self.advance();
+    }
 }
 
 fn endFrame(self: *Self) Ast.Node.Index {
@@ -1028,13 +1049,13 @@ fn endFrame(self: *Self) Ast.Node.Index {
         const local = self.current.?.locals[i];
 
         // Check discarded locals
-        if (self.flavor != .Repl and !local.isReferenced()) {
+        if (self.flavor != .Repl and !local.isReferenced(self.ast)) {
             const type_def_str = local.type_def.toStringAlloc(self.gc.allocator) catch unreachable;
             defer type_def_str.deinit();
 
             self.reporter.warnFmt(
                 .unused_argument,
-                self.ast.tokens.get(local.location),
+                self.ast.tokens.get(local.name),
                 "Unused local of type `{s}`",
                 .{
                     type_def_str.items,
@@ -1047,13 +1068,13 @@ fn endFrame(self: *Self) Ast.Node.Index {
     const function_type = self.ast.nodes.items(.type_def)[self.current.?.function_node].?.resolved_type.?.Function.function_type;
     if (function_type == .Script or function_type == .ScriptEntryPoint) {
         for (self.globals.items) |global| {
-            if (!global.isReferenced()) {
+            if (!global.isReferenced(self.ast)) {
                 const type_def_str = global.type_def.toStringAlloc(self.gc.allocator) catch unreachable;
                 defer type_def_str.deinit();
 
                 self.reporter.warnFmt(
                     .unused_argument,
-                    self.ast.tokens.get(global.location),
+                    self.ast.tokens.get(global.name[0]),
                     "Unused global of type `{s}`",
                     .{
                         type_def_str.items,
@@ -1092,13 +1113,13 @@ fn endScope(self: *Self) ![]Chunk.OpCode {
         }
 
         // Check discarded locals
-        if (self.flavor != .Repl and !local.isReferenced()) {
+        if (self.flavor != .Repl and !local.isReferenced(self.ast)) {
             const type_def_str = local.type_def.toStringAlloc(self.gc.allocator) catch unreachable;
             defer type_def_str.deinit();
 
             self.reporter.warnFmt(
                 .unused_argument,
-                self.ast.tokens.get(local.location),
+                self.ast.tokens.get(local.name),
                 "Unused local of type `{s}`",
                 .{
                     type_def_str.items,
@@ -1252,6 +1273,21 @@ fn simpleType(self: *Self, def_type: obj.ObjTypeDef.Type) Error!Ast.Node.Index {
     );
 }
 
+fn simpleTypeFromToken(token: Token.Type) ?obj.ObjTypeDef.Type {
+    return switch (token) {
+        .Pat => .Pattern,
+        .Ud => .UserData,
+        .Str => .String,
+        .Int => .Integer,
+        .Float => .Float,
+        .Bool => .Bool,
+        .Range => .Range,
+        .Type => .Type,
+        .Any => .Any,
+        else => null,
+    };
+}
+
 fn declaration(self: *Self) Error!?Ast.Node.Index {
     const global_scope = self.current.?.scope_depth == 0;
 
@@ -1260,130 +1296,52 @@ fn declaration(self: *Self) Error!?Ast.Node.Index {
     else
         null;
 
-    if (try self.match(.Extern)) {
-        const node = try self.funDeclaration();
+    const node = if (try self.match(.Object))
+        try self.objectDeclaration()
+    else if (try self.match(.Protocol))
+        try self.protocolDeclaration()
+    else if (try self.match(.Enum))
+        try self.enumDeclaration()
+    else if ((try self.match(.Fun)) or (global_scope and try self.match(.Extern)))
+        try self.funDeclaration()
+    else if ((try self.match(.Const)) or
+        (try self.match(.Var) or
+        (self.check(.Identifier) and std.mem.eql(u8, "_", self.ast.tokens.items(.lexeme)[self.current_token.?]))))
+    variable: {
+        const constant = self.current_token.? > 0 and self.ast.tokens.items(.tag)[self.current_token.? - 1] == .Const;
+        try self.consume(.Identifier, "Expected identifier");
+        const identifier = self.current_token.? - 1;
 
-        self.ast.nodes.items(.docblock)[node] = docblock;
-
-        return node;
-    } else if ((self.current_token == 0 or self.ast.tokens.items(.tag)[self.current_token.? - 1] != .Export) and try self.match(.Export)) {
-        return try self.exportStatement();
-    } else {
-        const constant: bool = try self.match(.Const);
-
-        var node = if (global_scope and !constant and try self.match(.Object))
-            try self.objectDeclaration()
-        else if (global_scope and !constant and try self.match(.Protocol))
-            try self.protocolDeclaration()
-        else if (global_scope and !constant and try self.match(.Enum))
-            try self.enumDeclaration()
-        else if (!constant and try self.match(.Fun))
-            try self.funDeclaration()
-        else if (!constant and try self.match(.Var))
-            try self.varDeclaration(
-                false,
+        // Type omitted?
+        if (!(try self.match(.Colon))) {
+            break :variable try self.varDeclaration(
+                identifier,
                 null,
                 .Semicolon,
-                false,
-                true,
-                false,
-            )
-        else if (try self.match(.Pat))
-            try self.varDeclaration(
-                false,
-                try self.simpleType(.Pattern),
-                .Semicolon,
                 constant,
                 true,
                 false,
-            )
-        else if (try self.match(.Ud))
-            try self.varDeclaration(
-                false,
-                try self.simpleType(.UserData),
-                .Semicolon,
-                constant,
-                true,
-                false,
-            )
-        else if (try self.match(.Str))
-            try self.varDeclaration(
-                false,
-                try self.simpleType(.String),
-                .Semicolon,
-                constant,
-                true,
-                false,
-            )
-        else if (try self.match(.Int))
-            try self.varDeclaration(
-                false,
-                try self.simpleType(.Integer),
-                .Semicolon,
-                constant,
-                true,
-                false,
-            )
-        else if (try self.match(.Float))
-            try self.varDeclaration(
-                false,
-                try self.simpleType(.Float),
-                .Semicolon,
-                constant,
-                true,
-                false,
-            )
-        else if (try self.match(.Bool))
-            try self.varDeclaration(
-                false,
-                try self.simpleType(.Bool),
-                .Semicolon,
-                constant,
-                true,
-                false,
-            )
-        else if (try self.match(.Range))
-            try self.varDeclaration(
-                false,
-                try self.simpleType(.Range),
-                .Semicolon,
-                constant,
-                true,
-                false,
-            )
-        else if (try self.match(.Type))
-            try self.varDeclaration(
-                false,
-                try self.simpleType(.Type),
-                .Semicolon,
-                constant,
-                true,
-                false,
-            )
-        else if (try self.match(.Any))
-            try self.varDeclaration(
-                false,
-                try self.simpleType(.Any),
-                .Semicolon,
-                constant,
-                true,
-                false,
-            )
-        else if (self.current_token.? > 0 and self.current_token.? - 1 < self.ast.tokens.len - 1 and
-            self.ast.tokens.items(.tag)[self.current_token.?] == .Identifier and
-            self.ast.tokens.items(.lexeme)[self.current_token.?].len == 1 and
-            self.ast.tokens.items(.lexeme)[self.current_token.?][0] == '_')
-            try self.varDeclaration(
-                false,
-                try self.simpleType(.Any),
-                .Semicolon,
-                constant,
-                true,
-                false,
-            )
-        else if (try self.match(.Fib))
-            try self.varDeclaration(
-                false,
+            );
+        }
+
+        // Simple types
+        for ([_]Token.Type{ .Pat, .Ud, .Str, .Int, .Float, .Bool, .Range, .Type, .Any }) |token| {
+            if (try self.match(token)) {
+                break :variable try self.varDeclaration(
+                    identifier,
+                    try self.simpleType(simpleTypeFromToken(token).?),
+                    .Semicolon,
+                    constant,
+                    true,
+                    false,
+                );
+            }
+        }
+
+        // Complex types
+        if (try self.match(.Fib))
+            break :variable try self.varDeclaration(
+                identifier,
                 try self.parseFiberType(null),
                 .Semicolon,
                 constant,
@@ -1391,8 +1349,8 @@ fn declaration(self: *Self) Error!?Ast.Node.Index {
                 false,
             )
         else if (try self.match(.Obj))
-            try self.varDeclaration(
-                false,
+            break :variable try self.varDeclaration(
+                identifier,
                 try self.parseObjType(null),
                 .Semicolon,
                 constant,
@@ -1400,151 +1358,140 @@ fn declaration(self: *Self) Error!?Ast.Node.Index {
                 false,
             )
         else if (try self.match(.LeftBracket))
-            try self.listDeclaration(constant)
-        else if (try self.match(.LeftBrace))
-            try self.mapDeclaration(constant)
-        else if (!constant and try self.match(.Test))
-            try self.testStatement()
-        else if (try self.match(.Function))
-            try self.varDeclaration(
+            break :variable try self.varDeclaration(
+                identifier,
+                try self.parseListType(null),
+                .Semicolon,
+                constant,
+                true,
                 false,
+            )
+        else if (try self.match(.LeftBrace))
+            break :variable try self.varDeclaration(
+                identifier,
+                try self.parseMapType(null),
+                .Semicolon,
+                constant,
+                true,
+                false,
+            )
+        else if (try self.match(.Fun))
+            break :variable try self.varDeclaration(
+                identifier,
                 try self.parseFunctionType(null),
                 .Semicolon,
                 constant,
                 true,
                 false,
             )
-        else if (global_scope and try self.match(.Import))
-            try self.importStatement()
-        else if (global_scope and try self.match(.Zdef))
-            try self.zdefStatement()
-        else if (global_scope and !constant and try self.match(.Export))
-            try self.exportStatement()
-        else if (self.check(.Identifier)) user_decl: {
-            if ( // As of now this is the only place where we need to check more than one token ahead
-            // Note that we would not have to do this if type were given **after** the identifier. But changing this is a pretty big left turn.
-            // `Type variable`
-            try self.checkSequenceAhead(&[_]?Token.Type{ .Identifier, .Identifier }, 2) or
-                // `prefix.Type variable`
-                try self.checkSequenceAhead(&[_]?Token.Type{ .Identifier, .Dot, .Identifier, .Identifier }, 4) or
-                // `prefix.Type? variable`
-                try self.checkSequenceAhead(&[_]?Token.Type{ .Identifier, .Dot, .Identifier, .Question, .Identifier }, 5) or
-                // `Type? variable`
-                try self.checkSequenceAhead(&[_]?Token.Type{ .Identifier, .Question, .Identifier }, 3) or
-                // `Type::<...> variable`
-                try self.checkSequenceAhead(&[_]?Token.Type{ .Identifier, .DoubleColon, .Less, null, .Greater, .Identifier }, 255 * 2) or
-                // - Type::<...>? variable
-                try self.checkSequenceAhead(&[_]?Token.Type{ .Identifier, .DoubleColon, .Less, null, .Greater, .Question, .Identifier }, 255 * 2) or
-                // - prefix.Type::<...> variable
-                try self.checkSequenceAhead(&[_]?Token.Type{ .Identifier, .Dot, .Identifier, .DoubleColon, .Less, null, .Greater, .Identifier }, 255 * 2) or
-                // - prefix.Type::<...>? variable
-                try self.checkSequenceAhead(&[_]?Token.Type{ .Identifier, .Dot, .Identifier, .DoubleColon, .Less, null, .Greater, .Question, .Identifier }, 255 * 2))
-            {
-                _ = try self.advance(); // consume first identifier
-                break :user_decl try self.userVarDeclaration(false, constant);
-            }
-
-            break :user_decl null;
-        } else if (global_scope and !constant and try self.match(.Export))
-            try self.exportStatement()
-        else if (global_scope and !constant and try self.match(.Namespace))
-            try self.namespaceStatement()
-        else
-            null;
-
-        if (node == null and constant) {
-            node = try self.varDeclaration(
-                false,
-                null,
-                .Semicolon,
-                true,
-                true,
-                false,
+        else if (try self.match(.Identifier)) {
+            break :variable try self.userVarDeclaration(
+                identifier,
+                constant,
             );
         }
 
-        if (node != null and docblock != null) {
-            if (self.ast.nodes.items(.tag)[node.?] == .FunDeclaration) {
-                const components = self.ast.nodes.items(.components);
-                components[components[node.?].FunDeclaration.function].Function.docblock = docblock;
-            }
-            self.ast.nodes.items(.docblock)[node.?] = docblock;
-        }
+        break :variable null;
+    } else null;
 
-        if (self.reporter.panic_mode) {
-            try self.synchronize();
+    if (node != null and docblock != null) {
+        if (self.ast.nodes.items(.tag)[node.?] == .FunDeclaration) {
+            const components = self.ast.nodes.items(.components);
+            components[components[node.?].FunDeclaration.function].Function.docblock = docblock;
         }
-
-        return node;
+        self.ast.nodes.items(.docblock)[node.?] = docblock;
     }
+
+    if (self.reporter.panic_mode) {
+        try self.synchronize();
+    }
+
+    return node;
 }
+
 fn declarationOrStatement(self: *Self, loop_scope: ?LoopScope) !?Ast.Node.Index {
     return try self.declaration() orelse try self.statement(false, loop_scope);
 }
 
 // When a break statement, will return index of jump to patch
 fn statement(self: *Self, hanging: bool, loop_scope: ?LoopScope) !?Ast.Node.Index {
-    if (try self.match(.If)) {
-        std.debug.assert(!hanging);
-        return try self.ifStatement(loop_scope);
-    } else if (try self.match(.For)) {
-        std.debug.assert(!hanging);
-        return try self.forStatement();
-    } else if (try self.match(.ForEach)) {
-        std.debug.assert(!hanging);
-        return try self.forEachStatement();
-    } else if (try self.match(.While)) {
-        std.debug.assert(!hanging);
-        return try self.whileStatement();
-    } else if (try self.match(.Do)) {
-        std.debug.assert(!hanging);
-        return try self.doUntilStatement();
-    } else if (try self.match(.Return)) {
-        std.debug.assert(!hanging);
-        return try self.returnStatement();
-    } else if (try self.match(.Try)) {
-        std.debug.assert(!hanging);
-        return try self.tryStatement();
-    } else if (try self.match(.Break)) {
-        std.debug.assert(!hanging);
-        return try self.breakStatement(loop_scope);
-    } else if (try self.match(.Continue)) {
-        std.debug.assert(!hanging);
-        return try self.continueStatement(loop_scope);
-    } else if (try self.match(.Import)) {
-        std.debug.assert(!hanging);
-        return try self.importStatement();
-    } else if (try self.match(.Out)) {
-        std.debug.assert(!hanging);
-        return try self.outStatement();
-    } else if (try self.match(.Namespace)) {
-        std.debug.assert(!hanging);
-        return try self.namespaceStatement();
-    } else if (try self.match(.Throw)) {
-        const start_location = self.current_token.? - 1;
-        // For now we don't care about the type. Later if we have `Error` type of data, we'll type check this
-        const error_value = try self.expression(false);
+    const global_scope = self.current.?.scope_depth == 0;
+    const statement_allowed = self.flavor == .Repl or !global_scope;
 
-        try self.consume(.Semicolon, "Expected `;` after statement.");
+    if (statement_allowed) {
+        if (try self.match(.If)) {
+            std.debug.assert(!hanging);
+            return try self.ifStatement(loop_scope);
+        } else if (try self.match(.For)) {
+            std.debug.assert(!hanging);
+            return try self.forStatement();
+        } else if (try self.match(.ForEach)) {
+            std.debug.assert(!hanging);
+            return try self.forEachStatement();
+        } else if (try self.match(.While)) {
+            std.debug.assert(!hanging);
+            return try self.whileStatement();
+        } else if (try self.match(.Do)) {
+            std.debug.assert(!hanging);
+            return try self.doUntilStatement();
+        } else if (!global_scope and try self.match(.Return)) {
+            std.debug.assert(!hanging);
+            return try self.returnStatement();
+        } else if (try self.match(.Try)) {
+            std.debug.assert(!hanging);
+            return try self.tryStatement();
+        } else if (!global_scope and try self.match(.Break)) {
+            std.debug.assert(!hanging);
+            return try self.breakStatement(loop_scope);
+        } else if (!global_scope and try self.match(.Continue)) {
+            std.debug.assert(!hanging);
+            return try self.continueStatement(loop_scope);
+        } else if (try self.match(.Out)) {
+            std.debug.assert(!hanging);
+            return try self.outStatement();
+        } else if (try self.match(.Throw)) {
+            const start_location = self.current_token.? - 1;
+            // For now we don't care about the type. Later if we have `Error` type of data, we'll type check this
+            const error_value = try self.expression(false);
 
-        return try self.ast.appendNode(
-            .{
-                .tag = .Throw,
-                .location = start_location,
-                .end_location = self.current_token.? - 1,
-                .components = .{
-                    .Throw = .{
-                        .expression = error_value,
-                        .unconditional = self.current.?.scope_depth == 1,
+            try self.consume(.Semicolon, "Expected `;` after statement.");
+
+            return try self.ast.appendNode(
+                .{
+                    .tag = .Throw,
+                    .location = start_location,
+                    .end_location = self.current_token.? - 1,
+                    .components = .{
+                        .Throw = .{
+                            .expression = error_value,
+                            .unconditional = self.current.?.scope_depth == 1,
+                        },
                     },
                 },
-            },
-        );
-    } else {
-        return try self.expressionStatement(hanging);
+            );
+        }
     }
 
-    return null;
+    if (global_scope) {
+        if (try self.match(.Import)) {
+            std.debug.assert(!hanging);
+            return try self.importStatement();
+        } else if (try self.match(.Namespace)) {
+            std.debug.assert(!hanging);
+            return try self.namespaceStatement();
+        } else if (try self.match(.Test)) {
+            std.debug.assert(!hanging);
+            return try self.testStatement();
+        } else if (try self.match(.Zdef)) {
+            std.debug.assert(!hanging);
+            return try self.zdefStatement();
+        } else if (try self.match(.Export)) {
+            std.debug.assert(!hanging);
+            return try self.exportStatement();
+        }
+    }
+
+    return try self.expressionStatement(hanging);
 }
 
 fn addLocal(self: *Self, name: Ast.TokenIndex, local_type: *obj.ObjTypeDef, constant: bool) Error!usize {
@@ -1553,12 +1500,9 @@ fn addLocal(self: *Self, name: Ast.TokenIndex, local_type: *obj.ObjTypeDef, cons
         return 0;
     }
 
-    const name_lexeme = self.ast.tokens.items(.lexeme)[name];
     const function_type = self.ast.nodes.items(.type_def)[self.current.?.function_node].?.resolved_type.?.Function.function_type;
     self.current.?.locals[self.current.?.local_count] = Local{
-        .name = try self.gc.copyString(name_lexeme),
-        .name_token = name,
-        .location = name,
+        .name = name,
         .depth = -1,
         .is_captured = false,
         .type_def = local_type,
@@ -1574,11 +1518,11 @@ fn addLocal(self: *Self, name: Ast.TokenIndex, local_type: *obj.ObjTypeDef, cons
 
 fn addGlobal(self: *Self, name: Ast.TokenIndex, global_type: *obj.ObjTypeDef, constant: bool) Error!usize {
     const lexemes = self.ast.tokens.items(.lexeme);
-
     // Search for an existing placeholder global with the same name
     for (self.globals.items, 0..) |*global, index| {
         if (global.type_def.def_type == .Placeholder and
-            std.mem.eql(u8, lexemes[name], global.name.string))
+            (self.namespace == null or global.matchNamespace(self.ast, self.namespace.?)) and
+            std.mem.eql(u8, lexemes[global.name[global.name.len - 1]], lexemes[name]))
         {
             global.exported = self.exporting;
 
@@ -1595,12 +1539,16 @@ fn addGlobal(self: *Self, name: Ast.TokenIndex, global_type: *obj.ObjTypeDef, co
         return 0;
     }
 
+    var qualified_name = std.ArrayList(Ast.TokenIndex).init(self.gc.allocator);
+    if (self.namespace) |namespace| {
+        try qualified_name.appendSlice(namespace);
+    }
+    try qualified_name.append(name);
+    qualified_name.shrinkAndFree(qualified_name.items.len);
+
     try self.globals.append(
         .{
-            .prefix = self.namespace,
-            .name_token = name,
-            .name = try self.gc.copyString(lexemes[name]),
-            .location = name,
+            .name = qualified_name.items,
             .type_def = global_type,
             .constant = constant,
             .exported = self.exporting,
@@ -1622,7 +1570,8 @@ fn resolveLocal(self: *Self, frame: *Frame, name: Ast.TokenIndex) !?usize {
         return null;
     }
 
-    const lexeme = self.ast.tokens.items(.lexeme)[name];
+    const lexemes = self.ast.tokens.items(.lexeme);
+    const lexeme = lexemes[name];
 
     if (std.mem.eql(u8, lexeme, "_")) {
         return null;
@@ -1631,7 +1580,7 @@ fn resolveLocal(self: *Self, frame: *Frame, name: Ast.TokenIndex) !?usize {
     var i: usize = frame.local_count - 1;
     while (i >= 0) : (i -= 1) {
         var local = &frame.locals[i];
-        if (std.mem.eql(u8, lexeme, local.name.string)) {
+        if (std.mem.eql(u8, lexeme, lexemes[local.name])) {
             if (local.depth == -1) {
                 self.reportErrorFmt(
                     .local_initializer,
@@ -1651,12 +1600,13 @@ fn resolveLocal(self: *Self, frame: *Frame, name: Ast.TokenIndex) !?usize {
 }
 
 // Will consume tokens if find a prefixed identifier
-pub fn resolveGlobal(self: *Self, prefix: ?[]const u8, name: []const u8) Error!?usize {
+pub fn resolveGlobal(self: *Self, name: []const Ast.TokenIndex) Error!?usize {
     if (self.globals.items.len == 0) {
         return null;
     }
 
-    if (std.mem.eql(u8, name, "_")) {
+    const lexemes = self.ast.tokens.items(.lexeme);
+    if (name.len == 1 and std.mem.eql(u8, lexemes[name[name.len - 1]], "_")) {
         return null;
     }
 
@@ -1664,18 +1614,23 @@ pub fn resolveGlobal(self: *Self, prefix: ?[]const u8, name: []const u8) Error!?
     while (i >= 0) : (i -= 1) {
         const global: *Global = &self.globals.items[i];
 
-        if ((global.prefix == null or // Not prefixed
-            (prefix != null and std.mem.eql(u8, prefix.?, global.prefix.?)) or // Same prefix as provided
-            (self.namespace != null and std.mem.eql(u8, global.prefix.?, self.namespace.?)) // Prefix is the current namespace
+        if (global.matchName(
+            self.ast,
+            if (name.len > 1)
+                name[0 .. name.len - 1]
+            else
+                self.namespace orelse &[_]Ast.TokenIndex{},
+            name[name.len - 1],
         ) and
-            std.mem.eql(u8, name, global.name.string) and
             !global.hidden)
         {
             if (!global.initialized) {
                 self.reportErrorFmt(
                     .global_initializer,
                     "Can't read global `{s}` variable in its own initializer.",
-                    .{global.name.string},
+                    .{
+                        lexemes[global.name[global.name.len - 1]],
+                    },
                 );
             }
 
@@ -1683,18 +1638,6 @@ pub fn resolveGlobal(self: *Self, prefix: ?[]const u8, name: []const u8) Error!?
 
             return i;
             // Is it an import prefix?
-        } else if (global.prefix != null and std.mem.eql(u8, name, global.prefix.?)) {
-            const had_error = self.reporter.last_error != null;
-
-            try self.consume(.Dot, "Expected `.` after import prefix.");
-            try self.consume(.Identifier, "Expected identifier after import prefix.");
-
-            // Avoid infinite recursion
-            if (!had_error and self.reporter.last_error != null) {
-                return null;
-            }
-
-            return try self.resolveGlobal(global.prefix.?, self.ast.tokens.items(.lexeme)[self.current_token.? - 1]);
         }
 
         if (i == 0) break;
@@ -1719,7 +1662,7 @@ fn resolvePlaceholderWithRelation(
             .{
                 @intFromPtr(resolved_type),
                 @intFromPtr(child),
-                if (child_placeholder.name) |name| name.string else "unknown",
+                self.ast.tokens.items(.lexeme)[child_placeholder.where],
                 child_placeholder.parent_relation.?,
             },
         );
@@ -1774,10 +1717,13 @@ fn resolvePlaceholderWithRelation(
         .Call => {
             // Can we call the parent?
             if (resolved_type.def_type != .Function) {
-                self.reporter.reportErrorAt(
+                self.reporter.reportErrorFmt(
                     .callable,
                     self.ast.tokens.get(child_placeholder.where),
-                    "Can't be called",
+                    "`{s}` can't be called",
+                    .{
+                        (try resolved_type.toStringAlloc(self.gc.allocator)).items,
+                    },
                 );
                 return;
             }
@@ -1791,10 +1737,13 @@ fn resolvePlaceholderWithRelation(
         .Yield => {
             // Can we call the parent?
             if (resolved_type.def_type != .Function) {
-                self.reporter.reportErrorAt(
+                self.reporter.reportErrorFmt(
                     .callable,
                     self.ast.tokens.get(child_placeholder.where),
-                    "Can't be called",
+                    "`{s}` can't be called",
+                    .{
+                        (try resolved_type.toStringAlloc(self.gc.allocator)).items,
+                    },
                 );
                 return;
             }
@@ -1813,17 +1762,24 @@ fn resolvePlaceholderWithRelation(
             } else if (resolved_type.def_type == .String) {
                 try self.resolvePlaceholder(child, self.gc.type_registry.str_type, false);
             } else {
-                self.reporter.reportErrorAt(
-                    .subscriptable,
+                self.reporter.reportErrorFmt(
+                    .map_key_type,
                     self.ast.tokens.get(child_placeholder.where),
-                    "Can't be subscripted",
+                    "`{s}` can't be subscripted",
+                    .{
+                        (try resolved_type.toStringAlloc(self.gc.allocator)).items,
+                    },
                 );
                 return;
             }
         },
         .Key => {
             if (resolved_type.def_type == .Map) {
-                try self.resolvePlaceholder(child, resolved_type.resolved_type.?.Map.key_type, false);
+                try self.resolvePlaceholder(
+                    child,
+                    resolved_type.resolved_type.?.Map.key_type,
+                    false,
+                );
             } else if (resolved_type.def_type == .List or resolved_type.def_type == .String) {
                 try self.resolvePlaceholder(
                     child,
@@ -1831,10 +1787,13 @@ fn resolvePlaceholderWithRelation(
                     false,
                 );
             } else {
-                self.reporter.reportErrorAt(
+                self.reporter.reportErrorFmt(
                     .map_key_type,
                     self.ast.tokens.get(child_placeholder.where),
-                    "Can't be a key",
+                    "`{s}` can't be subscripted",
+                    .{
+                        (try resolved_type.toStringAlloc(self.gc.allocator)).items,
+                    },
                 );
                 return;
             }
@@ -1998,10 +1957,13 @@ fn resolvePlaceholderWithRelation(
                     }
                 },
                 else => {
-                    self.reporter.reportErrorAt(
+                    self.reporter.reportErrorFmt(
                         .field_access,
                         self.ast.tokens.get(child_placeholder.where),
-                        "Doesn't support field access",
+                        "`{s}` can't be field accessed",
+                        .{
+                            (try resolved_type.toStringAlloc(self.gc.allocator)).items,
+                        },
                     );
                     return;
                 },
@@ -2035,7 +1997,7 @@ pub fn resolvePlaceholder(self: *Self, placeholder: *obj.ObjTypeDef, resolved_ty
     if (BuildOptions.debug_placeholders) {
         io.print("Attempts to resolve @{} ({s}) with @{} a {}({})\n", .{
             @intFromPtr(placeholder),
-            if (placeholder.resolved_type.?.Placeholder.name) |name| name.string else "unknown",
+            self.ast.tokens.items(.lexeme)[placeholder.resolved_type.?.Placeholder.where],
             @intFromPtr(resolved_type),
             resolved_type.def_type,
             resolved_type.optional,
@@ -2049,9 +2011,9 @@ pub fn resolvePlaceholder(self: *Self, placeholder: *obj.ObjTypeDef, resolved_ty
                 "Replaced linked placeholder @{} ({s}) with rooted placeholder @{} ({s})\n",
                 .{
                     @intFromPtr(placeholder),
-                    if (placeholder.resolved_type.?.Placeholder.name != null) placeholder.resolved_type.?.Placeholder.name.?.string else "unknown",
+                    self.ast.tokens.items(.lexeme)[placeholder.resolved_type.?.Placeholder.where],
                     @intFromPtr(resolved_type),
-                    if (resolved_type.resolved_type.?.Placeholder.name != null) resolved_type.resolved_type.?.Placeholder.name.?.string else "unknown",
+                    self.ast.tokens.items(.lexeme)[resolved_type.resolved_type.?.Placeholder.where],
                 },
             );
         }
@@ -2088,7 +2050,7 @@ pub fn resolvePlaceholder(self: *Self, placeholder: *obj.ObjTypeDef, resolved_ty
             "Resolved placeholder @{} {s}({}) with @{}.{}({})\n",
             .{
                 @intFromPtr(placeholder),
-                if (placeholder.resolved_type.?.Placeholder.name != null) placeholder.resolved_type.?.Placeholder.name.?.string else "unknown",
+                self.ast.tokens.items(.lexeme)[placeholder.resolved_type.?.Placeholder.where],
                 placeholder.optional,
                 @intFromPtr(resolved_type),
                 resolved_type.def_type,
@@ -2165,9 +2127,9 @@ fn resolveUpvalue(self: *Self, frame: *Frame, name: Ast.TokenIndex) Error!?usize
     return null;
 }
 
-fn declareVariable(self: *Self, variable_type: *obj.ObjTypeDef, name_token: ?Ast.TokenIndex, constant: bool, check_name: bool) Error!usize {
-    const name = name_token orelse self.current_token.? - 1;
-    const name_lexeme = self.ast.tokens.items(.lexeme)[name];
+fn declareVariable(self: *Self, variable_type: *obj.ObjTypeDef, name: Ast.TokenIndex, constant: bool, check_name: bool) Error!usize {
+    const lexemes = self.ast.tokens.items(.lexeme);
+    const name_lexeme = lexemes[name];
 
     if (self.current.?.scope_depth > 0) {
         // Check a local with the same name doesn't exists
@@ -2180,11 +2142,14 @@ fn declareVariable(self: *Self, variable_type: *obj.ObjTypeDef, name_token: ?Ast
                     break;
                 }
 
-                if (!std.mem.eql(u8, name_lexeme, "_") and !std.mem.startsWith(u8, name_lexeme, "$") and std.mem.eql(u8, name_lexeme, local.name.string)) {
+                if (!std.mem.eql(u8, name_lexeme, "_") and
+                    !std.mem.startsWith(u8, name_lexeme, "$") and
+                    std.mem.eql(u8, name_lexeme, lexemes[local.name]))
+                {
                     self.reporter.reportWithOrigin(
                         .variable_already_exists,
                         self.ast.tokens.get(name),
-                        self.ast.tokens.get(local.location),
+                        self.ast.tokens.get(local.name),
                         "A variable named `{s}` already exists",
                         .{name_lexeme},
                         null,
@@ -2200,14 +2165,16 @@ fn declareVariable(self: *Self, variable_type: *obj.ObjTypeDef, name_token: ?Ast
         if (check_name) {
             // Check a global with the same name doesn't exists
             for (self.globals.items, 0..) |*global, index| {
-                if (!std.mem.eql(u8, name_lexeme, "_") and std.mem.eql(u8, name_lexeme, global.name.string) and !global.hidden) {
+                if (!std.mem.eql(u8, name_lexeme, "_") and
+                    global.matchName(
+                    self.ast,
+                    self.namespace orelse &[_]Ast.TokenIndex{},
+                    name,
+                ) and
+                    !global.hidden)
+                {
                     // If we found a placeholder with that name, try to resolve it with `variable_type`
-                    if (global.type_def.def_type == .Placeholder and
-                        std.mem.eql(
-                        u8,
-                        name_lexeme,
-                        self.ast.tokens.items(.lexeme)[global.type_def.resolved_type.?.Placeholder.where],
-                    )) {
+                    if (global.type_def.def_type == .Placeholder) {
                         // A function declares a global with an incomplete typedef so that it can handle recursion
                         // The placeholder resolution occurs after we parsed the functions body in `funDeclaration`
                         if (variable_type.resolved_type != null or @intFromEnum(variable_type.def_type) < @intFromEnum(obj.ObjTypeDef.Type.ObjectInstance)) {
@@ -2229,7 +2196,7 @@ fn declareVariable(self: *Self, variable_type: *obj.ObjTypeDef, name_token: ?Ast
                         global.referenced = true;
 
                         return index;
-                    } else if (global.prefix == null) {
+                    } else {
                         self.reportError(.variable_already_exists, "A global with the same name already exists.");
                     }
                 }
@@ -2242,18 +2209,18 @@ fn declareVariable(self: *Self, variable_type: *obj.ObjTypeDef, name_token: ?Ast
 
 fn parseVariable(
     self: *Self,
-    identifier_consumed: bool,
+    identifier: ?Ast.TokenIndex,
     variable_type: *obj.ObjTypeDef,
     constant: bool,
     error_message: []const u8,
 ) !usize {
-    if (!identifier_consumed) {
+    if (identifier == null) {
         try self.consume(.Identifier, error_message);
     }
 
     return try self.declareVariable(
         variable_type,
-        null,
+        identifier orelse self.current_token.? - 1,
         constant,
         true,
     );
@@ -2546,7 +2513,7 @@ fn parseTypeDef(
         return self.parseListType(generic_types);
     } else if (try self.match(.LeftBrace)) {
         return self.parseMapType(generic_types);
-    } else if (try self.match(.Function) or try self.match(.Extern)) {
+    } else if (try self.match(.Fun) or try self.match(.Extern)) {
         return try self.parseFunctionType(generic_types);
     } else if (try self.match(.Fib)) {
         return try self.parseFiberType(generic_types);
@@ -2744,12 +2711,12 @@ fn parseFunctionType(self: *Self, parent_generic_types: ?std.AutoArrayHashMap(*o
     const start_location = self.current_token.? - 1;
     const tag = self.ast.tokens.items(.tag)[start_location];
 
-    std.debug.assert(tag == .Function or tag == .Extern);
+    std.debug.assert(tag == .Fun or tag == .Extern);
 
     const is_extern = tag == .Extern;
 
     if (is_extern) {
-        try self.consume(.Function, "Expected `Function` after `extern`.");
+        try self.consume(.Fun, "Expected `fun` after `extern`.");
     }
 
     var name_token: ?Ast.TokenIndex = null;
@@ -2847,20 +2814,22 @@ fn parseFunctionType(self: *Self, parent_generic_types: ?std.AutoArrayHashMap(*o
     if (!self.check(.RightParen)) {
         while (true) {
             arity += 1;
-            if (arity > 255) {
+            if (arity > std.math.maxInt(u8)) {
                 self.reportErrorAtCurrent(.arguments_count, "Can't have more than 255 arguments.");
             }
+
+            try self.consume(.Identifier, "Expected argument name");
+
+            const arg_name_token = self.current_token.? - 1;
+            const arg_name = self.ast.tokens.items(.lexeme)[self.current_token.? - 1];
+
+            try self.consume(.Colon, "Expected `:`");
 
             const arg_type = try self.parseTypeDef(
                 merged_generic_types,
                 true,
             );
             const arg_type_def = self.ast.nodes.items(.type_def)[arg_type];
-
-            try self.consume(.Identifier, "Expected argument name");
-
-            const arg_name_token = self.current_token.? - 1;
-            const arg_name = self.ast.tokens.items(.lexeme)[self.current_token.? - 1];
 
             var default: ?Ast.Node.Index = null;
             if (try self.match(.Equal)) {
@@ -2928,6 +2897,8 @@ fn parseFunctionType(self: *Self, parent_generic_types: ?std.AutoArrayHashMap(*o
     var error_types = std.ArrayList(*obj.ObjTypeDef).init(self.gc.allocator);
     defer error_types.shrinkAndFree(error_types.items.len);
     if (try self.match(.BangGreater)) {
+        const expects_multiple_error_types = try self.match(.LeftParen);
+
         while (!self.check(.Eof)) {
             const error_type = try self.parseTypeDef(generic_types, true);
             const error_type_def = self.ast.nodes.items(.type_def)[error_type].?;
@@ -2938,9 +2909,13 @@ fn parseFunctionType(self: *Self, parent_generic_types: ?std.AutoArrayHashMap(*o
                 self.reportError(.error_type, "Error type can't be optional");
             }
 
-            if (!self.check(.Comma)) {
+            if (!expects_multiple_error_types or !(try self.match(.Comma))) {
                 break;
             }
+        }
+
+        if (expects_multiple_error_types) {
+            try self.consume(.RightParen, "Expected `)`");
         }
     }
 
@@ -3029,8 +3004,6 @@ fn parseObjType(self: *Self, generic_types: ?std.AutoArrayHashMap(*obj.ObjString
     while (!self.check(.RightBrace) and !self.check(.Eof)) : (property_idx += 1) {
         const constant = try self.match(.Const);
 
-        const property_type = try self.parseTypeDef(generic_types, true);
-
         const is_tuple = !(try self.match(.Identifier));
         const property_name = if (!is_tuple)
             self.current_token.? - 1
@@ -3047,6 +3020,9 @@ fn parseObjType(self: *Self, generic_types: ?std.AutoArrayHashMap(*obj.ObjString
                 ),
             );
         const property_name_lexeme = self.ast.tokens.items(.lexeme)[property_name];
+
+        try self.consume(.Colon, "Expected `:`");
+        const property_type = try self.parseTypeDef(generic_types, true);
 
         if (is_tuple) {
             obj_is_tuple = true;
@@ -3108,6 +3084,8 @@ fn parseObjType(self: *Self, generic_types: ?std.AutoArrayHashMap(*obj.ObjString
 
     try self.consume(.RightBrace, "Expected `}` after object body.");
 
+    object_type.optional = try self.match(.Question);
+
     return try self.ast.appendNode(
         .{
             .tag = .AnonymousObjectType,
@@ -3124,12 +3102,12 @@ fn parseObjType(self: *Self, generic_types: ?std.AutoArrayHashMap(*obj.ObjString
 }
 
 fn parseUserType(self: *Self, instance: bool) Error!Ast.Node.Index {
-    const user_type_name = self.current_token.? - 1;
+    const user_type_name = try self.qualifiedName();
     var var_type: ?*obj.ObjTypeDef = null;
     var global_slot: ?usize = null;
 
     // Search for a global with that name
-    if (try self.resolveGlobal(null, self.ast.tokens.items(.lexeme)[user_type_name])) |slot| {
+    if (try self.resolveGlobal(user_type_name)) |slot| {
         const global = self.globals.items[slot];
 
         var_type = global.type_def;
@@ -3154,12 +3132,16 @@ fn parseUserType(self: *Self, instance: bool) Error!Ast.Node.Index {
             .{
                 .def_type = .Placeholder,
                 .resolved_type = .{
-                    .Placeholder = obj.PlaceholderDef.init(self.gc.allocator, user_type_name),
+                    .Placeholder = obj.PlaceholderDef.init(
+                        self.gc.allocator,
+                        user_type_name[user_type_name.len - 1],
+                    ),
                 },
             },
         );
 
-        global_slot = try self.declarePlaceholder(user_type_name, var_type.?);
+        std.debug.assert(user_type_name.len == 1);
+        global_slot = try self.declarePlaceholder(user_type_name[user_type_name.len - 1], var_type.?);
     }
 
     // Concrete generic types list
@@ -3224,7 +3206,7 @@ fn parseUserType(self: *Self, instance: bool) Error!Ast.Node.Index {
     return try self.ast.appendNode(
         .{
             .tag = .UserType,
-            .location = user_type_name,
+            .location = user_type_name[0],
             .end_location = self.current_token.? - 1,
             .type_def = if (instance)
                 try var_type.?.toInstance(self.gc.allocator, &self.gc.type_registry)
@@ -3233,7 +3215,7 @@ fn parseUserType(self: *Self, instance: bool) Error!Ast.Node.Index {
             .components = .{
                 .UserType = .{
                     .generic_resolve = generic_resolve,
-                    .identifier = user_type_name,
+                    .name = user_type_name,
                 },
             },
         },
@@ -4863,8 +4845,9 @@ fn @"if"(self: *Self, is_statement: bool, loop_scope: ?LoopScope) Error!Ast.Node
     var unwrapped_identifier: ?Ast.TokenIndex = null;
     var casted_type: ?Ast.Node.Index = null;
     if (try self.match(.Arrow)) { // if (opt -> unwrapped)
+        try self.consume(.Identifier, "Expected identifier");
         _ = try self.parseVariable(
-            false,
+            self.current_token.? - 1,
             try condition_type_def.?.cloneNonOptional(&self.gc.type_registry),
             true,
             "Expected optional unwrap identifier",
@@ -4873,10 +4856,12 @@ fn @"if"(self: *Self, is_statement: bool, loop_scope: ?LoopScope) Error!Ast.Node
 
         unwrapped_identifier = self.current_token.? - 1;
     } else if (try self.match(.As)) { // if (expr as casted)
+        try self.consume(.Identifier, "Expected identifier");
+        const identifier = self.current_token.? - 1;
+        try self.consume(.Colon, "Expected `:`");
         casted_type = try self.parseTypeDef(null, true);
-
         _ = try self.parseVariable(
-            false,
+            identifier,
             try self.ast.nodes.items(.type_def)[casted_type.?].?.toInstance(self.gc.allocator, &self.gc.type_registry),
             true,
             "Expected casted identifier",
@@ -5029,46 +5014,62 @@ fn string(self: *Self, _: bool) Error!Ast.Node.Index {
     return string_node;
 }
 
-fn namedVariable(self: *Self, name: Ast.TokenIndex, can_assign: bool) Error!Ast.Node.Index {
+fn namedVariable(self: *Self, name: []const Ast.TokenIndex, can_assign: bool) Error!Ast.Node.Index {
     const start_location = self.current_token.? - 1;
 
     var var_def: ?*obj.ObjTypeDef = null;
     var slot: usize = undefined;
     var slot_type: Ast.SlotType = undefined;
     var slot_constant = false;
-    if (try self.resolveLocal(self.current.?, name)) |uslot| {
-        var_def = self.current.?.locals[uslot].type_def;
-        slot = uslot;
-        slot_type = .Local;
-        slot_constant = self.current.?.locals[uslot].constant;
-    } else if (try self.resolveUpvalue(self.current.?, name)) |uslot| {
-        var_def = self.current.?.enclosing.?.locals[self.current.?.upvalues[uslot].index].type_def;
-        slot = uslot;
-        slot_type = .UpValue;
-        slot_constant = self.current.?.enclosing.?.locals[self.current.?.upvalues[uslot].index].constant;
-    } else if (try self.resolveGlobal(null, self.ast.tokens.items(.lexeme)[name])) |uslot| {
-        const global = self.globals.items[uslot];
-
-        var_def = global.type_def;
-        slot = uslot;
-        slot_type = .Global;
-        slot_constant = global.constant;
-
-        if (global.imported_from != null and self.script_imports.get(global.imported_from.?) != null) {
-            const imported_from = global.imported_from.?;
-
-            try self.script_imports.put(
-                imported_from,
-                .{
-                    .location = self.script_imports.get(imported_from).?.location,
-                    .referenced = true,
-                },
-            );
+    if (name.len == 1) {
+        if (try self.resolveLocal(self.current.?, name[0])) |uslot| {
+            var_def = self.current.?.locals[uslot].type_def;
+            slot = uslot;
+            slot_type = .Local;
+            slot_constant = self.current.?.locals[uslot].constant;
+        } else if (try self.resolveUpvalue(self.current.?, name[0])) |uslot| {
+            var_def = self.current.?.enclosing.?.locals[self.current.?.upvalues[uslot].index].type_def;
+            slot = uslot;
+            slot_type = .UpValue;
+            slot_constant = self.current.?.enclosing.?.locals[self.current.?.upvalues[uslot].index].constant;
         }
-    } else {
-        slot = try self.declarePlaceholder(name, null);
-        var_def = self.globals.items[slot].type_def;
-        slot_type = .Global;
+    }
+
+    if (var_def == null) {
+        if (try self.resolveGlobal(name)) |uslot| {
+            const global = self.globals.items[uslot];
+
+            var_def = global.type_def;
+            slot = uslot;
+            slot_type = .Global;
+            slot_constant = global.constant;
+
+            if (global.imported_from != null and self.script_imports.get(global.imported_from.?) != null) {
+                const imported_from = global.imported_from.?;
+
+                try self.script_imports.put(
+                    imported_from,
+                    .{
+                        .location = self.script_imports.get(imported_from).?.location,
+                        .referenced = true,
+                    },
+                );
+            }
+        } else {
+            slot = try self.declarePlaceholder(name[0], null);
+            var_def = self.globals.items[slot].type_def;
+            slot_type = .Global;
+
+            if (name.len > 1) {
+                self.reportErrorFmt(
+                    .syntax,
+                    "`{s}` does not exists in that namespace or namespace does not exists",
+                    .{
+                        self.ast.tokens.items(.lexeme)[name[0]],
+                    },
+                );
+            }
+        }
     }
 
     const value = if (can_assign and try self.match(.Equal))
@@ -5088,7 +5089,7 @@ fn namedVariable(self: *Self, name: Ast.TokenIndex, can_assign: bool) Error!Ast.
             .type_def = var_def,
             .components = .{
                 .NamedVariable = .{
-                    .identifier = name,
+                    .name = name,
                     .value = value,
                     .slot = @intCast(slot),
                     .slot_type = slot_type,
@@ -5099,8 +5100,29 @@ fn namedVariable(self: *Self, name: Ast.TokenIndex, can_assign: bool) Error!Ast.
     );
 }
 
+/// Will parse qualified name too: identifier or A\B\C\identifier
+fn qualifiedName(self: *Self) Error![]const Ast.TokenIndex {
+    // Assumes one identifier has already been consumed
+    std.debug.assert(self.ast.tokens.items(.tag)[self.current_token.? - 1] == .Identifier);
+
+    var name = std.ArrayList(Ast.TokenIndex).init(self.gc.allocator);
+
+    try name.append(self.current_token.? - 1);
+    while ((try self.match(.AntiSlash)) and !self.check(.Eof)) {
+        try self.consume(.Identifier, "Expected identifier");
+
+        try name.append(self.current_token.? - 1);
+    }
+    name.shrinkAndFree(name.items.len);
+
+    return name.items;
+}
+
 fn variable(self: *Self, can_assign: bool) Error!Ast.Node.Index {
-    return try self.namedVariable(self.current_token.? - 1, can_assign);
+    return try self.namedVariable(
+        try self.qualifiedName(),
+        can_assign,
+    );
 }
 
 fn fun(self: *Self, _: bool) Error!Ast.Node.Index {
@@ -5259,12 +5281,16 @@ fn function(
         if (!self.check(.RightParen)) {
             while (true) {
                 arity += 1;
-                if (arity > 255) {
+                if (arity > std.math.maxInt(u8)) {
                     self.reportErrorAtCurrent(
                         .arguments_count,
                         "Can't have more than 255 arguments.",
                     );
                 }
+
+                try self.consume(.Identifier, "Expected argument name");
+                const identifier = self.current_token.? - 1;
+                try self.consume(.Colon, "Expected `:`");
 
                 const argument_type_node = try self.parseTypeDef(
                     function_typedef.resolved_type.?.Function.generic_types,
@@ -5281,7 +5307,7 @@ fn function(
                 const argument_type = self.ast.nodes.items(.type_def)[argument_type_node].?;
 
                 const slot = try self.parseVariable(
-                    false,
+                    identifier,
                     argument_type,
                     true, // function arguments are constant
                     "Expected argument name",
@@ -5290,7 +5316,10 @@ fn function(
                 std.debug.assert(self.current.?.scope_depth > 0);
                 const local = self.current.?.locals[slot];
 
-                try function_typedef.resolved_type.?.Function.parameters.put(local.name, local.type_def);
+                try function_typedef.resolved_type.?.Function.parameters.put(
+                    try self.gc.copyString(self.ast.tokens.items(.lexeme)[local.name]),
+                    local.type_def,
+                );
 
                 self.markInitialized();
 
@@ -5312,7 +5341,7 @@ fn function(
                             break :value expr;
                         } else if (argument_type.optional) {
                             try function_typedef.resolved_type.?.Function.defaults.put(
-                                local.name,
+                                try self.gc.copyString(self.ast.tokens.items(.lexeme)[local.name]),
                                 Value.Null,
                             );
                         }
@@ -5324,7 +5353,7 @@ fn function(
 
                 try arguments.append(
                     .{
-                        .name = local.name_token,
+                        .name = local.name,
                         .type = argument_type_node,
                         .default = default,
                     },
@@ -5332,7 +5361,7 @@ fn function(
 
                 if (default) |dft| {
                     try function_typedef.resolved_type.?.Function.defaults.put(
-                        local.name,
+                        try self.gc.copyString(self.ast.tokens.items(.lexeme)[local.name]),
                         try self.ast.toValue(dft, self.gc),
                     );
                 }
@@ -6022,7 +6051,9 @@ fn funDeclaration(self: *Self) Error!Ast.Node.Index {
     const name_token = self.current_token.? - 1;
 
     const current_function_type_def = self.ast.nodes.items(.type_def)[self.current.?.function_node];
-    const is_main = std.mem.eql(u8, self.ast.tokens.items(.lexeme)[name_token], "main") and current_function_type_def != null and current_function_type_def.?.resolved_type.?.Function.function_type == .ScriptEntryPoint;
+    const is_main = std.mem.eql(u8, self.ast.tokens.items(.lexeme)[name_token], "main") and
+        current_function_type_def != null and
+        current_function_type_def.?.resolved_type.?.Function.function_type == .ScriptEntryPoint;
 
     if (is_main) {
         if (function_type == .Extern) {
@@ -6105,12 +6136,14 @@ fn exportStatement(self: *Self) Error!Ast.Node.Index {
         self.reportError(.syntax, "A exporting script must provide a namespace");
     }
 
-    if (self.check(.Identifier) and (try self.checkAhead(.Semicolon, 0) or try self.checkAhead(.As, 0) or try self.checkAhead(.Dot, 0))) {
-        try self.consume(.Identifier, "Expected identifier after `export`.");
-        const identifier = self.current_token.? - 1;
+    if (self.check(.Identifier) and
+        (try self.checkAhead(.Semicolon, 0) or try self.checkAhead(.As, 0) or try self.checkAhead(.AntiSlash, 0)))
+    {
+        try self.consume(.Identifier, "Expected identifier");
+        const qualified_name = try self.qualifiedName();
 
         // Search for a global with that name
-        if (try self.resolveGlobal(null, self.ast.tokens.items(.lexeme)[identifier])) |slot| {
+        if (try self.resolveGlobal(qualified_name)) |slot| {
             const global = &self.globals.items[slot];
 
             global.referenced = true;
@@ -6131,12 +6164,18 @@ fn exportStatement(self: *Self) Error!Ast.Node.Index {
             if (try self.match(.As)) {
                 try self.consume(.Identifier, "Expected identifier after `as`.");
 
-                global.export_alias = self.ast.tokens.items(.lexeme)[self.current_token.? - 1];
+                global.export_alias = self.current_token.? - 1;
                 alias = self.current_token.? - 1;
             }
 
-            // If we're exporting an imported global, overwrite is prefix
-            global.prefix = self.namespace;
+            // If we're exporting an imported global, overwrite its namespace
+            const name = global.name[global.name.len - 1];
+            // self.gc.allocator.free(global.name);
+            var new_global_name = std.ArrayList(Ast.TokenIndex).init(self.gc.allocator);
+            try new_global_name.appendSlice(self.namespace orelse &[_]Ast.TokenIndex{});
+            try new_global_name.append(name);
+            new_global_name.shrinkAndFree(new_global_name.items.len);
+            global.name = new_global_name.items;
 
             try self.consume(.Semicolon, "Expected `;` after statement.");
 
@@ -6148,7 +6187,7 @@ fn exportStatement(self: *Self) Error!Ast.Node.Index {
                     .type_def = global.type_def,
                     .components = .{
                         .Export = .{
-                            .identifier = identifier,
+                            .name = qualified_name,
                             .alias = alias,
                             .declaration = null,
                         },
@@ -6159,8 +6198,8 @@ fn exportStatement(self: *Self) Error!Ast.Node.Index {
     } else {
         self.exporting = true;
         if (try self.declaration()) |decl| {
-            self.globals.items[self.globals.items.len - 1].referenced = true;
-
+            const global = &self.globals.items[self.globals.items.len - 1];
+            global.referenced = true;
             self.exporting = false;
 
             return try self.ast.appendNode(
@@ -6171,7 +6210,7 @@ fn exportStatement(self: *Self) Error!Ast.Node.Index {
                     .type_def = self.ast.nodes.items(.type_def)[decl],
                     .components = .{
                         .Export = .{
-                            .identifier = null,
+                            .name = null,
                             .alias = null,
                             .declaration = decl,
                         },
@@ -6192,7 +6231,7 @@ fn exportStatement(self: *Self) Error!Ast.Node.Index {
             .type_def = null,
             .components = .{
                 .Export = .{
-                    .identifier = self.current_token.? - 1,
+                    .name = &[_]Ast.TokenIndex{self.current_token.? - 1},
                     .alias = null,
                     .declaration = null,
                 },
@@ -6251,7 +6290,7 @@ fn objectDeclaration(self: *Self) Error!Ast.Node.Index {
     const object_name = self.ast.tokens.get(object_name_token).clone();
 
     // Qualified name to avoid cross script collision
-    const qualifier = try std.mem.replaceOwned(u8, self.gc.allocator, self.script_name, "/", ".");
+    const qualifier = try std.mem.replaceOwned(u8, self.gc.allocator, self.script_name, "/", "\\");
     defer self.gc.allocator.free(qualifier);
     var qualified_object_name = std.ArrayList(u8).init(self.gc.allocator);
     defer qualified_object_name.deinit();
@@ -6445,12 +6484,14 @@ fn objectDeclaration(self: *Self) Error!Ast.Node.Index {
             try properties_type.put(method_name, self.ast.nodes.items(.type_def)[method_node].?);
         } else {
             const constant = try self.match(.Const);
-            const property_type = try self.parseTypeDef(null, true);
-            const property_type_def = self.ast.nodes.items(.type_def)[property_type];
 
             try self.consume(.Identifier, "Expected property name.");
             const property_token = self.current_token.? - 1;
             const property_name = self.ast.tokens.get(property_token);
+
+            try self.consume(.Colon, "Expected `:`");
+            const property_type = try self.parseTypeDef(null, true);
+            const property_type_def = self.ast.nodes.items(.type_def)[property_type];
 
             if (fields.get(property_name.lexeme) != null) {
                 self.reportError(.property_already_exists, "A member with that name already exists.");
@@ -6944,7 +6985,7 @@ fn enumDeclaration(self: *Self) Error!Ast.Node.Index {
 
 fn varDeclaration(
     self: *Self,
-    identifier_consumed: bool,
+    identifier: ?Ast.TokenIndex,
     parsed_type: ?Ast.Node.Index,
     terminator: DeclarationTerminator,
     constant: bool,
@@ -6960,7 +7001,7 @@ fn varDeclaration(
         self.gc.type_registry.any_type;
 
     const slot: usize = try self.parseVariable(
-        identifier_consumed,
+        identifier,
         var_type,
         constant,
         "Expected variable name.",
@@ -7074,42 +7115,6 @@ fn implicitVarDeclaration(self: *Self, name: Ast.TokenIndex, parsed_type: *obj.O
                 },
             },
         },
-    );
-}
-
-fn listDeclaration(self: *Self, constant: bool) Error!Ast.Node.Index {
-    const current_function_type = self.ast.nodes.items(.type_def)[self.current.?.function_node].?.resolved_type.?.Function.function_type;
-
-    if (self.check(.Less) and (self.current.?.scope_depth > 0 or current_function_type == .Repl)) {
-        // Its a list expression
-        return try self.expressionStatement(true);
-    }
-
-    return try self.varDeclaration(
-        false,
-        try self.parseListType(null),
-        .Semicolon,
-        constant,
-        true,
-        false,
-    );
-}
-
-fn mapDeclaration(self: *Self, constant: bool) Error!Ast.Node.Index {
-    const current_function_type = self.ast.nodes.items(.type_def)[self.current.?.function_node].?.resolved_type.?.Function.function_type;
-
-    if (self.check(.Less) and (self.current.?.scope_depth > 0 or current_function_type == .Repl)) {
-        // Its a map expression
-        return try self.expressionStatement(true);
-    }
-
-    return try self.varDeclaration(
-        false,
-        try self.parseMapType(null),
-        .Semicolon,
-        constant,
-        true,
-        false,
     );
 }
 
@@ -7489,7 +7494,7 @@ fn importScript(
     self: *Self,
     path_token: Ast.TokenIndex,
     file_name: []const u8,
-    prefix: ?[]const u8,
+    prefix: ?[]const Ast.TokenIndex,
     imported_symbols: *std.StringHashMap(Ast.Node.Index),
 ) Error!?ScriptImport {
     var import = self.imports.get(file_name);
@@ -7515,6 +7520,7 @@ fn importScript(
         // We need to share the token and node list with the import so TokenIndex and Node.Index are usable
         parser.ast = self.ast;
         parser.current_token = self.current_token;
+        const token_before_import = self.ast.tokens.get(self.current_token.?);
         const previous_root = self.ast.root;
 
         if (try parser.parse(source_and_path.?[0], file_name)) |ast| {
@@ -7532,7 +7538,19 @@ fn importScript(
                     global.exported = false;
 
                     if (global.export_alias) |export_alias| {
-                        global.name = try self.gc.copyString(export_alias);
+                        const previous_name = global.name;
+                        var new_name = std.ArrayList(Ast.TokenIndex).init(self.gc.allocator);
+                        try new_name.appendSlice(
+                            if (global.name.len > 1)
+                                global.name[0 .. global.name.len - 1]
+                            else
+                                &[_]Ast.TokenIndex{},
+                        );
+                        try new_name.append(export_alias);
+                        new_name.shrinkAndFree(new_name.items.len);
+                        self.gc.allocator.free(previous_name); // TODO: will this free be an issue?
+
+                        global.name = new_name.items;
                         global.export_alias = null;
                     }
                 } else {
@@ -7555,39 +7573,36 @@ fn importScript(
         self.ast.root = previous_root;
         // Last token of imported script is Eof, we discard it
         // Move scanned token just after import statement to replace the imported script Eof
-        // FIXME: this is letting in place the token just before the import list of tokens
-        self.ast.tokens.set(parser.current_token.?, self.ast.tokens.get(self.current_token.?));
+        self.ast.tokens.set(parser.current_token.?, token_before_import);
         self.current_token = parser.current_token;
     }
 
     if (import) |imported| {
         const selective_import = imported_symbols.count() > 0;
+        const lexemes = self.ast.tokens.items(.lexeme);
         for (imported.globals.items) |imported_global| {
             var global = imported_global;
 
             if (!global.hidden) {
-                if (imported_symbols.get(global.name.string) != null) {
-                    _ = imported_symbols.remove(global.name.string);
+                if (imported_symbols.get(lexemes[global.name[global.name.len - 1]]) != null) {
+                    _ = imported_symbols.remove(lexemes[global.name[global.name.len - 1]]);
                 } else if (selective_import) {
                     global.hidden = true;
                 }
 
-                // Search for name collision
-                if ((try self.resolveGlobal(prefix, global.name.string)) != null) {
-                    self.reporter.reportWithOrigin(
-                        .shadowed_global,
-                        self.ast.tokens.get(self.current_token.? - 1),
-                        self.ast.tokens.get(global.location),
-                        "Shadowed global `{s}`",
-                        .{global.name.string},
-                        null,
-                    );
-                }
+                // If requalified, overwrite namespace
+                var imported_name = std.ArrayList(Ast.TokenIndex).init(self.gc.allocator);
+                try imported_name.appendSlice(
+                    if (prefix != null and prefix.?.len == 1 and std.mem.eql(u8, lexemes[prefix.?[0]], "_"))
+                        &[_]Ast.TokenIndex{} // With a `_` override, we erase the namespace
+                    else
+                        prefix orelse global.name[0 .. global.name.len - 1], // override or take initial namespace
+                );
+                try imported_name.append(global.name[global.name.len - 1]);
+                imported_name.shrinkAndFree(imported_name.items.len);
+                // self.gc.allocator.free(global.name);
 
-                global.prefix = if (prefix != null and std.mem.eql(u8, "_", prefix.?))
-                    null // import "..." as _; | Erased prefix so the imported global are in the importer script namespace
-                else
-                    prefix orelse global.prefix;
+                global.name = imported_name.items;
             }
 
             global.imported_from = file_name;
@@ -7752,7 +7767,7 @@ fn importStatement(self: *Self) Error!Ast.Node.Index {
         }
     }
 
-    var prefix: ?Ast.TokenIndex = null;
+    var prefix: ?[]const Ast.TokenIndex = null;
     if (imported_symbols.count() > 0) {
         try self.consume(.From, "Expected `from` after import identifier list.");
     }
@@ -7780,7 +7795,7 @@ fn importStatement(self: *Self) Error!Ast.Node.Index {
 
     if (imported_symbols.count() == 0 and try self.match(.As)) {
         try self.consume(.Identifier, "Expected identifier after `as`.");
-        prefix = self.current_token.? - 1;
+        prefix = try self.qualifiedName();
     }
 
     try self.consume(.Semicolon, "Expected `;` after statement.");
@@ -7789,10 +7804,7 @@ fn importStatement(self: *Self) Error!Ast.Node.Index {
         try self.importScript(
             path_token,
             file_name,
-            if (prefix) |pr|
-                self.ast.tokens.items(.lexeme)[pr]
-            else
-                null,
+            prefix,
             &imported_symbols,
         )
     else
@@ -7966,129 +7978,131 @@ fn zdefStatement(self: *Self) Error!Ast.Node.Index {
 }
 
 // FIXME: this is almost the same as parseUserType!
-fn userVarDeclaration(self: *Self, _: bool, constant: bool) Error!Ast.Node.Index {
+fn userVarDeclaration(self: *Self, identifier: Ast.TokenIndex, constant: bool) Error!Ast.Node.Index {
     const start_location = self.current_token.? - 1;
-    const identifier = self.current_token.? - 1;
     var var_type: ?*obj.ObjTypeDef = null;
 
-    const inferred_declaration = self.check(.Equal) and constant;
     var generic_resolve: ?Ast.Node.Index = null;
 
     // If next token is `=`, means the identifier wasn't a user type but the variable name
     // and the type needs to be inferred
-    if (!inferred_declaration) {
-        const user_type_name = self.current_token.? - 1;
+    const user_type_name = try self.qualifiedName();
 
-        // Is it a generic type defined in enclosing functions or object?
-        if (self.resolveGeneric(try self.gc.copyString(self.ast.tokens.items(.lexeme)[self.current_token.? - 1]))) |generic_type| {
+    // Is it a generic type defined in enclosing functions or object?
+    if (self.resolveGeneric(try self.gc.copyString(self.ast.tokens.items(.lexeme)[self.current_token.? - 1]))) |generic_type| {
+        var_type = generic_type;
+    } else if (self.current.?.generics != null) {
+        // Is it generic type defined in a function signature being parsed?
+        if (self.current.?.generics.?.get(try self.gc.copyString(self.ast.tokens.items(.lexeme)[self.current_token.? - 1]))) |generic_type| {
             var_type = generic_type;
-        } else if (self.current.?.generics != null) {
-            // Is it generic type defined in a function signature being parsed?
-            if (self.current.?.generics.?.get(try self.gc.copyString(self.ast.tokens.items(.lexeme)[self.current_token.? - 1]))) |generic_type| {
-                var_type = generic_type;
-            }
         }
+    }
 
-        // Search for a global with that name
-        if (var_type == null) {
-            if (try self.resolveGlobal(null, self.ast.tokens.items(.lexeme)[user_type_name])) |slot| {
-                const global = self.globals.items[slot];
+    // Search for a global with that name
+    if (var_type == null) {
+        if (try self.resolveGlobal(user_type_name)) |slot| {
+            const global = self.globals.items[slot];
 
-                var_type = global.type_def;
+            var_type = global.type_def;
 
-                if (global.imported_from != null and self.script_imports.get(global.imported_from.?) != null) {
-                    const imported_from = global.imported_from.?;
+            if (global.imported_from != null and self.script_imports.get(global.imported_from.?) != null) {
+                const imported_from = global.imported_from.?;
 
-                    try self.script_imports.put(
-                        imported_from,
-                        .{
-                            .location = self.script_imports.get(imported_from).?.location,
-                            .referenced = true,
-                        },
-                    );
-                }
-            }
-        }
-
-        // If none found, create a placeholder
-        if (var_type == null) {
-            var_type = try self.gc.type_registry.getTypeDef(
-                .{
-                    .def_type = .Placeholder,
-                    .resolved_type = .{
-                        // TODO: token is wrong but what else can we put here?
-                        .Placeholder = obj.PlaceholderDef.init(self.gc.allocator, user_type_name),
+                try self.script_imports.put(
+                    imported_from,
+                    .{
+                        .location = self.script_imports.get(imported_from).?.location,
+                        .referenced = true,
                     },
-                },
-            );
-
-            _ = try self.declarePlaceholder(user_type_name, var_type);
+                );
+            }
         }
+    }
 
-        // Concrete generic types list
-        generic_resolve = if (try self.match(.DoubleColon)) gn: {
-            const generic_start = self.current_token.? - 1;
-
-            try self.consume(.Less, "Expected generic types list after `::`");
-
-            var resolved_generics = std.ArrayList(*obj.ObjTypeDef).init(self.gc.allocator);
-            defer resolved_generics.shrinkAndFree(resolved_generics.items.len);
-            var generic_nodes = std.ArrayList(Ast.Node.Index).init(self.gc.allocator);
-            defer generic_nodes.shrinkAndFree(generic_nodes.items.len);
-            var i: usize = 0;
-            while (!self.check(.Greater) and !self.check(.Eof)) : (i += 1) {
-                try generic_nodes.append(
-                    try self.parseTypeDef(
-                        if (self.current.?.generics) |generics|
-                            generics.*
-                        else
-                            null,
-                        true,
+    // If none found, create a placeholder
+    if (var_type == null) {
+        var_type = try self.gc.type_registry.getTypeDef(
+            .{
+                .def_type = .Placeholder,
+                .resolved_type = .{
+                    // TODO: token is wrong but what else can we put here?
+                    .Placeholder = obj.PlaceholderDef.init(
+                        self.gc.allocator,
+                        user_type_name[user_type_name.len - 1],
                     ),
-                );
+                },
+            },
+        );
 
-                try resolved_generics.append(
-                    self.ast.nodes.items(.type_def)[generic_nodes.items[generic_nodes.items.len - 1]].?,
-                );
+        _ = try self.declarePlaceholder(
+            user_type_name[user_type_name.len - 1],
+            var_type,
+        );
+    }
 
-                if (!self.check(.Greater)) {
-                    try self.consume(.Comma, "Expected `,` between generic types");
-                }
-            }
+    // Concrete generic types list
+    generic_resolve = if (try self.match(.DoubleColon)) gn: {
+        const generic_start = self.current_token.? - 1;
 
-            try self.consume(.Greater, "Expected `>` after generic types list");
+        try self.consume(.Less, "Expected generic types list after `::`");
 
-            if (resolved_generics.items.len == 0) {
-                self.reportErrorAtCurrent(.generic_type, "Expected at least one type");
-            }
-
-            // Shouldn't we populate only in codegen?
-            var_type = try var_type.?.populateGenerics(
-                self.current_token.? - 1,
-                var_type.?.resolved_type.?.Object.id,
-                resolved_generics.items,
-                &self.gc.type_registry,
-                null,
+        var resolved_generics = std.ArrayList(*obj.ObjTypeDef).init(self.gc.allocator);
+        defer resolved_generics.shrinkAndFree(resolved_generics.items.len);
+        var generic_nodes = std.ArrayList(Ast.Node.Index).init(self.gc.allocator);
+        defer generic_nodes.shrinkAndFree(generic_nodes.items.len);
+        var i: usize = 0;
+        while (!self.check(.Greater) and !self.check(.Eof)) : (i += 1) {
+            try generic_nodes.append(
+                try self.parseTypeDef(
+                    if (self.current.?.generics) |generics|
+                        generics.*
+                    else
+                        null,
+                    true,
+                ),
             );
 
-            break :gn try self.ast.appendNode(
-                .{
-                    .tag = .GenericResolveType,
-                    .location = generic_start,
-                    .end_location = self.current_token.? - 1,
-                    .type_def = var_type,
-                    .components = .{
-                        .GenericResolveType = .{
-                            .resolved_types = generic_nodes.items,
-                        },
+            try resolved_generics.append(
+                self.ast.nodes.items(.type_def)[generic_nodes.items[generic_nodes.items.len - 1]].?,
+            );
+
+            if (!self.check(.Greater)) {
+                try self.consume(.Comma, "Expected `,` between generic types");
+            }
+        }
+
+        try self.consume(.Greater, "Expected `>` after generic types list");
+
+        if (resolved_generics.items.len == 0) {
+            self.reportErrorAtCurrent(.generic_type, "Expected at least one type");
+        }
+
+        // Shouldn't we populate only in codegen?
+        var_type = try var_type.?.populateGenerics(
+            self.current_token.? - 1,
+            var_type.?.resolved_type.?.Object.id,
+            resolved_generics.items,
+            &self.gc.type_registry,
+            null,
+        );
+
+        break :gn try self.ast.appendNode(
+            .{
+                .tag = .GenericResolveType,
+                .location = generic_start,
+                .end_location = self.current_token.? - 1,
+                .type_def = var_type,
+                .components = .{
+                    .GenericResolveType = .{
+                        .resolved_types = generic_nodes.items,
                     },
                 },
-            );
-        } else null;
+            },
+        );
+    } else null;
 
-        if (try self.match(.Question)) {
-            var_type = try var_type.?.cloneOptional(&self.gc.type_registry);
-        }
+    if (try self.match(.Question)) {
+        var_type = try var_type.?.cloneOptional(&self.gc.type_registry);
     }
 
     const user_type_node = try self.ast.appendNode(
@@ -8099,7 +8113,7 @@ fn userVarDeclaration(self: *Self, _: bool, constant: bool) Error!Ast.Node.Index
             .type_def = var_type,
             .components = .{
                 .UserType = .{
-                    .identifier = identifier,
+                    .name = user_type_name,
                     .generic_resolve = generic_resolve,
                 },
             },
@@ -8107,7 +8121,7 @@ fn userVarDeclaration(self: *Self, _: bool, constant: bool) Error!Ast.Node.Index
     );
 
     return try self.varDeclaration(
-        inferred_declaration,
+        identifier,
         user_type_node,
         .Semicolon,
         constant,
@@ -8127,13 +8141,16 @@ fn forStatement(self: *Self) Error!Ast.Node.Index {
     var init_declarations = std.ArrayList(Ast.Node.Index).init(self.gc.allocator);
     defer init_declarations.shrinkAndFree(init_declarations.items.len);
     while (!self.check(.Semicolon) and !self.check(.Eof)) {
+        try self.consume(.Identifier, "Expected identifier");
+        const identifier = self.current_token.? - 1;
+
         try init_declarations.append(
             try self.varDeclaration(
-                false,
-                if (try self.match(.Var))
-                    null
+                identifier,
+                if (try self.match(.Colon))
+                    try self.parseTypeDef(null, true)
                 else
-                    try self.parseTypeDef(null, true),
+                    null,
                 .Nothing,
                 false,
                 true,
@@ -8215,32 +8232,30 @@ fn forEachStatement(self: *Self) Error!Ast.Node.Index {
 
     try self.beginScope(null);
 
-    const infer_key_type = try self.match(.Var);
+    try self.consume(.Identifier, "Expected identifier");
+    const key_identifier = self.current_token.? - 1;
     var key = try self.varDeclaration(
-        false,
-        if (infer_key_type)
-            null
-        else
-            try self.parseTypeDef(null, true),
+        key_identifier,
+        null,
         .Nothing,
         false,
         false,
-        infer_key_type,
+        true,
     );
 
     const key_omitted = !(try self.match(.Comma));
-    const infer_value_type = !key_omitted and try self.match(.Var);
+    if (!key_omitted) {
+        try self.consume(.Identifier, "Expected identifier");
+    }
+    const value_identifier = self.current_token.? - 1;
     var value = if (!key_omitted)
         try self.varDeclaration(
-            false,
-            if (infer_value_type)
-                null
-            else
-                try self.parseTypeDef(null, true),
+            value_identifier,
+            null,
             .Nothing,
             false,
             false,
-            infer_value_type,
+            true,
         )
     else
         null;
@@ -8284,35 +8299,73 @@ fn forEachStatement(self: *Self) Error!Ast.Node.Index {
     self.current.?.locals[iterable_slot].type_def = iterable_type_def;
 
     // Infer key/value type
-    if (infer_key_type and !key_omitted) {
-        const key_type = switch (iterable_type_def.def_type) {
-            .List, .String => self.gc.type_registry.int_type,
-            .Map => iterable_type_def.resolved_type.?.Map.key_type,
-            else =>
-            // Other type don't have key type
-            self.current.?.locals[self.ast.nodes.items(.components)[key].VarDeclaration.slot].type_def,
-        };
+    const key_type = switch (iterable_type_def.def_type) {
+        .List, .String => self.gc.type_registry.int_type,
+        .Map => iterable_type_def.resolved_type.?.Map.key_type,
+        .Placeholder => placeholder: {
+            const placeholder = try self.gc.type_registry.getTypeDef(
+                .{
+                    .def_type = .Placeholder,
+                    .resolved_type = .{
+                        .Placeholder = obj.PlaceholderDef.init(
+                            self.gc.allocator,
+                            self.ast.nodes.items(.location)[if (key_omitted) iterable else key],
+                        ),
+                    },
+                },
+            );
 
-        self.current.?.locals[self.ast.nodes.items(.components)[key].VarDeclaration.slot].type_def = key_type;
-        self.ast.nodes.items(.type_def)[key] = key_type;
-    }
+            try obj.PlaceholderDef.link(
+                iterable_type_def,
+                placeholder,
+                .Key,
+            );
 
-    if (infer_value_type or (infer_key_type and key_omitted)) {
-        const value_type = switch (iterable_type_def.def_type) {
-            .List => iterable_type_def.resolved_type.?.List.item_type,
-            .Range => self.gc.type_registry.int_type,
-            // .String => self.gc.type_registry.str_type,
-            .Map => iterable_type_def.resolved_type.?.Map.value_type,
-            .Enum => try iterable_type_def.toInstance(self.gc.allocator, &self.gc.type_registry),
-            .Fiber => iterable_type_def.resolved_type.?.Fiber.yield_type,
-            else =>
-            // Other type are invalid and will be caught at codegen
-            self.current.?.locals[self.ast.nodes.items(.components)[value.?].VarDeclaration.slot].type_def,
-        };
+            break :placeholder placeholder;
+        },
+        else =>
+        // Other type don't have key type
+        self.current.?.locals[self.ast.nodes.items(.components)[key].VarDeclaration.slot].type_def,
+    };
 
-        self.current.?.locals[self.ast.nodes.items(.components)[value.?].VarDeclaration.slot].type_def = value_type;
-        self.ast.nodes.items(.type_def)[value.?] = value_type;
-    }
+    self.current.?.locals[self.ast.nodes.items(.components)[key].VarDeclaration.slot].type_def = key_type;
+    self.ast.nodes.items(.type_def)[key] = key_type;
+
+    const value_type = switch (iterable_type_def.def_type) {
+        .List => iterable_type_def.resolved_type.?.List.item_type,
+        .Range => self.gc.type_registry.int_type,
+        .String => self.gc.type_registry.str_type,
+        .Map => iterable_type_def.resolved_type.?.Map.value_type,
+        .Enum => try iterable_type_def.toInstance(self.gc.allocator, &self.gc.type_registry),
+        .Fiber => iterable_type_def.resolved_type.?.Fiber.yield_type,
+        .Placeholder => placeholder: {
+            const placeholder = try self.gc.type_registry.getTypeDef(
+                .{
+                    .def_type = .Placeholder,
+                    .resolved_type = .{
+                        .Placeholder = obj.PlaceholderDef.init(
+                            self.gc.allocator,
+                            self.ast.nodes.items(.location)[value.?],
+                        ),
+                    },
+                },
+            );
+
+            try obj.PlaceholderDef.link(
+                iterable_type_def,
+                placeholder,
+                .Subscript,
+            );
+
+            break :placeholder placeholder;
+        },
+        else =>
+        // Other type are invalid and will be caught at codegen
+        self.current.?.locals[self.ast.nodes.items(.components)[value.?].VarDeclaration.slot].type_def,
+    };
+
+    self.current.?.locals[self.ast.nodes.items(.components)[value.?].VarDeclaration.slot].type_def = value_type;
+    self.ast.nodes.items(.type_def)[value.?] = value_type;
 
     self.markInitialized();
 
@@ -8539,10 +8592,19 @@ fn namespaceStatement(self: *Self) Error!Ast.Node.Index {
         self.reportError(.syntax, "`namespace` should be the first statement");
     }
 
-    try self.consume(.Identifier, "Expected namespace identifier");
+    var namespace = std.ArrayList(Ast.TokenIndex).init(self.gc.allocator);
+    while (!self.check(.Semicolon) and !self.check(.Eof)) {
+        try self.consume(.Identifier, "Expected namespace identifier");
 
-    const identifier = self.current_token.? - 1;
-    self.namespace = self.ast.tokens.items(.lexeme)[identifier];
+        try namespace.append(self.current_token.? - 1);
+
+        if (!try self.match(.AntiSlash)) {
+            break;
+        }
+    }
+    namespace.shrinkAndFree(namespace.items.len);
+
+    self.namespace = namespace.items;
 
     try self.consume(.Semicolon, "Expected `;` after statement.");
 
@@ -8552,7 +8614,7 @@ fn namespaceStatement(self: *Self) Error!Ast.Node.Index {
             .location = start_location,
             .end_location = self.current_token.? - 1,
             .components = .{
-                .Namespace = identifier,
+                .Namespace = namespace.items,
             },
         },
     );
@@ -8585,16 +8647,18 @@ fn tryStatement(self: *Self) Error!Ast.Node.Index {
 
             try self.beginScope(null);
 
+            try self.consume(.Identifier, "Expected identifier");
+            const identifier = self.current_token.? - 1;
+            try self.consume(.Colon, "Expected `:`");
             const type_def = try self.parseTypeDef(null, true);
 
             _ = try self.parseVariable(
-                false,
+                identifier,
                 self.ast.nodes.items(.type_def)[type_def].?,
                 true, // function arguments are constant
                 "Expected error identifier",
             );
 
-            const identifier = self.current_token.? - 1;
             self.markInitialized();
 
             try self.consume(.RightParen, "Expected `)` after error identifier");

@@ -3,7 +3,7 @@ import "examples/sdl-wrapped" as _;
 import "math";
 
 fun hypot(int x, int y) > int {
-    return std.toInt(math.sqrt(std.toFloat(x * x + y * y)));
+    return std\toInt(math\sqrt(std\toFloat(x * x + y * y)));
 }
 
 fun generateVoronoi(Renderer renderer, int width, int height, int numCells) > void !> SDLError {
@@ -12,12 +12,12 @@ fun generateVoronoi(Renderer renderer, int width, int height, int numCells) > vo
     [Color] colors = [];
 
     foreach (int _ in 0..numCells) {
-        nx.append(std.random(min: 0, max: width));
-        ny.append(std.random(min: 0, max: height));
+        nx.append(std\random(min: 0, max: width));
+        ny.append(std\random(min: 0, max: height));
         colors.append(Color{
-            red = std.random(min: 0, max: 255),
-            green = std.random(min: 0, max: 255),
-            blue = std.random(min: 0, max: 255)
+            red = std\random(min: 0, max: 255),
+            green = std\random(min: 0, max: 255),
+            blue = std\random(min: 0, max: 255)
         });
     }
 

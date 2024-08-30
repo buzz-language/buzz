@@ -300,10 +300,13 @@ pub const GarbageCollector = struct {
 
         if (BuildOptions.gc_debug) {
             io.print(
-                "Allocated @{} {}\n",
+                "Allocated @{} {} for {} (now {}/{})\n",
                 .{
-                    std.fmt.fmtIntSizeDec(@intFromPtr(allocated)),
+                    @intFromPtr(allocated),
                     T,
+                    std.fmt.fmtIntSizeDec(@sizeOf(T)),
+                    std.fmt.fmtIntSizeDec(self.bytes_allocated),
+                    std.fmt.fmtIntSizeDec(self.next_gc),
                 },
             );
         }
@@ -606,6 +609,7 @@ pub const GarbageCollector = struct {
         }
 
         self.obj_collected = obj;
+        defer self.obj_collected = null;
 
         self.allocator.destroy(obj.node.?);
 
@@ -759,8 +763,6 @@ pub const GarbageCollector = struct {
                 free(self, ObjRange, ObjRange.cast(obj).?);
             },
         }
-
-        self.obj_collected = null;
     }
 
     pub fn markValue(self: *Self, value: Value) !void {
@@ -1024,7 +1026,7 @@ pub const GarbageCollector = struct {
                         @intFromPtr(vm.current_fiber),
                         @intFromPtr(vm.currentFrame().?.closure),
                         @intFromPtr(vm.currentFrame().?.closure.function),
-                        vm.currentFrame().?.closure.function.name.string,
+                        vm.currentFrame().?.closure.function.type_def.resolved_type.?.Function.name.string,
                     },
                 );
             }

@@ -2,11 +2,11 @@ import "std";
 
 test "block expression" {
     var value = from {
-        std.print("doing stuff in my block...");
+        std\print("doing stuff in my block...");
 
         out "my value";
     };
 
-    std.assert(value == "my value", message: "Could use block expression");
-    std.assert(value is str, message: "Could infer block expression type properly");
+    std\assert(value == "my value", message: "Could use block expression");
+    std\assert(value is str, message: "Could infer block expression type properly");
 }

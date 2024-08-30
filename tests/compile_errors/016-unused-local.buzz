@@ -1,7 +1,7 @@
-| Unused local of type `int`
+// Unused local of type `int`
 import "std";
 
-fun hey(int unused) > void {
+fun hey(unused: int) > void {
     print("hey you missed me");
 }
 
@@ -10,5 +10,5 @@ test "discarded value" {
 
     "forgot me?";
 
-    int unused = 42;
+    const unused = 42;
 }
