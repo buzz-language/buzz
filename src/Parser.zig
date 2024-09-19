@@ -559,7 +559,7 @@ pub fn deinit(self: *Self) void {
 }
 
 fn reportErrorAtCurrent(self: *Self, error_type: Reporter.Error, message: []const u8) void {
-    @setCold(true);
+    @branchHint(.cold);
     self.reporter.reportErrorAt(
         error_type,
         self.ast.tokens.get(self.current_token.?),
@@ -568,7 +568,7 @@ fn reportErrorAtCurrent(self: *Self, error_type: Reporter.Error, message: []cons
 }
 
 pub fn reportError(self: *Self, error_type: Reporter.Error, message: []const u8) void {
-    @setCold(true);
+    @branchHint(.cold);
     self.reporter.reportErrorAt(
         error_type,
         self.ast.tokens.get(if (self.current_token.? > 0) self.current_token.? - 1 else 0),
@@ -577,7 +577,7 @@ pub fn reportError(self: *Self, error_type: Reporter.Error, message: []const u8)
 }
 
 fn reportErrorFmt(self: *Self, error_type: Reporter.Error, comptime fmt: []const u8, args: anytype) void {
-    @setCold(true);
+    @branchHint(.cold);
     self.reporter.reportErrorFmt(
         error_type,
         self.ast.tokens.get(if (self.current_token.? > 0) self.current_token.? - 1 else 0),

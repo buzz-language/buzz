@@ -1,4 +1,4 @@
-// Could not compile pattern, error at 5: this version of PCRE2 does not have support for \P, \p, or \X
+// Could not compile pattern
 import "std";
 
 test "bad pattern" {

@@ -51,7 +51,7 @@ pub fn scanToken(self: *Self) !Token {
 
     const char: u8 = self.advance();
     return try switch (char) {
-        'a'...'z', 'A'...'Z' => self.identifier(),
+        'a'...'z', 'A'...'Z' => try self.identifier(),
         '_' => self.makeToken(
             .Identifier,
             self.source[self.current.start..self.current.offset],
@@ -101,7 +101,7 @@ pub fn scanToken(self: *Self) !Token {
         '&' => self.makeToken(.Ampersand, null, null, null),
         '*' => self.makeToken(.Star, null, null, null),
         '/' => if (self.match('/'))
-            self.docblock()
+            try self.docblock()
         else
             self.makeToken(.Slash, null, null, null),
         '%' => self.makeToken(.Percent, null, null, null),
@@ -130,11 +130,11 @@ pub fn scanToken(self: *Self) !Token {
                 null,
                 null,
             ),
-        '"' => self.string(false),
-        '`' => self.string(true),
+        '"' => try self.string(false),
+        '`' => try self.string(true),
         '\'' => self.byte(),
-        '@' => self.atIdentifier(),
-        '$' => self.pattern(),
+        '@' => try self.atIdentifier(),
+        '$' => try self.pattern(),
         '\\' => self.makeToken(.AntiSlash, null, null, null),
 
         else => self.makeToken(

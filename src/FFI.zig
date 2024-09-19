@@ -810,8 +810,8 @@ fn fnProto(self: *Self, tag: Ast.Node.Tag, decl_index: Ast.Node.Index) anyerror!
         .generic_types = std.AutoArrayHashMap(*o.ObjString, *o.ObjTypeDef).init(self.gc.allocator),
     };
 
-    var parameters_zig_types = std.ArrayList(ZigType.Fn.Param).init(self.gc.allocator);
-    var zig_fn_type = ZigType.Fn{
+    var parameters_zig_types = std.ArrayList(ZigType.FnType.Param).init(self.gc.allocator);
+    var zig_fn_type = ZigType.FnType{
         .calling_convention = .C,
         // How could it be something else?
         .alignment = 4,

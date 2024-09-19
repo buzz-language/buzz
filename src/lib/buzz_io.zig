@@ -121,6 +121,9 @@ fn handleFileReadWriteError(ctx: *api.NativeCtx, err: anytype) void {
         error.SocketNotConnected,
         => ctx.vm.pushErrorEnum("errors.FileSystemError", @errorName(err)),
 
+        error.Canceled,
+        => ctx.vm.pushErrorEnum("errors.SocketError", @errorName(err)),
+
         error.OperationAborted,
         error.BrokenPipe,
         error.ConnectionResetByPeer,
@@ -179,6 +182,9 @@ fn handleFileReadLineError(ctx: *api.NativeCtx, err: anytype) void {
         error.WouldBlock,
         error.SocketNotConnected,
         => ctx.vm.pushErrorEnum("errors.FileSystemError", @errorName(err)),
+
+        error.Canceled,
+        => ctx.vm.pushErrorEnum("errors.SocketError", @errorName(err)),
 
         error.BrokenPipe,
         error.ConnectionResetByPeer,
@@ -243,6 +249,9 @@ fn handleFileReadAllError(ctx: *api.NativeCtx, err: anytype) void {
         error.WouldBlock,
         error.SocketNotConnected,
         => ctx.vm.pushErrorEnum("errors.FileSystemError", @errorName(err)),
+
+        error.Canceled,
+        => ctx.vm.pushErrorEnum("errors.SocketError", @errorName(err)),
 
         error.OperationAborted,
         error.BrokenPipe,

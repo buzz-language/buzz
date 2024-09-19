@@ -159,6 +159,9 @@ fn handleSpawnError(ctx: *api.NativeCtx, err: anytype) void {
         error.ResourceLimitReached,
         error.WaitAbandoned,
         error.WaitTimeOut,
+        error.ProcessAlreadyExec,
+        error.InvalidProcessGroupId,
+        error.ProcessNotFound,
         => ctx.vm.pushErrorEnum("errors.ExecError", @errorName(err)),
 
         error.OutOfMemory => {
@@ -249,6 +252,7 @@ fn handleConnectError(ctx: *api.NativeCtx, err: anytype) void {
         error.TimeoutTooBig,
         error.UnknownHostName,
         error.WouldBlock,
+        error.Canceled,
         => ctx.vm.pushErrorEnum("errors.SocketError", @errorName(err)),
 
         error.BadPathName,
@@ -460,6 +464,9 @@ fn handleReadLineError(ctx: *api.NativeCtx, err: anytype) void {
         error.WouldBlock,
         error.SocketNotConnected,
         => ctx.vm.pushErrorEnum("errors.FileSystemError", @errorName(err)),
+
+        error.Canceled,
+        => ctx.vm.pushErrorEnum("errors.SocketError", @errorName(err)),
 
         error.BrokenPipe,
         error.ConnectionResetByPeer,

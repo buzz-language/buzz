@@ -2,7 +2,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const Build = std.Build;
 
-const BuzzDebugOptions = struct {
+const DebugOptions = struct {
     debug: bool,
     stack: bool,
     current_instruction: bool,
@@ -10,7 +10,7 @@ const BuzzDebugOptions = struct {
     stop_on_report: bool,
     placeholders: bool,
 
-    pub fn step(self: BuzzDebugOptions, options: *Build.Step.Options) void {
+    pub fn step(self: DebugOptions, options: *Build.Step.Options) void {
         options.addOption(@TypeOf(self.debug), "debug", self.debug);
         options.addOption(@TypeOf(self.stack), "debug_stack", self.stack);
         options.addOption(@TypeOf(self.current_instruction), "debug_current_instruction", self.current_instruction);
@@ -20,14 +20,14 @@ const BuzzDebugOptions = struct {
     }
 };
 
-const BuzzJITOptions = struct {
+const JITOptions = struct {
     on: bool,
     always_on: bool,
     hotspot_always_on: bool,
     debug: bool,
     prof_threshold: f128 = 0.05,
 
-    pub fn step(self: BuzzJITOptions, options: *Build.Step.Options) void {
+    pub fn step(self: JITOptions, options: *Build.Step.Options) void {
         options.addOption(@TypeOf(self.debug), "jit_debug", self.debug);
         options.addOption(@TypeOf(self.always_on), "jit_always_on", self.always_on);
         options.addOption(@TypeOf(self.hotspot_always_on), "jit_hotspot_always_on", self.hotspot_always_on);
@@ -36,7 +36,7 @@ const BuzzJITOptions = struct {
     }
 };
 
-const BuzzGCOptions = struct {
+const GCOptions = struct {
     debug: bool,
     debug_light: bool,
     debug_access: bool,
@@ -46,7 +46,7 @@ const BuzzGCOptions = struct {
     next_full_gc_ratio: usize,
     memory_limit: ?usize,
 
-    pub fn step(self: BuzzGCOptions, options: *Build.Step.Options) void {
+    pub fn step(self: GCOptions, options: *Build.Step.Options) void {
         options.addOption(@TypeOf(self.debug), "gc_debug", self.debug);
         options.addOption(@TypeOf(self.debug_light), "gc_debug_light", self.debug_light);
         options.addOption(@TypeOf(self.debug_access), "gc_debug_access", self.debug_access);
@@ -58,13 +58,13 @@ const BuzzGCOptions = struct {
     }
 };
 
-const BuzzBuildOptions = struct {
+const BuildOptions = struct {
     version: std.SemanticVersion,
     sha: []const u8,
     mimalloc: bool,
-    debug: BuzzDebugOptions,
-    gc: BuzzGCOptions,
-    jit: BuzzJITOptions,
+    debug: DebugOptions,
+    gc: GCOptions,
+    jit: JITOptions,
     target: Build.ResolvedTarget,
     cycle_limit: ?u128,
     recursive_call_limit: ?u32,
@@ -98,7 +98,7 @@ fn getBuzzPrefix(b: *Build) ![]const u8 {
 pub fn build(b: *Build) !void {
     // Check minimum zig version
     const current_zig = builtin.zig_version;
-    const min_zig = std.SemanticVersion.parse("0.14.0-dev.121+ab4c461b7") catch return;
+    const min_zig = std.SemanticVersion.parse("0.14.0-dev.1588+2111f4c38") catch return;
     if (current_zig.order(min_zig).compare(.lt)) {
         @panic(b.fmt("Your Zig version v{} does not meet the minimum build requirement of v{}", .{ current_zig, min_zig }));
     }
@@ -108,9 +108,8 @@ pub fn build(b: *Build) !void {
     const is_wasm = target.result.cpu.arch.isWasm();
     const install_step = b.getInstallStep();
 
-    var build_options = BuzzBuildOptions{
+    var build_options = BuildOptions{
         .target = target,
-        // Version is latest tag or empty string
         .version = std.SemanticVersion{ .major = 0, .minor = 5, .patch = 0 },
         // Current commit sha
         .sha = std.posix.getenv("GIT_SHA") orelse
@@ -257,14 +256,6 @@ pub fn build(b: *Build) !void {
     defer includes.deinit();
     var llibs = std.ArrayList([]const u8).init(b.allocator);
     defer llibs.deinit();
-
-    if (!is_wasm) {
-        sys_libs.appendSlice(
-            &[_][]const u8{
-                "mir",
-            },
-        ) catch unreachable;
-    }
 
     includes.appendSlice(&[_][]const u8{
         "./vendors/mir",
@@ -413,7 +404,7 @@ pub fn build(b: *Build) !void {
 
         // Building std libraries
         const Lib = struct {
-            path: ?[]const u8,
+            path: ?[]const u8 = null,
             name: []const u8,
             wasm_compatible: bool = true,
         };
@@ -431,8 +422,8 @@ pub fn build(b: *Build) !void {
             .{ .name = "http", .path = "src/lib/buzz_http.zig", .wasm_compatible = false },
             .{ .name = "ffi", .path = "src/lib/buzz_ffi.zig", .wasm_compatible = false },
             .{ .name = "serialize", .path = "src/lib/buzz_serialize.zig" },
-            .{ .name = "testing", .path = null },
-            .{ .name = "errors", .path = null },
+            .{ .name = "testing" },
+            .{ .name = "errors" },
         };
 
         var library_steps = std.ArrayList(*std.Build.Step.Compile).init(b.allocator);
@@ -546,15 +537,15 @@ pub fn build(b: *Build) !void {
 
 pub fn buildPcre2(b: *Build, target: Build.ResolvedTarget, optimize: std.builtin.OptimizeMode) !*Build.Step.Compile {
     const copyFiles = b.addWriteFiles();
-    copyFiles.addCopyFileToSource(
+    _ = copyFiles.addCopyFile(
         b.path("vendors/pcre2/src/config.h.generic"),
         "vendors/pcre2/src/config.h",
     );
-    copyFiles.addCopyFileToSource(
+    _ = copyFiles.addCopyFile(
         b.path("vendors/pcre2/src/pcre2.h.generic"),
         "vendors/pcre2/src/pcre2.h",
     );
-    copyFiles.addCopyFileToSource(
+    _ = copyFiles.addCopyFile(
         b.path("vendors/pcre2/src/pcre2_chartables.c.dist"),
         "vendors/pcre2/src/pcre2_chartables.c",
     );
@@ -725,6 +716,8 @@ pub fn buildMir(b: *Build, target: Build.ResolvedTarget, optimize: std.builtin.O
     );
 
     lib.addIncludePath(b.path("./vendors/mir"));
+
+    lib.linkLibC();
 
     lib.addCSourceFiles(
         .{

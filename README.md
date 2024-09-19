@@ -31,7 +31,7 @@ A small/lightweight statically typed scripting language written in Zig
 
 ## How to build and install
 
-_Latest zig version supported: 0.14.0-dev.121+ab4c461b7 (https://github.com/ziglang/zig/issues/20847 prevents us from upgrading further)_
+_Latest zig version supported: 0.14.0-dev.1588+2111f4c38_
 
 ### Requirements
 - Since this is built with Zig, you should be able to build buzz on a wide variety of architectures even though this has only been tested on x86/M1.
@@ -42,13 +42,18 @@ _Latest zig version supported: 0.14.0-dev.121+ab4c461b7 (https://github.com/zigl
 ### Build
 1. Clone the project: `git clone https://github.com/buzz-language/buzz <buzz_dir>`
 2. Checkout submodules: `git submodule update --init`
-3. Run configure for pcre2:
+3. Copy `pcre2_chartables`:
+```bash
+ln -s vendors/pcre2/src/pcre2_chartables.c.dist vendors/pcre2/src/pcre2_chartables.c
+```
+3. Configure pcre2:
 ```bash
 cd vendors/pcre2
+./autogen.sh
 ./configure
 cd ../..
 ```
-4. Have fun: `zig build run -- <myscript.buzz>`
+4. Have fun: `zig build run -- <myscript.buzz>` to run a script  or `zig build run` to start the REPL
 
 ### Install
 
