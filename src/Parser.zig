@@ -1756,11 +1756,54 @@ fn resolvePlaceholderWithRelation(
         },
         .Subscript => {
             if (resolved_type.def_type == .List) {
-                try self.resolvePlaceholder(child, resolved_type.resolved_type.?.List.item_type, false);
+                try self.resolvePlaceholder(
+                    child,
+                    resolved_type.resolved_type.?.List.item_type,
+                    false,
+                );
             } else if (resolved_type.def_type == .Map) {
-                try self.resolvePlaceholder(child, try resolved_type.resolved_type.?.Map.value_type.cloneOptional(&self.gc.type_registry), false);
+                try self.resolvePlaceholder(
+                    child,
+                    try resolved_type.resolved_type.?.Map.value_type.cloneOptional(&self.gc.type_registry),
+                    false,
+                );
             } else if (resolved_type.def_type == .String) {
-                try self.resolvePlaceholder(child, self.gc.type_registry.str_type, false);
+                try self.resolvePlaceholder(
+                    child,
+                    self.gc.type_registry.str_type,
+                    false,
+                );
+            } else {
+                self.reporter.reportErrorFmt(
+                    .map_key_type,
+                    self.ast.tokens.get(child_placeholder.where),
+                    "`{s}` can't be subscripted",
+                    .{
+                        (try resolved_type.toStringAlloc(self.gc.allocator)).items,
+                    },
+                );
+                return;
+            }
+        },
+        .UnwrappedSubscript => {
+            if (resolved_type.def_type == .List) {
+                try self.resolvePlaceholder(
+                    child,
+                    resolved_type.resolved_type.?.List.item_type,
+                    false,
+                );
+            } else if (resolved_type.def_type == .Map) {
+                try self.resolvePlaceholder(
+                    child,
+                    resolved_type.resolved_type.?.Map.value_type,
+                    false,
+                );
+            } else if (resolved_type.def_type == .String) {
+                try self.resolvePlaceholder(
+                    child,
+                    self.gc.type_registry.str_type,
+                    false,
+                );
             } else {
                 self.reporter.reportErrorFmt(
                     .map_key_type,
@@ -8354,7 +8397,7 @@ fn forEachStatement(self: *Self) Error!Ast.Node.Index {
             try obj.PlaceholderDef.link(
                 iterable_type_def,
                 placeholder,
-                .Subscript,
+                .UnwrappedSubscript,
             );
 
             break :placeholder placeholder;

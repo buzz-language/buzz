@@ -4984,6 +4984,7 @@ pub const PlaceholderDef = struct {
         Call,
         Yield,
         Subscript,
+        UnwrappedSubscript,
         Key,
         FieldAccess,
         Assignment,
