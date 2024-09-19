@@ -1790,7 +1790,7 @@ fn resolvePlaceholderWithRelation(
                 self.reporter.reportErrorFmt(
                     .map_key_type,
                     self.ast.tokens.get(child_placeholder.where),
-                    "`{s}` can't be subscripted",
+                    "Bad key type for `{s}`",
                     .{
                         (try resolved_type.toStringAlloc(self.gc.allocator)).items,
                     },

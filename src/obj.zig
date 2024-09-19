@@ -5025,21 +5025,21 @@ pub const PlaceholderDef = struct {
             return;
         }
 
-        // if (child.resolved_type.?.Placeholder.parent != null) {
-        //     if (BuildOptions.debug_placeholders) {
-        //         io.print(
-        //             ">>> Placeholder @{} ({s}) has already a {} relation with @{} ({s})\n",
-        //             .{
-        //                 @intFromPtr(child),
-        //                 if (child.resolved_type.?.Placeholder.name) |name| name.string else "unknown",
-        //                 child.resolved_type.?.Placeholder.parent_relation.?,
-        //                 @intFromPtr(child.resolved_type.?.Placeholder.parent.?),
-        //                 if (child.resolved_type.?.Placeholder.parent.?.resolved_type.?.Placeholder.name) |name| name.string else "unknown",
-        //             },
-        //         );
-        //     }
-        //     return;
-        // }
+        if (child.resolved_type.?.Placeholder.parent != null) {
+            if (BuildOptions.debug_placeholders) {
+                io.print(
+                    ">>> Placeholder @{} ({s}) has already a {} relation with @{} ({s})\n",
+                    .{
+                        @intFromPtr(child),
+                        if (child.resolved_type.?.Placeholder.name) |name| name.string else "unknown",
+                        child.resolved_type.?.Placeholder.parent_relation.?,
+                        @intFromPtr(child.resolved_type.?.Placeholder.parent.?),
+                        if (child.resolved_type.?.Placeholder.parent.?.resolved_type.?.Placeholder.name) |name| name.string else "unknown",
+                    },
+                );
+            }
+            return;
+        }
 
         child.resolved_type.?.Placeholder.parent = parent;
         try parent.resolved_type.?.Placeholder.children.append(child);
