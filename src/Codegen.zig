@@ -3427,6 +3427,17 @@ fn generateReturn(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*o
 
         _ = try self.generateNode(value, breaks);
     } else {
+        if (self.current.?.function.?.type_def.resolved_type.?.Function.return_type.def_type != .Void) {
+            self.reporter.reportTypeCheck(
+                .return_type,
+                self.ast.tokens.get(locations[self.current.?.function_node]),
+                self.current.?.function.?.type_def.resolved_type.?.Function.return_type,
+                self.ast.tokens.get(locations[node]),
+                self.gc.type_registry.void_type,
+                "Return value",
+            );
+        }
+
         try self.emitOpCode(locations[node], .OP_VOID);
     }
 
