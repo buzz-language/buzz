@@ -1658,12 +1658,12 @@ fn resolvePlaceholderWithRelation(
 
     if (BuildOptions.debug_placeholders) {
         io.print(
-            "Attempts to resolve @{} child placeholder @{} ({s}) with relation {}\n",
+            "Attempts to resolve @{} child placeholder @{} ({s}) with relation {s}\n",
             .{
                 @intFromPtr(resolved_type),
                 @intFromPtr(child),
                 self.ast.tokens.items(.lexeme)[child_placeholder.where],
-                child_placeholder.parent_relation.?,
+                @tagName(child_placeholder.parent_relation.?),
             },
         );
     }
@@ -2038,11 +2038,11 @@ pub fn resolvePlaceholder(self: *Self, placeholder: *obj.ObjTypeDef, resolved_ty
     std.debug.assert(placeholder.def_type == .Placeholder);
 
     if (BuildOptions.debug_placeholders) {
-        io.print("Attempts to resolve @{} ({s}) with @{} a {}({})\n", .{
+        io.print("Attempts to resolve @{} ({s}) with @{} a {s}({})\n", .{
             @intFromPtr(placeholder),
             self.ast.tokens.items(.lexeme)[placeholder.resolved_type.?.Placeholder.where],
             @intFromPtr(resolved_type),
-            resolved_type.def_type,
+            @tagName(resolved_type.def_type),
             resolved_type.optional,
         });
     }
@@ -2090,13 +2090,13 @@ pub fn resolvePlaceholder(self: *Self, placeholder: *obj.ObjTypeDef, resolved_ty
 
     if (BuildOptions.debug_placeholders) {
         io.print(
-            "Resolved placeholder @{} {s}({}) with @{}.{}({})\n",
+            "Resolved placeholder @{} {s}({}) with @{} {s}({})\n",
             .{
                 @intFromPtr(placeholder),
                 self.ast.tokens.items(.lexeme)[placeholder.resolved_type.?.Placeholder.where],
                 placeholder.optional,
                 @intFromPtr(resolved_type),
-                resolved_type.def_type,
+                @tagName(resolved_type.def_type),
                 resolved_type.optional,
             },
         );
@@ -2108,6 +2108,7 @@ pub fn resolvePlaceholder(self: *Self, placeholder: *obj.ObjTypeDef, resolved_ty
     placeholder.* = resolved_type.*;
     placeholder.obj = o;
     // Put it in the registry so any cloneOptional/cloneNonOptional don't create new types
+    // FIXME: if the type was already registered this makes an orphan copy of that type
     try self.gc.type_registry.setTypeDef(placeholder);
 
     // Now walk the chain of placeholders and see if they hold up

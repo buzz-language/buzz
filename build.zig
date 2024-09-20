@@ -2,62 +2,6 @@ const std = @import("std");
 const builtin = @import("builtin");
 const Build = std.Build;
 
-const DebugOptions = struct {
-    debug: bool,
-    stack: bool,
-    current_instruction: bool,
-    perf: bool,
-    stop_on_report: bool,
-    placeholders: bool,
-
-    pub fn step(self: DebugOptions, options: *Build.Step.Options) void {
-        options.addOption(@TypeOf(self.debug), "debug", self.debug);
-        options.addOption(@TypeOf(self.stack), "debug_stack", self.stack);
-        options.addOption(@TypeOf(self.current_instruction), "debug_current_instruction", self.current_instruction);
-        options.addOption(@TypeOf(self.perf), "show_perf", self.perf);
-        options.addOption(@TypeOf(self.stop_on_report), "stop_on_report", self.stop_on_report);
-        options.addOption(@TypeOf(self.placeholders), "debug_placeholders", self.placeholders);
-    }
-};
-
-const JITOptions = struct {
-    on: bool,
-    always_on: bool,
-    hotspot_always_on: bool,
-    debug: bool,
-    prof_threshold: f128 = 0.05,
-
-    pub fn step(self: JITOptions, options: *Build.Step.Options) void {
-        options.addOption(@TypeOf(self.debug), "jit_debug", self.debug);
-        options.addOption(@TypeOf(self.always_on), "jit_always_on", self.always_on);
-        options.addOption(@TypeOf(self.hotspot_always_on), "jit_hotspot_always_on", self.hotspot_always_on);
-        options.addOption(@TypeOf(self.on), "jit", self.on);
-        options.addOption(@TypeOf(self.prof_threshold), "jit_prof_threshold", self.prof_threshold);
-    }
-};
-
-const GCOptions = struct {
-    debug: bool,
-    debug_light: bool,
-    debug_access: bool,
-    on: bool,
-    initial_gc: usize,
-    next_gc_ratio: usize,
-    next_full_gc_ratio: usize,
-    memory_limit: ?usize,
-
-    pub fn step(self: GCOptions, options: *Build.Step.Options) void {
-        options.addOption(@TypeOf(self.debug), "gc_debug", self.debug);
-        options.addOption(@TypeOf(self.debug_light), "gc_debug_light", self.debug_light);
-        options.addOption(@TypeOf(self.debug_access), "gc_debug_access", self.debug_access);
-        options.addOption(@TypeOf(self.on), "gc", self.on);
-        options.addOption(@TypeOf(self.initial_gc), "initial_gc", self.initial_gc);
-        options.addOption(@TypeOf(self.next_gc_ratio), "next_gc_ratio", self.next_gc_ratio);
-        options.addOption(@TypeOf(self.next_full_gc_ratio), "next_full_gc_ratio", self.next_full_gc_ratio);
-        options.addOption(@TypeOf(self.memory_limit), "memory_limit", self.memory_limit);
-    }
-};
-
 const BuildOptions = struct {
     version: std.SemanticVersion,
     sha: []const u8,
@@ -89,6 +33,64 @@ const BuildOptions = struct {
     pub fn needLibC(self: @This()) bool {
         return !self.target.result.cpu.arch.isWasm();
     }
+
+    const DebugOptions = struct {
+        debug: bool,
+        stack: bool,
+        current_instruction: bool,
+        perf: bool,
+        stop_on_report: bool,
+        placeholders: bool,
+        type_registry: bool,
+
+        pub fn step(self: DebugOptions, options: *Build.Step.Options) void {
+            options.addOption(@TypeOf(self.debug), "debug", self.debug);
+            options.addOption(@TypeOf(self.stack), "debug_stack", self.stack);
+            options.addOption(@TypeOf(self.current_instruction), "debug_current_instruction", self.current_instruction);
+            options.addOption(@TypeOf(self.perf), "show_perf", self.perf);
+            options.addOption(@TypeOf(self.stop_on_report), "stop_on_report", self.stop_on_report);
+            options.addOption(@TypeOf(self.placeholders), "debug_placeholders", self.placeholders);
+            options.addOption(@TypeOf(self.type_registry), "debug_type_registry", self.type_registry);
+        }
+    };
+
+    const JITOptions = struct {
+        on: bool,
+        always_on: bool,
+        hotspot_always_on: bool,
+        debug: bool,
+        prof_threshold: f128 = 0.05,
+
+        pub fn step(self: JITOptions, options: *Build.Step.Options) void {
+            options.addOption(@TypeOf(self.debug), "jit_debug", self.debug);
+            options.addOption(@TypeOf(self.always_on), "jit_always_on", self.always_on);
+            options.addOption(@TypeOf(self.hotspot_always_on), "jit_hotspot_always_on", self.hotspot_always_on);
+            options.addOption(@TypeOf(self.on), "jit", self.on);
+            options.addOption(@TypeOf(self.prof_threshold), "jit_prof_threshold", self.prof_threshold);
+        }
+    };
+
+    const GCOptions = struct {
+        debug: bool,
+        debug_light: bool,
+        debug_access: bool,
+        on: bool,
+        initial_gc: usize,
+        next_gc_ratio: usize,
+        next_full_gc_ratio: usize,
+        memory_limit: ?usize,
+
+        pub fn step(self: GCOptions, options: *Build.Step.Options) void {
+            options.addOption(@TypeOf(self.debug), "gc_debug", self.debug);
+            options.addOption(@TypeOf(self.debug_light), "gc_debug_light", self.debug_light);
+            options.addOption(@TypeOf(self.debug_access), "gc_debug_access", self.debug_access);
+            options.addOption(@TypeOf(self.on), "gc", self.on);
+            options.addOption(@TypeOf(self.initial_gc), "initial_gc", self.initial_gc);
+            options.addOption(@TypeOf(self.next_gc_ratio), "next_gc_ratio", self.next_gc_ratio);
+            options.addOption(@TypeOf(self.next_full_gc_ratio), "next_full_gc_ratio", self.next_full_gc_ratio);
+            options.addOption(@TypeOf(self.memory_limit), "memory_limit", self.memory_limit);
+        }
+    };
 };
 
 fn getBuzzPrefix(b: *Build) ![]const u8 {
@@ -174,7 +176,12 @@ pub fn build(b: *Build) !void {
             .placeholders = b.option(
                 bool,
                 "debug_placeholders",
-                "Stop compilation whenever an error is encountered",
+                "Debug placeholders resolution",
+            ) orelse false,
+            .type_registry = b.option(
+                bool,
+                "debug_type_registry",
+                "Debug type_registry",
             ) orelse false,
         },
         .gc = .{

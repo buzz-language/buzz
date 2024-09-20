@@ -1715,6 +1715,15 @@ pub const ObjObject = struct {
             has_default: bool,
             // If the field is a static property or a method or an instance property, the index is not the same
             index: usize,
+
+            pub fn eql(self: Field, other: Field) bool {
+                return std.mem.eql(u8, self.name, other.name) and
+                    self.type_def.eql(other.type_def) and
+                    self.constant == other.constant and
+                    self.method == other.method and
+                    self.static == other.static and
+                    self.has_default == other.has_default;
+            }
         };
 
         id: usize,
@@ -4404,6 +4413,7 @@ pub const ObjTypeDef = struct {
         var str = std.ArrayList(u8).init(allocator);
 
         try self.toString(&str.writer());
+        str.shrinkAndFree(str.items.len);
 
         return str;
     }
@@ -4810,7 +4820,30 @@ pub const ObjTypeDef = struct {
             },
             .EnumInstance => expected.EnumInstance.eql(actual.EnumInstance),
 
-            .Object, .Protocol, .Enum => false, // Those are never equal even if definition is the same
+            .Object => {
+                // If both are anonymous object type, we can deeply compare them
+                if (!expected.Object.anonymous or
+                    !actual.Object.anonymous or
+                    expected.Object.fields.count() != actual.Object.fields.count())
+                {
+                    return false;
+                }
+
+                var it = expected.Object.fields.iterator();
+                while (it.next()) |entry| {
+                    if (actual.Object.fields.get(entry.key_ptr.*)) |other_field| {
+                        if (!entry.value_ptr.*.eql(other_field)) {
+                            return false;
+                        }
+                    } else {
+                        return false;
+                    }
+                }
+
+                return true;
+            },
+
+            .Protocol, .Enum => false, // Those are never equal even if definition is the same
 
             .List => expected.List.item_type.eql(actual.List.item_type),
             .Map => expected.Map.key_type.eql(actual.Map.key_type) and expected.Map.value_type.eql(actual.Map.value_type),
@@ -5029,13 +5062,11 @@ pub const PlaceholderDef = struct {
         if (child.resolved_type.?.Placeholder.parent != null) {
             if (BuildOptions.debug_placeholders) {
                 io.print(
-                    ">>> Placeholder @{} ({s}) has already a {} relation with @{} ({s})\n",
+                    ">>> Placeholder @{} has already a {} relation with @{}\n",
                     .{
                         @intFromPtr(child),
-                        if (child.resolved_type.?.Placeholder.name) |name| name.string else "unknown",
                         child.resolved_type.?.Placeholder.parent_relation.?,
                         @intFromPtr(child.resolved_type.?.Placeholder.parent.?),
-                        if (child.resolved_type.?.Placeholder.parent.?.resolved_type.?.Placeholder.name) |name| name.string else "unknown",
                     },
                 );
             }

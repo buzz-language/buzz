@@ -89,6 +89,22 @@ pub const TypeRegistry = struct {
         self.type_def_key_buffer.deinit();
     }
 
+    pub fn dump(self: *Self) void {
+        io.print("\n====== Type Registry ======\n", .{});
+        var it = self.registry.iterator();
+        while (it.next()) |entry| {
+            io.print(
+                "`{s}` = @{} `{s}`\n",
+                .{
+                    entry.key_ptr.*,
+                    @intFromPtr(entry.value_ptr.*),
+                    (entry.value_ptr.*.toStringAlloc(self.gc.allocator) catch unreachable).items,
+                },
+            );
+        }
+        io.print("===========================\n\n", .{});
+    }
+
     pub fn getTypeDef(self: *Self, type_def: ObjTypeDef) !*ObjTypeDef {
         self.type_def_key_buffer.shrinkRetainingCapacity(0);
         try type_def.toString(&self.type_def_key_buffer.writer());
@@ -102,7 +118,7 @@ pub const TypeRegistry = struct {
 
         const type_def_ptr = try self.gc.allocateObject(ObjTypeDef, type_def);
 
-        if (BuildOptions.debug_placeholders) {
+        if (BuildOptions.debug_placeholders or BuildOptions.debug_type_registry) {
             io.print(
                 "`{s}` @{}\n",
                 .{
@@ -130,6 +146,16 @@ pub const TypeRegistry = struct {
         assert(type_def.def_type != .Placeholder);
 
         _ = try self.registry.put(type_def_str.items, type_def);
+
+        if (BuildOptions.debug_placeholders or BuildOptions.debug_type_registry) {
+            io.print(
+                "`{s}` type set to @{}\n",
+                .{
+                    type_def_str.items,
+                    @intFromPtr(type_def),
+                },
+            );
+        }
     }
 
     pub inline fn getTypeDefByName(self: *Self, name: []const u8) ?*ObjTypeDef {
