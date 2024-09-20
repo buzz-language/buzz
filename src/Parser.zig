@@ -4103,6 +4103,8 @@ fn anonymousObjectInit(self: *Self, _: bool) Error!Ast.Node.Index {
         }
     }
 
+    try object_type.resolved_type.?.Object.sortFieldIndexes(self.gc.allocator);
+
     try self.consume(.RightBrace, "Expected `}` after object initialization.");
 
     return try self.ast.appendNode(
@@ -6647,6 +6649,8 @@ fn objectDeclaration(self: *Self) Error!Ast.Node.Index {
             );
         }
     }
+
+    try object_type.resolved_type.?.Object.sortFieldIndexes(self.gc.allocator);
 
     try self.consume(.RightBrace, "Expected `}` after object body.");
 

@@ -36,3 +36,24 @@ test "Anonymous object with generics" {
 
     std\assert(payload.data == 42, message: "Could use anonymous object with generic");
 }
+
+fun callMe(o: obj{ x: int, y: int }) > void {
+    std\assert(o.x == 12 and o.y == 13);
+}
+
+test "anonymous objects with different fields order" {
+    callMe(.{ y = 13, x = 12 });
+}
+
+// placeholders in anonymous object fields works
+object A {
+    board: [int],
+
+    fun free() > void {
+        foreach (x, y in this.board) {
+            var board = [<obj{ x: int }>];
+            
+            board.append(.{ x = x });
+        }
+    }
+}

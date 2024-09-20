@@ -1768,6 +1768,54 @@ pub const ObjObject = struct {
             };
         }
 
+        fn compareStrings(_: void, lhs: []const u8, rhs: []const u8) bool {
+            return std.mem.order(u8, lhs, rhs).compare(std.math.CompareOperator.lt);
+        }
+
+        // Anonymous object can have the same fields but in a different order
+        // This function will sort them by name and fix their index accordingly
+        pub fn sortFieldIndexes(self: *ObjectDef, allocator: Allocator) !void {
+            // Don't do anything on regular objects
+            if (!self.anonymous) {
+                return;
+            }
+
+            const fields = try allocator.alloc(
+                []const u8,
+                self.fields.keys().len,
+            );
+            defer allocator.free(fields);
+            std.mem.copyForwards(
+                []const u8,
+                fields,
+                self.fields.keys(),
+            );
+
+            std.mem.sort(
+                []const u8,
+                fields,
+                {},
+                compareStrings,
+            );
+
+            for (fields, 0..) |field_name, index| {
+                const original_field = self.fields.get(field_name).?;
+                try self.fields.put(
+                    field_name,
+                    .{
+                        .name = original_field.name,
+                        .type_def = original_field.type_def,
+                        .constant = original_field.constant,
+                        .method = original_field.method,
+                        .static = original_field.static,
+                        .location = original_field.location,
+                        .has_default = original_field.has_default,
+                        .index = index,
+                    },
+                );
+            }
+        }
+
         pub fn deinit(self: *ObjectDef) void {
             self.fields.deinit();
             self.placeholders.deinit();
