@@ -1,14 +1,14 @@
 import "std";
 
-test "std\parseInt/Float" {
+test "std\parseInt/Double" {
     std\assert(std\parseInt("12") == 12, message: "Could parse int");
-    std\assert(std\parseFloat("12.42") == 12.42, message: "Could parse float");
+    std\assert(std\parseDouble("12.42") == 12.42, message: "Could parse double");
     std\assert(std\parseInt("not a number") == null, message: "Doesn't parse stupid shit");
 
-    std\assert(std\toInt(23.34) == 23, message: "Could cast float to int");
-    std\assert(std\toFloat(23) == 23.0, message: "Could cast int to float");
+    std\assert(std\toInt(23.34) == 23, message: "Could cast double to int");
+    std\assert(std\toDouble(23) == 23.0, message: "Could cast int to double");
     std\assert(std\toUd(23) is ud, message: "Could cast int to ud");
-    std\assert(std\toUd(23.0) is ud, message: "Could cast float to ud");
+    std\assert(std\toUd(23.0) is ud, message: "Could cast double to ud");
 
     std\assert(std\parseUd("42") == std\toUd(42), message: "Could parse ud");
 }

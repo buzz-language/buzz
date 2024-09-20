@@ -64,7 +64,7 @@ export fun onwhite(text: str) => color(text, color: Color.onwhite);
 export object Tester {
     tests: [bool] = [<bool>],
     asserts: [bool] = [<bool>],
-    elapsed: float = 0.0,
+    elapsed: double = 0.0,
     beforeAll: fun (t: Tester) > void?,
     beforeEach: fun (t: Tester) > void?,
     afterAll: fun (t: Tester) > void?,

@@ -28,9 +28,9 @@ export object Boxed {
         return this.data as? int;
     }
 
-    /// When wrapped data is a float
-    fun floating() > float? {
-        return this.data as? float;
+    /// When wrapped data is a double
+    fun doubleing() > double? {
+        return this.data as? double;
     }
 
     /// When wrapped data is an object, object property values are themselves wrapped in a `Boxed`
@@ -69,8 +69,8 @@ export object Boxed {
     fun booleanValue() > bool => this.boolean() ?? false
     /// @return wrapped data number value or `0` if not an integer
     fun integerValue() > int => this.integer() ?? 0
-    /// @return wrapped data number value or `0` if not a float
-    fun floatingValue() > float => this.floating() ?? 0.0
+    /// @return wrapped data number value or `0` if not a double
+    fun doubleingValue() > double => this.doubleing() ?? 0.0
     /// @return wrapped data map value or empty map if not a map
     fun mapValue() > {str: Boxed} => this.map() ?? {<str: Boxed>}
     /// @return wrapped data list value or empty list if not a list
@@ -255,7 +255,7 @@ object JsonParser {
     fun number(parsed: str) > any !> JsonParseError {
         var number = parsed;
 
-        var isFloat = false;
+        var isDouble = false;
         while (std\parseInt(this.peek() ?? "NaN") != null or this.peek() == ".") {
             var char = this.advance();
 
@@ -264,15 +264,15 @@ object JsonParser {
             }
 
             if (char == ".") {
-                isFloat = true;
+                isDouble = true;
             }
 
             number = number + char!;
         }
 
-        if (isFloat) {
-            if (std\parseFloat(number) -> floating) {
-                return floating;
+        if (isDouble) {
+            if (std\parseDouble(number) -> doubleing) {
+                return doubleing;
             }
         } else if (std\parseInt(number) -> integer) {
             return integer;
@@ -320,8 +320,8 @@ export fun jsonEncode(data: Boxed) > str !> CircularReference, NotSerializable {
         return "{boolean}";
     } else if (data.integer() -> integer) {
         return "{integer}";
-    } else if (data.floating() -> floating) {
-        return "{floating}";
+    } else if (data.doubleing() -> doubleing) {
+        return "{doubleing}";
     } else if (data.map() -> map) {
         var json = "\{";
         const size = map.size();

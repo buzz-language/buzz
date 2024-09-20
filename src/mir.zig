@@ -37,15 +37,15 @@ pub const MIR_error_func_t = ?*const fn (MIR_error_type_t, [*]const u8, ...) cal
 // zig fmt: off
 pub const MIR_Instruction = enum(c_int) {
     // Abbreviations:
-    // I - 64-bit int, S - short (32-bit), U - unsigned, F -float, D - double, LD - long double.
+    // I - 64-bit int, S - short (32-bit), U - unsigned, F -double, D - double, LD - long double.
     // 2 operand insns:
     MOV, FMOV, DMOV, LDMOV, // Moves
     // Extensions.  Truncation is not necessary because we can use an extension to use a part.
     EXT8, EXT16, EXT32, UEXT8, UEXT16, UEXT32,
-    I2F, I2D, I2LD, // Integer to float or (long) double conversion
-    UI2F, UI2D, UI2LD, // Unsigned integer to float or (long) double conversion
-    F2I, D2I, LD2I, // Float or (long) double to integer conversion
-    F2D, F2LD, D2F, D2LD, LD2F, LD2D, // Float, (long) double conversions
+    I2F, I2D, I2LD, // Integer to double or (long) double conversion
+    UI2F, UI2D, UI2LD, // Unsigned integer to double or (long) double conversion
+    F2I, D2I, LD2I, // Double or (long) double to integer conversion
+    F2D, F2LD, D2F, D2LD, LD2F, LD2D, // Double, (long) double conversions
     NEG, NEGS, FNEG, DNEG, LDNEG, // Changing sign
     ADDR, ADDR8, ADDR16, ADDR32, // reg addr in natural mode or given integer mode
     // 3 operand insn:

@@ -25,12 +25,12 @@ const std_api = if (is_wasm) std.StaticStringMap(buzz_api.NativeFn).initComptime
         .{ "buzzPanic", &std_lib.buzzPanic },
         .{ "char", &std_lib.char },
         .{ "currentFiber", &std_lib.currentFiber },
-        .{ "parseFloat", &std_lib.parseFloat },
+        .{ "parseDouble", &std_lib.parseDouble },
         .{ "parseInt", &std_lib.parseInt },
         .{ "parseUd", &std_lib.parseUd },
         .{ "print", &std_lib.print },
         .{ "random", &std_lib.random },
-        .{ "toFloat", &std_lib.toFloat },
+        .{ "toDouble", &std_lib.toDouble },
         .{ "toInt", &std_lib.toInt },
         .{ "toUd", &std_lib.toUd },
     },
@@ -57,8 +57,8 @@ const math_api = if (is_wasm) std.StaticStringMap(buzz_api.NativeFn).initComptim
         .{ "bzexp", &math_lib.bzexp },
         .{ "bzfloor", &math_lib.bzfloor },
         .{ "bzlog", &math_lib.bzlog },
-        .{ "minFloat", &math_lib.minFloat },
-        .{ "maxFloat", &math_lib.maxFloat },
+        .{ "minDouble", &math_lib.minDouble },
+        .{ "maxDouble", &math_lib.maxDouble },
         .{ "minInt", &math_lib.minInt },
         .{ "maxInt", &math_lib.maxInt },
         .{ "bzsin", &math_lib.bzsin },
@@ -80,8 +80,8 @@ const buffer_api = if (is_wasm) std.StaticStringMap(buzz_api.NativeFn).initCompt
         .{ "BufferReadInt", &buffer_lib.BufferReadInt },
         .{ "BufferWriteUserData", &buffer_lib.BufferWriteUserData },
         .{ "BufferReadUserData", &buffer_lib.BufferReadUserData },
-        .{ "BufferWriteFloat", &buffer_lib.BufferWriteFloat },
-        .{ "BufferReadFloat", &buffer_lib.BufferReadFloat },
+        .{ "BufferWriteDouble", &buffer_lib.BufferWriteDouble },
+        .{ "BufferReadDouble", &buffer_lib.BufferReadDouble },
         .{ "BufferLen", &buffer_lib.BufferLen },
         .{ "BufferCursor", &buffer_lib.BufferCursor },
         .{ "BufferBuffer", &buffer_lib.BufferBuffer },
@@ -433,7 +433,7 @@ const rules = [_]ParseRule{
     .{ .prefix = null, .infix = null, .precedence = .None }, // Str
     .{ .prefix = null, .infix = null, .precedence = .None }, // Ud
     .{ .prefix = null, .infix = null, .precedence = .None }, // Int
-    .{ .prefix = null, .infix = null, .precedence = .None }, // Float
+    .{ .prefix = null, .infix = null, .precedence = .None }, // Double
     .{ .prefix = null, .infix = null, .precedence = .None }, // Type
     .{ .prefix = null, .infix = null, .precedence = .None }, // Bool
     .{ .prefix = null, .infix = null, .precedence = .None }, // Function
@@ -1279,7 +1279,7 @@ fn simpleTypeFromToken(token: Token.Type) ?obj.ObjTypeDef.Type {
         .Ud => .UserData,
         .Str => .String,
         .Int => .Integer,
-        .Float => .Float,
+        .Double => .Double,
         .Bool => .Bool,
         .Range => .Range,
         .Type => .Type,
@@ -1325,7 +1325,7 @@ fn declaration(self: *Self) Error!?Ast.Node.Index {
         }
 
         // Simple types
-        for ([_]Token.Type{ .Pat, .Ud, .Str, .Int, .Float, .Bool, .Range, .Type, .Any }) |token| {
+        for ([_]Token.Type{ .Pat, .Ud, .Str, .Int, .Double, .Bool, .Range, .Type, .Any }) |token| {
             if (try self.match(token)) {
                 break :variable try self.varDeclaration(
                     identifier,
@@ -2458,7 +2458,7 @@ fn parseTypeDef(
                 },
             },
         );
-    } else if (try self.match(.Float)) {
+    } else if (try self.match(.Double)) {
         const optional = try self.match(.Question);
 
         return self.ast.appendNode(
@@ -2469,7 +2469,7 @@ fn parseTypeDef(
                 .type_def = try self.gc.type_registry.getTypeDef(
                     .{
                         .optional = optional,
-                        .def_type = .Float,
+                        .def_type = .Double,
                     },
                 ),
                 .components = .{
@@ -3560,9 +3560,9 @@ fn literal(self: *Self, _: bool) Error!Ast.Node.Index {
             node.type_def = self.gc.type_registry.int_type;
         },
         .FloatValue => {
-            node.tag = .Float;
+            node.tag = .Double;
             node.components = .{
-                .Float = self.ast.tokens.items(.literal_float)[node.location].?,
+                .Double = self.ast.tokens.items(.literal_float)[node.location].?,
             };
             node.type_def = self.gc.type_registry.float_type;
         },
@@ -6044,7 +6044,7 @@ fn binary(self: *Self, _: bool, left: Ast.Node.Index) Error!Ast.Node.Index {
                 .Star,
                 .Percent,
                 .Slash,
-                => if ((left_type_def != null and left_type_def.?.def_type == .Float) or (right_type_def != null and right_type_def.?.def_type == .Float))
+                => if ((left_type_def != null and left_type_def.?.def_type == .Double) or (right_type_def != null and right_type_def.?.def_type == .Double))
                     self.gc.type_registry.float_type
                 else
                     self.gc.type_registry.int_type,

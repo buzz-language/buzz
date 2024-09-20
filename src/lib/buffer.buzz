@@ -26,9 +26,9 @@ extern fun BufferWriteUserData(userdata: ud, ptr: ud) > void !> WriteWhileReadin
 /// @private
 extern fun BufferReadUserData(userdata: ud) > ud?;
 /// @private
-extern fun BufferWriteFloat(userdata: ud, n: float) > void !> WriteWhileReadingError;
+extern fun BufferWriteDouble(userdata: ud, n: double) > void !> WriteWhileReadingError;
 /// @private
-extern fun BufferReadFloat(userdata: ud) > float?;
+extern fun BufferReadDouble(userdata: ud) > double?;
 /// @private
 extern fun BufferLen(userdata: ud, align: int) > int;
 /// @private
@@ -172,16 +172,16 @@ export object Buffer {
         BufferWriteUserData(this.buffer, ptr: userdata);
     }
 
-    /// Reads a float
-    /// @return Read float or `null` if nothing to read
-    fun readFloat() > float? {
-        return BufferReadFloat(this.buffer);
+    /// Reads a double
+    /// @return Read double or `null` if nothing to read
+    fun readDouble() > double? {
+        return BufferReadDouble(this.buffer);
     }
 
-    /// Writes a float
-    /// @param number Float to write
-    fun writeFloat(number: float) > void !> WriteWhileReadingError {
-        BufferWriteFloat(this.buffer, n: number);
+    /// Writes a double
+    /// @param number Double to write
+    fun writeDouble(number: double) > void !> WriteWhileReadingError {
+        BufferWriteDouble(this.buffer, n: number);
     }
 
 

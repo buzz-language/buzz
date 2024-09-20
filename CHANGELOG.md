@@ -1,7 +1,7 @@
 # Unreleased
 
 ## Major syntax changes
-- Types are now specified *after* the identifier + `:`. This includes:
+- Types are now specified *after* the identifier + `:` (https://github.com/buzz-language/buzz/issues/310). This includes:
     - Variable declarations
     - Function argument definitions
     - Catch clauses
@@ -13,6 +13,7 @@
 - If a function type has multiple error types, they must be put them in parenthesis
 - Namespace can now be multiple `\` separated identifiers
 - Qualified name now use `\` separator instead of `.`
+- The `float` type is renamed to `double` (https://github.com/buzz-language/buzz/issues/311)
 
 ## Added
 - Object can have `const` properties (https://github.com/buzz-language/buzz/issues/13). A object with only `const` properties is considered itself `const`. Although we don't do anything yet with that concept. https://github.com/buzz-language/buzz/issues/114 is the objective but it requires being able to build objects and instances at compile time which is not yet possible.
@@ -23,7 +24,7 @@ const tuple = .{ "john", "james" };
 
 tuple.@"0" == "john";
 ```
-- Checked subscript access to list and strings:
+- Checked subscript access to list and strings (https://github.com/buzz-language/buzz/issues/304):
 ```buzz
 var list = [1, 2, 3];
 
@@ -37,6 +38,7 @@ list[?10] == null;
 ## Modified
 - Enum can now have `rg`, `ud`, `void`, `pat` has value type
 - Anonymous object can also omit property name when initial value is a named variable
+- Mir was updated to 1.0 (https://github.com/buzz-language/buzz/issues/300)
 
 ## Fixed
 - Type checking was not done on object instance property assignments

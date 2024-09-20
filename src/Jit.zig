@@ -452,9 +452,9 @@ fn generateNode(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
             self.ctx,
             Value.fromBoolean(components[node].Boolean).val,
         ),
-        .Float => m.MIR_new_double_op(
+        .Double => m.MIR_new_double_op(
             self.ctx,
-            components[node].Float,
+            components[node].Double,
         ),
         .Integer => m.MIR_new_uint_op(
             self.ctx,
@@ -1447,7 +1447,7 @@ fn buildValueToFloat(self: *Self, value: m.MIR_op_t, dest: m.MIR_op_t) void {
         value,
     );
 
-    // Take it out as float
+    // Take it out as double
     self.FMOV(
         dest,
         m.MIR_new_mem_op(
@@ -1548,7 +1548,7 @@ fn unwrap(self: *Self, def_type: o.ObjTypeDef.Type, value: m.MIR_op_t, dest: m.M
     return switch (def_type) {
         .Bool => self.buildValueToBoolean(value, dest),
         .Integer => self.buildValueToInteger(value, dest),
-        .Float => self.buildValueToDouble(value, dest),
+        .Double => self.buildValueToDouble(value, dest),
         .Void => self.MOV(dest, value),
         .String,
         .Pattern,
@@ -1579,7 +1579,7 @@ fn wrap(self: *Self, def_type: o.ObjTypeDef.Type, value: m.MIR_op_t, dest: m.MIR
     return switch (def_type) {
         .Bool => self.buildValueFromBoolean(value, dest),
         .Integer => self.buildValueFromInteger(value, dest),
-        .Float => self.buildValueFromDouble(value, dest),
+        .Double => self.buildValueFromDouble(value, dest),
         .Void => self.MOV(dest, m.MIR_new_uint_op(self.ctx, Value.Void.val)),
         .String,
         .Pattern,
@@ -2478,35 +2478,35 @@ fn generateBinary(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
             );
             var left = m.MIR_new_reg_op(
                 self.ctx,
-                try self.REG("left", if (left_type_def == .Float) m.MIR_T_D else m.MIR_T_I64),
+                try self.REG("left", if (left_type_def == .Double) m.MIR_T_D else m.MIR_T_I64),
             );
             var right = m.MIR_new_reg_op(
                 self.ctx,
-                try self.REG("right", if (right_type_def == .Float) m.MIR_T_D else m.MIR_T_I64),
+                try self.REG("right", if (right_type_def == .Double) m.MIR_T_D else m.MIR_T_I64),
             );
 
             if (left_type_def == .Integer) {
                 try self.unwrap(.Integer, left_value, left);
-            } else if (left_type_def == .Float) {
-                try self.unwrap(.Float, left_value, left);
+            } else if (left_type_def == .Double) {
+                try self.unwrap(.Double, left_value, left);
             } else {
                 self.MOV(left, left_value);
             }
 
             if (right_type_def == .Integer) {
                 try self.unwrap(.Integer, right_value, right);
-            } else if (right_type_def == .Float) {
-                try self.unwrap(.Float, right_value, right);
+            } else if (right_type_def == .Double) {
+                try self.unwrap(.Double, right_value, right);
             } else {
                 self.MOV(right, right_value);
             }
 
             // Avoid collection
-            if (left_type_def != .Integer and left_type_def != .Float) {
+            if (left_type_def != .Integer and left_type_def != .Double) {
                 try self.buildPush(left_value);
             }
 
-            if (right_type_def != .Integer and right_type_def != .Float) {
+            if (right_type_def != .Integer and right_type_def != .Double) {
                 try self.buildPush(right_value);
             }
 
@@ -2557,7 +2557,7 @@ fn generateBinary(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
                     self.append(out_label);
                 },
                 .Greater, .Less, .GreaterEqual, .LessEqual => {
-                    if (left_type_def == .Float or right_type_def == .Float) {
+                    if (left_type_def == .Double or right_type_def == .Double) {
                         if (left_type_def == .Integer) {
                             const left_f = m.MIR_new_reg_op(
                                 self.ctx,
@@ -2599,8 +2599,8 @@ fn generateBinary(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
                 },
                 .Plus => {
                     switch (left_type_def) {
-                        .Integer, .Float => {
-                            if (left_type_def == .Float or right_type_def == .Float) {
+                        .Integer, .Double => {
+                            if (left_type_def == .Double or right_type_def == .Double) {
                                 if (left_type_def == .Integer) {
                                     const left_f = m.MIR_new_reg_op(
                                         self.ctx,
@@ -2625,7 +2625,7 @@ fn generateBinary(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
                                 );
                                 self.DADD(f_res, left, right);
 
-                                self.wrap(.Float, f_res, res);
+                                self.wrap(.Double, f_res, res);
                             } else {
                                 self.ADDS(res, left, right);
 
@@ -2669,7 +2669,7 @@ fn generateBinary(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
                     }
                 },
                 .Minus => {
-                    if (left_type_def == .Float or right_type_def == .Float) {
+                    if (left_type_def == .Double or right_type_def == .Double) {
                         if (left_type_def == .Integer) {
                             const left_f = m.MIR_new_reg_op(
                                 self.ctx,
@@ -2694,7 +2694,7 @@ fn generateBinary(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
                         );
                         self.DSUB(f_res, left, right);
 
-                        self.wrap(.Float, f_res, res);
+                        self.wrap(.Double, f_res, res);
                     } else {
                         self.SUBS(res, left, right);
 
@@ -2702,7 +2702,7 @@ fn generateBinary(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
                     }
                 },
                 .Star => {
-                    if (left_type_def == .Float or right_type_def == .Float) {
+                    if (left_type_def == .Double or right_type_def == .Double) {
                         if (left_type_def == .Integer) {
                             const left_f = m.MIR_new_reg_op(
                                 self.ctx,
@@ -2727,7 +2727,7 @@ fn generateBinary(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
                         );
                         self.DMUL(f_res, left, right);
 
-                        self.wrap(.Float, f_res, res);
+                        self.wrap(.Double, f_res, res);
                     } else {
                         self.MULS(res, left, right);
 
@@ -2735,7 +2735,7 @@ fn generateBinary(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
                     }
                 },
                 .Slash => {
-                    if (left_type_def == .Float or right_type_def == .Float) {
+                    if (left_type_def == .Double or right_type_def == .Double) {
                         if (left_type_def == .Integer) {
                             const left_f = m.MIR_new_reg_op(
                                 self.ctx,
@@ -2760,7 +2760,7 @@ fn generateBinary(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
                         );
                         self.DDIV(f_res, left, right);
 
-                        self.wrap(.Float, f_res, res);
+                        self.wrap(.Double, f_res, res);
                     } else {
                         self.DIVS(res, left, right);
 
@@ -2768,7 +2768,7 @@ fn generateBinary(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
                     }
                 },
                 .Percent => {
-                    if (left_type_def == .Float or right_type_def == .Float) {
+                    if (left_type_def == .Double or right_type_def == .Double) {
                         try self.buildExternApiCall(
                             .fmod,
                             res,
@@ -2786,11 +2786,11 @@ fn generateBinary(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
                 else => unreachable,
             }
 
-            if (left_type_def != .Integer and left_type_def != .Float) {
+            if (left_type_def != .Integer and left_type_def != .Double) {
                 try self.buildPop(null);
             }
 
-            if (right_type_def != .Integer and right_type_def != .Float) {
+            if (right_type_def != .Integer and right_type_def != .Double) {
                 try self.buildPop(null);
             }
 
@@ -5026,13 +5026,13 @@ pub fn compileZdefContainer(self: *Self, ast: Ast, zdef_element: Ast.Zdef.ZdefEl
 fn buildBuzzValueToZigValue(self: *Self, buzz_type: *o.ObjTypeDef, zig_type: ZigType, buzz_value: m.MIR_op_t, dest: m.MIR_op_t) !void {
     switch (zig_type) {
         .Int => {
-            if (buzz_type.def_type == .Float) {
+            if (buzz_type.def_type == .Double) {
                 const tmp_float = m.MIR_new_reg_op(
                     self.ctx,
                     try self.REG("tmp_float", m.MIR_T_D),
                 );
 
-                // This is a int represented by a buzz float value
+                // This is a int represented by a buzz double value
                 self.buildValueToDouble(buzz_value, tmp_float);
 
                 // Convert it back to an int
@@ -5041,12 +5041,12 @@ fn buildBuzzValueToZigValue(self: *Self, buzz_type: *o.ObjTypeDef, zig_type: Zig
                 self.buildValueToInteger(buzz_value, dest);
             }
         },
-        // TODO: float can't be truncated like ints, we need a D2F instruction
-        .Float => {
-            if (zig_type.Float.bits == 64) {
+        // TODO: double can't be truncated like ints, we need a D2F instruction
+        .Double => {
+            if (zig_type.Double.bits == 64) {
                 self.buildValueToDouble(buzz_value, dest);
             } else {
-                std.debug.assert(zig_type.Float.bits == 32);
+                std.debug.assert(zig_type.Double.bits == 32);
                 self.buildValueToFloat(buzz_value, dest);
             }
         },
@@ -5084,8 +5084,8 @@ fn buildBuzzValueToZigValue(self: *Self, buzz_type: *o.ObjTypeDef, zig_type: Zig
 fn buildZigValueToBuzzValue(self: *Self, buzz_type: *o.ObjTypeDef, zig_type: ZigType, zig_value: m.MIR_op_t, dest: m.MIR_op_t) !void {
     switch (zig_type) {
         .Int => {
-            if (buzz_type.def_type == .Float) {
-                // This is a int represented by a buzz float value
+            if (buzz_type.def_type == .Double) {
+                // This is a int represented by a buzz double value
                 const tmp_float = m.MIR_new_reg_op(
                     self.ctx,
                     try self.REG("tmp_float", m.MIR_T_D),
@@ -5104,11 +5104,11 @@ fn buildZigValueToBuzzValue(self: *Self, buzz_type: *o.ObjTypeDef, zig_type: Zig
                 self.buildValueFromInteger(zig_value, dest);
             }
         },
-        .Float => {
-            if (zig_type.Float.bits == 64) {
+        .Double => {
+            if (zig_type.Double.bits == 64) {
                 self.buildValueFromDouble(zig_value, dest);
             } else {
-                std.debug.assert(zig_type.Float.bits == 32);
+                std.debug.assert(zig_type.Double.bits == 32);
                 self.buildValueFromFloat(zig_value, dest);
             }
         },
@@ -5241,7 +5241,7 @@ fn zigToMIRType(zig_type: ZigType) m.MIR_type_t {
             64 => m.MIR_T_U64,
             else => unreachable,
         },
-        .Float => switch (zig_type.Float.bits) {
+        .Double => switch (zig_type.Double.bits) {
             32 => m.MIR_T_F,
             64 => m.MIR_T_D,
             else => unreachable,
@@ -5260,7 +5260,7 @@ fn zigToMIRType(zig_type: ZigType) m.MIR_type_t {
 fn zigToMIRRegType(zig_type: ZigType) m.MIR_type_t {
     return switch (zig_type) {
         .Int, .Bool, .Pointer => m.MIR_T_I64,
-        .Float => switch (zig_type.Float.bits) {
+        .Double => switch (zig_type.Double.bits) {
             32 => m.MIR_T_F,
             64 => m.MIR_T_D,
             else => unreachable,

@@ -3959,7 +3959,7 @@ pub const ObjTypeDef = struct {
     pub const Type = enum(u8) {
         Any,
         Bool,
-        Float,
+        Double,
         Integer,
         Pattern,
         String,
@@ -3993,7 +3993,7 @@ pub const ObjTypeDef = struct {
     pub const TypeUnion = union(Type) {
         Any: void,
         Bool: void,
-        Float: void,
+        Double: void,
         Integer: void,
         Pattern: void,
         String: void,
@@ -4086,7 +4086,7 @@ pub const ObjTypeDef = struct {
         const result = switch (self.def_type) {
             .Bool,
             .Integer,
-            .Float,
+            .Double,
             .String,
             .Pattern,
             .Void,
@@ -4480,7 +4480,7 @@ pub const ObjTypeDef = struct {
             .UserData => try writer.writeAll("ud"),
             .Bool => try writer.writeAll("bool"),
             .Integer => try writer.writeAll("int"),
-            .Float => try writer.writeAll("float"),
+            .Double => try writer.writeAll("double"),
             .String => try writer.writeAll("str"),
             .Pattern => try writer.writeAll("pat"),
             .Any => try writer.writeAll("any"),
@@ -4841,7 +4841,7 @@ pub const ObjTypeDef = struct {
         return switch (expected) {
             .Bool,
             .Integer,
-            .Float,
+            .Double,
             .String,
             .Void,
             .Pattern,
@@ -4972,7 +4972,7 @@ pub const ObjTypeDef = struct {
     pub fn isConstant(self: *Self) bool {
         return switch (self.def_type) {
             .Bool,
-            .Float,
+            .Double,
             .Integer,
             .Pattern,
             .String,

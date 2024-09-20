@@ -7,7 +7,7 @@ const TryCtx = _vm.TryCtx;
 const _obj = @import("obj.zig");
 const _value = @import("value.zig");
 const Integer = _value.Integer;
-const Float = _value.Float;
+const Double = _value.Double;
 const Value = _value.Value;
 const memory = @import("memory.zig");
 const Parser = @import("Parser.zig");
@@ -1666,24 +1666,24 @@ export fn bz_readZigValueFromBuffer(
                 else => break :integer Value.Void,
             }
         },
-        .Float => float: {
+        .Double => double: {
             const offset = at * ztype.size();
-            const bytes = buffer.items[offset .. offset + (ztype.Float.bits / 8)];
+            const bytes = buffer.items[offset .. offset + (ztype.Double.bits / 8)];
 
-            switch (ztype.Float.bits) {
+            switch (ztype.Double.bits) {
                 32 => {
-                    break :float Value.fromFloat(
+                    break :double Value.fromFloat(
                         @floatCast(
                             std.mem.bytesToValue(f32, bytes[0..4]),
                         ),
                     );
                 },
                 64 => {
-                    break :float Value.fromFloat(
-                        std.mem.bytesToValue(Float, bytes[0..8]),
+                    break :double Value.fromFloat(
+                        std.mem.bytesToValue(Double, bytes[0..8]),
                     );
                 },
-                else => break :float Value.Void,
+                else => break :double Value.Void,
             }
         },
         .Pointer,
@@ -1760,9 +1760,9 @@ export fn bz_writeZigValueToBuffer(
                 else => {},
             }
         },
-        .Float => switch (ztype.Float.bits) {
+        .Double => switch (ztype.Double.bits) {
             32 => {
-                const unwrapped = @as(f32, @floatCast(value.float()));
+                const unwrapped = @as(f32, @floatCast(value.double()));
                 const bytes = std.mem.asBytes(&unwrapped);
 
                 buffer.replaceRange(at, bytes.len, bytes) catch {
@@ -1771,7 +1771,7 @@ export fn bz_writeZigValueToBuffer(
                 };
             },
             64 => {
-                const unwrapped = value.float();
+                const unwrapped = value.double();
                 const bytes = std.mem.asBytes(&unwrapped);
 
                 buffer.replaceRange(at, bytes.len, bytes) catch {

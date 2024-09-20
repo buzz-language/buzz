@@ -57,7 +57,7 @@ pub export fn toInt(ctx: *api.NativeCtx) c_int {
     ctx.vm.bz_push(
         api.Value.fromInteger(
             if (value.isFloat())
-                @intFromFloat(value.float())
+                @intFromFloat(value.double())
             else
                 value.integer(),
         ),
@@ -66,7 +66,7 @@ pub export fn toInt(ctx: *api.NativeCtx) c_int {
     return 1;
 }
 
-pub export fn toFloat(ctx: *api.NativeCtx) c_int {
+pub export fn toDouble(ctx: *api.NativeCtx) c_int {
     const value = ctx.vm.bz_peek(0);
 
     ctx.vm.bz_push(
@@ -74,7 +74,7 @@ pub export fn toFloat(ctx: *api.NativeCtx) c_int {
             if (value.isInteger())
                 @floatFromInt(value.integer())
             else
-                value.float(),
+                value.double(),
         ),
     );
 
@@ -88,7 +88,7 @@ pub export fn toUd(ctx: *api.NativeCtx) c_int {
         ctx.vm.bz_newUserData(if (value.isInteger())
             @intCast(value.integer())
         else if (value.isFloat())
-            @intFromFloat(value.float())
+            @intFromFloat(value.double())
         else
             0),
     );
@@ -151,7 +151,7 @@ pub export fn parseUd(ctx: *api.NativeCtx) c_int {
     return 1;
 }
 
-pub export fn parseFloat(ctx: *api.NativeCtx) c_int {
+pub export fn parseDouble(ctx: *api.NativeCtx) c_int {
     const string_value = ctx.vm.bz_peek(0);
 
     var len: usize = 0;

@@ -23,11 +23,11 @@ const basic_types = std.StaticStringMap(o.ObjTypeDef).initComptime(
         // Could it be > 32bits one some systems?
         .{ "c_int", .{ .def_type = .Integer } },
 
-        .{ "c_uint", .{ .def_type = .Float } },
-        .{ "u32", .{ .def_type = .Float } },
-        .{ "i64", .{ .def_type = .Float } },
-        .{ "f32", .{ .def_type = .Float } },
-        .{ "f64", .{ .def_type = .Float } },
+        .{ "c_uint", .{ .def_type = .Double } },
+        .{ "u32", .{ .def_type = .Double } },
+        .{ "i64", .{ .def_type = .Double } },
+        .{ "f32", .{ .def_type = .Double } },
+        .{ "f64", .{ .def_type = .Double } },
 
         .{ "u64", .{ .def_type = .UserData } },
         .{ "usize", .{ .def_type = .UserData } },
@@ -152,13 +152,13 @@ const zig_basic_types = std.StaticStringMap(ZigType).initComptime(
         .{
             "f32",
             ZigType{
-                .Float = .{ .bits = 32 },
+                .Double = .{ .bits = 32 },
             },
         },
         .{
             "f64",
             ZigType{
-                .Float = .{ .bits = 64 },
+                .Double = .{ .bits = 64 },
             },
         },
 

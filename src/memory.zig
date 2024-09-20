@@ -74,7 +74,7 @@ pub const TypeRegistry = struct {
         self.void_type = try self.getTypeDef(.{ .def_type = .Void });
         self.str_type = try self.getTypeDef(.{ .def_type = .String });
         self.int_type = try self.getTypeDef(.{ .def_type = .Integer });
-        self.float_type = try self.getTypeDef(.{ .def_type = .Float });
+        self.float_type = try self.getTypeDef(.{ .def_type = .Double });
         self.bool_type = try self.getTypeDef(.{ .def_type = .Bool });
         self.any_type = try self.getTypeDef(.{ .def_type = .Any });
         self.pat_type = try self.getTypeDef(.{ .def_type = .Pattern });

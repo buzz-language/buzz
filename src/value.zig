@@ -7,7 +7,7 @@ const GarbageCollector = @import("memory.zig").GarbageCollector;
 const Obj = _obj.Obj;
 const ObjTypeDef = _obj.ObjTypeDef;
 
-pub const Float = f64;
+pub const Double = f64;
 pub const Integer = i32;
 const Tag = u3;
 
@@ -111,7 +111,7 @@ pub const Value = packed struct {
         return @as(i32, @bitCast(@as(u32, @intCast(self.val & 0xffffffff))));
     }
 
-    pub inline fn float(self: Value) f64 {
+    pub inline fn double(self: Value) f64 {
         return @as(f64, @bitCast(self.val));
     }
 
@@ -128,7 +128,7 @@ pub const Value = packed struct {
     }
 
     pub inline fn floatOrNull(self: Value) ?f64 {
-        return if (self.isFloat()) self.float() else null;
+        return if (self.isFloat()) self.double() else null;
     }
 
     pub inline fn objOrNull(self: Value) ?*Obj {
@@ -176,7 +176,7 @@ pub const Value = packed struct {
         }
 
         if (self.isFloat()) {
-            try writer.print("{d}", .{self.float()});
+            try writer.print("{d}", .{self.double()});
             return;
         }
 
@@ -185,7 +185,7 @@ pub const Value = packed struct {
             TagInteger => try writer.print("{d}", .{self.integer()}),
             TagNull => try writer.print("null", .{}),
             TagVoid => try writer.print("void", .{}),
-            else => try writer.print("{d}", .{self.float()}),
+            else => try writer.print("{d}", .{self.double()}),
         }
     }
 
@@ -202,8 +202,8 @@ pub const Value = packed struct {
         }
 
         if (a.isInteger() or a.isFloat()) {
-            const a_f: ?f64 = if (a.isFloat()) a.float() else null;
-            const b_f: ?f64 = if (b.isFloat()) b.float() else null;
+            const a_f: ?f64 = if (a.isFloat()) a.double() else null;
+            const b_f: ?f64 = if (b.isFloat()) b.double() else null;
             const a_i: ?i32 = if (a.isInteger()) a.integer() else null;
             const b_i: ?i32 = if (b.isInteger()) b.integer() else null;
 
@@ -242,7 +242,7 @@ pub const Value = packed struct {
         }
 
         if (value.isFloat()) {
-            return type_def.def_type == .Float;
+            return type_def.def_type == .Double;
         }
 
         return switch (value.getTag()) {
@@ -251,7 +251,7 @@ pub const Value = packed struct {
             // TODO: this one is ambiguous at runtime, is it the `null` constant? or an optional local with a null value?
             TagNull => type_def.def_type == .Void or type_def.optional,
             TagVoid => type_def.def_type == .Void,
-            else => type_def.def_type == .Float,
+            else => type_def.def_type == .Double,
         };
     }
 
@@ -261,7 +261,7 @@ pub const Value = packed struct {
         }
 
         if (value.isFloat()) {
-            return type_def.def_type == .Float;
+            return type_def.def_type == .Double;
         }
 
         return switch (value.getTag()) {
@@ -270,7 +270,7 @@ pub const Value = packed struct {
             // TODO: this one is ambiguous at runtime, is it the `null` constant? or an optional local with a null value?
             TagNull => type_def.def_type == .Void or type_def.optional,
             TagVoid => type_def.def_type == .Void,
-            else => type_def.def_type == .Float,
+            else => type_def.def_type == .Double,
         };
     }
 };

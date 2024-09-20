@@ -305,11 +305,11 @@ fn number(self: *Self) !Token {
         return self.makeToken(.Error, "'_' must be between digits", null, null);
     }
 
-    const float = if (is_float)
+    const double = if (is_float)
         std.fmt.parseFloat(f64, self.source[self.current.start..self.current.offset]) catch {
             return self.makeToken(
                 .Error,
-                "float overflow",
+                "double overflow",
                 null,
                 null,
             );
@@ -332,7 +332,7 @@ fn number(self: *Self) !Token {
     return self.makeToken(
         if (is_float) .FloatValue else .IntegerValue,
         null,
-        float,
+        double,
         int,
     );
 }
@@ -667,7 +667,7 @@ pub fn highlight(self: *Self, out: anytype, true_color: bool) void {
                     .In,
                     .Str,
                     .Int,
-                    .Float,
+                    .Double,
                     .Bool,
                     .Pat,
                     .Do,

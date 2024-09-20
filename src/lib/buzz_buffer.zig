@@ -206,17 +206,17 @@ const Buffer = struct {
         return @bitCast(number);
     }
 
-    pub fn writeFloat(self: *Self, float: f64) !void {
+    pub fn writeFloat(self: *Self, double: f64) !void {
         if (self.cursor > 0) {
             return Error.WriteWhileReading;
         }
 
         var writer = self.buffer.writer();
 
-        // Flag so we know it an float
+        // Flag so we know it an double
         try writer.writeInt(
             u64,
-            @as(u64, @bitCast(float)),
+            @as(u64, @bitCast(double)),
             native_endian,
         );
     }
@@ -362,7 +362,7 @@ pub export fn BufferReadUserData(ctx: *api.NativeCtx) c_int {
     return 1;
 }
 
-pub export fn BufferReadFloat(ctx: *api.NativeCtx) c_int {
+pub export fn BufferReadDouble(ctx: *api.NativeCtx) c_int {
     const buffer = Buffer.fromUserData(ctx.vm.bz_peek(0).bz_getUserDataPtr());
 
     if (buffer.readFloat() catch |err| {
@@ -421,11 +421,11 @@ pub export fn BufferWriteUserData(ctx: *api.NativeCtx) c_int {
     return 0;
 }
 
-pub export fn BufferWriteFloat(ctx: *api.NativeCtx) c_int {
+pub export fn BufferWriteDouble(ctx: *api.NativeCtx) c_int {
     var buffer = Buffer.fromUserData(ctx.vm.bz_peek(1).bz_getUserDataPtr());
     const number = ctx.vm.bz_peek(0);
 
-    buffer.writeFloat(number.float()) catch |err| {
+    buffer.writeFloat(number.double()) catch |err| {
         switch (err) {
             Buffer.Error.WriteWhileReading => ctx.vm.pushError("buffer.WriteWhileReadingError", null),
             error.OutOfMemory => {

@@ -91,7 +91,7 @@ export enum(int) OpenFlag {
 
 enum(int) Type {
     Integer = 1,
-    Float   = 2,
+    Double  = 2,
     Text    = 3,
     Blob    = 4,
     Null    = 5,
@@ -179,7 +179,7 @@ export object Statement {
                     row.append(
                         sqlite3_column_int(this.stmt, col: i)
                     );
-                } else if (columnType == Type.Float) {
+                } else if (columnType == Type.Double) {
                     row.append(
                         sqlite3_column_double(this.stmt, col: i)
                     );

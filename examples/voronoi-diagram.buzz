@@ -3,7 +3,7 @@ import "examples/sdl-wrapped" as _;
 import "math";
 
 fun hypot(int x, int y) > int {
-    return std\toInt(math\sqrt(std\toFloat(x * x + y * y)));
+    return std\toInt(math\sqrt(std\toDouble(x * x + y * y)));
 }
 
 fun generateVoronoi(Renderer renderer, int width, int height, int numCells) > void !> SDLError {

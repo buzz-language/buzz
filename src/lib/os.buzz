@@ -3,10 +3,10 @@ namespace os;
 import "errors";
 
 /// Sleep for the given amount of ms
-export extern fun sleep(ms: float) > void;
+export extern fun sleep(ms: double) > void;
 
 /// @return epoch time in ms
-export extern fun time() > float;
+export extern fun time() > double;
 
 /// Returns environment variable under `key`
 /// @param key environment variable name

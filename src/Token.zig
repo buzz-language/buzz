@@ -111,7 +111,7 @@ pub const Type = enum {
     Str, // str
     Ud, // ud
     Int, // int
-    Float, // float
+    Double, // double
     Type, // type
     Bool, // bool
     Function, // Function
@@ -196,7 +196,7 @@ pub const keywords = std.StaticStringMap(Type).initComptime(
         .{ "extern", .Extern },
         .{ "false", .False },
         .{ "fib", .Fib },
-        .{ "float", .Float },
+        .{ "double", .Double },
         .{ "for", .For },
         .{ "foreach", .ForEach },
         .{ "from", .From },

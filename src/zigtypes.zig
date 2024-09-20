@@ -9,7 +9,7 @@ pub const Type = union(enum) {
     Bool: void,
     NoReturn: void,
     Int: IntType,
-    Float: FloatType,
+    Double: FloatType,
     Pointer: PointerType,
     Array: ArrayType,
     Struct: StructType,
@@ -34,7 +34,7 @@ pub const Type = union(enum) {
         return switch (self.*) {
             .Bool => 1,
             .Int => self.Int.bits / 8,
-            .Float => self.Float.bits / 8,
+            .Double => self.Double.bits / 8,
             .Pointer => 8,
             .Struct => str: {
                 const struct_type = self.Struct;
@@ -91,7 +91,7 @@ pub const Type = union(enum) {
         return switch (self.*) {
             .Bool => 1,
             .Int => @as(u16, @intCast(self.Int.bits)) / 8,
-            .Float => @as(u16, @intCast(self.Float.bits)) / 8,
+            .Double => @as(u16, @intCast(self.Double.bits)) / 8,
             .Struct => str: {
                 const struct_type = self.Struct;
                 var max_align: u16 = 0;

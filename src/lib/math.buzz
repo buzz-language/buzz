@@ -3,45 +3,45 @@ namespace math;
 import "errors";
 
 /// @return absolute value of n
-extern fun abs(n: float) > float;
+extern fun abs(n: double) > double;
 
 /// @return acos of n
-extern fun acos(n: float) > float;
+extern fun acos(n: double) > double;
 
 /// @return asin of n
-extern fun asin(n: float) > float;
+extern fun asin(n: double) > double;
 
 /// @return atan of n
-extern fun atan(n: float) > float;
+extern fun atan(n: double) > double;
 
 /// @return ceiled n
-extern fun bzceil(n: float) > int;
+extern fun bzceil(n: double) > int;
 
 /// @return cos of n
-extern fun bzcos(n: float) > float;
+extern fun bzcos(n: double) > double;
 
 /// π constant
-const pi: float = 3.1415926535898;
+const pi: double = 3.1415926535898;
 
 /// Convert radian to degree
-fun deg(n: float) > float {
+fun deg(n: double) > double {
     return n * 180.0 / pi;
 }
 
 /// @return exp of n
-extern fun bzexp(n: float) > float;
+extern fun bzexp(n: double) > double;
 
 /// @returned floored n
-extern fun bzfloor(n: float) > int;
+extern fun bzfloor(n: double) > int;
 
 /// @return log(base) of n
-extern fun bzlog(base: float, n: float) > float;
+extern fun bzlog(base: double, n: double) > double;
 
 /// @return max of a and b
-extern fun maxFloat(a: float, b: float) > float;
+extern fun maxDouble(a: double, b: double) > double;
 
 /// @return min of a and b
-extern fun minFloat(a: float, b: float) > float;
+extern fun minDouble(a: double, b: double) > double;
 
 /// @return max of a and b
 extern fun maxInt(a: int, b: int) > int;
@@ -50,21 +50,21 @@ extern fun maxInt(a: int, b: int) > int;
 extern fun minInt(a: int, b: int) > int;
 
 /// Convert degree to radian
-fun rad(n: float) > float {
+fun rad(n: double) > double {
     return n * pi / 180.0;
 }
 
 /// @return sin of n
-extern fun bzsin(n: float) > float;
+extern fun bzsin(n: double) > double;
 
 /// @return square root of n
-extern fun bzsqrt(n: float) > float;
+extern fun bzsqrt(n: double) > double;
 
 /// @return tan of n
-extern fun bztan(n: float) > float;
+extern fun bztan(n: double) > double;
 
 /// @return `x`^`y`
-extern fun pow(x: float, y: float) > float !> errors\OverflowError, errors\UnderflowError;
+extern fun pow(x: double, y: double) > double !> errors\OverflowError, errors\UnderflowError;
 
 export abs;
 export acos;
@@ -77,8 +77,8 @@ export deg;
 export bzexp as exp;
 export bzfloor as floor;
 export bzlog as log;
-export minFloat;
-export maxFloat;
+export minDouble;
+export maxDouble;
 export minInt;
 export maxInt;
 export pi;

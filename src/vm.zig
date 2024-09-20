@@ -1207,7 +1207,7 @@ pub const VM = struct {
         if (value.isInteger()) {
             self.push(Value.fromInteger(-%value.integer()));
         } else {
-            self.push(Value.fromFloat(-value.float()));
+            self.push(Value.fromFloat(-value.double()));
         }
 
         const next_full_instruction: u32 = self.readInstruction();
@@ -3417,7 +3417,7 @@ pub const VM = struct {
     fn OP_BNOT(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
         const value = self.pop();
 
-        self.push(Value.fromInteger(~(if (value.isInteger()) value.integer() else @as(i32, @intFromFloat(value.float())))));
+        self.push(Value.fromInteger(~(if (value.isInteger()) value.integer() else @as(i32, @intFromFloat(value.double())))));
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
@@ -3437,9 +3437,9 @@ pub const VM = struct {
         const right_value = self.pop();
         const left_value = self.pop();
 
-        const left_f: ?f64 = if (left_value.isFloat()) left_value.float() else null;
+        const left_f: ?f64 = if (left_value.isFloat()) left_value.double() else null;
         const left_i: ?i32 = if (left_value.isInteger()) left_value.integer() else null;
-        const right_f: ?f64 = if (right_value.isFloat()) right_value.float() else null;
+        const right_f: ?f64 = if (right_value.isFloat()) right_value.double() else null;
         const right_i: ?i32 = if (right_value.isInteger()) right_value.integer() else null;
 
         if (left_f) |lf| {
@@ -3474,9 +3474,9 @@ pub const VM = struct {
         const right_value = self.pop();
         const left_value = self.pop();
 
-        const left_f: ?f64 = if (left_value.isFloat()) left_value.float() else null;
+        const left_f: ?f64 = if (left_value.isFloat()) left_value.double() else null;
         const left_i: ?i32 = if (left_value.isInteger()) left_value.integer() else null;
-        const right_f: ?f64 = if (right_value.isFloat()) right_value.float() else null;
+        const right_f: ?f64 = if (right_value.isFloat()) right_value.double() else null;
         const right_i: ?i32 = if (right_value.isInteger()) right_value.integer() else null;
 
         if (left_f) |lf| {
@@ -3635,8 +3635,8 @@ pub const VM = struct {
     }
 
     fn OP_ADD_F(self: *Self, _: *CallFrame, _: u32, _: OpCode, _: u24) void {
-        const right = self.pop().float();
-        const left = self.pop().float();
+        const right = self.pop().double();
+        const left = self.pop().double();
 
         self.push(Value.fromFloat(left + right));
 
@@ -3658,8 +3658,8 @@ pub const VM = struct {
         const right: Value = self.pop();
         const left: Value = self.pop();
 
-        const right_f: ?f64 = if (right.isFloat()) right.float() else null;
-        const left_f: ?f64 = if (left.isFloat()) left.float() else null;
+        const right_f: ?f64 = if (right.isFloat()) right.double() else null;
+        const left_f: ?f64 = if (left.isFloat()) left.double() else null;
         const right_i: ?i32 = if (right.isInteger()) right.integer() else null;
         const left_i: ?i32 = if (left.isInteger()) left.integer() else null;
 
@@ -3687,8 +3687,8 @@ pub const VM = struct {
         const right: Value = self.pop();
         const left: Value = self.pop();
 
-        const right_f: ?f64 = if (right.isFloat()) right.float() else null;
-        const left_f: ?f64 = if (left.isFloat()) left.float() else null;
+        const right_f: ?f64 = if (right.isFloat()) right.double() else null;
+        const left_f: ?f64 = if (left.isFloat()) left.double() else null;
         const right_i: ?i32 = if (right.isInteger()) right.integer() else null;
         const left_i: ?i32 = if (left.isInteger()) left.integer() else null;
 
@@ -3716,8 +3716,8 @@ pub const VM = struct {
         const right: Value = self.pop();
         const left: Value = self.pop();
 
-        const right_f: ?f64 = if (right.isFloat()) right.float() else null;
-        const left_f: ?f64 = if (left.isFloat()) left.float() else null;
+        const right_f: ?f64 = if (right.isFloat()) right.double() else null;
+        const left_f: ?f64 = if (left.isFloat()) left.double() else null;
         const right_i: ?i32 = if (right.isInteger()) right.integer() else null;
         const left_i: ?i32 = if (left.isInteger()) left.integer() else null;
 
@@ -3751,8 +3751,8 @@ pub const VM = struct {
         const right: Value = self.pop();
         const left: Value = self.pop();
 
-        const right_f: ?f64 = if (right.isFloat()) right.float() else null;
-        const left_f: ?f64 = if (left.isFloat()) left.float() else null;
+        const right_f: ?f64 = if (right.isFloat()) right.double() else null;
+        const left_f: ?f64 = if (left.isFloat()) left.double() else null;
         const right_i: ?i32 = if (right.isInteger()) right.integer() else null;
         const left_i: ?i32 = if (left.isInteger()) left.integer() else null;
 
@@ -3791,8 +3791,8 @@ pub const VM = struct {
         const right: Value = self.pop();
         const left: Value = self.pop();
 
-        const right_f: ?f64 = if (right.isFloat()) right.float() else null;
-        const left_f: ?f64 = if (left.isFloat()) left.float() else null;
+        const right_f: ?f64 = if (right.isFloat()) right.double() else null;
+        const left_f: ?f64 = if (left.isFloat()) left.double() else null;
         const right_i: ?i32 = if (right.isInteger()) right.integer() else null;
         const left_i: ?i32 = if (left.isInteger()) left.integer() else null;
 
@@ -3816,8 +3816,8 @@ pub const VM = struct {
         const right: Value = self.pop();
         const left: Value = self.pop();
 
-        const right_f: ?f64 = if (right.isFloat()) right.float() else null;
-        const left_f: ?f64 = if (left.isFloat()) left.float() else null;
+        const right_f: ?f64 = if (right.isFloat()) right.double() else null;
+        const left_f: ?f64 = if (left.isFloat()) left.double() else null;
         const right_i: ?i32 = if (right.isInteger()) right.integer() else null;
         const left_i: ?i32 = if (left.isInteger()) left.integer() else null;
 
@@ -3841,8 +3841,8 @@ pub const VM = struct {
         const right: Value = self.pop();
         const left: Value = self.pop();
 
-        const right_f: ?f64 = if (right.isFloat()) right.float() else null;
-        const left_f: ?f64 = if (left.isFloat()) left.float() else null;
+        const right_f: ?f64 = if (right.isFloat()) right.double() else null;
+        const left_f: ?f64 = if (left.isFloat()) left.double() else null;
         const right_i: ?i32 = if (right.isInteger()) right.integer() else null;
         const left_i: ?i32 = if (left.isInteger()) left.integer() else null;
         self.push(Value.fromInteger((left_i orelse @as(i32, @intFromFloat(left_f.?))) ^ (right_i orelse @as(i32, @intFromFloat(right_f.?)))));
@@ -3865,8 +3865,8 @@ pub const VM = struct {
         const right: Value = self.pop();
         const left: Value = self.pop();
 
-        const right_f: ?f64 = if (right.isFloat()) right.float() else null;
-        const left_f: ?f64 = if (left.isFloat()) left.float() else null;
+        const right_f: ?f64 = if (right.isFloat()) right.double() else null;
+        const left_f: ?f64 = if (left.isFloat()) left.double() else null;
         const right_i: ?i32 = if (right.isInteger()) right.integer() else null;
         const left_i: ?i32 = if (left.isInteger()) left.integer() else null;
         const b: i32 = right_i orelse @intFromFloat(right_f.?);
@@ -3903,8 +3903,8 @@ pub const VM = struct {
         const right: Value = self.pop();
         const left: Value = self.pop();
 
-        const right_f: ?f64 = if (right.isFloat()) right.float() else null;
-        const left_f: ?f64 = if (left.isFloat()) left.float() else null;
+        const right_f: ?f64 = if (right.isFloat()) right.double() else null;
+        const left_f: ?f64 = if (left.isFloat()) left.double() else null;
         const right_i: ?i32 = if (right.isInteger()) right.integer() else null;
         const left_i: ?i32 = if (left.isInteger()) left.integer() else null;
         const b: i32 = right_i orelse @intFromFloat(right_f.?);

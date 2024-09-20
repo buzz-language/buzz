@@ -96,7 +96,7 @@ pub const Node = struct {
         Export,
         Expression,
         FiberType,
-        Float,
+        Double,
         For,
         ForceUnwrap,
         ForEach,
@@ -172,7 +172,7 @@ pub const Node = struct {
         Export: Export,
         Expression: Node.Index,
         FiberType: FiberType,
-        Float: v.Float,
+        Double: v.Double,
         For: For,
         ForceUnwrap: Unwrap,
         ForEach: ForEach,
@@ -737,7 +737,7 @@ pub fn isConstant(self: Self, node: Node.Index) bool {
         .UserType,
         .Boolean,
         .Integer,
-        .Float,
+        .Double,
         .Pattern,
         .Null,
         .StringLiteral,
@@ -849,10 +849,10 @@ fn binaryValue(self: Self, node: Node.Index, gc: *GarbageCollector) !?Value {
 
     const left = try self.toValue(components.left, gc);
     const left_integer = if (left.isInteger()) left.integer() else null;
-    const left_float = if (left.isFloat()) left.float() else null;
+    const left_float = if (left.isFloat()) left.double() else null;
     const right = try self.toValue(components.right, gc);
     const right_integer = if (right.isInteger()) right.integer() else null;
-    const right_float = if (right.isFloat()) right.float() else null;
+    const right_float = if (right.isFloat()) right.double() else null;
 
     switch (components.operator) {
         .Ampersand => return Value.fromInteger(left_integer.? & right_integer.?),
@@ -1087,7 +1087,7 @@ pub fn toValue(self: Self, node: Node.Index, gc: *GarbageCollector) Error!Value 
             .Pattern => self.nodes.items(.components)[node].Pattern.toValue(),
             .Void => Value.Void,
             .Null => Value.Null,
-            .Float => Value.fromFloat(self.nodes.items(.components)[node].Float),
+            .Double => Value.fromFloat(self.nodes.items(.components)[node].Double),
             .Integer => Value.fromInteger(self.nodes.items(.components)[node].Integer),
             .Boolean => Value.fromBoolean(self.nodes.items(.components)[node].Boolean),
             .As => try self.toValue(self.nodes.items(.components)[node].As.left, gc),
@@ -1252,7 +1252,7 @@ pub fn toValue(self: Self, node: Node.Index, gc: *GarbageCollector) Error!Value 
                     .Minus => if (val.isInteger())
                         Value.fromInteger(-%val.integer())
                     else
-                        Value.fromFloat(-val.float()),
+                        Value.fromFloat(-val.double()),
                     else => unreachable,
                 };
             },

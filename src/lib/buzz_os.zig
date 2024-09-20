@@ -3,7 +3,7 @@ const api = @import("buzz_api.zig");
 const builtin = @import("builtin");
 
 pub export fn sleep(ctx: *api.NativeCtx) c_int {
-    std.time.sleep(@as(u64, @intFromFloat(ctx.vm.bz_peek(0).float())) * 1_000_000);
+    std.time.sleep(@as(u64, @intFromFloat(ctx.vm.bz_peek(0).double())) * 1_000_000);
 
     return 0;
 }

@@ -1,40 +1,40 @@
 import "std";
 import "math";
 
-const float pi = 3.141592653589793;
-const float solarMass = 4.0 * pi * pi;
-const float daysPerYear = 365.24;
+const double pi = 3.141592653589793;
+const double solarMass = 4.0 * pi * pi;
+const double daysPerYear = 365.24;
 
 object Body {
-    float x,
-    float y,
-    float z,
-    float vx,
-    float vy,
-    float vz,
-    float mass,
+    double x,
+    double y,
+    double z,
+    double vx,
+    double vy,
+    double vz,
+    double mass,
 }
 
-fun advance([Body] bodies, int nbody, float dt) > void {
+fun advance([Body] bodies, int nbody, double dt) > void {
     for (int i = 0; i < nbody; i = i + 1) {
         Body bi = bodies[i];
-        float bix = bi.x;
-        float biy = bi.y;
-        float biz = bi.z;
-        float bimass = bi.mass;
-        float bivx = bi.vx;
-        float bivy = bi.vy;
-        float bivz = bi.vz;
+        double bix = bi.x;
+        double biy = bi.y;
+        double biz = bi.z;
+        double bimass = bi.mass;
+        double bivx = bi.vx;
+        double bivy = bi.vy;
+        double bivz = bi.vz;
 
         for (int j = i + 1; j < nbody; j = j + 1) {
             Body bj = bodies[j];
-            float dx = bix - bj.x;
-            float dy = biy - bj.y;
-            float dz = biz - bj.z;
-            float dist2 = dx * dx + dy * dy + dz * dz;
-            float mag = math\sqrt(dist2);
+            double dx = bix - bj.x;
+            double dy = biy - bj.y;
+            double dz = biz - bj.z;
+            double dist2 = dx * dx + dy * dy + dz * dz;
+            double mag = math\sqrt(dist2);
             mag = dt / (mag * dist2);
-            float bm = bj.mass * mag;
+            double bm = bj.mass * mag;
 
             bivx = bivx - (dx * bm);
             bivy = bivy - (dy * bm);
@@ -54,21 +54,21 @@ fun advance([Body] bodies, int nbody, float dt) > void {
     }
 }
 
-fun energy([Body] bodies, int nbody) > float {
-    float e = 0.0;
+fun energy([Body] bodies, int nbody) > double {
+    double e = 0.0;
     for (int i = 0; i < nbody; i = i + 1) {
         Body bi = bodies[i];
-        float vx = bi.vx;
-        float vy = bi.vy;
-        float vz = bi.vz;
-        float bim = bi.mass;
+        double vx = bi.vx;
+        double vy = bi.vy;
+        double vz = bi.vz;
+        double bim = bi.mass;
         e = e + (0.5 * bim * (vx * vx + vy * vy + vz * vz));
         for (int j = i + 1; j < nbody; j = j + 1) {
             Body bj = bodies[j];
-            float dx = bi.x - bj.x;
-            float dy = bi.y - bj.y;
-            float dz = bi.z - bj.z;
-            float distance = math\sqrt(dx * dx + dy * dy + dz * dz);
+            double dx = bi.x - bj.x;
+            double dy = bi.y - bj.y;
+            double dz = bi.z - bj.z;
+            double distance = math\sqrt(dx * dx + dy * dy + dz * dz);
             e = e - ((bim * bj.mass) / distance);
         }
     }
@@ -77,13 +77,13 @@ fun energy([Body] bodies, int nbody) > float {
 }
 
 fun offsetMomentum([Body] b, int nbody) > void {
-    float px = 0.0;
-    float py = 0.0;
-    float pz = 0.0;
+    double px = 0.0;
+    double py = 0.0;
+    double pz = 0.0;
 
     for (int i = 0; i < nbody; i = i + 1) {
         Body bi = b[i];
-        float bim = bi.mass;
+        double bim = bi.mass;
 
         px = px + (bi.vx * bim);
         py = py + (bi.vy * bim);

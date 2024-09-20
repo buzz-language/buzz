@@ -2,9 +2,9 @@ import "std";
 import "math";
 import "buffer" as _;
 
-const float IM = 139968.0;
-const float IA = 3877.0;
-const float IC = 29573.0;
+const double IM = 139968.0;
+const double IA = 3877.0;
+const double IC = 29573.0;
 const int lineLength = 60;
 const int bufferSize = (lineLength + 1) * 1024;
 
@@ -28,10 +28,10 @@ fun makeRepeatFasta(str id, str desc, str s, int nchars) > void {
 
 object Frequency {
     Buffer chars,
-    [float] probs,
-    float last,
+    [double] probs,
+    double last,
 
-    static fun init(Buffer chars, [float] probs, float last) > Frequency {
+    static fun init(Buffer chars, [double] probs, double last) > Frequency {
         Frequency freq = Frequency{
             chars = chars,
             probs = probs,
@@ -43,14 +43,14 @@ object Frequency {
         return freq;
     }
 
-    fun random(float max) > float {
+    fun random(double max) > double {
         this.last = (this.last * IA + IC) % IM;
         return max * this.last * (1.0 / IM);
     }
 
     fun makeCumulative() > void {
-        float cp = 0.0;
-        foreach (int i, float prob in this.probs) {
+        double cp = 0.0;
+        foreach (int i, double prob in this.probs) {
             cp = cp + prob;
             this.probs[i] = cp;
         }
@@ -61,7 +61,7 @@ object Frequency {
         var bufferIndex = initialBufferIndex;
 
         for (int rIndex = 0; rIndex < nRandom; rIndex = rIndex + 1) {
-            float r = this.random(1.0);
+            double r = this.random(1.0);
             bool skip = false;
             for (int i = 0; i < len; i = i + 1) {
                 if (r < this.probs[i]) {
@@ -89,7 +89,7 @@ fun makeRandomFasta(str id, str desc, Frequency fpf, int initialNchars) > void !
     Buffer buffer = Buffer.init(bufferSize);
     int bufferIndex = 0;
     while (nchars > 0) {
-        int chunkSize = std\toInt(math\minFloat(a: std\toFloat(lineLength), b: std\toFloat(nchars)));
+        int chunkSize = std\toInt(math\minDouble(a: std\toDouble(lineLength), b: std\toDouble(nchars)));
 
         if (bufferIndex == bufferSize) {
             std\print(buffer\toString().sub(0, len: bufferIndex));

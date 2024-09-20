@@ -14,23 +14,23 @@ export extern fun print(value: str) > void;
 /// @return integer parsed or null
 export extern fun parseInt(string: str) > int?;
 
-/// Parse float, returns false if string does not represent a float
+/// Parse double, returns false if string does not represent a double
 /// @param string string to parse
-/// @return float parsed or null
-export extern fun parseFloat(string: str) > float?;
+/// @return double parsed or null
+export extern fun parseDouble(string: str) > double?;
 
-/// Cast integer to a float value
+/// Cast integer to a double value
 /// @param n value to cast
 /// @return casted value
-export extern fun toInt(n: float) > int;
+export extern fun toInt(n: double) > int;
 
-/// Cast float to a integer value
+/// Cast double to a integer value
 /// @param n value to cast
 /// @return casted value
-export extern fun toFloat(n: int) > float;
+export extern fun toDouble(n: int) > double;
 
 // FIXME: once we have type composition this might be more elegant
-/// Cast float or integer to userdata
+/// Cast double or integer to userdata
 /// @param n value to cast
 /// @return casted value or 0 if value provided is not a number
 export extern fun toUd(n: any) > ud;

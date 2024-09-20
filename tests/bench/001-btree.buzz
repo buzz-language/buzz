@@ -40,7 +40,7 @@ fun btree(int N) > void {
 
     Node longlivedtree = bottomUpTree(maxdepth);
     for (int depth = mindepth; depth < maxdepth; depth = depth + 2) {
-        int iterations = std\toInt(math\pow(x: 2.0, y: std\toFloat(maxdepth - depth + mindepth)) catch 0.0);
+        int iterations = std\toInt(math\pow(x: 2.0, y: std\toDouble(maxdepth - depth + mindepth)) catch 0.0);
         int check = 0;
         for (int i = 0; i < iterations; i = i + 1) {
             check = check + itemCheck(bottomUpTree(depth));

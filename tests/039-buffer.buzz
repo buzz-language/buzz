@@ -6,7 +6,7 @@ test "Reading and writing in a buffer" {
 
     buffer.writeInt("hello world".len());
     buffer.write("hello world");
-    buffer.writeFloat(1238.324);
+    buffer.writeDouble(1238.324);
     buffer.writeBoolean(true);
 
     const expected = [
@@ -25,7 +25,7 @@ test "Reading and writing in a buffer" {
     std\assert(len == 11, message: "could read number");
 
     std\assert(buffer.read(len) == "hello world", message: "could read n bytes");
-    std\assert(buffer.readFloat() == 1238.324, message: "could read float");
+    std\assert(buffer.readDouble() == 1238.324, message: "could read double");
     std\assert(buffer.readBoolean() == true, message: "could read boolean");
 
     buffer.empty();

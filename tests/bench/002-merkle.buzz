@@ -67,7 +67,7 @@ fun main([str] args) > void !> any {
 
     Node longlivedtree = makeTree(maxdepth);
     for (int depth = mindepth; depth < maxdepth; depth = depth + 2) {
-        int iterations = std\toInt(math\pow(x: 2.0, y: std\toFloat(maxdepth - depth + mindepth)));
+        int iterations = std\toInt(math\pow(x: 2.0, y: std\toDouble(maxdepth - depth + mindepth)));
         int sum = 0;
         for (int i = 0; i < iterations; i = i + 1) {
             Node t = makeTree(depth);

@@ -78,7 +78,7 @@ const generators = [_]?NodeGen{
     generateExport, // Export,
     generateExpression, // Expression,
     null, // FiberType,
-    generateFloat, // Float,
+    generateFloat, // Double,
     generateFor, // For,
     generateForceUnwrap, // ForceUnwrap,
     generateForEach, // ForEach,
@@ -523,8 +523,8 @@ fn generateBinary(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*o
         .BangEqual,
         .EqualEqual,
         => {
-            // We allow comparison between float and int so raise error if type != and one operand is not a number
-            if (!left_type.eql(right_type) and ((left_type.def_type != .Integer and left_type.def_type != .Float) or (right_type.def_type != .Integer and right_type.def_type != .Float))) {
+            // We allow comparison between double and int so raise error if type != and one operand is not a number
+            if (!left_type.eql(right_type) and ((left_type.def_type != .Integer and left_type.def_type != .Double) or (right_type.def_type != .Integer and right_type.def_type != .Double))) {
                 self.reporter.reportTypeCheck(
                     .comparison_operand_type,
                     self.ast.tokens.get(locations[components.left]),
@@ -648,11 +648,11 @@ fn generateBinary(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*o
         },
         .Greater => {
             // Checking only left operand since we asserted earlier that both operand have the same type
-            if (left_type.def_type != .Integer and left_type.def_type != .Float) {
+            if (left_type.def_type != .Integer and left_type.def_type != .Double) {
                 self.reporter.reportErrorAt(
                     .comparison_operand_type,
                     self.ast.tokens.get(locations[components.left]),
-                    "Expected `int` or `float`.",
+                    "Expected `int` or `double`.",
                 );
             }
 
@@ -661,11 +661,11 @@ fn generateBinary(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*o
             try self.emitOpCode(locations[node], .OP_GREATER);
         },
         .Less => {
-            if (left_type.def_type != .Integer and left_type.def_type != .Float) {
+            if (left_type.def_type != .Integer and left_type.def_type != .Double) {
                 self.reporter.reportErrorAt(
                     .comparison_operand_type,
                     self.ast.tokens.get(locations[components.left]),
-                    "Expected `int` or `float`.",
+                    "Expected `int` or `double`.",
                 );
             }
 
@@ -674,11 +674,11 @@ fn generateBinary(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*o
             try self.emitOpCode(locations[node], .OP_LESS);
         },
         .GreaterEqual => {
-            if (left_type.def_type != .Integer and left_type.def_type != .Float) {
+            if (left_type.def_type != .Integer and left_type.def_type != .Double) {
                 self.reporter.reportErrorAt(
                     .comparison_operand_type,
                     self.ast.tokens.get(locations[components.left]),
-                    "Expected `int` or `float`.",
+                    "Expected `int` or `double`.",
                 );
             }
 
@@ -688,11 +688,11 @@ fn generateBinary(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*o
             try self.emitOpCode(locations[node], .OP_NOT);
         },
         .LessEqual => {
-            if (left_type.def_type != .Integer and left_type.def_type != .Float) {
+            if (left_type.def_type != .Integer and left_type.def_type != .Double) {
                 self.reporter.reportErrorAt(
                     .comparison_operand_type,
                     self.ast.tokens.get(locations[components.left]),
-                    "Expected `int` or `float`.",
+                    "Expected `int` or `double`.",
                 );
             }
 
@@ -714,7 +714,7 @@ fn generateBinary(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*o
         },
         .Plus => {
             if (left_type.def_type != .Integer and
-                left_type.def_type != .Float and
+                left_type.def_type != .Double and
                 left_type.def_type != .String and
                 left_type.def_type != .List and
                 left_type.def_type != .Map)
@@ -722,7 +722,7 @@ fn generateBinary(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*o
                 self.reporter.reportErrorAt(
                     .arithmetic_operand_type,
                     self.ast.tokens.get(locations[components.left]),
-                    "Expected a `int`, `float`, `str`, list or map.",
+                    "Expected a `int`, `double`, `str`, list or map.",
                 );
             }
 
@@ -733,7 +733,7 @@ fn generateBinary(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*o
                 .List => .OP_ADD_LIST,
                 .Map => .OP_ADD_MAP,
                 .Integer => .OP_ADD_I,
-                .Float => .OP_ADD_F,
+                .Double => .OP_ADD_F,
                 else => other: {
                     std.debug.assert(self.reporter.last_error != null);
 
@@ -742,11 +742,11 @@ fn generateBinary(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*o
             });
         },
         .Minus => {
-            if (left_type.def_type != .Integer and left_type.def_type != .Float) {
+            if (left_type.def_type != .Integer and left_type.def_type != .Double) {
                 self.reporter.reportErrorAt(
                     .arithmetic_operand_type,
                     self.ast.tokens.get(locations[components.left]),
-                    "Expected `int` or `float`.",
+                    "Expected `int` or `double`.",
                 );
             }
 
@@ -755,11 +755,11 @@ fn generateBinary(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*o
             try self.emitOpCode(locations[node], .OP_SUBTRACT);
         },
         .Star => {
-            if (left_type.def_type != .Integer and left_type.def_type != .Float) {
+            if (left_type.def_type != .Integer and left_type.def_type != .Double) {
                 self.reporter.reportErrorAt(
                     .arithmetic_operand_type,
                     self.ast.tokens.get(locations[components.left]),
-                    "Expected `int` or `float`.",
+                    "Expected `int` or `double`.",
                 );
             }
 
@@ -768,11 +768,11 @@ fn generateBinary(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*o
             try self.emitOpCode(locations[node], .OP_MULTIPLY);
         },
         .Slash => {
-            if (left_type.def_type != .Integer and left_type.def_type != .Float) {
+            if (left_type.def_type != .Integer and left_type.def_type != .Double) {
                 self.reporter.reportErrorAt(
                     .arithmetic_operand_type,
                     self.ast.tokens.get(locations[components.left]),
-                    "Expected `int` or `float`.",
+                    "Expected `int` or `double`.",
                 );
             }
 
@@ -781,11 +781,11 @@ fn generateBinary(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*o
             try self.emitOpCode(locations[node], .OP_DIVIDE);
         },
         .Percent => {
-            if (left_type.def_type != .Integer and left_type.def_type != .Float) {
+            if (left_type.def_type != .Integer and left_type.def_type != .Double) {
                 self.reporter.reportErrorAt(
                     .arithmetic_operand_type,
                     self.ast.tokens.get(locations[components.left]),
-                    "Expected `int` or `float`.",
+                    "Expected `int` or `double`.",
                 );
             }
 
@@ -1736,7 +1736,7 @@ fn generateEnum(self: *Self, node: Ast.Node.Index, _: ?*Breaks) Error!?*obj.ObjF
     switch (enum_type.def_type) {
         .String,
         .Integer,
-        .Float,
+        .Double,
         .Pattern,
         .UserData,
         .Void,
@@ -3860,11 +3860,11 @@ fn generateUnary(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*ob
             try self.emitOpCode(location, .OP_NOT);
         },
         .Minus => {
-            if (expression_type_def.def_type != .Integer and expression_type_def.def_type != .Float) {
+            if (expression_type_def.def_type != .Integer and expression_type_def.def_type != .Double) {
                 self.reporter.reportErrorFmt(
                     .arithmetic_operand_type,
                     self.ast.tokens.get(expression_location),
-                    "Expected type `int` or `float`, got `{s}`",
+                    "Expected type `int` or `double`, got `{s}`",
                     .{(try expression_type_def.toStringAlloc(self.gc.allocator)).items},
                 );
             }

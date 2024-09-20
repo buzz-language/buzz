@@ -113,7 +113,7 @@ pub const Value = packed struct {
         return @bitCast(@as(u32, @intCast(self.val & 0xffffffff)));
     }
 
-    pub inline fn float(self: Value) f64 {
+    pub inline fn double(self: Value) f64 {
         return @bitCast(self.val);
     }
 

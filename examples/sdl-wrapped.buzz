@@ -215,7 +215,7 @@ export object SDL {
             flags = flags | subsystem.value;
         }
 
-        if (SDL_Init(std\toFloat(flags)) != 0) {
+        if (SDL_Init(std\toDouble(flags)) != 0) {
             throw SDLError{
                 message = "SDL_Init error: {SDL_GetError()}",
             };
@@ -254,11 +254,11 @@ export object SDL {
         return null;
     }
 
-    fun delay(ms: float) > void {
+    fun delay(ms: double) > void {
         SDL_Delay(ms);
     }
 
-    fun ticks() > float {
+    fun ticks() > double {
         return SDL_GetTicks();
     }
 }
@@ -296,7 +296,7 @@ export object Renderer {
     ) > Texture !> SDLError {
         const texture = SDL_CreateTexture(
             this.renderer,
-            format: std\toFloat(format.value),
+            format: std\toDouble(format.value),
             access: access.value,
             w: width,
             h: height,
@@ -433,7 +433,7 @@ export object Window {
             y,
             w: width,
             h: height,
-            flags: std\toFloat(windowFlags),
+            flags: std\toDouble(windowFlags),
         );
 
         if (window -> unwrapped) {
@@ -459,7 +459,7 @@ export object Window {
         const renderer = SDL_CreateRenderer(
             this.window,
             index: index,
-            flags: std\toFloat(rendererFlags),
+            flags: std\toDouble(rendererFlags),
         );
 
         if (renderer -> unwrapped) {
