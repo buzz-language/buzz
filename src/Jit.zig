@@ -184,7 +184,7 @@ pub fn compileFunction(self: *Self, ast: Ast, closure: *o.ObjClosure) Error!void
     while (it_ext.next()) |kv| {
         switch (kv.key_ptr.*) {
             // TODO: don't mix those with actual api functions
-            .rawfn, .nativefn => {},
+            .RawFn, .NativeFn => {},
             else => m.MIR_load_external(
                 self.ctx,
                 kv.key_ptr.*.name(),
@@ -264,7 +264,7 @@ pub fn compileHotSpot(self: *Self, ast: Ast, closure: *o.ObjClosure, hotspot_nod
     while (it_ext.next()) |kv| {
         switch (kv.key_ptr.*) {
             // TODO: don't mix those with actual api functions
-            .rawfn, .nativefn => {},
+            .RawFn, .NativeFn => {},
             else => m.MIR_load_external(
                 self.ctx,
                 kv.key_ptr.*.name(),
@@ -2097,9 +2097,9 @@ fn generateCall(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
                 m.MIR_new_ref_op(
                     self.ctx,
                     if (function_type == .Extern)
-                        try ExternApi.nativefn.declare(self)
+                        try ExternApi.NativeFn.declare(self)
                     else
-                        try ExternApi.rawfn.declare(self),
+                        try ExternApi.RawFn.declare(self),
                 ),
                 callee,
                 m.MIR_new_reg_op(self.ctx, result),
@@ -4761,7 +4761,7 @@ fn generateNativeFn(self: *Self, node: Ast.Node.Index, raw_fn: m.MIR_item_t) !m.
             @intFromEnum(m.MIR_Instruction.CALL),
             4,
             &[_]m.MIR_op_t{
-                m.MIR_new_ref_op(self.ctx, try ExternApi.rawfn.declare(self)),
+                m.MIR_new_ref_op(self.ctx, try ExternApi.RawFn.declare(self)),
                 m.MIR_new_ref_op(self.ctx, raw_fn),
                 result,
                 m.MIR_new_reg_op(self.ctx, ctx_reg),
@@ -4974,7 +4974,7 @@ pub fn compileZdefContainer(self: *Self, ast: Ast, zdef_element: Ast.Zdef.ZdefEl
     while (it_ext.next()) |kv| {
         switch (kv.key_ptr.*) {
             // TODO: don't mix those with actual api functions
-            .rawfn, .nativefn => {},
+            .RawFn, .NativeFn => {},
             else => m.MIR_load_external(
                 self.ctx,
                 kv.key_ptr.*.name(),
@@ -5201,7 +5201,7 @@ pub fn compileZdef(self: *Self, buzz_ast: Ast, zdef: Ast.Zdef.ZdefElement) Error
     while (it_ext.next()) |kv| {
         switch (kv.key_ptr.*) {
             // TODO: don't mix those with actual api functions
-            .rawfn, .nativefn => {},
+            .RawFn, .NativeFn => {},
             else => m.MIR_load_external(
                 self.ctx,
                 kv.key_ptr.*.name(),

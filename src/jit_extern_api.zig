@@ -11,8 +11,8 @@ export fn bz_exit(code: c_int) noreturn {
 }
 
 pub const ExternApi = enum {
-    nativefn,
-    rawfn,
+    NativeFn,
+    RawFn,
 
     bz_stringConcat,
     bz_stringSubscript,
@@ -796,7 +796,7 @@ pub const ExternApi = enum {
                     },
                 },
             ),
-            .rawfn => m.MIR_new_proto_arr(
+            .RawFn => m.MIR_new_proto_arr(
                 ctx,
                 self.pname(),
                 1,
@@ -810,7 +810,7 @@ pub const ExternApi = enum {
                     },
                 },
             ),
-            .nativefn => m.MIR_new_proto_arr(
+            .NativeFn => m.MIR_new_proto_arr(
                 ctx,
                 self.pname(),
                 1,
@@ -1172,152 +1172,16 @@ pub const ExternApi = enum {
         };
     }
 
-    // FIXME: no need for this we can return @tagName
     pub fn name(self: ExternApi) [*:0]const u8 {
-        return switch (self) {
-            .nativefn => "NativeFn",
-            .rawfn => "RawFn",
-
-            .bz_stringConcat => "bz_stringConcat",
-            .bz_stringSubscript => "bz_stringSubscript",
-            .bz_valueCastToString => "bz_valueCastToString",
-            .bz_newList => "bz_newList",
-            .bz_newRange => "bz_newRange",
-            .bz_rangeNext => "bz_rangeNext",
-            .bz_listAppend => "bz_listAppend",
-            .bz_listGet => "bz_listGet",
-            .bz_listSet => "bz_listSet",
-            .bz_valueEqual => "bz_valueEqual",
-            .bz_listConcat => "bz_listConcat",
-            .bz_newMap => "bz_newMap",
-            .bz_mapSet => "bz_mapSet",
-            .bz_mapGet => "bz_mapGet",
-            .bz_mapConcat => "bz_mapConcat",
-            .bz_valueIs => "bz_valueIs",
-            .bz_setTryCtx => "bz_setTryCtx",
-            .bz_popTryCtx => "bz_popTryCtx",
-            .bz_rethrow => "bz_rethrow",
-            .bz_throw => "bz_throw",
-            .bz_getUpValue => "bz_getUpValue",
-            .bz_setUpValue => "bz_setUpValue",
-            .bz_closeUpValues => "bz_closeUpValues",
-            .bz_closure => "bz_closure",
-            .bz_context => "bz_context",
-            .bz_newObjectInstance => "bz_newObjectInstance",
-            .bz_setObjectInstanceProperty => "bz_setObjectInstanceProperty",
-            .bz_getObjectInstanceProperty => "bz_getObjectInstanceProperty",
-            .bz_getObjectInstanceMethod => "bz_getObjectInstanceMethod",
-            .bz_getProtocolMethod => "bz_getProtocolMethod",
-            .bz_setObjectField => "bz_setObjectField",
-            .bz_getObjectField => "bz_getObjectField",
-            .bz_getStringProperty => "bz_getStringProperty",
-            .bz_getPatternProperty => "bz_getPatternProperty",
-            .bz_getFiberProperty => "bz_getFiberProperty",
-            .bz_getRangeProperty => "bz_getRangeProperty",
-            .bz_getEnumCase => "bz_getEnumCase",
-            .bz_getEnumInstanceValue => "bz_getEnumInstanceValue",
-            .bz_getListProperty => "bz_getListProperty",
-            .bz_getMapProperty => "bz_getMapProperty",
-            .bz_getEnumCaseFromValue => "bz_getEnumCaseFromValue",
-            .bz_bindMethod => "bz_bindMethod",
-            .bz_stringNext => "bz_stringNext",
-            .bz_listNext => "bz_listNext",
-            .bz_mapNext => "bz_mapNext",
-            .bz_enumNext => "bz_enumNext",
-            .bz_clone => "bz_clone",
-            .bz_valueToCString => "bz_valueToCString",
-            .bz_getUserDataPtr => "bz_getUserDataPtr",
-            .bz_newUserData => "bz_newUserData",
-            .bz_valueToForeignContainerPtr => "bz_valueToForeignContainerPtr",
-            .bz_stringToValueZ => "bz_stringToValueZ",
-            .bz_foreignContainerGet => "bz_foreignContainerGet",
-            .bz_foreignContainerSet => "bz_foreignContainerSet",
-            .bz_newForeignContainerInstance => "bz_newForeignContainerInstance",
-            .bz_valueTypeOf => "bz_valueTypeOf",
-            .bz_newForeignContainerFromSlice => "bz_newForeignContainerFromSlice",
-
-            .setjmp => if (builtin.os.tag == .macos or builtin.os.tag == .linux or builtin.os.tag == .windows) "_setjmp" else "setjmp",
-            .exit => "bz_exit",
-
-            .bz_dumpStack => "bz_dumpStack",
-
-            .bz_valueDump => "bz_valueDump",
-            .fmod => "fmod",
-            .memcpy => "memcpy",
-        };
+        return @tagName(self);
     }
 
     pub fn pname(self: ExternApi) [*:0]const u8 {
-        return switch (self) {
-            .nativefn => "p_NativeFn",
-            .rawfn => "p_RawFn",
-
-            .bz_stringConcat => "p_bconcatString",
-            .bz_stringSubscript => "p_bz_objStringSubscript",
-            .bz_valueCastToString => "p_bz_valueCastToString",
-            .bz_newList => "p_bz_newList",
-            .bz_newRange => "p_bz_newRange",
-            .bz_rangeNext => "p_bz_rangeNext",
-            .bz_listAppend => "p_bz_listAppend",
-            .bz_listGet => "p_bz_listGet",
-            .bz_listSet => "p_bz_listSet",
-            .bz_valueEqual => "p_bz_valueEqual",
-            .bz_listConcat => "p_bz_listConcat",
-            .bz_newMap => "p_bz_newMap",
-            .bz_mapSet => "p_bz_mapSet",
-            .bz_mapGet => "p_bz_mapGet",
-            .bz_mapConcat => "p_bz_mapConcat",
-            .bz_valueIs => "p_bz_valueIs",
-            .bz_setTryCtx => "p_bz_setTryCtx",
-            .bz_popTryCtx => "p_bz_popTryCtx",
-            .bz_rethrow => "p_bz_rethrow",
-            .bz_throw => "p_bz_throw",
-            .bz_getUpValue => "p_bz_getUpValue",
-            .bz_setUpValue => "p_bz_setUpValue",
-            .bz_closeUpValues => "p_bz_closeUpValues",
-            .bz_closure => "p_bz_closure",
-            .bz_context => "p_bz_context",
-            .bz_newObjectInstance => "p_bz_instance",
-            .bz_setObjectInstanceProperty => "p_bz_setInstanceProperty",
-            .bz_getObjectInstanceProperty => "p_bz_getInstanceProperty",
-            .bz_getObjectInstanceMethod => "p_bz_getInstanceMethod",
-            .bz_getProtocolMethod => "p_bz_getProtocolMethod",
-            .bz_setObjectField => "p_bz_setObjectField",
-            .bz_getObjectField => "p_bz_getObjectField",
-            .bz_getStringProperty => "p_bz_getStringProperty",
-            .bz_getPatternProperty => "p_bz_getPatternProperty",
-            .bz_getFiberProperty => "p_bz_getFiberProperty",
-            .bz_getRangeProperty => "p_bz_getRangeProperty",
-            .bz_getEnumCase => "p_bz_getEnumCase",
-            .bz_getEnumInstanceValue => "p_bz_getEnumCaseValue",
-            .bz_getListProperty => "p_bz_getListProperty",
-            .bz_getMapProperty => "p_bz_getMapProperty",
-            .bz_getEnumCaseFromValue => "p_bz_getEnumCaseFromValue",
-            .bz_bindMethod => "p_bz_bindMethod",
-            .bz_stringNext => "p_bz_stringNext",
-            .bz_listNext => "p_bz_listNext",
-            .bz_mapNext => "p_bz_mapNext",
-            .bz_enumNext => "p_bz_enumNext",
-            .bz_clone => "p_bz_clone",
-            .bz_valueToCString => "p_bz_valueToCString",
-            .bz_getUserDataPtr => "p_bz_getUserDataPtr",
-            .bz_newUserData => "p_bz_newUserData",
-            .bz_valueToForeignContainerPtr => "p_bz_valueToForeignContainerPtr",
-            .bz_stringToValueZ => "p_bz_stringZ",
-            .bz_foreignContainerGet => "p_bz_containerGet",
-            .bz_foreignContainerSet => "p_bz_containerSet",
-            .bz_newForeignContainerInstance => "p_bz_containerInstance",
-            .bz_valueTypeOf => "p_bz_valueTypeOf",
-            .bz_newForeignContainerFromSlice => "p_bz_containerFromSlice",
-
-            .setjmp => if (builtin.os.tag == .macos or builtin.os.tag == .linux or builtin.os.windows) "p__setjmp" else "p_setjmp",
-            .exit => "p_exit",
-
-            .bz_dumpStack => "p_bz_dumpStack",
-
-            .bz_valueDump => "p_bz_valueDump",
-            .fmod => "p_fmod",
-            .memcpy => "p_memcpy",
-        };
+        // https://ziggit.dev/t/why-tagname-unable-to-evaluate-comptime-expression-inside-a-function-with-anytype/2282/3
+        switch (self) {
+            inline else => |tag| {
+                return "p_" ++ @tagName(tag);
+            },
+        }
     }
 };
