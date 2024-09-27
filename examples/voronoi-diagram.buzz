@@ -2,16 +2,22 @@ import "std";
 import "examples/sdl-wrapped" as _;
 import "math";
 
-fun hypot(int x, int y) > int {
-    return std\toInt(math\sqrt(std\toDouble(x * x + y * y)));
+fun hypot(x: int, y: int) > int {
+    return std\toInt(
+        math\sqrt(
+            std\toDouble(
+                x * x + y * y
+            )
+        )
+    );
 }
 
-fun generateVoronoi(Renderer renderer, int width, int height, int numCells) > void !> SDLError {
-    [int] nx = [];
-    [int] ny = [];
-    [Color] colors = [];
+fun generateVoronoi(renderer: Renderer, width: int, height: int, numCells: int) > void !> SDLError {
+    var nx = [<int>];
+    var ny = [<int>];
+    var colors = [<Color>];
 
-    foreach (int _ in 0..numCells) {
+    foreach (_ in 0..numCells) {
         nx.append(std\random(min: 0, max: width));
         ny.append(std\random(min: 0, max: height));
         colors.append(Color{
@@ -29,12 +35,12 @@ fun generateVoronoi(Renderer renderer, int width, int height, int numCells) > vo
         }
     );
 
-    foreach (int y in 0..width) {
-        foreach (int x in 0..height) {
-            int dmin = hypot(x: width - 1, y: height - 1);
-            int j = -1;
-            foreach (int i in 0..numCells) {
-                int d = hypot(x: nx[i] - x, y: ny[i] - y);
+    foreach (y in 0..width) {
+        foreach (x in 0..height) {
+            var dmin = hypot(x: width - 1, y: height - 1);
+            var j = -1;
+            foreach (i in 0..numCells) {
+                const d = hypot(x: nx[i] - x, y: ny[i] - y);
                 if (d < dmin) {
                     dmin = d;
                     j = i;
@@ -55,12 +61,12 @@ fun generateVoronoi(Renderer renderer, int width, int height, int numCells) > vo
         }
     );
 
-    foreach (int b in 0..numCells) {
+    foreach (b in 0..numCells) {
         renderer.drawPoint(x: nx[b], y: ny[b]);
     }
 }
 
-fun main([str] _) > void !> SDLError {
+fun main(_: [str]) > void !> SDLError {
     const width = 400;
     const height = 400;
     const numCells = 50;

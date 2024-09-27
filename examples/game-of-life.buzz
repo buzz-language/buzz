@@ -4,28 +4,28 @@ import "examples/sdl-wrapped" as _;
 
 // buzz -L/path/to/SDL2.dylib/so/dll examples/game-of-life.buzz
 object World {
-    int width,
-    int height,
-    [bool] cells,
+    width: int,
+    height: int,
+    cells: [bool],
 
-    static fun init(int width, int height) > World {
+    static fun init(width: int, height: int) > World {
         var world = World{
             width ,
             height,
             cells = [<bool>],
         };
 
-        for (int i = 0; i < width * height; i = i + 1) {
+        for (i: int = 0; i < width * height; i = i + 1) {
             world.cells.append(std\random(max: 5) == 1);
         }
 
         return world;
     }
 
-    fun neighbors(int x, int y) > int {
-        int liveCount = 0;
-        for (int dy = y - 1; dy <= y + 1; dy = dy + 1) {
-            for (int dx = x - 1; dx <= x + 1; dx = dx + 1) {
+    fun neighbors(x: int, y: int) > int {
+        var liveCount = 0;
+        for (dy: int = y - 1; dy <= y + 1; dy = dy + 1) {
+            for (dx: int = x - 1; dx <= x + 1; dx = dx + 1) {
                 if (dy > 0 and dy > 0 and dx < this.width and dy < this.height and this.cells[dy * this.width + dx]) {
                     liveCount = liveCount + 1;
                 }
@@ -37,10 +37,10 @@ object World {
 
     fun step() > void {
         var cells = [<bool>];
-        for (int y = 0; y < this.height; y = y + 1) {
-            for (int x = 0; x < this.width; x = x + 1) {
-                const int coordinate = y * this.width + x;
-                const int liveNeighbors = this.neighbors(x: x, y: y);
+        for (y: int = 0; y < this.height; y = y + 1) {
+            for (x: int = 0; x < this.width; x = x + 1) {
+                const coordinate = y * this.width + x;
+                const liveNeighbors = this.neighbors(x: x, y: y);
                 
                 cells.append(liveNeighbors == 3 or (this.cells[coordinate] and liveNeighbors == 2));
             }
@@ -50,8 +50,8 @@ object World {
     }
 
     fun dump() > void {
-        for (int y = 0; y < this.height; y = y + 1) {
-            for (int x = 0; x < this.width; x = x + 1) {
+        for (y: int = 0; y < this.height; y = y + 1) {
+            for (x: int = 0; x < this.width; x = x + 1) {
                 io\stdout.write(
                     if (this.cells[y * this.width + x])
                         "x"
@@ -63,12 +63,12 @@ object World {
         }
     }
 
-    fun draw(Renderer renderer) > void !> SDLError {
+    fun draw(renderer: Renderer) > void !> SDLError {
         const cellWidth = 800 / this.width;
         const cellHeight = 600 / this.height;
 
-        for (int y = 0; y < this.height; y = y + 1) {
-            for (int x = 0; x < this.width; x = x + 1) {
+        for (y: int = 0; y < this.height; y = y + 1) {
+            for (x: int = 0; x < this.width; x = x + 1) {
                 renderer.setRenderDrawColor(
                     if (this.cells[y * this.width + x])
                         Color{
@@ -106,7 +106,7 @@ object World {
     }
 }
 
-fun loop(World world, SDL sdl, Renderer renderer, Texture texture) > void !> SDLError {
+fun loop(world: World, sdl: SDL, renderer: Renderer, texture: Texture) > void !> SDLError {
     var dt = sdl.ticks();
     while (true) {
         if (sdl.pollEvent() -> event) {
@@ -132,7 +132,7 @@ fun loop(World world, SDL sdl, Renderer renderer, Texture texture) > void !> SDL
     }
 }
 
-fun main([str] args) > void !> SDLError {
+fun main(args: [str]) > void !> SDLError {
     var sdl = SDL.init([Subsystem.Video]);
 
     var window = Window.init(
@@ -154,8 +154,8 @@ fun main([str] args) > void !> SDLError {
         height: 600,
     );
 
-    int? width = if (args.len() > 0) std\parseInt(args[0]) else null;
-    int? height = if (args.len() > 1) std\parseInt(args[1]) else null;
+    const width = if (args.len() > 0) std\parseInt(args[0]) else null;
+    const height = if (args.len() > 1) std\parseInt(args[1]) else null;
 
     var world = World.init(
         width: width ?? 10,

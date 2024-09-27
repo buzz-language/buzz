@@ -2,14 +2,14 @@ namespace sqlite;
 
 import "ffi";
 import "std";
-import "buffer" as _;
-import "serialize" as _;
+import "buffer";
+import "serialize";
 
 zdef("sqlite3", `
     fn sqlite3_initialize() c_int;
     fn sqlite3_shutdown() c_int;
     // Right now we can't express a ptr to an opaque struct because we need to know its size
-    fn sqlite3_open_v2(filename: [*:0]const u8, ppDb: **anyopaque, flags: c_int, zVfs\ ?[*:0]const u8) c_int;
+    fn sqlite3_open_v2(filename: [*:0]const u8, ppDb: **anyopaque, flags: c_int, zVfs: ?[*:0]const u8) c_int;
     fn sqlite3_close_v2(db: *anyopaque) c_int;
     fn sqlite3_errmsg(db: *anyopaque) [*:0]const u8;
     fn sqlite3_prepare_v2(db: *anyopaque, zSql: [*:0]const u8, nBytes: c_int, ppStmt: **anyopaque, pzTail: ?*[*]const u8) c_int;
@@ -60,8 +60,8 @@ enum(int) ResultCode {
 }
 
 export object SQLiteError {
-    ResultCode code,
-    str? message = "Error occured while interacting with SQLite database",
+    code: ResultCode,
+    message: str? = "Error occured while interacting with SQLite database",
 }
 
 export enum(int) OpenFlag {
@@ -98,65 +98,65 @@ enum(int) Type {
 }
 
 export object Query {
-    str query = "",
+    query: str = "",
 
-    fun branch(str keyword, str expression) > Query {
+    fun branch(keyword: str, expression: str) > Query {
         return Query{
             query = "{this.query} {keyword.upper()} {expression}"
         };
     }
 
-    fun select([str] columns) > Query {
+    fun select(columns: [str]) > Query {
         return this.branch("select", expression: columns.join(", "));
     }
 
-    fun delete(str expression) > Query {
+    fun delete(expression: str) > Query {
         return this.branch("delete", expression: expression);
     }
 
-    fun insertInto(str table, [str] columns) > Query {
+    fun insertInto(table: str, columns: [str]) > Query {
         return this.branch("insert into", expression: "{table} ({columns.join(", ")})");
     }
 
-    fun @"from"(str expression) > Query {
+    fun @"from"(expression: str) > Query {
         return this.branch("from", expression: expression);
     }
 
-    fun where(str expression) > Query {
+    fun where(expression: str) > Query {
         return this.branch("where", expression: expression);
     }
 
-    fun orderBy(str expression) > Query {
+    fun orderBy(expression: str) > Query {
         return this.branch("order by", expression: expression);
     }
 
-    fun groupBy(str expression) > Query {
+    fun groupBy(expression: str) > Query {
         return this.branch("group by", expression: expression);
     }
 
-    fun values([str] values) > Query {
+    fun values(values: [str]) > Query {
         return this.branch("values", expression: "({values.join(", ")})");
     }
 
-    fun prepare(Database db) > Statement !> SQLiteError {
+    fun prepare(db: Database) > Statement !> SQLiteError {
         return db.prepare(this);
     }
 
-    fun execute(Database db) > [[Boxed]] *> [Boxed]? !> SQLiteError {
+    fun execute(db: Database) > [[Boxed]] *> [Boxed]? !> SQLiteError {
         return db.prepare(this).execute();
     }
 }
 
 export object Statement {
-    str query,
-    ud db,
-    ud stmt,
+    query: str,
+    db: ud,
+    stmt: ud,
 
     fun execute() > [[Boxed]] *> [Boxed]? !> SQLiteError {
         std\print("Executing query `{this.query}`");
-        ResultCode code = ResultCode.Ok;
+        var code: ResultCode = ResultCode.Ok;
 
-        [[Boxed]] rows = [<[Boxed]>];
+        const rows = [<[Boxed]>];
         while (code != ResultCode.Done) {
             code = ResultCode(sqlite3_step(this.stmt)) ?? ResultCode.Error;
             if (code != ResultCode.Ok and code != ResultCode.Row and code != ResultCode.Done) {
@@ -170,10 +170,10 @@ export object Statement {
                 break;
             }
 
-            const int columnCount = sqlite3_column_count(this.stmt);
-            [any] row = [<any>];
-            for (int i = 0; i < columnCount; i = i + 1) {
-                const Type columnType = Type(sqlite3_column_type(this.stmt, col: i)) ?? Type.Null;
+            const columnCount = sqlite3_column_count(this.stmt);
+            var row = [<any>];
+            for (i: int = 0; i < columnCount; i = i + 1) {
+                const columnType = Type(sqlite3_column_type(this.stmt, col: i)) ?? Type.Null;
 
                 if (columnType == Type.Integer) {
                     row.append(
@@ -196,7 +196,7 @@ export object Statement {
                 }
             }
 
-            const [Boxed] boxedRow = (Boxed.init(row) catch void).listValue();
+            const boxedRow = (Boxed.init(row) catch void).listValue();
             rows.append(boxedRow);
 
             _ = yield boxedRow;
@@ -211,26 +211,26 @@ export object Statement {
 }
 
 export object Database {
-    ud db,
+    db: ud,
 
     fun collect() > void {
         _ = ResultCode(sqlite3_close_v2(this.db)) ?? ResultCode.Error;
     }
 
-    fun prepare(Query query) > Statement !> SQLiteError {
+    fun prepare(query: Query) > Statement !> SQLiteError {
         return this.prepareRaw(query.query);
     }
 
-    fun prepareRaw(str query) > Statement !> SQLiteError {
-        Buffer buffer = Buffer.init();
-        buffer\writeUserData(std\toUd(0)) catch void;
+    fun prepareRaw(query: str) > Statement !> SQLiteError {
+        const buffer = buffer\Buffer.init();
+        buffer.writeUserData(std\toUd(0)) catch void;
 
-        const ResultCode code = ResultCode(
+        const code = ResultCode(
             sqlite3_prepare_v2(
                 db: this.db,
                 zSql: ffi\cstr(query),
                 nBytes: -1,
-                ppStmt: buffer\ptr(),
+                ppStmt: buffer.ptr(),
                 pzTail: null,
             )
         ) ?? ResultCode.Error;
@@ -243,7 +243,7 @@ export object Database {
 
         return Statement{
             query = query,
-            stmt = buffer\readUserData()!,
+            stmt = buffer.readUserData()!,
             db = this.db,
         };
     }
@@ -251,7 +251,7 @@ export object Database {
 
 export object SQLite {
     static fun init() > SQLite !> SQLiteError {
-        const ResultCode code = ResultCode(sqlite3_initialize()) ?? ResultCode.Error;
+        const code = ResultCode(sqlite3_initialize()) ?? ResultCode.Error;
         if (code != ResultCode.Ok) {
             throw SQLiteError{
                 code = code,
@@ -262,7 +262,7 @@ export object SQLite {
         return SQLite{};
     }
 
-    static fun escape(str string) > str {
+    static fun escape(string: str) > str {
         return sqlite3_mprintf(ffi\cstr(string)) ?? "";
     } 
 
@@ -270,21 +270,21 @@ export object SQLite {
         _ = sqlite3_shutdown();
     }
 
-    fun open(str filename, [OpenFlag] flags) > Database !> SQLiteError {
-        int cFlags = 0;
-        foreach (OpenFlag flag in flags) {
+    fun open(filename: str, flags: [OpenFlag]) > Database !> SQLiteError {
+        var cFlags = 0;
+        foreach (flag in flags) {
             cFlags = cFlags | flag.value;
         }
 
-        Buffer buffer = Buffer.init();
-        buffer\writeUserData(std\toUd(0)) catch void;
+        const buffer = buffer\Buffer.init();
+        buffer.writeUserData(std\toUd(0)) catch void;
 
-        const ResultCode code = ResultCode(
+        const code = ResultCode(
             sqlite3_open_v2(
                 filename: ffi\cstr(filename),
-                ppDb: buffer\ptr(),
+                ppDb: buffer.ptr(),
                 flags: cFlags,
-                zVfs\ null
+                zVfs: null
             )
         ) ?? ResultCode.Error;
 
@@ -298,17 +298,17 @@ export object SQLite {
         std\print("Database `{filename}` opened");
 
         return Database {
-            db = buffer\readUserData()!,
+            db = buffer.readUserData()!,
         };
     }
 }
 
 test "Testing sqlite" {
-    SQLite sqlite = SQLite.init();
+    const sqlite = SQLite.init();
 
-    Database database = sqlite.open("./test.db", flags: [OpenFlag.ReadWrite, OpenFlag.Create]);
+    const database = sqlite.open("./test.db", flags: [OpenFlag.ReadWrite, OpenFlag.Create]);
 
-    Statement statement = database.prepareRaw(`
+    const statement = database.prepareRaw(`
         CREATE TABLE IF NOT EXISTS test (
             name TEXT NOT NULL
         )
@@ -316,19 +316,19 @@ test "Testing sqlite" {
 
     _ =  statement.execute();
 
-    foreach (str name in ["john", "joe", "janet", "joline"]) {
+    foreach (name in ["john", "joe", "janet", "joline"]) {
         _ = Query{}
             .insertInto("test", columns: [ "name" ])
             .values([ "'{name}'" ])
             .execute(database);
     }
 
-    Statement select = Query{}
+    const select = Query{}
         .select([ "rowid", "name" ])
         .@"from"("test")
         .prepare(database);
 
-    foreach ([Boxed] row in &select.execute()) {
-        std\print("{row[0].integerValue()}: {row[1].stringValue()}");
+    foreach (row in &select.execute()) {
+        std\print("{row?[0].integerValue()}: {row?[1].stringValue()}");
     }
 }

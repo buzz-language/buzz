@@ -554,8 +554,8 @@ export fn bz_listConcat(list: Value, other_list: Value, vm: *VM) Value {
 }
 
 export fn bz_mapConcat(map: Value, other_map: Value, vm: *VM) Value {
-    const left: *ObjMap = ObjMap.cast(map.obj()).?;
-    const right: *ObjMap = ObjMap.cast(other_map.obj()).?;
+    const left = ObjMap.cast(map.obj()).?;
+    const right = ObjMap.cast(other_map.obj()).?;
 
     var new_map = left.map.clone(vm.gc.allocator) catch @panic("Could not concatenate maps");
     var it = right.map.iterator();

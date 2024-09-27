@@ -121,6 +121,35 @@ const crypto_api = if (is_wasm) std.StaticStringMap(buzz_api.NativeFn).initCompt
     },
 ) else void;
 
+const libs = if (is_wasm)
+    std.StaticStringMap(std.StaticStringMap(buzz_api.NativeFn)).initComptime(
+        .{
+            .{
+                "std", std_api,
+            },
+            .{
+                "gc", gc_api,
+            },
+            .{
+                "math", math_api,
+            },
+            .{
+                "buffer", buffer_api,
+            },
+            .{
+                "debug", debug_api,
+            },
+            .{
+                "serialize", serialize_api,
+            },
+            .{
+                "crypto", crypto_api,
+            },
+        },
+    )
+else
+    void;
+
 const Self = @This();
 
 extern fn dlerror() [*:0]u8;
@@ -7669,20 +7698,8 @@ fn importScript(
 
 // This is used in the wasm build. There, we only allow the import of std libs by name
 fn importStaticLibSymbol(self: *Self, file_name: []const u8, symbol: []const u8) !?*obj.ObjNative {
-    const symbol_ptr = if (std.mem.eql(u8, file_name, "std"))
-        std_api.get(symbol)
-    else if (std.mem.eql(u8, file_name, "gc"))
-        gc_api.get(symbol)
-    else if (std.mem.eql(u8, file_name, "math"))
-        math_api.get(symbol)
-    else if (std.mem.eql(u8, file_name, "debug"))
-        debug_api.get(symbol)
-    else if (std.mem.eql(u8, file_name, "buffer"))
-        buffer_api.get(symbol)
-    else if (std.mem.eql(u8, file_name, "serialize"))
-        serialize_api.get(symbol)
-    else if (std.mem.eql(u8, file_name, "crypto"))
-        crypto_api.get(symbol)
+    const symbol_ptr = if (libs.get(file_name)) |lib|
+        lib.get(symbol)
     else
         null;
 

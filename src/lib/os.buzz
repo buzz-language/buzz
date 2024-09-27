@@ -116,7 +116,12 @@ export object TcpServer {
     /// @param reuseAddr Wether we want to accept multiple connections
     /// @param reusePort Wether we want to accept multiple connections
     /// @return New `TcpServer` bound to `<address>:<port>`
-    static fun init(address: str, port: int, reuseAddr: bool, reusePort: bool) > TcpServer !> errors\SocketError, errors\UnexpectedError, errors\InvalidArgumentError, errors\FileSystemError {
+    static fun init(address: str, port: int, reuseAddr: bool, reusePort: bool)
+        > TcpServer
+        !> errors\SocketError,
+           errors\UnexpectedError,
+           errors\InvalidArgumentError,
+           errors\FileSystemError {
         return TcpServer{
             serverSocket = Socket{
                 fd = SocketServerStart(address, port: port, reuseAddr: reuseAddr, reusePort: reusePort),

@@ -876,7 +876,7 @@ pub const ExternApi = enum {
                 self.pname(),
                 1,
                 &[_]m.MIR_type_t{m.MIR_T_I64},
-                1,
+                2,
                 &[_]m.MIR_var_t{
                     .{
                         .type = m.MIR_T_P,
@@ -1301,7 +1301,7 @@ pub const ExternApi = enum {
             .bz_clone => "p_bz_clone",
             .bz_valueToCString => "p_bz_valueToCString",
             .bz_getUserDataPtr => "p_bz_getUserDataPtr",
-            .bz_newUserData => "p_bz_userDataToValue",
+            .bz_newUserData => "p_bz_newUserData",
             .bz_valueToForeignContainerPtr => "p_bz_valueToForeignContainerPtr",
             .bz_stringToValueZ => "p_bz_stringZ",
             .bz_foreignContainerGet => "p_bz_containerGet",
