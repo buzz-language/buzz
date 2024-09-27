@@ -182,18 +182,6 @@ pub const TypeRegistry = struct {
 //     - Unmark all objects
 //     - Do a mark and sweep
 //
-// Writer barrier on those OpCodes:
-//     * OP_LIST_APPEND
-//     * OP_SET_MAP
-//     * OP_SET_SUBSCRIPT
-//     * OP_INHERIT
-//     * OP_INSTANCE
-//     * OP_METHOD
-//     * OP_PROPERTY
-//     * OP_SET_PROPERTY
-//
-// Can we avoid going through the whole linked list of objects when sweeping?
-//
 // For now we only have either young or old objects but we could improve on it with more categories with each its threshold
 pub const GarbageCollector = struct {
     const Self = @This();
