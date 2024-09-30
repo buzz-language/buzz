@@ -34,6 +34,7 @@ list[?10] == null;
 ```
 - User input is syntax highlighted in REPL (https://github.com/buzz-language/buzz/issues/217)
 - REPL handles multilines input (https://github.com/buzz-language/buzz/issues/218)
+- `std\args()`: returns the command line arguments with which the script was launched
 
 ## Modified
 - Enum can now have `rg`, `ud`, `void`, `pat` has value type

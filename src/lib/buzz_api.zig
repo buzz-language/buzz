@@ -202,6 +202,7 @@ pub const VM = opaque {
     pub extern fn bz_push(self: *VM, value: Value) void;
     pub extern fn bz_pop(self: *VM) Value;
     pub extern fn bz_peek(self: *VM, distance: u32) Value;
+    pub extern fn bz_at(vm: *VM, at: u32) Value;
     pub extern fn bz_pushError(self: *VM, qualified_name: [*]const u8, len: usize, message: ?[*]const u8, mlen: usize) void;
     pub extern fn bz_pushErrorEnum(self: *VM, qualified_name: [*]const u8, name_len: usize, case: [*]const u8, case_len: usize) void;
     pub extern fn bz_stringToValue(vm: *VM, string: ?[*]const u8, len: usize) Value;

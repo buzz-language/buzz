@@ -9,7 +9,12 @@ pub const os = if (is_wasm)
 else
     std.os;
 
-// fun random(int? min = null, int? max = null) > int
+pub export fn args(ctx: *api.NativeCtx) c_int {
+    ctx.vm.bz_push(ctx.vm.bz_at(1));
+
+    return 1;
+}
+
 pub export fn random(ctx: *api.NativeCtx) c_int {
     if (is_wasm) {
         unreachable;

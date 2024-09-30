@@ -79,6 +79,15 @@ export fn bz_peek(vm: *VM, dist: u32) Value {
     return vm.peek(dist);
 }
 
+/// Absolute access to the stack.
+export fn bz_at(vm: *VM, at: u32) Value {
+    if (at < vm.current_fiber.stack.len) {
+        return vm.current_fiber.stack[at];
+    }
+
+    return Value.Null;
+}
+
 /// Converts a value to a string
 export fn bz_valueToString(value: Value, len: *usize) ?[*]const u8 {
     if (!value.isObj() or value.obj().obj_type != .String) {

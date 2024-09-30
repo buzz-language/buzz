@@ -55,4 +55,7 @@ export extern fun currentFiber() > fib<any, any?>;
 /// Print message and exit program
 extern fun buzzPanic(message: str) > void;
 
+/// Returns the command line arguments with which the script was launched
+export extern fun args() > [str];
+
 export buzzPanic as panic;
