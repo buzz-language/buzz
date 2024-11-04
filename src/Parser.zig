@@ -1479,25 +1479,7 @@ fn statement(self: *Self, hanging: bool, loop_scope: ?LoopScope) !?Ast.Node.Inde
             std.debug.assert(!hanging);
             return try self.outStatement();
         } else if (try self.match(.Throw)) {
-            const start_location = self.current_token.? - 1;
-            // For now we don't care about the type. Later if we have `Error` type of data, we'll type check this
-            const error_value = try self.expression(false);
-
-            try self.consume(.Semicolon, "Expected `;` after statement.");
-
-            return try self.ast.appendNode(
-                .{
-                    .tag = .Throw,
-                    .location = start_location,
-                    .end_location = self.current_token.? - 1,
-                    .components = .{
-                        .Throw = .{
-                            .expression = error_value,
-                            .unconditional = self.current.?.scope_depth == 1,
-                        },
-                    },
-                },
-            );
+            return try self.throw();
         }
     }
 
@@ -8642,6 +8624,28 @@ fn outStatement(self: *Self) Error!Ast.Node.Index {
             .type_def = self.ast.nodes.items(.type_def)[expr],
             .components = .{
                 .Out = expr,
+            },
+        },
+    );
+}
+
+fn throw(self: *Self) Error!Ast.Node.Index {
+    const start_location = self.current_token.? - 1;
+    // For now we don't care about the type. Later if we have `Error` type of data, we'll type check this
+    const error_value = try self.expression(false);
+
+    try self.consume(.Semicolon, "Expected `;` after statement.");
+
+    return try self.ast.appendNode(
+        .{
+            .tag = .Throw,
+            .location = start_location,
+            .end_location = self.current_token.? - 1,
+            .components = .{
+                .Throw = .{
+                    .expression = error_value,
+                    .unconditional = self.current.?.scope_depth == 1,
+                },
             },
         },
     );

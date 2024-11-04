@@ -129,7 +129,11 @@ fn handleFileReadWriteError(ctx: *api.NativeCtx, err: anytype) void {
         error.ConnectionResetByPeer,
         error.ConnectionTimedOut,
         error.NotOpenForReading,
+        error.LockViolation,
         => ctx.vm.pushErrorEnum("errors.ReadWriteError", @errorName(err)),
+
+        error.ProcessNotFound,
+        => ctx.vm.pushErrorEnum("errors.ExecError", @errorName(err)),
 
         error.Unexpected => ctx.vm.pushError("errors.UnexpectedError", null),
         error.OutOfMemory => {
@@ -192,7 +196,11 @@ fn handleFileReadLineError(ctx: *api.NativeCtx, err: anytype) void {
         error.NotOpenForReading,
         error.OperationAborted,
         error.StreamTooLong,
+        error.LockViolation,
         => ctx.vm.pushErrorEnum("errors.ReadWriteError", @errorName(err)),
+
+        error.ProcessNotFound,
+        => ctx.vm.pushErrorEnum("errors.ExecError", @errorName(err)),
 
         error.OutOfMemory => {
             ctx.vm.bz_panic("Out of memory", "Out of memory".len);
@@ -258,7 +266,11 @@ fn handleFileReadAllError(ctx: *api.NativeCtx, err: anytype) void {
         error.ConnectionResetByPeer,
         error.ConnectionTimedOut,
         error.NotOpenForReading,
+        error.LockViolation,
         => ctx.vm.pushErrorEnum("errors.ReadWriteError", @errorName(err)),
+
+        error.ProcessNotFound,
+        => ctx.vm.pushErrorEnum("errors.ExecError", @errorName(err)),
 
         error.Unexpected => ctx.vm.pushError("errors.UnexpectedError", null),
     }
@@ -333,15 +345,20 @@ pub export fn FileWrite(ctx: *api.NativeCtx) c_int {
             error.SystemResources,
             error.WouldBlock,
             => ctx.vm.pushErrorEnum("errors.FileSystemError", @errorName(err)),
+
             error.BrokenPipe,
             error.ConnectionResetByPeer,
             error.LockViolation,
             error.NotOpenForWriting,
             error.OperationAborted,
             => ctx.vm.pushErrorEnum("errors.ReadWriteError", @errorName(err)),
+
             error.InputOutput => ctx.vm.pushErrorEnum("errors.SocketError", "InputOutput"),
             error.InvalidArgument => ctx.vm.pushError("errors.InvalidArgumentError", null),
             error.Unexpected => ctx.vm.pushError("errors.UnexpectedError", null),
+
+            error.ProcessNotFound,
+            => ctx.vm.pushErrorEnum("errors.ExecError", @errorName(err)),
         }
 
         return -1;

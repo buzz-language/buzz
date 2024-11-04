@@ -181,16 +181,22 @@ pub export fn move(ctx: *api.NativeCtx) c_int {
             return -1;
         };
     } else {
-        const source_absolute = if (source_is_absolute) source_slice else std.fs.cwd().realpathAlloc(api.VM.allocator, source_slice) catch |err| {
-            handleRealpathError(ctx, err);
+        const source_absolute = if (source_is_absolute)
+            source_slice
+        else
+            std.fs.cwd().realpathAlloc(api.VM.allocator, source_slice) catch |err| {
+                handleRealpathError(ctx, err);
 
-            return -1;
-        };
-        const destination_absolute = if (destination_is_absolute) destination_slice else std.fs.cwd().realpathAlloc(api.VM.allocator, destination_slice) catch |err| {
-            handleRealpathError(ctx, err);
+                return -1;
+            };
+        const destination_absolute = if (destination_is_absolute)
+            destination_slice
+        else
+            std.fs.cwd().realpathAlloc(api.VM.allocator, destination_slice) catch |err| {
+                handleRealpathError(ctx, err);
 
-            return -1;
-        };
+                return -1;
+            };
         defer {
             if (source_is_absolute) {
                 api.VM.allocator.free(source_absolute);

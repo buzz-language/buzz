@@ -14,28 +14,28 @@ const Self = @This();
 
 const basic_types = std.StaticStringMap(o.ObjTypeDef).initComptime(
     .{
-        .{ "u8", .{ .def_type = .Integer } },
-        .{ "i8", .{ .def_type = .Integer } },
-        .{ "u16", .{ .def_type = .Integer } },
-        .{ "i16", .{ .def_type = .Integer } },
-        .{ "i32", .{ .def_type = .Integer } },
+        .{ "u8", o.ObjTypeDef{ .def_type = .Integer } },
+        .{ "i8", o.ObjTypeDef{ .def_type = .Integer } },
+        .{ "u16", o.ObjTypeDef{ .def_type = .Integer } },
+        .{ "i16", o.ObjTypeDef{ .def_type = .Integer } },
+        .{ "i32", o.ObjTypeDef{ .def_type = .Integer } },
 
         // Could it be > 32bits one some systems?
-        .{ "c_int", .{ .def_type = .Integer } },
+        .{ "c_int", o.ObjTypeDef{ .def_type = .Integer } },
 
-        .{ "c_uint", .{ .def_type = .Double } },
-        .{ "u32", .{ .def_type = .Double } },
-        .{ "i64", .{ .def_type = .Double } },
-        .{ "f32", .{ .def_type = .Double } },
-        .{ "f64", .{ .def_type = .Double } },
+        .{ "c_uint", o.ObjTypeDef{ .def_type = .Double } },
+        .{ "u32", o.ObjTypeDef{ .def_type = .Double } },
+        .{ "i64", o.ObjTypeDef{ .def_type = .Double } },
+        .{ "f32", o.ObjTypeDef{ .def_type = .Double } },
+        .{ "f64", o.ObjTypeDef{ .def_type = .Double } },
 
-        .{ "u64", .{ .def_type = .UserData } },
-        .{ "usize", .{ .def_type = .UserData } },
+        .{ "u64", o.ObjTypeDef{ .def_type = .UserData } },
+        .{ "usize", o.ObjTypeDef{ .def_type = .UserData } },
 
-        .{ "bool", .{ .def_type = .Bool } },
+        .{ "bool", o.ObjTypeDef{ .def_type = .Bool } },
 
-        .{ "void", .{ .def_type = .Void } },
-        .{ "anyopaque", .{ .def_type = .Void } },
+        .{ "void", o.ObjTypeDef{ .def_type = .Void } },
+        .{ "anyopaque", o.ObjTypeDef{ .def_type = .Void } },
     },
 );
 

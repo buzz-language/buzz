@@ -60,12 +60,7 @@ pub export fn toInt(ctx: *api.NativeCtx) c_int {
     const value = ctx.vm.bz_peek(0);
 
     ctx.vm.bz_push(
-        api.Value.fromInteger(
-            if (value.isFloat())
-                @intFromFloat(value.double())
-            else
-                value.integer(),
-        ),
+        api.Value.fromInteger(@intFromFloat(value.double())),
     );
 
     return 1;
@@ -75,12 +70,7 @@ pub export fn toDouble(ctx: *api.NativeCtx) c_int {
     const value = ctx.vm.bz_peek(0);
 
     ctx.vm.bz_push(
-        api.Value.fromFloat(
-            if (value.isInteger())
-                @floatFromInt(value.integer())
-            else
-                value.double(),
-        ),
+        api.Value.fromFloat(@floatFromInt(value.integer())),
     );
 
     return 1;

@@ -283,12 +283,14 @@ fn handleConnectError(ctx: *api.NativeCtx, err: anytype) void {
         error.BrokenPipe,
         error.NotOpenForReading,
         error.OperationAborted,
+        error.LockViolation,
         => ctx.vm.pushErrorEnum("errors.ReadWriteError", @errorName(err)),
 
         error.OutOfMemory => {
             ctx.vm.bz_panic("Out of memory", "Out of memory".len);
             unreachable;
         },
+        error.ProcessNotFound => ctx.vm.pushErrorEnum("errors.ExecError", @errorName(err)),
         error.Unexpected => ctx.vm.pushError("errors.UnexpectedError", null),
         error.Overflow => ctx.vm.pushError("errors.OverflowError", null),
     }
@@ -474,7 +476,11 @@ fn handleReadLineError(ctx: *api.NativeCtx, err: anytype) void {
         error.NotOpenForReading,
         error.OperationAborted,
         error.StreamTooLong,
+        error.LockViolation,
         => ctx.vm.pushErrorEnum("errors.ReadWriteError", @errorName(err)),
+
+        error.ProcessNotFound,
+        => ctx.vm.pushErrorEnum("errors.ExecError", @errorName(err)),
 
         error.Unexpected => ctx.vm.pushError("errors.UnexpectedError", null),
 
@@ -607,6 +613,8 @@ pub export fn SocketWrite(ctx: *api.NativeCtx) c_int {
             => ctx.vm.pushErrorEnum("errors.ReadWriteError", @errorName(err)),
             error.Unexpected => ctx.vm.pushError("errors.UnexpectedError", null),
             error.InvalidArgument => ctx.vm.pushError("errors.InvalidArgumentError", null),
+            error.ProcessNotFound,
+            => ctx.vm.pushErrorEnum("errors.ExecError", @errorName(err)),
         }
 
         return -1;
