@@ -1,5 +1,4 @@
 import "testing" as _;
-import "std";
 
 test "Test std lib" {
     const t = Tester.init(

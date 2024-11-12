@@ -132,10 +132,13 @@ pub const TypeRegistry = struct {
         var copy = try self.type_def_key_buffer.clone();
         copy.shrinkAndFree(copy.items.len);
 
-        _ = try self.registry.put(
-            copy.items,
-            type_def_ptr,
-        );
+        const slot = try self.registry.getOrPut(copy.items);
+
+        slot.value_ptr.* = type_def_ptr;
+
+        if (slot.found_existing) {
+            copy.deinit();
+        }
 
         return type_def_ptr;
     }

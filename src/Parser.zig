@@ -234,7 +234,7 @@ pub const Global = struct {
         return self.referenced or
             self.type_def.def_type == .Void or
             self.type_def.def_type == .Placeholder or
-            (function_type != null and (function_type == .Extern or function_type == .Abstract or function_type == .EntryPoint or function_type == .ScriptEntryPoint or function_type != .Repl)) or
+            (function_type == .Extern or function_type == .Abstract or function_type == .EntryPoint or function_type == .ScriptEntryPoint or function_type != .Repl) or
             lexemes[self.name[self.name.len - 1]][0] == '$' or
             (lexemes[self.name[self.name.len - 1]][0] == '_' and lexemes[self.name[self.name.len - 1]].len == 1) or
             self.exported;
