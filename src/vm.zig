@@ -446,6 +446,7 @@ pub const VM = struct {
     current_fiber: *Fiber,
     current_ast: Ast,
     globals: std.ArrayList(Value),
+    // FIXME: remove
     globals_count: usize = 0,
     import_registry: *ImportRegistry,
     jit: ?JIT = null,
@@ -1034,8 +1035,9 @@ pub const VM = struct {
             self.panic("Out of memory");
             unreachable;
         };
-        self.globals.expandToCapacity();
+        self.globals.items.len = arg + 1;
         self.globals.items[arg] = self.peek(0);
+
         self.globals_count = @max(self.globals_count, arg);
         _ = self.pop();
 
@@ -2182,6 +2184,7 @@ pub const VM = struct {
                         self.panic("Out of memory");
                         unreachable;
                     };
+
                     import_cache.append(global) catch {
                         self.panic("Out of memory");
                         unreachable;
