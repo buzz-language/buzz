@@ -11,6 +11,7 @@ const ZigType = @import("zigtypes.zig").Type;
 const ExternApi = @import("jit_extern_api.zig").ExternApi;
 const api = @import("lib/buzz_api.zig");
 const io = @import("io.zig");
+const Chunk = @import("Chunk.zig");
 
 pub const Error = error{
     CantCompile,
@@ -80,6 +81,11 @@ const GenState = struct {
     }
 };
 
+const CompiledFunction = struct {
+    native: *anyopaque,
+    native_raw: *anyopaque,
+};
+
 const Self = @This();
 
 vm: *VM,
@@ -102,6 +108,8 @@ modules: std.ArrayList(m.MIR_module_t),
 call_count: u128 = 0,
 /// Keeps track of time spent in the JIT
 jit_time: usize = 0,
+/// Closures already compiled (hash is bytecode list), useful to compile once a function
+compiled_functions_bodies: Chunk.HashMap(CompiledFunction),
 
 pub fn init(vm: *VM) Self {
     return .{
@@ -113,6 +121,7 @@ pub fn init(vm: *VM) Self {
         .objclosures_queue = std.AutoHashMap(*o.ObjClosure, void).init(vm.gc.allocator),
         .required_ext_api = std.AutoHashMap(ExternApi, void).init(vm.gc.allocator),
         .modules = std.ArrayList(m.MIR_module_t).init(vm.gc.allocator),
+        .compiled_functions_bodies = Chunk.HashMap(CompiledFunction).init(vm.gc.allocator),
     };
 }
 
@@ -125,6 +134,7 @@ pub fn deinit(self: *Self) void {
     self.objclosures_queue.deinit();
     self.modules.deinit();
     self.required_ext_api.deinit();
+    self.compiled_functions_bodies.deinit();
     m.MIR_finish(self.ctx);
 }
 
@@ -141,6 +151,19 @@ fn reset(self: *Self) void {
 
 pub fn compileFunction(self: *Self, ast: Ast, closure: *o.ObjClosure) Error!void {
     const function = closure.function;
+
+    // Did we already compile a function with the same body?
+    if (self.compiled_functions_bodies.get(function.chunk)) |compiled| {
+        function.native = compiled.native;
+        function.native_raw = compiled.native_raw;
+
+        if (BuildOptions.jit_debug) {
+            io.print("Reusing previous compilation\n", .{});
+        }
+
+        return;
+    }
+
     const ast_node = function.node;
 
     var seen = std.AutoHashMap(Ast.Node.Index, void).init(self.vm.gc.allocator);
@@ -214,6 +237,14 @@ pub fn compileFunction(self: *Self, ast: Ast, closure: *o.ObjClosure) Error!void
             if (kv2.key_ptr.*.function.node == node) {
                 kv2.key_ptr.*.function.native = native;
                 kv2.key_ptr.*.function.native_raw = native_raw;
+
+                try self.compiled_functions_bodies.put(
+                    kv2.key_ptr.*.function.chunk,
+                    .{
+                        .native = native.?,
+                        .native_raw = native_raw.?,
+                    },
+                );
                 break;
             }
         }

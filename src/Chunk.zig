@@ -140,6 +140,29 @@ const Self = @This();
 
 pub const max_constants = std.math.maxInt(u24);
 
+const RegistryContext = struct {
+    pub fn hash(_: RegistryContext, key: Self) u64 {
+        return std.hash.Wyhash.hash(
+            0,
+            std.mem.sliceAsBytes(key.code.items),
+        );
+    }
+
+    pub fn eql(_: RegistryContext, a: Self, b: Self) bool {
+        return std.mem.eql(u32, a.code.items, b.code.items) and
+            std.mem.eql(Value, a.constants.items, b.constants.items);
+    }
+};
+
+pub fn HashMap(V: type) type {
+    return std.HashMap(
+        Self,
+        V,
+        RegistryContext,
+        std.hash_map.default_max_load_percentage,
+    );
+}
+
 allocator: std.mem.Allocator,
 /// AST
 ast: Ast,
