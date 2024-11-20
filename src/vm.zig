@@ -1031,11 +1031,15 @@ pub const VM = struct {
     }
 
     fn OP_DEFINE_GLOBAL(self: *Self, _: *CallFrame, _: u32, _: OpCode, arg: u24) void {
-        self.globals.ensureTotalCapacity(arg + 1) catch {
+        const new_len = @max(arg + 1, self.globals.items.len);
+
+        self.globals.ensureTotalCapacity(new_len) catch {
             self.panic("Out of memory");
             unreachable;
         };
-        self.globals.items.len = arg + 1;
+
+        // We don't always define a new global at the end of the list
+        self.globals.items.len = new_len;
         self.globals.items[arg] = self.peek(0);
 
         self.globals_count = @max(self.globals_count, arg);
