@@ -51,7 +51,7 @@ export enum HttpError {
 
 // https://datatracker.ietf.org/doc/html/rfc2616
 
-export enum(str) Method {
+export enum<str> Method {
     GET,
     HEAD,
     POST,

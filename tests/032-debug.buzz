@@ -20,7 +20,7 @@ enum MyEnum {
     Three,
 }
 
-enum(str) MyStringEnum {
+enum<str> MyStringEnum {
     One,
     Two,
     Three,

@@ -6848,13 +6848,13 @@ fn enumDeclaration(self: *Self) Error!Ast.Node.Index {
     }
 
     const enum_case_type_node =
-        if (try self.match(.LeftParen))
+        if (try self.match(.Less))
         try self.parseTypeDef(null, true)
     else
         null;
 
     if (enum_case_type_node != null) {
-        try self.consume(.RightParen, "Expected `)` after enum type.");
+        try self.consume(.Greater, "Expected `>` after enum type.");
     }
 
     const enum_case_type = if (enum_case_type_node) |enum_type|

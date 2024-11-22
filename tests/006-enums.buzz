@@ -1,12 +1,12 @@
 import "std";
 
-enum(str) StrEnum {
+enum<str> StrEnum {
     one,
     two,
     three,
 }
 
-enum(int) IntEnum {
+enum<int> IntEnum {
     one = 1,
     two = 2,
     three = 3,

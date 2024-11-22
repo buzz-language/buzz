@@ -25,7 +25,7 @@ zdef("sqlite3", `
     fn sqlite3_mprintf(str: [*:0]const u8) ?[*:0]const u8;
 `);
 
-enum(int) ResultCode {
+enum<int> ResultCode {
     Ok         = 0,   // Successful result
     Error      = 1,   // Generic error
     Internal   = 2,   // Internal logic error in SQLite
@@ -64,7 +64,7 @@ export object SQLiteError {
     message: str? = "Error occured while interacting with SQLite database",
 }
 
-export enum(int) OpenFlag {
+export enum<int> OpenFlag {
     Readonly      = 0x00000001,
     ReadWrite     = 0x00000002,
     Create        = 0x00000004,
@@ -89,7 +89,7 @@ export enum(int) OpenFlag {
     ExResCode     = 0x02000000,
 }
 
-enum(int) Type {
+enum<int> Type {
     Integer = 1,
     Double  = 2,
     Text    = 3,

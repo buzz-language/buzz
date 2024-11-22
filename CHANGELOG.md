@@ -10,10 +10,11 @@
 - Comments and docblocks must now be prefixed by `//` and `///` instead of `|` and `||`
 - Bitwise or operator is `|` instead of `\`
 - Function type now use `fun` keyword instead of `Function`
-- If a function type has multiple error types, they must be put them in parenthesis
+- If a function type has multiple error types, they must be put in parenthesis
 - Namespace can now be multiple `\` separated identifiers
 - Qualified name now use `\` separator instead of `.`
 - The `float` type is renamed to `double` (https://github.com/buzz-language/buzz/issues/311)
+- Enum type is declared between `<>` rather than `()`
 
 ## Added
 - Object can have `const` properties (https://github.com/buzz-language/buzz/issues/13). A object with only `const` properties is considered itself `const`. Although we don't do anything yet with that concept. https://github.com/buzz-language/buzz/issues/114 is the objective but it requires being able to build objects and instances at compile time which is not yet possible.

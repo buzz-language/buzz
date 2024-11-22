@@ -53,7 +53,7 @@ zdef("SDL2", `
     fn SDL_GetTicks() u32;
 `);
 
-export enum(int) EventType {
+export enum<int> EventType {
     FirstEvent               = 0,
     Quit                     = 256,
     AppTerminating           = 257,
@@ -107,7 +107,7 @@ export enum(int) EventType {
     LastEvent                = 65535,
 }
 
-export enum(int) WindowFlag {
+export enum<int> WindowFlag {
     Fullscreen        = 1,
     OpenGL            = 2,
     Shown             = 4,
@@ -131,14 +131,14 @@ export enum(int) WindowFlag {
     Vulkan            = 268435456,
 }
 
-export enum(int) RendererFlag {
+export enum<int> RendererFlag {
     Software      = 1,
     Accelerated   = 2,
     PresentVsync  = 4,
     TargetTexture = 8,
 }
 
-export enum(int) Subsystem {
+export enum<int> Subsystem {
     Timer          = 0x0001,
     Audio          = 0x0010,
     Video          = 0x0020,
@@ -150,7 +150,7 @@ export enum(int) Subsystem {
 }
 
 // Those don't seem to fit in i32
-export enum(int) PixelFormat {
+export enum<int> PixelFormat {
     UNKNOWN      = 0,
     INDEX1LSB    = 286261504,
     INDEX1MSB    = 287310080,
@@ -196,7 +196,7 @@ export enum(int) PixelFormat {
     EXTERNAL_OES = 542328143,
 }
 
-export enum(int) TextureAccess {
+export enum<int> TextureAccess {
     Static    = 0,
     Streaming = 1,
     Target    = 2,

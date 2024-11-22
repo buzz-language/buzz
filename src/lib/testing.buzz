@@ -3,7 +3,7 @@ namespace testing;
 import "os";
 import "io";
 
-export enum(int) Color {
+export enum<int> Color {
     // attributes
     reset      = 0,
     bright     = 1,
