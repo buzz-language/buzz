@@ -269,11 +269,14 @@ pub fn disassembleInstruction(chunk: *Chunk, offset: usize) usize {
         .OP_GET_ENUM_CASE_FROM_VALUE,
         .OP_TYPEOF,
         .OP_HOTSPOT_CALL,
+        .OP_CLONE,
+        .OP_CLOSE_UPVALUE,
+        .OP_RETURN,
+        .OP_RANGE,
+        .OP_FIBER,
         => simpleInstruction(instruction, offset),
 
-        .OP_SWAP,
-        .OP_HOTSPOT,
-        => bytesInstruction(instruction, chunk, offset),
+        .OP_SWAP => bytesInstruction(instruction, chunk, offset),
 
         .OP_DEFINE_GLOBAL,
         .OP_GET_GLOBAL,
@@ -284,10 +287,6 @@ pub fn disassembleInstruction(chunk: *Chunk, offset: usize) usize {
         .OP_SET_UPVALUE,
         .OP_GET_ENUM_CASE,
         .OP_EXPORT,
-        .OP_COPY,
-        .OP_CLONE,
-        .OP_CLOSE_UPVALUE,
-        .OP_RETURN,
         .OP_LIST_APPEND,
         .OP_SET_MAP,
         .OP_PROPERTY,
@@ -306,24 +305,24 @@ pub fn disassembleInstruction(chunk: *Chunk, offset: usize) usize {
         .OP_GET_LIST_SUBSCRIPT,
         .OP_GET_STRING_SUBSCRIPT,
         .OP_GET_MAP_SUBSCRIPT,
+        .OP_GET_FCONTAINER_INSTANCE_PROPERTY,
+        .OP_SET_FCONTAINER_INSTANCE_PROPERTY,
+        .OP_COPY,
         => byteInstruction(instruction, chunk, offset),
 
         .OP_OBJECT,
         .OP_LIST,
         .OP_MAP,
-        .OP_RANGE,
         .OP_GET_PROTOCOL_METHOD,
-        .OP_GET_FCONTAINER_INSTANCE_PROPERTY,
-        .OP_SET_FCONTAINER_INSTANCE_PROPERTY,
         .OP_CONSTANT,
         => constantInstruction(instruction, chunk, offset),
 
         .OP_JUMP,
         .OP_JUMP_IF_FALSE,
         .OP_JUMP_IF_NOT_NULL,
+        .OP_HOTSPOT,
+        .OP_TRY,
         => jumpInstruction(instruction, chunk, true, offset),
-
-        .OP_TRY => tryInstruction(instruction, chunk, offset),
 
         .OP_LOOP => jumpInstruction(instruction, chunk, false, offset),
 
@@ -345,7 +344,6 @@ pub fn disassembleInstruction(chunk: *Chunk, offset: usize) usize {
 
         .OP_CALL,
         .OP_TAIL_CALL,
-        .OP_FIBER,
         => triInstruction(instruction, chunk, offset),
 
         .OP_CLOSURE => closure: {

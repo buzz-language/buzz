@@ -111,6 +111,8 @@ jit_time: usize = 0,
 /// Closures already compiled (hash is bytecode list), useful to compile once a function
 compiled_functions_bodies: Chunk.HashMap(CompiledFunction),
 
+args_buffer: [255]m.MIR_op_t = undefined,
+
 pub fn init(vm: *VM) Self {
     return .{
         .vm = vm,
@@ -1647,12 +1649,24 @@ fn buildExternApiCall(self: *Self, method: ExternApi, dest: ?m.MIR_op_t, args: [
     }
     try full_args.appendSlice(args);
 
+    self.args_buffer[0] = m.MIR_new_ref_op(self.ctx, try method.declare(self));
+    self.args_buffer[1] = m.MIR_new_ref_op(self.ctx, m.MIR_new_import(self.ctx, method.name()));
+    if (dest) |udest| {
+        self.args_buffer[2] = udest;
+    }
+    const off: usize = if (dest != null) 3 else 2;
+    std.mem.copyForwards(
+        m.MIR_op_t,
+        self.args_buffer[off..],
+        args,
+    );
+
     self.append(
         m.MIR_new_insn_arr(
             self.ctx,
             @intFromEnum(m.MIR_Instruction.CALL),
-            full_args.items.len,
-            full_args.items.ptr,
+            off + args.len,
+            &self.args_buffer,
         ),
     );
 }

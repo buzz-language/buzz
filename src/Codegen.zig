@@ -281,8 +281,8 @@ pub fn patchTryOrJit(self: *Self, offset: usize) void {
 }
 
 pub fn emitReturn(self: *Self, location: Ast.TokenIndex) !void {
-    try self.emitOpCode(location, .OP_VOID);
-    try self.emitOpCode(location, .OP_RETURN);
+    try self.OP_VOID(location);
+    try self.OP_RETURN(location);
 }
 
 pub fn emitConstant(self: *Self, location: Ast.TokenIndex, value: Value) !void {
@@ -371,7 +371,7 @@ fn patchOptJumps(self: *Self, node: Ast.Node.Index) !void {
             self.patchJump(jump);
         }
         // If aborted by a null optional, will result in null on the stack
-        try self.emitOpCode(location, .OP_POP);
+        try self.OP_POP(location);
 
         self.patchJump(njump);
 
@@ -432,17 +432,17 @@ fn generateAs(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.O
 
     _ = try self.generateNode(components.left, breaks);
 
-    try self.emitOpCode(locations[components.left], .OP_COPY);
-    try self.emitCodeArg(node_location, .OP_CONSTANT, try self.makeConstant(constant));
-    try self.emitOpCode(node_location, .OP_IS);
-    try self.emitOpCode(node_location, .OP_NOT);
-    const jump = try self.emitJump(node_location, .OP_JUMP_IF_FALSE);
-    try self.emitOpCode(node_location, .OP_POP);
-    try self.emitOpCode(node_location, .OP_POP);
-    try self.emitOpCode(node_location, .OP_NULL);
-    const jump_over = try self.emitJump(node_location, .OP_JUMP);
+    try self.OP_COPY(locations[components.left], 0);
+    try self.OP_CONSTANT(node_location, constant);
+    try self.OP_IS(node_location);
+    try self.OP_NOT(node_location);
+    const jump = try self.OP_JUMP_IF_FALSE(node_location);
+    try self.OP_POP(node_location);
+    try self.OP_POP(node_location);
+    try self.OP_NULL(node_location);
+    const jump_over = try self.OP_JUMP(node_location);
     self.patchJump(jump);
-    try self.emitOpCode(node_location, .OP_POP);
+    try self.OP_POP(node_location);
     self.patchJump(jump_over);
 
     try self.patchOptJumps(node);
@@ -569,8 +569,8 @@ fn generateBinary(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*o
 
             _ = try self.generateNode(components.left, breaks);
 
-            const end_jump: usize = try self.emitJump(locations[node], .OP_JUMP_IF_NOT_NULL);
-            try self.emitOpCode(locations[node], .OP_POP);
+            const end_jump: usize = try self.OP_JUMP_IF_NOT_NULL(locations[node]);
+            try self.OP_POP(locations[node]);
 
             _ = try self.generateNode(components.right, breaks);
 
@@ -588,7 +588,7 @@ fn generateBinary(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*o
 
             _ = try self.generateNode(components.left, breaks);
             _ = try self.generateNode(components.right, breaks);
-            try self.emitOpCode(locations[node], .OP_BAND);
+            try self.OP_BAND(locations[node]);
         },
         .Bor => {
             // Checking only left operand since we asserted earlier that both operand have the same type
@@ -602,7 +602,7 @@ fn generateBinary(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*o
 
             _ = try self.generateNode(components.left, breaks);
             _ = try self.generateNode(components.right, breaks);
-            try self.emitOpCode(locations[node], .OP_BOR);
+            try self.OP_BOR(locations[node]);
         },
         .Xor => {
             // Checking only left operand since we asserted earlier that both operand have the same type
@@ -616,7 +616,7 @@ fn generateBinary(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*o
 
             _ = try self.generateNode(components.left, breaks);
             _ = try self.generateNode(components.right, breaks);
-            try self.emitOpCode(locations[node], .OP_XOR);
+            try self.OP_XOR(locations[node]);
         },
         .ShiftLeft => {
             // Checking only left operand since we asserted earlier that both operand have the same type
@@ -630,7 +630,7 @@ fn generateBinary(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*o
 
             _ = try self.generateNode(components.left, breaks);
             _ = try self.generateNode(components.right, breaks);
-            try self.emitOpCode(locations[node], .OP_SHL);
+            try self.OP_SHL(locations[node]);
         },
         .ShiftRight => {
             // Checking only left operand since we asserted earlier that both operand have the same type
@@ -644,7 +644,7 @@ fn generateBinary(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*o
 
             _ = try self.generateNode(components.left, breaks);
             _ = try self.generateNode(components.right, breaks);
-            try self.emitOpCode(locations[node], .OP_SHR);
+            try self.OP_SHR(locations[node]);
         },
         .Greater => {
             // Checking only left operand since we asserted earlier that both operand have the same type
@@ -658,7 +658,7 @@ fn generateBinary(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*o
 
             _ = try self.generateNode(components.left, breaks);
             _ = try self.generateNode(components.right, breaks);
-            try self.emitOpCode(locations[node], .OP_GREATER);
+            try self.OP_GREATER(locations[node]);
         },
         .Less => {
             if (left_type.def_type != .Integer and left_type.def_type != .Double) {
@@ -671,7 +671,7 @@ fn generateBinary(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*o
 
             _ = try self.generateNode(components.left, breaks);
             _ = try self.generateNode(components.right, breaks);
-            try self.emitOpCode(locations[node], .OP_LESS);
+            try self.OP_LESS(locations[node]);
         },
         .GreaterEqual => {
             if (left_type.def_type != .Integer and left_type.def_type != .Double) {
@@ -684,8 +684,8 @@ fn generateBinary(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*o
 
             _ = try self.generateNode(components.left, breaks);
             _ = try self.generateNode(components.right, breaks);
-            try self.emitOpCode(locations[node], .OP_LESS);
-            try self.emitOpCode(locations[node], .OP_NOT);
+            try self.OP_LESS(locations[node]);
+            try self.OP_NOT(locations[node]);
         },
         .LessEqual => {
             if (left_type.def_type != .Integer and left_type.def_type != .Double) {
@@ -698,19 +698,19 @@ fn generateBinary(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*o
 
             _ = try self.generateNode(components.left, breaks);
             _ = try self.generateNode(components.right, breaks);
-            try self.emitOpCode(locations[node], .OP_GREATER);
-            try self.emitOpCode(locations[node], .OP_NOT);
+            try self.OP_GREATER(locations[node]);
+            try self.OP_NOT(locations[node]);
         },
         .BangEqual => {
             _ = try self.generateNode(components.left, breaks);
             _ = try self.generateNode(components.right, breaks);
-            try self.emitOpCode(locations[node], .OP_EQUAL);
-            try self.emitOpCode(locations[node], .OP_NOT);
+            try self.OP_EQUAL(locations[node]);
+            try self.OP_NOT(locations[node]);
         },
         .EqualEqual => {
             _ = try self.generateNode(components.left, breaks);
             _ = try self.generateNode(components.right, breaks);
-            try self.emitOpCode(locations[node], .OP_EQUAL);
+            try self.OP_EQUAL(locations[node]);
         },
         .Plus => {
             if (left_type.def_type != .Integer and
@@ -752,7 +752,7 @@ fn generateBinary(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*o
 
             _ = try self.generateNode(components.left, breaks);
             _ = try self.generateNode(components.right, breaks);
-            try self.emitOpCode(locations[node], .OP_SUBTRACT);
+            try self.OP_SUBTRACT(locations[node]);
         },
         .Star => {
             if (left_type.def_type != .Integer and left_type.def_type != .Double) {
@@ -765,7 +765,7 @@ fn generateBinary(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*o
 
             _ = try self.generateNode(components.left, breaks);
             _ = try self.generateNode(components.right, breaks);
-            try self.emitOpCode(locations[node], .OP_MULTIPLY);
+            try self.OP_MULTIPLY(locations[node]);
         },
         .Slash => {
             if (left_type.def_type != .Integer and left_type.def_type != .Double) {
@@ -778,7 +778,7 @@ fn generateBinary(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*o
 
             _ = try self.generateNode(components.left, breaks);
             _ = try self.generateNode(components.right, breaks);
-            try self.emitOpCode(locations[node], .OP_DIVIDE);
+            try self.OP_DIVIDE(locations[node]);
         },
         .Percent => {
             if (left_type.def_type != .Integer and left_type.def_type != .Double) {
@@ -791,7 +791,7 @@ fn generateBinary(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*o
 
             _ = try self.generateNode(components.left, breaks);
             _ = try self.generateNode(components.right, breaks);
-            try self.emitOpCode(locations[node], .OP_MOD);
+            try self.OP_MOD(locations[node]);
         },
         .And => {
             if (left_type.def_type != .Bool) {
@@ -804,8 +804,8 @@ fn generateBinary(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*o
 
             _ = try self.generateNode(components.left, breaks);
 
-            const end_jump: usize = try self.emitJump(locations[node], .OP_JUMP_IF_FALSE);
-            try self.emitOpCode(locations[node], .OP_POP);
+            const end_jump: usize = try self.OP_JUMP_IF_FALSE(locations[node]);
+            try self.OP_POP(locations[node]);
 
             _ = try self.generateNode(components.right, breaks);
 
@@ -822,11 +822,11 @@ fn generateBinary(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*o
 
             _ = try self.generateNode(components.left, breaks);
 
-            const else_jump: usize = try self.emitJump(locations[node], .OP_JUMP_IF_FALSE);
-            const end_jump: usize = try self.emitJump(locations[node], .OP_JUMP);
+            const else_jump: usize = try self.OP_JUMP_IF_FALSE(locations[node]);
+            const end_jump: usize = try self.OP_JUMP(locations[node]);
 
             self.patchJump(else_jump);
-            try self.emitOpCode(locations[node], .OP_POP);
+            try self.OP_POP(locations[node]);
 
             _ = try self.generateNode(components.right, breaks);
 
@@ -908,10 +908,7 @@ fn generateBreak(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*ob
     try self.endScope(node);
     try breaks.?.append(
         .{
-            .ip = try self.emitJump(
-                self.ast.nodes.items(.location)[node],
-                .OP_JUMP,
-            ),
+            .ip = try self.OP_JUMP(self.ast.nodes.items(.location)[node]),
             .label_node = self.ast.nodes.items(.components)[node].Break,
         },
     );
@@ -986,7 +983,7 @@ fn generateCall(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj
 
         _ = try self.generateNode(components.callee, breaks);
         _ = try self.generateNode(value, breaks);
-        try self.emitOpCode(locations[value], .OP_GET_ENUM_CASE_FROM_VALUE);
+        try self.OP_GET_ENUM_CASE_FROM_VALUE(locations[value]);
 
         try self.patchOptJumps(node);
         try self.endScope(node);
@@ -1159,7 +1156,7 @@ fn generateCall(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj
             if (defaults.get(try self.gc.copyString(missing_key))) |default| {
                 // TODO: like ObjTypeDef, avoid generating constants multiple time for the same value
                 try self.emitConstant(locations[node], default);
-                try self.emitOpCode(locations[node], .OP_CLONE);
+                try self.OP_CLONE(locations[node]);
 
                 try arguments_order_ref.append(missing_key);
                 _ = missing_arguments.orderedRemove(missing_key);
@@ -1213,10 +1210,11 @@ fn generateCall(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj
                 if (correct_index != index) {
                     ordered = false;
 
-                    // TODO: both OP_SWAP args could fit in a 32 bit instruction
-                    try self.emitCodeArg(locations[node], .OP_SWAP, @intCast(arg_count - index - 1));
-                    // to where it should be
-                    try self.emit(locations[node], @intCast(arg_count - correct_index - 1));
+                    try self.OP_SWAP(
+                        locations[node],
+                        @intCast(arg_count - index - 1),
+                        @intCast(arg_count - correct_index - 1),
+                    );
 
                     // Switch it in the reference
                     const temp = arguments_order_ref.items[index];
@@ -1320,7 +1318,7 @@ fn generateCall(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj
     if (components.is_async) {
         // We emit OP_FIBER, the vm will then read the next instruction to get the info about the call
         // and create the fiber
-        try self.emitOpCode(locations[node], .OP_FIBER);
+        try self.OP_FIBER(locations[node]);
     }
 
     // Normal call/invoke
@@ -1476,7 +1474,7 @@ fn generateDot(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.
     switch (callee_type.def_type) {
         .Fiber, .Pattern, .String => {
             if (components.member_kind == .Call) {
-                try self.emitOpCode(locations[node], .OP_COPY);
+                try self.OP_COPY(locations[node], 0);
                 _ = try self.generateNode(components.value_or_call_or_enum.Call, breaks);
             } else { // Expression
                 std.debug.assert(components.member_kind != .Value);
@@ -1628,20 +1626,19 @@ fn generateDot(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.
             }
         },
         .Enum => {
-            try self.emitCodeArg(
+            try self.OP_GET_ENUM_CASE(
                 locations[node],
-                .OP_GET_ENUM_CASE,
                 @intCast(components.value_or_call_or_enum.EnumCase),
             );
         },
         .EnumInstance => {
             std.debug.assert(std.mem.eql(u8, identifier_lexeme, "value"));
 
-            try self.emitOpCode(locations[node], .OP_GET_ENUM_CASE_VALUE);
+            try self.OP_GET_ENUM_CASE_VALUE(locations[node]);
         },
         .List, .Map, .Range => {
             if (components.member_kind == .Call) {
-                try self.emitOpCode(locations[node], .OP_COPY);
+                try self.OP_COPY(locations[node], 0);
 
                 _ = try self.generateNode(components.value_or_call_or_enum.Call, breaks);
             } else {
@@ -1697,14 +1694,14 @@ fn generateDoUntil(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*
 
     _ = try self.generateNode(components.condition, &lbreaks);
 
-    try self.emitOpCode(locations[node], .OP_NOT);
-    const exit_jump = try self.emitJump(locations[node], .OP_JUMP_IF_FALSE);
-    try self.emitOpCode(locations[node], .OP_POP);
+    try self.OP_NOT(locations[node]);
+    const exit_jump = try self.OP_JUMP_IF_FALSE(locations[node]);
+    try self.OP_POP(locations[node]);
 
     try self.emitLoop(locations[node], loop_start);
     self.patchJump(exit_jump);
 
-    try self.emitOpCode(locations[node], .OP_POP); // Pop condition
+    try self.OP_POP(locations[node]); // Pop condition
 
     // Patch breaks
     try self.patchBreaks(
@@ -1774,16 +1771,12 @@ fn generateEnum(self: *Self, node: Ast.Node.Index, _: ?*Breaks) Error!?*obj.ObjF
         }
     }
 
-    try self.emitCodeArg(
+    try self.OP_CONSTANT(
         locations[node],
-        .OP_CONSTANT,
-        try self.makeConstant(
-            try self.ast.toValue(node, self.gc),
-        ),
+        try self.ast.toValue(node, self.gc),
     );
-    try self.emitCodeArg(
+    try self.OP_DEFINE_GLOBAL(
         locations[node],
-        .OP_DEFINE_GLOBAL,
         @intCast(components.slot),
     );
 
@@ -1815,7 +1808,7 @@ fn generateExpression(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error
 
     _ = try self.generateNode(expr, breaks);
 
-    try self.emitOpCode(locations[node], .OP_POP);
+    try self.OP_POP(locations[node]);
 
     const lone_expr = (expr_node_type != .NamedVariable or components[expr].NamedVariable.value == null) and
         (expr_node_type != .Subscript or components[expr].Subscript.value == null) and
@@ -1872,7 +1865,7 @@ fn generateFor(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.
     }
 
     const loop_start = self.currentCode();
-    const jit_jump = if (!is_wasm) try self.emitJump(locations[node], .OP_HOTSPOT) else {};
+    const jit_jump = if (!is_wasm) try self.OP_HOTSPOT(locations[node]) else {};
     if (!is_wasm) try self.emit(locations[node], node);
 
     const condition_type_def = type_defs[components.condition].?;
@@ -1890,11 +1883,11 @@ fn generateFor(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.
 
     _ = try self.generateNode(components.condition, breaks);
 
-    const exit_jump: usize = try self.emitJump(locations[node], .OP_JUMP_IF_FALSE);
-    try self.emitOpCode(locations[node], .OP_POP); // Pop condition
+    const exit_jump: usize = try self.OP_JUMP_IF_FALSE(locations[node]);
+    try self.OP_POP(locations[node]); // Pop condition
 
     // Jump over expressions which will be executed at end of loop
-    const body_jump = try self.emitJump(locations[node], .OP_JUMP);
+    const body_jump = try self.OP_JUMP(locations[node]);
 
     const expr_loop: usize = self.currentCode();
     for (components.post_loop) |expr| {
@@ -1904,7 +1897,7 @@ fn generateFor(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.
         }
 
         _ = try self.generateNode(expr, breaks);
-        try self.emitOpCode(locations[expr], .OP_POP);
+        try self.OP_POP(locations[expr]);
     }
 
     try self.emitLoop(locations[node], loop_start);
@@ -1920,7 +1913,7 @@ fn generateFor(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.
 
     self.patchJump(exit_jump);
 
-    try self.emitOpCode(locations[node], .OP_POP); // Pop condition
+    try self.OP_POP(locations[node]); // Pop condition
 
     // Patch breaks
     try self.patchBreaks(
@@ -1958,7 +1951,7 @@ fn generateForceUnwrap(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Erro
 
     _ = try self.generateNode(components.unwrapped, breaks);
 
-    try self.emitOpCode(locations[node], .OP_UNWRAP);
+    try self.OP_UNWRAP(locations[node]);
 
     try self.patchOptJumps(node);
     try self.endScope(node);
@@ -2164,24 +2157,20 @@ fn generateForEach(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*
     );
 
     // If next key is null, exit loop
-    try self.emitCodeArg(
+    try self.OP_GET_LOCAL(
         locations[node],
-        .OP_GET_LOCAL,
-        @as(
-            u24,
-            @intCast(
-                switch (iterable_type_def.def_type) {
-                    .String, .List, .Map => node_components[components.key].VarDeclaration.slot,
-                    else => node_components[components.value].VarDeclaration.slot,
-                },
-            ),
+        @intCast(
+            switch (iterable_type_def.def_type) {
+                .String, .List, .Map => node_components[components.key].VarDeclaration.slot,
+                else => node_components[components.value].VarDeclaration.slot,
+            },
         ),
     );
-    try self.emitOpCode(locations[node], .OP_NULL);
-    try self.emitOpCode(locations[node], .OP_EQUAL);
-    try self.emitOpCode(locations[node], .OP_NOT);
-    const exit_jump: usize = try self.emitJump(locations[node], .OP_JUMP_IF_FALSE);
-    try self.emitOpCode(locations[node], .OP_POP); // Pop condition result
+    try self.OP_NULL(locations[node]);
+    try self.OP_EQUAL(locations[node]);
+    try self.OP_NOT(locations[node]);
+    const exit_jump: usize = try self.OP_JUMP_IF_FALSE(locations[node]);
+    try self.OP_POP(locations[node]); // Pop condition result
 
     var lbreaks = Breaks.init(self.gc.allocator);
     defer lbreaks.deinit();
@@ -2193,7 +2182,7 @@ fn generateForEach(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*
     // Patch condition jump
     self.patchJump(exit_jump);
 
-    try self.emitOpCode(locations[node], .OP_POP); // Pop condition result
+    try self.OP_POP(locations[node]); // Pop condition result
 
     // Patch breaks
     try self.patchBreaks(
@@ -2314,7 +2303,7 @@ fn generateFunction(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?
         _ = try self.generateNode(body, breaks);
 
         if (function_signature != null and function_signature.?.lambda) {
-            try self.emitOpCode(locations[body], .OP_RETURN);
+            try self.OP_RETURN(locations[body]);
             self.current.?.return_emitted = true;
         }
     }
@@ -2326,15 +2315,32 @@ fn generateFunction(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?
             // Then put any exported globals on the stack
             if (self.flavor != .Test and function_type == .ScriptEntryPoint) {
                 if (components.entry.?.main_slot) |main_slot| {
-                    try self.emitCodeArg(components.entry.?.main_location.?, .OP_GET_GLOBAL, @intCast(main_slot));
-                    try self.emitCodeArg(components.entry.?.main_location.?, .OP_GET_LOCAL, 0); // cli args are always local 0
-                    try self.emitCodeArgs(components.entry.?.main_location.?, .OP_CALL, 1, 0);
+                    try self.OP_GET_GLOBAL(
+                        components.entry.?.main_location.?,
+                        @intCast(main_slot),
+                    );
+                    try self.OP_GET_LOCAL(
+                        components.entry.?.main_location.?,
+                        0, // cli args are always local 0
+                    );
+                    try self.OP_CALL(
+                        components.entry.?.main_location.?,
+                        1,
+                        false,
+                    );
                 }
             } else if (self.flavor == .Test) {
                 // Create an entry point wich runs all `test`
                 for (components.entry.?.test_slots, 0..) |slot, index| {
-                    try self.emitCodeArg(components.entry.?.test_locations[index], .OP_GET_GLOBAL, @intCast(slot));
-                    try self.emitCodeArgs(components.entry.?.test_locations[index], .OP_CALL, 0, 0);
+                    try self.OP_GET_GLOBAL(
+                        components.entry.?.test_locations[index],
+                        @intCast(slot),
+                    );
+                    try self.OP_CALL(
+                        components.entry.?.test_locations[index],
+                        0,
+                        false,
+                    );
                 }
             }
 
@@ -2351,13 +2357,13 @@ fn generateFunction(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?
 
                 var index: usize = 0;
                 while (index < components.entry.?.exported_count) : (index += 1) {
-                    try self.emitCodeArg(locations[node], .OP_GET_GLOBAL, @intCast(index));
+                    try self.OP_GET_GLOBAL(locations[node], @intCast(index));
                 }
 
-                try self.emitCodeArg(locations[node], .OP_EXPORT, @intCast(components.entry.?.exported_count));
+                try self.OP_EXPORT(locations[node], @intCast(components.entry.?.exported_count));
             } else {
-                try self.emitOpCode(locations[node], .OP_VOID);
-                try self.emitOpCode(locations[node], .OP_RETURN);
+                try self.OP_VOID(locations[node]);
+                try self.OP_RETURN(locations[node]);
                 self.current.?.return_emitted = true;
             }
         } else if (function_type == .Repl and
@@ -2397,16 +2403,14 @@ fn generateFunction(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?
     if (function_type != .ScriptEntryPoint and function_type != .Repl) {
         // `extern` functions don't have upvalues
         if (function_type == .Extern) {
-            try self.emitCodeArg(
+            try self.OP_CONSTANT(
                 locations[node],
-                .OP_CONSTANT,
-                try self.makeConstant(components.native.?.toValue()),
+                components.native.?.toValue(),
             );
         } else {
-            try self.emitCodeArg(
+            try self.OP_CLOSURE(
                 locations[node],
-                .OP_CLOSURE,
-                try self.makeConstant(current_function.toValue()),
+                current_function.toValue(),
             );
 
             var it = components.upvalue_binding.iterator();
@@ -2432,9 +2436,8 @@ fn generateFunDeclaration(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) E
     _ = try self.generateNode(components.function, breaks);
 
     if (components.slot_type == .Global) {
-        _ = try self.emitCodeArg(
+        try self.OP_DEFINE_GLOBAL(
             self.ast.nodes.items(.location)[node],
-            .OP_DEFINE_GLOBAL,
             @intCast(components.slot),
         );
     }
@@ -2454,7 +2457,9 @@ fn generateGenericResolve(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) E
         .Function => {
             const function_type = type_def.resolved_type.?.Function;
 
-            if (function_type.generic_types.count() > 0 and (function_type.resolved_generics == null or function_type.resolved_generics.?.len < function_type.generic_types.count())) {
+            if (function_type.generic_types.count() > 0 and
+                (function_type.resolved_generics == null or function_type.resolved_generics.?.len < function_type.generic_types.count()))
+            {
                 self.reporter.reportErrorFmt(
                     .generic_type,
                     self.ast.tokens.get(node_location),
@@ -2485,7 +2490,9 @@ fn generateGenericResolve(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) E
         .Object => {
             const object_type = type_def.resolved_type.?.Object;
 
-            if (object_type.generic_types.count() > 0 and (object_type.resolved_generics == null or object_type.resolved_generics.?.len < object_type.generic_types.count())) {
+            if (object_type.generic_types.count() > 0 and
+                (object_type.resolved_generics == null or object_type.resolved_generics.?.len < object_type.generic_types.count()))
+            {
                 self.reporter.reportErrorFmt(
                     .generic_type,
                     self.ast.tokens.get(node_location),
@@ -2630,18 +2637,18 @@ fn generateIf(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.O
     _ = try self.generateNode(components.condition, breaks);
     const condition_location = locations[components.condition];
     if (components.unwrapped_identifier != null) {
-        try self.emitOpCode(condition_location, .OP_COPY);
-        try self.emitOpCode(condition_location, .OP_NULL);
-        try self.emitOpCode(condition_location, .OP_EQUAL);
-        try self.emitOpCode(condition_location, .OP_NOT);
+        try self.OP_COPY(condition_location, 0);
+        try self.OP_NULL(condition_location);
+        try self.OP_EQUAL(condition_location);
+        try self.OP_NOT(condition_location);
     } else if (components.casted_type) |casted_type| {
-        try self.emitOpCode(condition_location, .OP_COPY);
+        try self.OP_COPY(condition_location, 0);
         try self.emitConstant(condition_location, type_defs[casted_type].?.toValue());
-        try self.emitOpCode(condition_location, .OP_IS);
+        try self.OP_IS(condition_location);
     }
 
-    const else_jump: usize = try self.emitJump(location, .OP_JUMP_IF_FALSE);
-    try self.emitOpCode(location, .OP_POP);
+    const else_jump: usize = try self.OP_JUMP_IF_FALSE(location);
+    try self.OP_POP(location);
 
     _ = try self.generateNode(components.body, breaks);
 
@@ -2650,9 +2657,9 @@ fn generateIf(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.O
     self.patchJump(else_jump);
     if (components.unwrapped_identifier != null or components.casted_type != null) {
         // Since we did not enter the if block, we did not pop the unwrapped local
-        try self.emitOpCode(location, .OP_POP);
+        try self.OP_POP(location);
     }
-    try self.emitOpCode(location, .OP_POP);
+    try self.OP_POP(location);
 
     if (components.else_branch) |else_branch| {
         _ = try self.generateNode(else_branch, breaks);
@@ -2676,7 +2683,7 @@ fn generateImport(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*o
         _ = try self.generateNode(import.function, breaks);
 
         // FIXME: avoid generating the same import function more than once!
-        try self.emitOpCode(location, .OP_IMPORT);
+        try self.OP_IMPORT(location);
     }
 
     try self.patchOptJumps(node);
@@ -2711,13 +2718,9 @@ fn generateIs(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.O
 
     _ = try self.generateNode(components.left, breaks);
 
-    try self.emitCodeArg(
-        location,
-        .OP_CONSTANT,
-        try self.makeConstant(constant),
-    );
+    try self.OP_CONSTANT(location, constant);
 
-    try self.emitOpCode(location, .OP_IS);
+    try self.OP_IS(location);
 
     try self.patchOptJumps(node);
     try self.endScope(node);
@@ -2732,10 +2735,9 @@ fn generateList(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj
 
     const item_type = type_defs[node].?.resolved_type.?.List.item_type;
 
-    try self.emitCodeArg(
+    try self.OP_LIST(
         locations[node],
-        .OP_LIST,
-        try self.makeConstant(Value.fromObj(type_defs[node].?.toObj())),
+        type_defs[node].?.toValue(),
     );
 
     for (components.items) |item| {
@@ -2756,9 +2758,8 @@ fn generateList(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj
     }
 
     if (components.items.len > 0) {
-        try self.emitCodeArg(
+        try self.OP_LIST_APPEND(
             locations[node],
-            .OP_LIST_APPEND,
             @intCast(components.items.len),
         );
     }
@@ -2784,10 +2785,9 @@ fn generateMap(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.
     else
         null;
 
-    try self.emitCodeArg(
+    try self.OP_MAP(
         locations[node],
-        .OP_MAP,
-        try self.makeConstant(Value.fromObj(type_defs[node].?.toObj())),
+        type_defs[node].?.toValue(),
     );
 
     for (components.entries) |entry| {
@@ -2826,9 +2826,8 @@ fn generateMap(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.
     }
 
     if (components.entries.len > 0) {
-        try self.emitCodeArg(
+        try self.OP_SET_MAP(
             locations[node],
-            .OP_SET_MAP,
             @intCast(components.entries.len),
         );
     }
@@ -2901,7 +2900,7 @@ fn generateNamedVariable(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Er
 }
 
 fn generateNull(self: *Self, node: Ast.Node.Index, _: ?*Breaks) Error!?*obj.ObjFunction {
-    try self.emitOpCode(self.ast.nodes.items(.location)[node], .OP_NULL);
+    try self.OP_NULL(self.ast.nodes.items(.location)[node]);
 
     try self.patchOptJumps(node);
     try self.endScope(node);
@@ -2972,11 +2971,11 @@ fn generateObjectDeclaration(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks
     }
 
     // Put  object on the stack and define global with it
-    try self.emitCodeArg(location, .OP_OBJECT, try self.makeConstant(object_type.toValue()));
-    try self.emitCodeArg(location, .OP_DEFINE_GLOBAL, @intCast(components.slot));
+    try self.OP_OBJECT(location, object_type.toValue());
+    try self.OP_DEFINE_GLOBAL(location, @intCast(components.slot));
 
     // Put the object on the stack to set its fields
-    try self.emitCodeArg(location, .OP_GET_GLOBAL, @intCast(components.slot));
+    try self.OP_GET_GLOBAL(location, @intCast(components.slot));
 
     for (components.members) |member| {
         const member_name = lexemes[member.name];
@@ -3034,11 +3033,7 @@ fn generateObjectDeclaration(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks
             }
 
             _ = try self.generateNode(member.method_or_default_value.?, breaks);
-            try self.emitCodeArg(
-                location,
-                .OP_PROPERTY,
-                @intCast(member_idx),
-            );
+            try self.OP_PROPERTY(location, @intCast(member_idx));
         } else {
             // Property
             const property_field = object_def.fields.get(member_name).?;
@@ -3062,23 +3057,18 @@ fn generateObjectDeclaration(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks
                 }
 
                 if (property_field.static) {
-                    try self.emitOpCode(location, .OP_COPY);
+                    try self.OP_COPY(location, 0);
                 }
 
                 _ = try self.generateNode(default, breaks);
 
                 // Create property default value
                 if (property_field.static) {
-                    try self.emitCodeArg(
-                        location,
-                        .OP_SET_OBJECT_PROPERTY,
-                        @intCast(property_idx),
-                    );
-                    try self.emitOpCode(location, .OP_POP);
+                    try self.OP_SET_OBJECT_PROPERTY(location, @intCast(property_idx));
+                    try self.OP_POP(location);
                 } else {
-                    try self.emitCodeArg(
+                    try self.OP_OBJECT_DEFAULT(
                         location,
-                        .OP_OBJECT_DEFAULT,
                         @intCast(property_idx),
                     );
                 }
@@ -3087,7 +3077,7 @@ fn generateObjectDeclaration(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks
     }
 
     // Pop object
-    try self.emitOpCode(location, .OP_POP);
+    try self.OP_POP(location);
 
     try self.patchOptJumps(node);
     try self.endScope(node);
@@ -3106,14 +3096,10 @@ fn generateObjectInit(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error
     if (components.object != null and type_defs[components.object.?].?.def_type == .Object) {
         _ = try self.generateNode(components.object.?, breaks);
     } else if (node_type_def.def_type == .ObjectInstance) {
-        try self.emitOpCode(location, .OP_NULL);
+        try self.OP_NULL(location);
     }
 
-    try self.emitCodeArg(
-        location,
-        .OP_CONSTANT,
-        try self.makeConstant(node_type_def.toValue()),
-    );
+    try self.OP_CONSTANT(location, node_type_def.toValue());
 
     if (node_type_def.def_type == .Placeholder) {
         self.reporter.reportPlaceholder(self.ast, node_type_def.resolved_type.?.Placeholder);
@@ -3175,7 +3161,7 @@ fn generateObjectInit(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error
         const value_type_def = type_defs[property.value].?;
 
         if (fields.get(property_name)) |prop| {
-            try self.emitCodeArg(location, .OP_COPY, 0); // Will be popped by OP_SET_PROPERTY
+            try self.OP_COPY(location, 0); // Will be popped by OP_SET_PROPERTY
 
             if (value_type_def.def_type == .Placeholder) {
                 self.reporter.reportPlaceholder(self.ast, value_type_def.resolved_type.?.Placeholder);
@@ -3216,7 +3202,7 @@ fn generateObjectInit(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error
                     .OP_SET_FCONTAINER_INSTANCE_PROPERTY,
                 @intCast(property_idx.?),
             );
-            try self.emitOpCode(location, .OP_POP); // Pop property value
+            try self.OP_POP(location); // Pop property value
         } else {
             self.reporter.reportWithOrigin(
                 .property_does_not_exists,
@@ -3278,11 +3264,7 @@ fn generateProtocolDeclaration(self: *Self, node: Ast.Node.Index, _: ?*Breaks) E
     const type_def = self.ast.nodes.items(.type_def)[node].?;
 
     try self.emitConstant(location, type_def.toValue());
-    try self.emitCodeArg(
-        location,
-        .OP_DEFINE_GLOBAL,
-        @intCast(components.slot),
-    );
+    try self.OP_DEFINE_GLOBAL(location, @intCast(components.slot));
 
     try self.patchOptJumps(node);
     try self.endScope(node);
@@ -3329,7 +3311,7 @@ fn generateRange(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*ob
     _ = try self.generateNode(components.low, breaks);
     _ = try self.generateNode(components.high, breaks);
 
-    try self.emitOpCode(locations[node], .OP_RANGE);
+    try self.OP_RANGE(locations[node]);
 
     try self.patchOptJumps(node);
     try self.endScope(node);
@@ -3358,7 +3340,7 @@ fn generateResolve(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*
 
     _ = try self.generateNode(fiber, breaks);
 
-    try self.emitOpCode(locations[node], .OP_RESOLVE);
+    try self.OP_RESOLVE(locations[node]);
 
     try self.patchOptJumps(node);
     try self.endScope(node);
@@ -3387,7 +3369,7 @@ fn generateResume(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*o
 
     _ = try self.generateNode(fiber, breaks);
 
-    try self.emitOpCode(locations[node], .OP_RESUME);
+    try self.OP_RESUME(locations[node]);
 
     try self.patchOptJumps(node);
     try self.endScope(node);
@@ -3438,10 +3420,10 @@ fn generateReturn(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*o
             );
         }
 
-        try self.emitOpCode(locations[node], .OP_VOID);
+        try self.OP_VOID(locations[node]);
     }
 
-    try self.emitOpCode(locations[node], .OP_RETURN);
+    try self.OP_RETURN(locations[node]);
 
     try self.patchOptJumps(node);
     try self.endScope(node);
@@ -3474,11 +3456,11 @@ fn generateString(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*o
 
         _ = try self.generateNode(element, breaks);
         if (element_type_def.def_type != .String or element_type_def.optional) {
-            try self.emitOpCode(location, .OP_TO_STRING);
+            try self.OP_TO_STRING(location);
         }
 
         if (index >= 1) {
-            try self.emitOpCode(location, .OP_ADD_STRING);
+            try self.OP_ADD_STRING(location);
         }
     }
 
@@ -3630,15 +3612,12 @@ fn generateTry(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.
     }
 
     // OP_TRY notifies runtime that we're handling error at offset
-    const try_jump = try self.emitJump(location, .OP_TRY);
+    const try_jump = try self.OP_TRY(location);
 
     _ = try self.generateNode(components.body, breaks);
 
     // Jump reached if no error was raised
-    const no_error_jump = try self.emitJump(
-        self.ast.nodes.items(.end_location)[components.body],
-        .OP_JUMP,
-    );
+    const no_error_jump = try self.OP_JUMP(self.ast.nodes.items(.end_location)[components.body]);
 
     var exit_jumps = std.ArrayList(usize).init(self.gc.allocator);
     defer exit_jumps.deinit();
@@ -3653,13 +3632,13 @@ fn generateTry(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.
         }
 
         // We assume the error is on top of the stack
-        try self.emitOpCode(clause.identifier, .OP_COPY); // Copy error value since its argument to the catch clause
+        try self.OP_COPY(clause.identifier, 0); // Copy error value since its argument to the catch clause
         try self.emitConstant(clause.identifier, error_type.toValue());
-        try self.emitOpCode(clause.identifier, .OP_IS);
+        try self.OP_IS(clause.identifier);
         // If error type does not match, jump to next catch clause
-        const next_clause_jump: usize = try self.emitJump(location, .OP_JUMP_IF_FALSE);
+        const next_clause_jump: usize = try self.OP_JUMP_IF_FALSE(location);
         // Pop `is` result
-        try self.emitOpCode(clause.identifier, .OP_POP);
+        try self.OP_POP(clause.identifier);
 
         // Clause block will pop error value since its declared as a local in it
         // We don't catch things is the catch clause
@@ -3673,12 +3652,12 @@ fn generateTry(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.
 
         self.patchJump(next_clause_jump);
         // Pop `is` result
-        try self.emitOpCode(clause.identifier, .OP_POP);
+        try self.OP_POP(clause.identifier);
     }
 
     if (components.unconditional_clause) |unconditional_clause| {
         // pop error because its not a local of this clause
-        try self.emitOpCode(locations[unconditional_clause], .OP_POP);
+        try self.OP_POP(locations[unconditional_clause]);
         // We don't catch things is the catch clause
         const previous = self.current.?.try_should_handle;
         self.current.?.try_should_handle = null;
@@ -3689,9 +3668,9 @@ fn generateTry(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.
     }
 
     // Tell runtime we're not in a try block anymore
-    try self.emitOpCode(location, .OP_TRY_END);
+    try self.OP_TRY_END(location);
     // Uncaught error, throw the error again
-    try self.emitOpCode(location, .OP_THROW);
+    try self.OP_THROW(location);
 
     // Patch exit jumps
     for (exit_jumps.items) |exit_jump| {
@@ -3701,7 +3680,7 @@ fn generateTry(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.
     self.patchJump(no_error_jump);
 
     // OP_TRY_END notifies runtime that we're not in a try block anymore
-    try self.emitOpCode(location, .OP_TRY_END);
+    try self.OP_TRY_END(location);
 
     // Did we handle all errors not specified in current function signature?
     if (!has_unconditional) {
@@ -3783,7 +3762,7 @@ fn generateThrow(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*ob
 
     _ = try self.generateNode(components.expression, breaks);
 
-    try self.emitOpCode(location, .OP_THROW);
+    try self.OP_THROW(location);
 
     try self.patchOptJumps(node);
     try self.endScope(node);
@@ -3809,10 +3788,7 @@ fn generateTypeExpression(self: *Self, node: Ast.Node.Index, _: ?*Breaks) Error!
 fn generateTypeOfExpression(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.ObjFunction {
     _ = try self.generateNode(self.ast.nodes.items(.components)[node].TypeOfExpression, breaks);
 
-    try self.emitOpCode(
-        self.ast.nodes.items(.location)[node],
-        .OP_TYPEOF,
-    );
+    try self.OP_TYPEOF(self.ast.nodes.items(.location)[node]);
 
     try self.patchOptJumps(node);
     try self.endScope(node);
@@ -3845,7 +3821,7 @@ fn generateUnary(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*ob
                 );
             }
 
-            try self.emitOpCode(location, .OP_BNOT);
+            try self.OP_BNOT(location);
         },
         .Bang => {
             if (expression_type_def.def_type != .Bool) {
@@ -3857,7 +3833,7 @@ fn generateUnary(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*ob
                 );
             }
 
-            try self.emitOpCode(location, .OP_NOT);
+            try self.OP_NOT(location);
         },
         .Minus => {
             if (expression_type_def.def_type != .Integer and expression_type_def.def_type != .Double) {
@@ -3869,7 +3845,7 @@ fn generateUnary(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*ob
                 );
             }
 
-            try self.emitOpCode(location, .OP_NEGATE);
+            try self.OP_NEGATE(location);
         },
         else => unreachable,
     }
@@ -3901,19 +3877,19 @@ fn generateUnwrap(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*o
 
     _ = try self.generateNode(components.unwrapped, breaks);
 
-    try self.emitOpCode(location, .OP_COPY);
-    try self.emitOpCode(location, .OP_NULL);
-    try self.emitOpCode(location, .OP_EQUAL);
-    try self.emitOpCode(location, .OP_NOT);
+    try self.OP_COPY(location, 0);
+    try self.OP_NULL(location);
+    try self.OP_EQUAL(location);
+    try self.OP_NOT(location);
 
-    const jump: usize = try self.emitJump(location, .OP_JUMP_IF_FALSE);
+    const jump = try self.OP_JUMP_IF_FALSE(location);
 
     if (self.opt_jumps == null) {
         self.opt_jumps = std.ArrayList(usize).init(self.gc.allocator);
     }
     try self.opt_jumps.?.append(jump);
 
-    try self.emitOpCode(location, .OP_POP); // Pop test result
+    try self.OP_POP(location); // Pop test result
 
     try self.patchOptJumps(node);
     try self.endScope(node);
@@ -3950,11 +3926,11 @@ fn generateVarDeclaration(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) E
             );
         }
     } else {
-        try self.emitOpCode(location, .OP_NULL);
+        try self.OP_NULL(location);
     }
 
     if (components.slot_type == .Global) {
-        try self.emitCodeArg(location, .OP_DEFINE_GLOBAL, @intCast(components.slot));
+        try self.OP_DEFINE_GLOBAL(location, @intCast(components.slot));
     }
 
     try self.patchOptJumps(node);
@@ -3964,10 +3940,7 @@ fn generateVarDeclaration(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) E
 }
 
 fn generateVoid(self: *Self, node: Ast.Node.Index, _: ?*Breaks) Error!?*obj.ObjFunction {
-    try self.emitOpCode(
-        self.ast.nodes.items(.location)[node],
-        .OP_VOID,
-    );
+    try self.OP_VOID(self.ast.nodes.items(.location)[node]);
 
     try self.patchOptJumps(node);
     try self.endScope(node);
@@ -4009,8 +3982,8 @@ fn generateWhile(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*ob
 
     _ = try self.generateNode(components.condition, breaks);
 
-    const exit_jump = try self.emitJump(location, .OP_JUMP_IF_FALSE);
-    try self.emitOpCode(location, .OP_POP);
+    const exit_jump = try self.OP_JUMP_IF_FALSE(location);
+    try self.OP_POP(location);
 
     var while_breaks = Breaks.init(self.gc.allocator);
     defer while_breaks.deinit();
@@ -4020,7 +3993,7 @@ fn generateWhile(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*ob
     try self.emitLoop(location, loop_start);
     self.patchJump(exit_jump);
 
-    try self.emitOpCode(location, .OP_POP); // Pop condition (is not necessary if broke out of the loop)
+    try self.OP_POP(location); // Pop condition (is not necessary if broke out of the loop)
 
     // Patch breaks
     try self.patchBreaks(
@@ -4083,7 +4056,7 @@ fn generateYield(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*ob
 
     _ = try self.generateNode(expression, breaks);
 
-    try self.emitOpCode(location, .OP_YIELD);
+    try self.OP_YIELD(location);
 
     try self.patchOptJumps(node);
     try self.endScope(node);
@@ -4128,11 +4101,673 @@ fn generateZdef(self: *Self, node: Ast.Node.Index, _: ?*Breaks) Error!?*obj.ObjF
             },
             else => unreachable,
         }
-        try self.emitCodeArg(location, .OP_DEFINE_GLOBAL, @intCast(element.slot));
+        try self.OP_DEFINE_GLOBAL(location, @intCast(element.slot));
     }
 
     try self.patchOptJumps(node);
     try self.endScope(node);
 
     return null;
+}
+
+fn OP_SWAP(self: *Self, location: Ast.TokenIndex, slotA: u24, slotB: u24) !void {
+    // TODO: both OP_SWAP args could fit in a 32 bit instruction
+    try self.emitCodeArg(location, .OP_SWAP, slotA);
+    // to where it should be
+    try self.emit(location, slotB);
+}
+
+fn OP_HOTSPOT(self: *Self, location: Ast.TokenIndex) !usize {
+    return try self.emitJump(location, .OP_HOTSPOT);
+}
+
+fn OP_NULL(self: *Self, location: Ast.TokenIndex) !void {
+    try self.emitOpCode(location, .OP_NULL);
+}
+
+fn OP_VOID(self: *Self, location: Ast.TokenIndex) !void {
+    try self.emitOpCode(location, .OP_VOID);
+}
+
+fn OP_TRUE(self: *Self, location: Ast.TokenIndex) !void {
+    try self.emitOpCode(location, .OP_TRUE);
+}
+
+fn OP_FALSE(self: *Self, location: Ast.TokenIndex) !void {
+    try self.emitOpCode(location, .OP_FALSE);
+}
+
+fn OP_POP(self: *Self, location: Ast.TokenIndex) !void {
+    try self.emitOpCode(location, .OP_POP);
+}
+
+fn OP_EQUAL(self: *Self, location: Ast.TokenIndex) !void {
+    try self.emitOpCode(location, .OP_EQUAL);
+}
+
+fn OP_IS(self: *Self, location: Ast.TokenIndex) !void {
+    try self.emitOpCode(location, .OP_IS);
+}
+
+fn OP_GREATER(self: *Self, location: Ast.TokenIndex) !void {
+    try self.emitOpCode(location, .OP_GREATER);
+}
+
+fn OP_LESS(self: *Self, location: Ast.TokenIndex) !void {
+    try self.emitOpCode(location, .OP_LESS);
+}
+
+fn OP_ADD_F(self: *Self, location: Ast.TokenIndex) !void {
+    try self.emitOpCode(location, .OP_ADD_F);
+}
+
+fn OP_ADD_I(self: *Self, location: Ast.TokenIndex) !void {
+    try self.emitOpCode(location, .OP_ADD_I);
+}
+
+fn OP_ADD_STRING(self: *Self, location: Ast.TokenIndex) !void {
+    try self.emitOpCode(location, .OP_ADD_STRING);
+}
+
+fn OP_ADD_LIST(self: *Self, location: Ast.TokenIndex) !void {
+    try self.emitOpCode(location, .OP_ADD_LIST);
+}
+
+fn OP_ADD_MAP(self: *Self, location: Ast.TokenIndex) !void {
+    try self.emitOpCode(location, .OP_ADD_MAP);
+}
+
+fn OP_SUBTRACT(self: *Self, location: Ast.TokenIndex) !void {
+    try self.emitOpCode(location, .OP_SUBTRACT);
+}
+
+fn OP_MULTIPLY(self: *Self, location: Ast.TokenIndex) !void {
+    try self.emitOpCode(location, .OP_MULTIPLY);
+}
+
+fn OP_DIVIDE(self: *Self, location: Ast.TokenIndex) !void {
+    try self.emitOpCode(location, .OP_DIVIDE);
+}
+
+fn OP_NOT(self: *Self, location: Ast.TokenIndex) !void {
+    try self.emitOpCode(location, .OP_NOT);
+}
+
+fn OP_NEGATE(self: *Self, location: Ast.TokenIndex) !void {
+    try self.emitOpCode(location, .OP_NEGATE);
+}
+
+fn OP_BAND(self: *Self, location: Ast.TokenIndex) !void {
+    try self.emitOpCode(location, .OP_BAND);
+}
+
+fn OP_BOR(self: *Self, location: Ast.TokenIndex) !void {
+    try self.emitOpCode(location, .OP_BOR);
+}
+
+fn OP_XOR(self: *Self, location: Ast.TokenIndex) !void {
+    try self.emitOpCode(location, .OP_XOR);
+}
+
+fn OP_BNOT(self: *Self, location: Ast.TokenIndex) !void {
+    try self.emitOpCode(location, .OP_BNOT);
+}
+
+fn OP_SHL(self: *Self, location: Ast.TokenIndex) !void {
+    try self.emitOpCode(location, .OP_SHL);
+}
+
+fn OP_SHR(self: *Self, location: Ast.TokenIndex) !void {
+    try self.emitOpCode(location, .OP_SHR);
+}
+
+fn OP_MOD(self: *Self, location: Ast.TokenIndex) !void {
+    try self.emitOpCode(location, .OP_MOD);
+}
+
+fn OP_UNWRAP(self: *Self, location: Ast.TokenIndex) !void {
+    try self.emitOpCode(location, .OP_UNWRAP);
+}
+
+fn OP_GET_ENUM_CASE_VALUE(self: *Self, location: Ast.TokenIndex) !void {
+    try self.emitOpCode(location, .OP_GET_ENUM_CASE_VALUE);
+}
+
+fn OP_SET_LIST_SUBSCRIPT(self: *Self, location: Ast.TokenIndex) !void {
+    try self.emitOpCode(location, .OP_SET_LIST_SUBSCRIPT);
+}
+
+fn OP_SET_MAP_SUBSCRIPT(self: *Self, location: Ast.TokenIndex) !void {
+    try self.emitOpCode(location, .OP_SET_MAP_SUBSCRIPT);
+}
+
+fn OP_THROW(self: *Self, location: Ast.TokenIndex) !void {
+    try self.emitOpCode(location, .OP_THROW);
+}
+
+fn OP_IMPORT(self: *Self, location: Ast.TokenIndex) !void {
+    try self.emitOpCode(location, .OP_IMPORT);
+}
+
+fn OP_TO_STRING(self: *Self, location: Ast.TokenIndex) !void {
+    try self.emitOpCode(location, .OP_TO_STRING);
+}
+
+fn OP_INSTANCE(self: *Self, location: Ast.TokenIndex) !void {
+    try self.emitOpCode(location, .OP_INSTANCE);
+}
+
+fn OP_FCONTAINER_INSTANCE(self: *Self, location: Ast.TokenIndex) !void {
+    try self.emitOpCode(location, .OP_FCONTAINER_INSTANCE);
+}
+
+fn OP_STRING_FOREACH(self: *Self, location: Ast.TokenIndex) !void {
+    try self.emitOpCode(location, .OP_STRING_FOREACH);
+}
+
+fn OP_LIST_FOREACH(self: *Self, location: Ast.TokenIndex) !void {
+    try self.emitOpCode(location, .OP_LIST_FOREACH);
+}
+
+fn OP_ENUM_FOREACH(self: *Self, location: Ast.TokenIndex) !void {
+    try self.emitOpCode(location, .OP_ENUM_FOREACH);
+}
+
+fn OP_MAP_FOREACH(self: *Self, location: Ast.TokenIndex) !void {
+    try self.emitOpCode(location, .OP_MAP_FOREACH);
+}
+
+fn OP_FIBER_FOREACH(self: *Self, location: Ast.TokenIndex) !void {
+    try self.emitOpCode(location, .OP_FIBER_FOREACH);
+}
+
+fn OP_RANGE_FOREACH(self: *Self, location: Ast.TokenIndex) !void {
+    try self.emitOpCode(location, .OP_RANGE_FOREACH);
+}
+
+fn OP_RESUME(self: *Self, location: Ast.TokenIndex) !void {
+    try self.emitOpCode(location, .OP_RESUME);
+}
+
+fn OP_YIELD(self: *Self, location: Ast.TokenIndex) !void {
+    try self.emitOpCode(location, .OP_YIELD);
+}
+
+fn OP_RESOLVE(self: *Self, location: Ast.TokenIndex) !void {
+    try self.emitOpCode(location, .OP_RESOLVE);
+}
+
+fn OP_TRY_END(self: *Self, location: Ast.TokenIndex) !void {
+    try self.emitOpCode(location, .OP_TRY_END);
+}
+
+fn OP_GET_ENUM_CASE_FROM_VALUE(self: *Self, location: Ast.TokenIndex) !void {
+    try self.emitOpCode(location, .OP_GET_ENUM_CASE_FROM_VALUE);
+}
+
+fn OP_TYPEOF(self: *Self, location: Ast.TokenIndex) !void {
+    try self.emitOpCode(location, .OP_TYPEOF);
+}
+
+fn OP_HOTSPOT_CALL(self: *Self, location: Ast.TokenIndex) !void {
+    try self.emitOpCode(location, .OP_HOTSPOT_CALL);
+}
+
+fn OP_DEFINE_GLOBAL(self: *Self, location: Ast.TokenIndex, slot: u24) !void {
+    try self.emitCodeArg(
+        location,
+        .OP_DEFINE_GLOBAL,
+        slot,
+    );
+}
+
+fn OP_GET_GLOBAL(self: *Self, location: Ast.TokenIndex, slot: u24) !void {
+    try self.emitCodeArg(
+        location,
+        .OP_GET_GLOBAL,
+        slot,
+    );
+}
+
+fn OP_SET_GLOBAL(self: *Self, location: Ast.TokenIndex, slot: u24) !void {
+    try self.emitCodeArg(
+        location,
+        .OP_SET_GLOBAL,
+        slot,
+    );
+}
+
+fn OP_GET_LOCAL(self: *Self, location: Ast.TokenIndex, slot: u24) !void {
+    try self.emitCodeArg(
+        location,
+        .OP_GET_LOCAL,
+        slot,
+    );
+}
+
+fn OP_SET_LOCAL(self: *Self, location: Ast.TokenIndex, slot: u24) !void {
+    try self.emitCodeArg(
+        location,
+        .OP_SET_LOCAL,
+        slot,
+    );
+}
+
+fn OP_GET_UPVALUE(self: *Self, location: Ast.TokenIndex, slot: u24) !void {
+    try self.emitCodeArg(
+        location,
+        .OP_GET_UPVALUE,
+        slot,
+    );
+}
+
+fn OP_SET_UPVALUE(self: *Self, location: Ast.TokenIndex, slot: u24) !void {
+    try self.emitCodeArg(
+        location,
+        .OP_SET_UPVALUE,
+        slot,
+    );
+}
+
+fn OP_GET_ENUM_CASE(self: *Self, location: Ast.TokenIndex, case: u24) !void {
+    try self.emitCodeArg(
+        location,
+        .OP_GET_ENUM_CASE,
+        case,
+    );
+}
+
+fn OP_EXPORT(self: *Self, location: Ast.TokenIndex, count: u24) !void {
+    try self.emitCodeArg(
+        location,
+        .OP_EXPORT,
+        count,
+    );
+}
+
+fn OP_COPY(self: *Self, location: Ast.TokenIndex, dist: u24) !void {
+    try self.emitCodeArg(
+        location,
+        .OP_COPY,
+        dist,
+    );
+}
+
+fn OP_CLONE(self: *Self, location: Ast.TokenIndex) !void {
+    try self.emitOpCode(location, .OP_CLONE);
+}
+
+fn OP_CLOSE_UPVALUE(self: *Self, location: Ast.TokenIndex) !void {
+    try self.emitOpCode(location, .OP_CLOSE_UPVALUE);
+}
+
+fn OP_RETURN(self: *Self, location: Ast.TokenIndex) !void {
+    try self.emitOpCode(location, .OP_RETURN);
+}
+
+fn OP_LIST_APPEND(self: *Self, location: Ast.TokenIndex, count: u24) !void {
+    try self.emitCodeArg(
+        location,
+        .OP_LIST_APPEND,
+        count,
+    );
+}
+
+fn OP_SET_MAP(self: *Self, location: Ast.TokenIndex, slot: u24) !void {
+    try self.emitCodeArg(
+        location,
+        .OP_SET_MAP,
+        slot,
+    );
+}
+
+fn OP_PROPERTY(self: *Self, location: Ast.TokenIndex, member_idx: u24) !void {
+    try self.emitCodeArg(
+        location,
+        .OP_PROPERTY,
+        member_idx,
+    );
+}
+
+fn OP_OBJECT_DEFAULT(self: *Self, location: Ast.TokenIndex, property_idx: u24) !void {
+    try self.emitCodeArg(
+        location,
+        .OP_OBJECT_DEFAULT,
+        property_idx,
+    );
+}
+
+fn OP_SET_OBJECT_PROPERTY(self: *Self, location: Ast.TokenIndex, property_idx: u24) !void {
+    try self.emitCodeArg(
+        location,
+        .OP_SET_OBJECT_PROPERTY,
+        property_idx,
+    );
+}
+
+fn OP_SET_INSTANCE_PROPERTY(self: *Self, location: Ast.TokenIndex, property_idx: u24) !void {
+    try self.emitCodeArg(
+        location,
+        .OP_SET_INSTANCE_PROPERTY,
+        property_idx,
+    );
+}
+
+fn OP_GET_INSTANCE_PROPERTY(self: *Self, location: Ast.TokenIndex, property_idx: u24) !void {
+    try self.emitCodeArg(
+        location,
+        .OP_GET_INSTANCE_PROPERTY,
+        property_idx,
+    );
+}
+
+fn OP_GET_INSTANCE_METHOD(self: *Self, location: Ast.TokenIndex, property_idx: u24) !void {
+    try self.emitCodeArg(
+        location,
+        .OP_GET_INSTANCE_METHOD,
+        property_idx,
+    );
+}
+
+fn OP_GET_LIST_PROPERTY(self: *Self, location: Ast.TokenIndex, property_idx: u24) !void {
+    try self.emitCodeArg(
+        location,
+        .OP_GET_LIST_PROPERTY,
+        property_idx,
+    );
+}
+
+fn OP_GET_MAP_PROPERTY(self: *Self, location: Ast.TokenIndex, property_idx: u24) !void {
+    try self.emitCodeArg(
+        location,
+        .OP_GET_MAP_PROPERTY,
+        property_idx,
+    );
+}
+
+fn OP_GET_FIBER_PROPERTY(self: *Self, location: Ast.TokenIndex, property_idx: u24) !void {
+    try self.emitCodeArg(
+        location,
+        .OP_GET_FIBER_PROPERTY,
+        property_idx,
+    );
+}
+
+fn OP_GET_RANGE_PROPERTY(self: *Self, location: Ast.TokenIndex, property_idx: u24) !void {
+    try self.emitCodeArg(
+        location,
+        .OP_GET_RANGE_PROPERTY,
+        property_idx,
+    );
+}
+
+fn OP_GET_STRING_PROPERTY(self: *Self, location: Ast.TokenIndex, property_idx: u24) !void {
+    try self.emitCodeArg(
+        location,
+        .OP_GET_STRING_PROPERTY,
+        property_idx,
+    );
+}
+
+fn OP_GET_PATTERN_PROPERTY(self: *Self, location: Ast.TokenIndex, property_idx: u24) !void {
+    try self.emitCodeArg(
+        location,
+        .OP_GET_PATTERN_PROPERTY,
+        property_idx,
+    );
+}
+
+fn OP_GET_OBJECT_PROPERTY(self: *Self, location: Ast.TokenIndex, property_idx: u24) !void {
+    try self.emitCodeArg(
+        location,
+        .OP_GET_OBJECT_PROPERTY,
+        property_idx,
+    );
+}
+
+fn OP_GET_LIST_SUBSCRIPT(self: *Self, location: Ast.TokenIndex, checked: bool) !void {
+    try self.emitCodeArg(
+        location,
+        .OP_GET_LIST_SUBSCRIPT,
+        if (checked) 1 else 0,
+    );
+}
+
+fn OP_GET_STRING_SUBSCRIPT(self: *Self, location: Ast.TokenIndex, checked: bool) !void {
+    try self.emitCodeArg(
+        location,
+        .OP_GET_STRING_SUBSCRIPT,
+        if (checked) 1 else 0,
+    );
+}
+
+fn OP_GET_MAP_SUBSCRIPT(self: *Self, location: Ast.TokenIndex, checked: bool) !void {
+    try self.emitCodeArg(
+        location,
+        .OP_GET_MAP_SUBSCRIPT,
+        if (checked) 1 else 0,
+    );
+}
+
+fn OP_OBJECT(self: *Self, location: Ast.TokenIndex, constant: Value) !void {
+    try self.emitCodeArg(
+        location,
+        .OP_OBJECT,
+        try self.makeConstant(constant),
+    );
+}
+
+fn OP_LIST(self: *Self, location: Ast.TokenIndex, constant: Value) !void {
+    try self.emitCodeArg(
+        location,
+        .OP_LIST,
+        try self.makeConstant(constant),
+    );
+}
+
+fn OP_MAP(self: *Self, location: Ast.TokenIndex, constant: Value) !void {
+    try self.emitCodeArg(
+        location,
+        .OP_MAP,
+        try self.makeConstant(constant),
+    );
+}
+
+fn OP_RANGE(self: *Self, location: Ast.TokenIndex) !void {
+    try self.emitOpCode(location, .OP_RANGE);
+}
+
+fn OP_GET_PROTOCOL_METHOD(self: *Self, location: Ast.TokenIndex, identifier: []const u8) !void {
+    try self.emitCodeArg(
+        location,
+        .OP_GET_PROTOCOL_METHOD,
+        try self.identifierConstant(identifier),
+    );
+}
+
+fn OP_GET_FCONTAINER_INSTANCE_PROPERTY(self: *Self, location: Ast.TokenIndex, field_idx: u24) !void {
+    try self.emitCodeArg(
+        location,
+        .OP_GET_FCONTAINER_INSTANCE_PROPERTY,
+        field_idx,
+    );
+}
+
+fn OP_SET_FCONTAINER_INSTANCE_PROPERTY(self: *Self, location: Ast.TokenIndex, field_idx: u24) !void {
+    try self.emitCodeArg(
+        location,
+        .OP_SET_FCONTAINER_INSTANCE_PROPERTY,
+        field_idx,
+    );
+}
+
+fn OP_CONSTANT(self: *Self, location: Ast.TokenIndex, constant: Value) !void {
+    try self.emitCodeArg(
+        location,
+        .OP_CONSTANT,
+        try self.makeConstant(constant),
+    );
+}
+
+fn OP_JUMP(self: *Self, location: Ast.TokenIndex) !usize {
+    return try self.emitJump(
+        location,
+        .OP_JUMP,
+    );
+}
+
+fn OP_JUMP_IF_FALSE(self: *Self, location: Ast.TokenIndex) !usize {
+    return try self.emitJump(
+        location,
+        .OP_JUMP_IF_FALSE,
+    );
+}
+
+fn OP_JUMP_IF_NOT_NULL(self: *Self, location: Ast.TokenIndex) !usize {
+    return try self.emitJump(
+        location,
+        .OP_JUMP_IF_NOT_NULL,
+    );
+}
+
+fn OP_LOOP(self: *Self, location: Ast.TokenIndex, loop_start: usize) !void {
+    const offset: usize = self.currentCode() - loop_start + 1;
+    if (offset > std.math.maxInt(u24)) {
+        self.reportError(.loop_body_too_large, "Loop body too large.");
+    }
+
+    try self.emitCodeArg(location, .OP_LOOP, @as(u24, @intCast(offset)));
+}
+
+fn OP_TRY(self: *Self, location: Ast.TokenIndex) !usize {
+    return try self.emitJump(
+        location,
+        .OP_TRY,
+    );
+}
+
+fn OP_CALL_INSTANCE_PROPERTY(self: *Self, location: Ast.TokenIndex, field_idx: u24) !void {
+    try self.emitCodeArg(
+        location,
+        .OP_CALL_INSTANCE_PROPERTY,
+        field_idx,
+    );
+}
+
+fn OP_TAIL_CALL_INSTANCE_PROPERTY(self: *Self, location: Ast.TokenIndex, field_idx: u24) !void {
+    try self.emitCodeArg(
+        location,
+        .OP_TAIL_CALL_INSTANCE_PROPERTY,
+        field_idx,
+    );
+}
+
+fn OP_INSTANCE_INVOKE(self: *Self, location: Ast.TokenIndex, field_idx: u24) !void {
+    try self.emitCodeArg(
+        location,
+        .OP_INSTANCE_INVOKE,
+        field_idx,
+    );
+}
+
+fn OP_INSTANCE_TAIL_INVOKE(self: *Self, location: Ast.TokenIndex, field_idx: u24) !void {
+    try self.emitCodeArg(
+        location,
+        .OP_INSTANCE_TAIL_INVOKE,
+        field_idx,
+    );
+}
+
+fn OP_STRING_INVOKE(self: *Self, location: Ast.TokenIndex, field_idx: u24) !void {
+    try self.emitCodeArg(
+        location,
+        .OP_STRING_INVOKE,
+        field_idx,
+    );
+}
+
+fn OP_PATTERN_INVOKE(self: *Self, location: Ast.TokenIndex, field_idx: u24) !void {
+    try self.emitCodeArg(
+        location,
+        .OP_PATTERN_INVOKE,
+        field_idx,
+    );
+}
+
+fn OP_FIBER_INVOKE(self: *Self, location: Ast.TokenIndex, field_idx: u24) !void {
+    try self.emitCodeArg(
+        location,
+        .OP_FIBER_INVOKE,
+        field_idx,
+    );
+}
+
+fn OP_LIST_INVOKE(self: *Self, location: Ast.TokenIndex, field_idx: u24) !void {
+    try self.emitCodeArg(
+        location,
+        .OP_LIST_INVOKE,
+        field_idx,
+    );
+}
+
+fn OP_MAP_INVOKE(self: *Self, location: Ast.TokenIndex, field_idx: u24) !void {
+    try self.emitCodeArg(
+        location,
+        .OP_MAP_INVOKE,
+        field_idx,
+    );
+}
+
+fn OP_RANGE_INVOKE(self: *Self, location: Ast.TokenIndex, field_idx: u24) !void {
+    try self.emitCodeArg(
+        location,
+        .OP_RANGE_INVOKE,
+        field_idx,
+    );
+}
+
+fn OP_PROTOCOL_INVOKE(self: *Self, location: Ast.TokenIndex, identifier: []const u8) !void {
+    try self.emitCodeArg(
+        location,
+        .OP_PROTOCOL_INVOKE,
+        try self.identifierConstant(identifier),
+    );
+}
+
+fn OP_PROTOCOL_TAIL_INVOKE(self: *Self, location: Ast.TokenIndex, identifier: []const u8) !void {
+    try self.emitCodeArg(
+        location,
+        .OP_PROTOCOL_TAIL_INVOKE,
+        try self.identifierConstant(identifier),
+    );
+}
+
+fn OP_CALL(self: *Self, location: Ast.TokenIndex, arg_count: u8, catch_default: bool) !void {
+    try self.emitCodeArgs(
+        location,
+        .OP_CALL,
+        arg_count,
+        if (catch_default) 1 else 0,
+    );
+}
+
+fn OP_TAIL_CALL(self: *Self, location: Ast.TokenIndex, arg_count: u24, catch_default: bool) !void {
+    try self.emitCodeArgs(
+        location,
+        .OP_TAIL_CALL,
+        arg_count,
+        if (catch_default) 1 else 0,
+    );
+}
+
+fn OP_FIBER(self: *Self, location: Ast.TokenIndex) !void {
+    try self.emitOpCode(location, .OP_FIBER);
+}
+
+fn OP_CLOSURE(self: *Self, location: Ast.TokenIndex, closure: Value) !void {
+    try self.emitCodeArg(
+        location,
+        .OP_CLOSURE,
+        try self.makeConstant(closure),
+    );
 }
