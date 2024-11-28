@@ -1,14 +1,14 @@
 import "std";
 
-fun main([str] _) > void {
-    [int] list = [<int>];
+fun main(_: [str]) > void {
+    final list = [<int>];
 
-    for (int i = 0; i < 1000000; i = i + 1) {
+    foreach (i in 0..1_000_000) {
         list.append(i);
     }
 
-    int sum = 0;
-    foreach (int v in list) {
+    var sum = 0;
+    foreach (v in list) {
         sum = sum + v;
     }
 

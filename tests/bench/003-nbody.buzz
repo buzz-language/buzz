@@ -1,40 +1,40 @@
 import "std";
 import "math";
 
-final double pi = 3.141592653589793;
-final double solarMass = 4.0 * pi * pi;
-final double daysPerYear = 365.24;
+final pi = 3.141592653589793;
+final solarMass = 4.0 * pi * pi;
+final daysPerYear = 365.24;
 
 object Body {
-    double x,
-    double y,
-    double z,
-    double vx,
-    double vy,
-    double vz,
-    double mass,
+    x: double,
+    y: double,
+    z: double,
+    vx: double,
+    vy: double,
+    vz: double,
+    mass: double,
 }
 
-fun advance([Body] bodies, int nbody, double dt) > void {
-    for (int i = 0; i < nbody; i = i + 1) {
-        Body bi = bodies[i];
-        double bix = bi.x;
-        double biy = bi.y;
-        double biz = bi.z;
-        double bimass = bi.mass;
-        double bivx = bi.vx;
-        double bivy = bi.vy;
-        double bivz = bi.vz;
+fun advance(bodies: [Body], nbody: int, dt: double) > void {
+    foreach (i in 0..nbody) {
+        final bi = bodies[i];
+        final bix = bi.x;
+        final biy = bi.y;
+        final biz = bi.z;
+        final bimass = bi.mass;
+        var bivx = bi.vx;
+        var bivy = bi.vy;
+        var bivz = bi.vz;
 
-        for (int j = i + 1; j < nbody; j = j + 1) {
-            Body bj = bodies[j];
-            double dx = bix - bj.x;
-            double dy = biy - bj.y;
-            double dz = biz - bj.z;
-            double dist2 = dx * dx + dy * dy + dz * dz;
-            double mag = math\sqrt(dist2);
+        foreach (j in (i + 1)..nbody) {
+            final bj = bodies[j];
+            final dx = bix - bj.x;
+            final dy = biy - bj.y;
+            final dz = biz - bj.z;
+            final dist2 = dx * dx + dy * dy + dz * dz;
+            var mag = math\sqrt(dist2);
             mag = dt / (mag * dist2);
-            double bm = bj.mass * mag;
+            var bm = bj.mass * mag;
 
             bivx = bivx - (dx * bm);
             bivy = bivy - (dy * bm);
@@ -54,21 +54,21 @@ fun advance([Body] bodies, int nbody, double dt) > void {
     }
 }
 
-fun energy([Body] bodies, int nbody) > double {
-    double e = 0.0;
-    for (int i = 0; i < nbody; i = i + 1) {
-        Body bi = bodies[i];
-        double vx = bi.vx;
-        double vy = bi.vy;
-        double vz = bi.vz;
-        double bim = bi.mass;
+fun energy(bodies: [Body], nbody: int) > double {
+    var e = 0.0;
+    foreach (i in 0..nbody) {
+        final bi = bodies[i];
+        final vx = bi.vx;
+        final vy = bi.vy;
+        final vz = bi.vz;
+        final bim = bi.mass;
         e = e + (0.5 * bim * (vx * vx + vy * vy + vz * vz));
-        for (int j = i + 1; j < nbody; j = j + 1) {
-            Body bj = bodies[j];
-            double dx = bi.x - bj.x;
-            double dy = bi.y - bj.y;
-            double dz = bi.z - bj.z;
-            double distance = math\sqrt(dx * dx + dy * dy + dz * dz);
+        foreach (j in (i + 1)..nbody) {
+            final bj = bodies[j];
+            final dx = bi.x - bj.x;
+            final dy = bi.y - bj.y;
+            final dz = bi.z - bj.z;
+            final distance = math\sqrt(dx * dx + dy * dy + dz * dz);
             e = e - ((bim * bj.mass) / distance);
         }
     }
@@ -76,14 +76,14 @@ fun energy([Body] bodies, int nbody) > double {
     return e;
 }
 
-fun offsetMomentum([Body] b, int nbody) > void {
-    double px = 0.0;
-    double py = 0.0;
-    double pz = 0.0;
+fun offsetMomentum(b: [Body], nbody: int) > void {
+    var px = 0.0;
+    var py = 0.0;
+    var pz = 0.0;
 
-    for (int i = 0; i < nbody; i = i + 1) {
-        Body bi = b[i];
-        double bim = bi.mass;
+    foreach (i in 0..nbody) {
+        final bi = b[i];
+        final bim = bi.mass;
 
         px = px + (bi.vx * bim);
         py = py + (bi.vy * bim);
@@ -95,8 +95,8 @@ fun offsetMomentum([Body] b, int nbody) > void {
     b[0].vz = -pz / solarMass;
 }
 
-fun main([str] args) > void {
-    Body sun = Body{
+fun main(args: [str]) > void {
+    final sun = Body{
         x = 0.0,
         y = 0.0,
         z = 0.0,
@@ -106,7 +106,7 @@ fun main([str] args) > void {
         mass = solarMass,
     };
 
-    Body jupiter = Body{
+    final jupiter = Body{
         x = 4.84143144246472090,
         y = -1.16032004402742839,
         z = -0.103622044471123109,
@@ -116,7 +116,7 @@ fun main([str] args) > void {
         mass = 0.000954791938424326609 * solarMass,
     };
 
-    Body saturn = Body{
+    final saturn = Body{
         x = 8.34336671824457987,
         y = 4.12479856412430479,
         z = -0.403523417114321381,
@@ -126,7 +126,7 @@ fun main([str] args) > void {
         mass = 0.00028588598066613 * solarMass,
     };
 
-    Body uranus = Body{
+    final uranus = Body{
         x = 12.894369562139,
         y = -15.111151401699,
         z = -0.22330757889266,
@@ -136,7 +136,7 @@ fun main([str] args) > void {
         mass = 0.0000436624404335156298 * solarMass,
     };
 
-    Body neptune = Body{
+    final neptune = Body{
         x = 15.379697114851,
         y = -25.9193146099879641,
         z = 0.179258772950371181,
@@ -146,18 +146,15 @@ fun main([str] args) > void {
         mass = 0.0000515138902046611451 * solarMass,
     };
 
-    [Body] bodies = [ sun, jupiter, saturn, uranus, neptune ];
+    final bodies = [ sun, jupiter, saturn, uranus, neptune ];
 
-    int N = 1000;
-    if (args.len() > 0) {
-        N = std\parseInt(args[0]) ?? 1000;
-    }
-    int nbody = bodies.len();
+    final N = std\parseInt(args[?0] ?? "1000") ?? 1000;
+    final nbody = bodies.len();
 
     offsetMomentum(bodies, nbody: nbody);
     std\print("{energy(bodies, nbody: nbody)}");
 
-    for (int i = 0; i < N; i = i + 1) {
+    foreach (_ in 0..N) {
         advance(bodies, nbody: nbody, dt: 0.01);
     }
 

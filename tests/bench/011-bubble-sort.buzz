@@ -1,33 +1,33 @@
 import  "std";
 
-fun main([str] args) > void {
-    final max = (if (args.len() > 0) std\parseInt(args[0]) else null) ?? 750;
+fun main(args: [str]) > void {
+    final max = std\parseInt(args[?0] ?? "750") ?? 750;
 
     var list = init(max);
 
     bubblesort(list);
 
-    foreach (int e in list) {
+    foreach (e in list) {
         std\print("{e}");
     }
 }
 
-fun init(int max) > [int] {
-    [int] list = [];
+fun init(max: int) > [int] {
+    final list = [<int>];
     final f = max - 13;
     final h = ((max - 117) * (max - 13)) / max;
 
-    for (int i = 0; i < max; i = i + 1) {
+    foreach (i in 0..max) {
         list.append((f * i) % h - (h / 2));
     }
 
     return list;
 }
 
-fun bubblesort([int] list) > void {
+fun bubblesort(list: [int]) > void {
     final len = list.len();
-    for (int i = 0; i < len - 1; i = i + 1) {
-        for (int j = 0; j < len - 1; j = j + 1) {
+    foreach (_ in 0..(len - 1)) {
+        foreach (j in 0..(len - 1)) {
             if (list[j] > list[j + 1]) {
                 final tmp = list[j];
                 list[j] = list[j + 1];

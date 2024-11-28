@@ -1,13 +1,13 @@
 import "std";
 
-fun main([str] args) > void {
-    final m = (if (args.len() > 0) std\parseInt(args[0]) else null) ?? 3;
-    final n = (if (args.len() > 1) std\parseInt(args[1]) else null) ?? 8;
+fun main(args: [str]) > void {
+    final m = std\parseInt(args[?0] ?? "3") ?? 3;
+    final n = std\parseInt(args[?1] ?? "8") ?? 8;
 
     std\print("result: {ack(m, n)}");
 }
 
-fun ack(int m, int n) > int {
+fun ack(m: int, n: int) > int {
     if (m == 0) {
         return n + 1;
     }

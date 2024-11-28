@@ -1,61 +1,58 @@
 import "std";
 import "math";
 
-fun A(double i, double j) > double {
-    double ij = i + j - 1.0;
+fun A(i: double, j: double) > double {
+    final ij = i + j - 1.0;
     return 1.0 / (ij * (ij - 1.0) * 0.5 + i);
 }
 
-fun Av([double] x, [double] y, int N) > void {
-    for (double i = 0.0; i < N; i = i + 1.0) {
-        double a = 0.0;
-        for (double j = 0.0; j < N; j = j + 1.0) {
+fun Av(x: [double], y: [double], N: int) > void {
+    for (i: double = 0.0; i < N; i = i + 1.0) {
+        var a = 0.0;
+        for (j: double = 0.0; j < N; j = j + 1.0) {
             a = a + x[std\toInt(j)] * A(i: i, j: j);
         }
         y[std\toInt(i)] = a;
     }
 }
 
-fun Atv([double] x, [double] y, int N) > void {
-    for (double i = 0.0; i < N; i = i + 1.0) {
-        double a = 0.0;
-        for (double j = 0.0; j < N; j = j + 1.0) {
+fun Atv(x: [double], y: [double], N: int) > void {
+    for (i: double = 0.0; i < N; i = i + 1.0) {
+        var a = 0.0;
+        for (j: double = 0.0; j < N; j = j + 1.0) {
             a = a + x[std\toInt(j)] * A(i: j, j: i);
         }
         y[std\toInt(i)] = a;
     }
 }
 
-fun AtAv([double] x, [double] y, [double] t, int N) > void {
+fun AtAv(x: [double], y: [double], t: [double], N: int) > void {
     Av(x: x, y: t, N: N);
     Atv(x: t, y: y, N: N);
 }
 
-fun main([str] args) > void {
-    int N = 100;
-    if (args.len() > 0) {
-        N = std\parseInt(args[0]) ?? 100;
-    }
+fun main(args: [str]) > void {
+    final N = std\parseInt(args[?0] ?? "100") ?? 100;
 
-    [double] u = [<double>];
-    [double] v = [<double>];
-    [double] t = [<double>];
-    for (int i = 0; i < N; i = i + 1) {
+    final u = [<double>];
+    final v = [<double>];
+    final t = [<double>];
+    foreach (_ in 0..N) {
         u.append(1.0);
         v.append(0.0);
         t.append(0.0);
     }
 
-    for (int i = 0; i < 10; i = i + 1) {
+    foreach (_ in 0..10) {
         AtAv(x: u, y: v, t: t, N: N);
         AtAv(x: v, y: u, t: t, N: N);
     }
 
-    double vBv = 0.0;
-    double vv = 0.0;
-    for (int i = 0; i < N; i = i + 1) {
-        double ui = u[i];
-        double vi = v[i];
+    var vBv = 0.0;
+    var vv = 0.0;
+    foreach (i in 0..N) {
+        final ui = u[i];
+        final vi = v[i];
         vBv = vBv + ui * vi;
         vv = vv + vi * vi;
     }

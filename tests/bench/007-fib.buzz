@@ -1,6 +1,6 @@
 import "std";
 
-fun fibonnacci(int n) > int {
+fun fibonnacci(n: int) > int {
     if (n < 2) {
         return n;
     }
@@ -8,6 +8,6 @@ fun fibonnacci(int n) > int {
     return fibonnacci(n - 2) + fibonnacci(n - 1);
 }
 
-fun main([str] _) > void {
+fun main(_: [str]) > void {
     std\print("{fibonnacci(30)}");
 }

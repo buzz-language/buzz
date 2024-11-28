@@ -2,37 +2,37 @@ import "std";
 import "math";
 import "buffer" as _;
 
-final double IM = 139968.0;
-final double IA = 3877.0;
-final double IC = 29573.0;
-final int lineLength = 60;
-final int bufferSize = (lineLength + 1) * 1024;
+final IM = 139968.0;
+final IA = 3877.0;
+final IC = 29573.0;
+final lineLength = 60;
+final bufferSize = (lineLength + 1) * 1024;
 
-fun makeRepeatFasta(str id, str desc, str s, int nchars) > void {
+fun makeRepeatFasta(id: str, desc: str, s: str, nchars: int) > void {
     std\print(">{id} {desc}");
-    int p = 0;
-    int sn = s.len();
-    str s2 = s + s;
-    for (int i = lineLength; i < nchars; i = i + lineLength) {
+    var p = 0;
+    final sn = s.len();
+    final s2 = s + s;
+    for (i: int = lineLength; i < nchars; i = i + lineLength) {
         std\print(s2.sub(p, len: lineLength - 1));
         p = p + lineLength;
         if (p > sn) {
             p = p - sn;
         }
     }
-    int tail = nchars % lineLength;
+    final tail = nchars % lineLength;
     if (tail > 0) {
         std\print(s2.sub(p, len: tail - 1));
     }
 }
 
 object Frequency {
-    Buffer chars,
-    [double] probs,
-    double last,
+    chars: Buffer,
+    probs: [double],
+    last: double,
 
-    static fun init(Buffer chars, [double] probs, double last) > Frequency {
-        Frequency freq = Frequency{
+    static fun init(chars: Buffer, probs: [double], last: double) > Frequency {
+        final freq = Frequency{
             chars = chars,
             probs = probs,
             last = last,
@@ -43,29 +43,29 @@ object Frequency {
         return freq;
     }
 
-    fun random(double max) > double {
+    fun random(max: double) > double {
         this.last = (this.last * IA + IC) % IM;
         return max * this.last * (1.0 / IM);
     }
 
     fun makeCumulative() > void {
-        double cp = 0.0;
-        foreach (int i, double prob in this.probs) {
+        var cp = 0.0;
+        foreach (i, prob in this.probs) {
             cp = cp + prob;
             this.probs[i] = cp;
         }
     }
 
-    fun selectRandomIntoBuffer(Buffer buffer, int initialBufferIndex, int nRandom) > int !> OutOfBoundError, WriteWhileReadingError {
-        final int len = this.probs.len();
+    fun selectRandomIntoBuffer(buffer: Buffer, initialBufferIndex: int, nRandom: int) > int !> OutOfBoundError, WriteWhileReadingError {
+        final len = this.probs.len();
         var bufferIndex = initialBufferIndex;
 
-        for (int rIndex = 0; rIndex < nRandom; rIndex = rIndex + 1) {
-            double r = this.random(1.0);
-            bool skip = false;
-            for (int i = 0; i < len; i = i + 1) {
+        foreach (_ in 0..nRandom) {
+            final r = this.random(1.0);
+            var skip = false;
+            foreach (_ in 0..len) {
                 if (r < this.probs[i]) {
-                    buffer\setAt(bufferIndex, value: this.chars.at(i));
+                    buffer.setAt(bufferIndex, value: this.chars.at(i));
                     bufferIndex = bufferIndex + 1;
                     skip = true;
                     break;
@@ -73,7 +73,7 @@ object Frequency {
             }
 
             if (!skip) {
-                buffer\setAt(bufferIndex, value: this.chars.at(len - 1));
+                buffer.setAt(bufferIndex, value: this.chars.at(len - 1));
                 bufferIndex = bufferIndex + 1;
             }
         }
@@ -82,32 +82,32 @@ object Frequency {
     }
 }
 
-fun makeRandomFasta(str id, str desc, Frequency fpf, int initialNchars) > void !> OutOfBoundError, WriteWhileReadingError {
+fun makeRandomFasta(id: str, desc: str, fpf: Frequency, initialNchars: int) > void !> OutOfBoundError, WriteWhileReadingError {
     std\print(">{id} {desc}");
     var nchars = initialNchars;
 
-    Buffer buffer = Buffer.init(bufferSize);
-    int bufferIndex = 0;
+    var buffer = Buffer.init(bufferSize);
+    var bufferIndex = 0;
     while (nchars > 0) {
-        int chunkSize = std\toInt(math\minDouble(a: std\toDouble(lineLength), b: std\toDouble(nchars)));
+        final chunkSize = std\toInt(math\minDouble(a: std\toDouble(lineLength), b: std\toDouble(nchars)));
 
         if (bufferIndex == bufferSize) {
-            std\print(buffer\toString().sub(0, len: bufferIndex));
+            std\print(buffer.toString().sub(0, len: bufferIndex));
             buffer = Buffer.init(bufferSize);
             bufferIndex = 0;
         }
 
         bufferIndex = fpf.selectRandomIntoBuffer(buffer, initialBufferIndex: bufferIndex, nRandom: chunkSize);
-        buffer\setAt(bufferIndex, value: 10);
+        buffer.setAt(bufferIndex, value: 10);
         bufferIndex = bufferIndex + 1;
 
         nchars = nchars - chunkSize;
     }
 
-    std\print(buffer\toString().sub(0, len: bufferIndex));
+    std\print(buffer.toString().sub(0, len: bufferIndex));
 }
 
-final str alu = "GGCCGGGCGCGGTGGCTCACGCCTGTAATCCCAGCACTTTGG"
+final alu = "GGCCGGGCGCGGTGGCTCACGCCTGTAATCCCAGCACTTTGG"
     + "GAGGCCGAGGCGGGCGGATCACCTGAGGTCAGGAGTTCGAGA"
     + "CCAGCCTGGCCAACATGGTGAAACCCCGTCTCTACTAAAAAT"
     + "ACAAAAATTAGCCGGGCGTGGTGGCGCGCGCCTGTAATCCCA"
@@ -115,17 +115,14 @@ final str alu = "GGCCGGGCGCGGTGGCTCACGCCTGTAATCCCAGCACTTTGG"
     + "AGGCGGAGGTTGCAGTGAGCCGAGATCGCGCCACTGCACTCC"
     + "AGCCTGGGCGACAGAGCGAGACTCCGTCTCAAAAA";
 
-fun main([str] args) > void !> any {
-    int N = 1000;
-    if (args.len() > 0) {
-        N = std\parseInt(args[0]) ?? 1000;
-    }
+fun main(args: [str]) > void !> any {
+    final N = std\parseInt(args[?0] ?? "1000") ?? 1000;
 
     makeRepeatFasta("ONE", desc: "Homo sapiens alu", s: alu, nchars: N * 2);
 
-    Buffer iubChars = Buffer.init();
+    final iubChars = Buffer.init();
     iubChars.write("acgtBDHKMNRSVWY");
-    final Frequency iub = Frequency.init(
+    final iub = Frequency.init(
         chars: iubChars,
         probs: [ 0.27, 0.12, 0.12, 0.27, 0.02, 0.02, 0.02, 0.02, 0.02, 0.02, 0.02, 0.02, 0.02, 0.02, 0.02 ],
         last: 42.0,
@@ -133,9 +130,9 @@ fun main([str] args) > void !> any {
 
     makeRandomFasta("TWO", desc: "IUB ambiguity codes", fpf: iub, initialNchars: N * 3);
 
-    Buffer homoSapiensChars = Buffer.init();
+    final homoSapiensChars = Buffer.init();
     homoSapiensChars.write("acgt");
-    final Frequency homoSapiens = Frequency.init(
+    final homoSapiens = Frequency.init(
         chars: homoSapiensChars,
         probs: [ 0.3029549426680, 0.1979883004921, 0.1975473066391, 0.3015094502008 ],
         last: iub.last,

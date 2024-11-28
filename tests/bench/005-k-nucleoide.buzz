@@ -3,15 +3,15 @@ import "io";
 import "errors";
 
 fun readSequence() > str !> errors\ReadWriteError, errors\FileSystemError, errors\UnexpectedError {
-    bool skippedIgnoredSequences = false;
-    [str] lines = [<str>];
-    for (str? line = ""; line != null; line = io\stdin.readLine()) { // catch null doesn't work
+    var skippedIgnoredSequences = false;
+    final lines = [<str>];
+    for (line: str? = ""; line != null; line = io\stdin.readLine()) { // catch null doesn't work
         if (!skippedIgnoredSequences) {
             if (line?.startsWith(">THREE") ?? true) {
                 skippedIgnoredSequences = true;
             }
         } else {
-            str c = line?[0] ?? "_";
+            final c = line?[0] ?? "_";
             if (c == ">") {
                 break;
             } else if (c != ";") {
@@ -23,38 +23,38 @@ fun readSequence() > str !> errors\ReadWriteError, errors\FileSystemError, error
     return lines.join("").upper();
 }
 
-fun kfrequency(str sequence, {str: int} frequency, int k, int frame) > void {
-    for (int i = frame; i < sequence.len(); i = i + k) {
-        str c = sequence.sub(i, len: k);
+fun kfrequency(sequence: str, frequency: {str: int}, k: int, frame: int) > void {
+    for (i: int = frame; i < sequence.len(); i = i + k) {
+        final c = sequence.sub(i, len: k);
         frequency[c] = (frequency[c] ?? 0) + 1;
     }
 }
 
-fun count(str sequence, str fragment) > void {
-    final int k = fragment.len();
-    {str: int} frequency = {<str: int>};
-    for (int frame = 0; frame < k; frame = frame + 1) {
+fun count(sequence: str, fragment: str) > void {
+    final k = fragment.len();
+    final frequency = {<str: int>};
+    for (frame: int = 0; frame < k; frame = frame + 1) {
         kfrequency(sequence, frequency: frequency, k: k, frame: frame);
     }
     std\print("{frequency[fragment] ?? 0}\t{fragment}");
 }
 
-fun frequency(str sequence, int k) > void {
-    {str: int} frequency = {<str: int>};
-    for (int frame = 0; frame < k; frame = frame + 1) {
+fun frequency(sequence: str, k: int) > void {
+    final frequency = {<str: int>};
+    for (frame: int = 0; frame < k; frame = frame + 1) {
         kfrequency(sequence, frequency: frequency, k: k, frame: frame);
     }
 
-    int sum = sequence.len() - k + 1;
-    foreach (str c, int f in frequency) {
+    final sum = sequence.len() - k + 1;
+    foreach (c, f in frequency) {
         std\print("{c} {(f * 100) / sum}");
     }
     std\print("");
 }
 
 // buzz tests/bench/005-k-nucleoide.buzz < tests/bench/reference/knucleotide-input.txt
-fun main([str] _) > void {
-    str sequence = readSequence() catch "";
+fun main(_: [str]) > void {
+    final sequence = readSequence() catch "";
     frequency(sequence, k: 1);
     frequency(sequence, k: 2);
     count(sequence, fragment: "GGT");
