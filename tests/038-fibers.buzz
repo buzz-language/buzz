@@ -2,7 +2,7 @@ import "std";
 
 test "fiber" {
     // Async call, creates a new fiber, yield type must be nullable because resume will return null when nothing yielded
-    const counter = &count(10);
+    final counter = &count(10);
 
     // A fiber is over when a OP_RETURN as been executed
     var sum = 0;
@@ -42,7 +42,7 @@ fun fail() > bool !> str {
 }
 
 fun caughFiberFail() > bool !> str {
-    const fiber = &fail();
+    final fiber = &fail();
 
     return resolve fiber;
 }
@@ -52,15 +52,15 @@ test "Throw inside a fiber" {
 }
 
 fun closedUpvalue() > fun () > str {
-    const upvalue = "joe";
+    final upvalue = "joe";
 
     return fun () > str => "hello {upvalue}";
 }
 
 test "Opened upvalue in fiber" {
-    const upvalue = "world";
+    final upvalue = "world";
 
-    const fiberFn = fun () > str => "hello {upvalue}";
+    final fiberFn = fun () > str => "hello {upvalue}";
 
     std\assert(resolve &fiberFn() == "hello world", message: "Fiber could use an opened upvalue");
 }
@@ -70,7 +70,7 @@ test "Closed upvalue in fiber" {
 }
 
 test "Wrapping call inside complex expressions" {
-    const map = {
+    final map = {
         "hello": fun () > str => "hello world",
     };
 

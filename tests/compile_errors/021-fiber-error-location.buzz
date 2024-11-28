@@ -13,7 +13,7 @@ fun count(n: int) > str *> int? {
 }
 
 fun run() > void {
-    const counter = &count(10);
+    final counter = &count(10);
     
     var sum = 0;
     while (!counter.over()) {

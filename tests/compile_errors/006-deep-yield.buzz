@@ -10,6 +10,6 @@ fun two() > void {
 }
 
 test "Deep yield" {
-    const fiber = &two();
+    final fiber = &two();
     std\print(resume fiber ?? "nope");
 }

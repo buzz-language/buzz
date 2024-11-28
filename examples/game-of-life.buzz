@@ -39,8 +39,8 @@ object World {
         var cells = [<bool>];
         for (y: int = 0; y < this.height; y = y + 1) {
             for (x: int = 0; x < this.width; x = x + 1) {
-                const coordinate = y * this.width + x;
-                const liveNeighbors = this.neighbors(x: x, y: y);
+                final coordinate = y * this.width + x;
+                final liveNeighbors = this.neighbors(x: x, y: y);
                 
                 cells.append(liveNeighbors == 3 or (this.cells[coordinate] and liveNeighbors == 2));
             }
@@ -64,8 +64,8 @@ object World {
     }
 
     fun draw(renderer: Renderer) > void !> SDLError {
-        const cellWidth = 800 / this.width;
-        const cellHeight = 600 / this.height;
+        final cellWidth = 800 / this.width;
+        final cellHeight = 600 / this.height;
 
         for (y: int = 0; y < this.height; y = y + 1) {
             for (x: int = 0; x < this.width; x = x + 1) {
@@ -154,8 +154,8 @@ fun main(args: [str]) > void !> SDLError {
         height: 600,
     );
 
-    const width = if (args.len() > 0) std\parseInt(args[0]) else null;
-    const height = if (args.len() > 1) std\parseInt(args[1]) else null;
+    final width = if (args.len() > 0) std\parseInt(args[0]) else null;
+    final height = if (args.len() > 1) std\parseInt(args[1]) else null;
 
     var world = World.init(
         width: width ?? 10,

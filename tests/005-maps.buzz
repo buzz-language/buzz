@@ -1,12 +1,12 @@
 import "std";
 
 test "Maps" {
-    const map = {
+    final map = {
         "hello": 1,
         "bye": 2,
     };
 
-    const _ = {1: true, 2: false};
+    final _ = {1: true, 2: false};
 
     std\assert(map["bye"] is int?, message: "yeah");
 
@@ -19,7 +19,7 @@ test "Maps" {
 }
 
 test "map merge" {
-    const map = {"one": 1, "two": 22} + {"three": 3, "two": 2};
+    final map = {"one": 1, "two": 22} + {"three": 3, "two": 2};
 
     std\assert(map["two"] == 2, message: "map merge");
     std\assert(map.size() == 3, message: "map merge");
@@ -36,48 +36,48 @@ test "map.values" {
 }
 
 test "map.diff" {
-    const first = {
+    final first = {
         "one": 1,
         "two": 2,
         "three": 3,
     };
 
-    const second = {
+    final second = {
         "two": 22,
         "three": 33,
         "four": 4,
     };
 
-    const diff = first.diff(second);
+    final diff = first.diff(second);
 
     std\assert(diff.size() == 1 and diff["one"] != null, message: "Could use map.diff");
 }
 
 test "map.intersect" {
-    const first = {
+    final first = {
         "one": 1,
         "two": 2,
         "five": 5,
     };
 
-    const second = {
+    final second = {
         "two": 22,
         "three": 33,
         "four": 4,
     };
 
-    const intersect = first.intersect(second);
+    final intersect = first.intersect(second);
 
     std\assert(intersect.size() == 1 and intersect["two"] != null, message: "Could use map.intersect");
 }
 
 test "map.clone" {
-    const first = {
+    final first = {
         "one": 1,
         "two": 2,
         "five": 5,
     };
-    const copy = first.clone();
+    final copy = first.clone();
 
     std\assert(copy.size() == first.size(), message: "Could clone map");
     foreach (key, value in copy) {
@@ -86,11 +86,11 @@ test "map.clone" {
 }
 
 test "empty map type inferring" {
-    const map = {};
+    final map = {};
 
     std\assert(typeof map == <{any: any}>);
 
-    const smap: {str: int} = {};
+    final smap: {str: int} = {};
 
     std\assert(typeof smap == <{str: int}>);
 }

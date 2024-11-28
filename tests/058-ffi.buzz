@@ -32,10 +32,10 @@ test "pointer with Buffer" {
         std\assert(true, message: "Using bad buzz type triggers error");
     }
 
-    const i32align = ffi\alignOf("i32");
-    const len = buffer.len(align: i32align);
+    final i32align = ffi\alignOf("i32");
+    final len = buffer.len(align: i32align);
     std\assert(len == buffer.len() / 4, message: "Len align");
-    const total = sum(buffer.ptr(), len: len);
+    final total = sum(buffer.ptr(), len: len);
 
     std\assert(total == 12, message: "Could call FFI function with pointer argument");
 
@@ -49,7 +49,7 @@ test "pointer with Buffer" {
 
     std\assert(readTotal == total, message: "Could read from pointer");
 
-    const subTotal = sum(buffer.ptr(1, align: i32align), len: len - 1);
+    final subTotal = sum(buffer.ptr(1, align: i32align), len: len - 1);
 
     std\assert(subTotal == 11, message: "Could get ptr at offset");
 }
@@ -66,7 +66,7 @@ zdef("tests/utils/libforeign", `
 `);
 
 test "struct" {
-    const data = Data{
+    final data = Data{
         msg = ffi\cstr("bye world"),
         id = 123,
         value = 42.0,
@@ -87,7 +87,7 @@ test "struct" {
 }
 
 test "write/read struct in buffer" {
-    const data = Data{
+    final data = Data{
         msg = ffi\cstr("bye world"),
         id = 123,
         value = 42.0,
@@ -99,7 +99,7 @@ test "write/read struct in buffer" {
 
     std\assert(buffer.toString().len() == ffi\sizeOfStruct(Data), message: "Could write struct to buffer");
 
-    const read = buffer.readStruct::<Data>(Data);
+    final read = buffer.readStruct::<Data>(Data);
 
     std\assert(
         read.msg == data.msg and read.id == data.id,
@@ -125,7 +125,7 @@ zdef("tests/utils/libforeign", `
 `);
 
 test "union" {
-    const misc = Misc{
+    final misc = Misc{
         data = Data{
             id = 123,
             msg = ffi\cstr("hello world"),

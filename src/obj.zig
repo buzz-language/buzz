@@ -1708,7 +1708,7 @@ pub const ObjObject = struct {
         pub const Field = struct {
             name: []const u8,
             type_def: *ObjTypeDef,
-            constant: bool,
+            final: bool,
             method: bool,
             static: bool,
             location: Token,
@@ -1719,7 +1719,7 @@ pub const ObjObject = struct {
             pub fn eql(self: Field, other: Field) bool {
                 return std.mem.eql(u8, self.name, other.name) and
                     self.type_def.eql(other.type_def) and
-                    self.constant == other.constant and
+                    self.final == other.final and
                     self.method == other.method and
                     self.static == other.static and
                     self.has_default == other.has_default;
@@ -1805,7 +1805,7 @@ pub const ObjObject = struct {
                     .{
                         .name = original_field.name,
                         .type_def = original_field.type_def,
-                        .constant = original_field.constant,
+                        .final = original_field.final,
                         .method = original_field.method,
                         .static = original_field.static,
                         .location = original_field.location,
@@ -3529,7 +3529,7 @@ pub const ObjMap = struct {
                     .{
                         .name = "key",
                         .type_def = generic_key_type,
-                        .constant = false,
+                        .final = false,
                         .method = false,
                         .static = false,
                         .has_default = false,
@@ -3542,7 +3542,7 @@ pub const ObjMap = struct {
                     .{
                         .name = "value",
                         .type_def = generic_value_type,
-                        .constant = false,
+                        .final = false,
                         .method = false,
                         .static = false,
                         .has_default = false,
@@ -4197,7 +4197,7 @@ pub const ObjTypeDef = struct {
                             kv.key_ptr.*,
                             .{
                                 .name = kv.value_ptr.*.name,
-                                .constant = kv.value_ptr.*.constant,
+                                .final = kv.value_ptr.*.final,
                                 .static = kv.value_ptr.*.static,
                                 .location = kv.value_ptr.*.location,
                                 .method = kv.value_ptr.*.method,

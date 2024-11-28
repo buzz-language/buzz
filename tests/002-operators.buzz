@@ -28,9 +28,9 @@ test "Unary operators (constant folded)" {
 }
 
 test "Unary operators" {
-    const a = 12;
-    const b = false;
-    const c = 15;
+    final a = 12;
+    final b = false;
+    final c = 15;
 
     std\assert(-a < 0, message: "negate operator");
     std\assert(!b, message: "not operator");

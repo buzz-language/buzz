@@ -10,7 +10,7 @@ test "continue properly jumps and closes scope" {
         }
     }
 
-    const anotherRandomLocal = "bye there";
+    final anotherRandomLocal = "bye there";
 
     std\assert(anotherRandomLocal == "bye there", message: "continue properly closed revelant scopes");
 }
@@ -26,7 +26,7 @@ test "break properly jumps and closes scope" {
         _ = "after break";
     }
 
-    const anotherRandomLocal = "bye there";
+    final anotherRandomLocal = "bye there";
 
     std\assert(anotherRandomLocal == "bye there", message: "break properly closed revelant scopes");
 }

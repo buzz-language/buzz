@@ -1,7 +1,7 @@
 import "std";
 
 test "foreach on list" {
-    const list = [1, 2, 3];
+    final list = [1, 2, 3];
 
     var sum = 0;
     foreach (item in list) {
@@ -12,14 +12,14 @@ test "foreach on list" {
 }
 
 test "list.next" {
-    const list = [1, 2, 3];
+    final list = [1, 2, 3];
 
     std\assert(list.next(null) == 0, message: "calling next native");
     std\assert(list.next(0) == 1, message: "calling next native");
 }
 
 test "foreach on map" {
-    const map = {
+    final map = {
         "one": 1,
         "two": 2,
         "three": 3

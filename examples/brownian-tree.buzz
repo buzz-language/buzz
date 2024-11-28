@@ -29,11 +29,11 @@ fun setParticle(canvas: [[bool]]) > obj{ x: int, y: int } {
 
 fun iterate(canvas: [[bool]], numParticles: int) {
     foreach (_ in 0..numParticles) {
-        const pos = setParticle(canvas);
+        final pos = setParticle(canvas);
         
         while (true) {
-            const dx = std\random(min: 0, max: 5) - 3;
-            const dy = std\random(min: 0, max: 5) - 3;
+            final dx = std\random(min: 0, max: 5) - 3;
+            final dy = std\random(min: 0, max: 5) - 3;
 
             if (pos.x + dx >= 0 and pos.x + dx < canvas.len() and pos.y + dy >= 0 and pos.y + dy < canvas[0].len()) {
                 if (canvas[pos.x + dx][pos.y + dy]) {
@@ -72,9 +72,9 @@ fun draw(canvas: [[bool]], renderer: Renderer) > void !> SDLError {
 }
 
 fun main(_: [str]) > void !> SDLError {
-    const sizeX = 200;
-    const sizeY = 200;
-    const numParticles = 16000;
+    final sizeX = 200;
+    final sizeY = 200;
+    final numParticles = 16000;
 
     var canvas: [[bool]] = [];
     foreach (i in 0..sizeX) {

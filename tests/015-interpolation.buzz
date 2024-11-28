@@ -5,8 +5,8 @@ test "Escape sequences" {
 }
 
 test "String interpolation" {
-    const name = "joe";
-    const age = 12;
+    final name = "joe";
+    final age = 12;
 
     std\assert(
         "{"$"} hello {name} i'm {age} years old {3+4}"

@@ -18,7 +18,7 @@ test "str.indexOf" {
 }
 
 test "str.split" {
-    const splits = "one,two,three".split(",");
+    final splits = "one,two,three".split(",");
 
     std\assert(splits[0] == "one" and splits[1] == "two" and splits[2] == "three", message: "str.split");
 }

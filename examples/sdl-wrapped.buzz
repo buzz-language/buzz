@@ -294,7 +294,7 @@ export object Renderer {
         width: int,
         height: int
     ) > Texture !> SDLError {
-        const texture = SDL_CreateTexture(
+        final texture = SDL_CreateTexture(
             this.renderer,
             format: std\toDouble(format.value),
             access: access.value,
@@ -314,7 +314,7 @@ export object Renderer {
     }
 
     fun setRenderTarget(texture: Texture?) > void !> SDLError {
-        const result = SDL_SetRenderTarget(
+        final result = SDL_SetRenderTarget(
             this.renderer,
             texture: texture?.texture
         );
@@ -327,7 +327,7 @@ export object Renderer {
     }
 
     fun setRenderDrawColor(color: Color) > void !> SDLError {
-        const result = SDL_SetRenderDrawColor(
+        final result = SDL_SetRenderDrawColor(
             this.renderer,
             r: color.red,
             g: color.green,
@@ -343,7 +343,7 @@ export object Renderer {
     }
 
     fun fillRect(rect: Rect) > void !> SDLError {
-        const result = SDL_RenderFillRect(
+        final result = SDL_RenderFillRect(
             this.renderer,
             rect: SDL_Rect{
                 x = rect.x,
@@ -361,7 +361,7 @@ export object Renderer {
     }
 
     fun drawPoint(x: int, y: int) > void !> SDLError {
-        const result = SDL_RenderDrawPoint(
+        final result = SDL_RenderDrawPoint(
             this.renderer,
             x, y,
         );
@@ -374,7 +374,7 @@ export object Renderer {
     }
 
     fun renderCopy(texture: Texture, srcRect: Rect? = null, dstRect: Rect? = null) > void !> SDLError {
-        const result = SDL_RenderCopy(
+        final result = SDL_RenderCopy(
             this.renderer,
             texture: texture.texture,
             srcrect: if (srcRect -> rect)
@@ -427,7 +427,7 @@ export object Window {
             windowFlags = windowFlags | flag.value;
         }
 
-        const window = SDL_CreateWindow(
+        final window = SDL_CreateWindow(
             ffi\cstr(name),
             x,
             y,
@@ -456,7 +456,7 @@ export object Window {
             rendererFlags = rendererFlags | flag.value;
         }
 
-        const renderer = SDL_CreateRenderer(
+        final renderer = SDL_CreateRenderer(
             this.window,
             index: index,
             flags: std\toDouble(rendererFlags),

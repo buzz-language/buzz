@@ -19,8 +19,8 @@ test "Constant expression" {
     hello();
     hello();
 
-    const a = A{};
-    const b = A{};
+    final a = A{};
+    final b = A{};
 
     std\assert(a.list != b.list, message: "object default value were cloned");
     std\assert(a.map != b.map, message: "object default value were cloned");

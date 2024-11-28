@@ -11,9 +11,9 @@ test "ternary" {
 }
 
 test "multiple branches" {
-    const value = 12;
+    final value = 12;
 
-    const expr = if (value == 14)
+    final expr = if (value == 14)
         "hello"
     else if (value == 12)
         "yolo"
@@ -24,7 +24,7 @@ test "multiple branches" {
 }
 
 test "inline if in expression" {
-    const value = 12;
+    final value = 12;
 
     std\assert(
         (if (value == 14)

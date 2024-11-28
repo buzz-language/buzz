@@ -13,9 +13,9 @@ fun dumpType(myType: type) > void {
 protocol C {}
 
 test "Types as value" {
-    const _ = <A>;
-    const another = <str>;
-    const again = <str>;
+    final _ = <A>;
+    final another = <str>;
+    final again = <str>;
 
     std\assert(another == again, message: "Can compare type values");
 }

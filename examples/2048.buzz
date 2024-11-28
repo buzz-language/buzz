@@ -48,7 +48,7 @@ object Game {
     invalidMove: bool = false,
 
     static fun init(size: int = 4, goal: int = 2048) > Game {
-        const game = Game{
+        final game = Game{
             size,
             goal
         };
@@ -76,13 +76,13 @@ object Game {
 
     // Add new tile at a random free sp
     fun addNewTile() > void {
-        const free = this.freeSpots();
+        final free = this.freeSpots();
 
         if (free.len() == 0) {
             return;
         }
 
-        const spot = free[std\random(min: 0, max: free.len() - 1)];
+        final spot = free[std\random(min: 0, max: free.len() - 1)];
         this.board[spot.x][spot.y] = if (std\random(min: 0, max: 9) == 0)
             4
         else
@@ -158,7 +158,7 @@ object Game {
 
         foreach (x in 0..this.size) {
             foreach (y in 0..this.size) {
-                const pair = Pair{
+                final pair = Pair{
                     srcX = x,
                     srcY = y,
                     srcValue = this.board[x][y],
@@ -227,7 +227,7 @@ object Game {
 
     fun move() > bool {
         io\stdout.write("(wasd to move, q to quit, r to restart)\n> ") catch void;
-        const command = io\stdin.read(1) catch void;
+        final command = io\stdin.read(1) catch void;
 
         if (command == "q") {
             os\exit(0);
@@ -294,7 +294,7 @@ object Game {
 }
 
 fun main(_: [str]) > void {
-    const game = Game.init();
+    final game = Game.init();
 
     game.addNewTile();
     game.render();

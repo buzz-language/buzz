@@ -1,7 +1,7 @@
 import "std";
 
 test "any" {
-    const anything: any = "hello";
+    final anything: any = "hello";
 
     std\assert(anything is str, message: "can manipulate any typed value");
 
@@ -18,10 +18,10 @@ test "any placeholder" {
     }
 }
 
-const placeholder: any = "hello";
+final placeholder: any = "hello";
 
 test "as?" {
-    const anything: any = 12;
+    final anything: any = 12;
 
     std\assert((anything as? int) == 12, message: "as?");
 
@@ -29,7 +29,7 @@ test "as?" {
 }
 
 test "list of any" {
-    const list = [ 1, true, 12.4, "hello" ];
+    final list = [ 1, true, 12.4, "hello" ];
 
     foreach (element in list) {
         std\print("{element}");
@@ -37,7 +37,7 @@ test "list of any" {
 }
 
 test "map of any" {
-    const map: {str: any} = {
+    final map: {str: any} = {
         "hello": true,
         "world": "one",
     };
@@ -46,7 +46,7 @@ test "map of any" {
         std\print("{key}: {element}");
     }
 
-    const map2: {any: str} = {
+    final map2: {any: str} = {
         "hello": "true",
         true: "one",
     };
@@ -55,7 +55,7 @@ test "map of any" {
         std\print("{key}: {element}");
     }
 
-    const map3: {any: any} = {
+    final map3: {any: any} = {
         "hello": 1,
         true: "one",
     };

@@ -199,7 +199,7 @@ pub const Local = struct {
     type_def: *obj.ObjTypeDef,
     depth: i32,
     is_captured: bool,
-    constant: bool,
+    final: bool,
     referenced: bool = false,
 
     pub fn isReferenced(self: Local, ast: Ast) bool {
@@ -221,7 +221,7 @@ pub const Global = struct {
     initialized: bool = false,
     exported: bool = false,
     hidden: bool = false,
-    constant: bool,
+    final: bool,
     referenced: bool = false,
 
     pub fn isReferenced(self: Global, ast: Ast) bool {
@@ -500,7 +500,7 @@ const rules = [_]ParseRule{
     .{ .prefix = null, .infix = null, .precedence = .None }, // Test
     .{ .prefix = null, .infix = null, .precedence = .None }, // Import
     .{ .prefix = null, .infix = null, .precedence = .None }, // Export
-    .{ .prefix = null, .infix = null, .precedence = .None }, // Const
+    .{ .prefix = null, .infix = null, .precedence = .None }, // Final
     .{ .prefix = null, .infix = null, .precedence = .None }, // Static
     .{ .prefix = blockExpression, .infix = null, .precedence = .None }, // From
     .{ .prefix = null, .infix = null, .precedence = .None }, // As
@@ -802,7 +802,7 @@ fn synchronize(self: *Self) !void {
             .Enum,
             .Test,
             .Fun,
-            .Const,
+            .Final,
             .If,
             .While,
             .Do,
@@ -1333,11 +1333,11 @@ fn declaration(self: *Self) Error!?Ast.Node.Index {
         try self.enumDeclaration()
     else if ((try self.match(.Fun)) or (global_scope and try self.match(.Extern)))
         try self.funDeclaration()
-    else if ((try self.match(.Const)) or
+    else if ((try self.match(.Final)) or
         (try self.match(.Var) or
         (self.check(.Identifier) and std.mem.eql(u8, "_", self.ast.tokens.items(.lexeme)[self.current_token.?]))))
     variable: {
-        const constant = self.current_token.? > 0 and self.ast.tokens.items(.tag)[self.current_token.? - 1] == .Const;
+        const final = self.current_token.? > 0 and self.ast.tokens.items(.tag)[self.current_token.? - 1] == .Final;
         try self.consume(.Identifier, "Expected identifier");
         const identifier = self.current_token.? - 1;
 
@@ -1347,7 +1347,7 @@ fn declaration(self: *Self) Error!?Ast.Node.Index {
                 identifier,
                 null,
                 .Semicolon,
-                constant,
+                final,
                 true,
                 false,
             );
@@ -1360,7 +1360,7 @@ fn declaration(self: *Self) Error!?Ast.Node.Index {
                     identifier,
                     try self.simpleType(simpleTypeFromToken(token).?),
                     .Semicolon,
-                    constant,
+                    final,
                     true,
                     false,
                 );
@@ -1373,7 +1373,7 @@ fn declaration(self: *Self) Error!?Ast.Node.Index {
                 identifier,
                 try self.parseFiberType(null),
                 .Semicolon,
-                constant,
+                final,
                 true,
                 false,
             )
@@ -1382,7 +1382,7 @@ fn declaration(self: *Self) Error!?Ast.Node.Index {
                 identifier,
                 try self.parseObjType(null),
                 .Semicolon,
-                constant,
+                final,
                 true,
                 false,
             )
@@ -1391,7 +1391,7 @@ fn declaration(self: *Self) Error!?Ast.Node.Index {
                 identifier,
                 try self.parseListType(null),
                 .Semicolon,
-                constant,
+                final,
                 true,
                 false,
             )
@@ -1400,7 +1400,7 @@ fn declaration(self: *Self) Error!?Ast.Node.Index {
                 identifier,
                 try self.parseMapType(null),
                 .Semicolon,
-                constant,
+                final,
                 true,
                 false,
             )
@@ -1409,14 +1409,14 @@ fn declaration(self: *Self) Error!?Ast.Node.Index {
                 identifier,
                 try self.parseFunctionType(null),
                 .Semicolon,
-                constant,
+                final,
                 true,
                 false,
             )
         else if (try self.match(.Identifier)) {
             break :variable try self.userVarDeclaration(
                 identifier,
-                constant,
+                final,
             );
         }
 
@@ -1505,7 +1505,7 @@ fn statement(self: *Self, hanging: bool, loop_scope: ?LoopScope) !?Ast.Node.Inde
     return try self.expressionStatement(hanging);
 }
 
-fn addLocal(self: *Self, name: Ast.TokenIndex, local_type: *obj.ObjTypeDef, constant: bool) Error!usize {
+fn addLocal(self: *Self, name: Ast.TokenIndex, local_type: *obj.ObjTypeDef, final: bool) Error!usize {
     if (self.current.?.local_count == 255) {
         self.reportError(.locals_count, "Too many local variables in scope.");
         return 0;
@@ -1517,7 +1517,7 @@ fn addLocal(self: *Self, name: Ast.TokenIndex, local_type: *obj.ObjTypeDef, cons
         .depth = -1,
         .is_captured = false,
         .type_def = local_type,
-        .constant = constant,
+        .final = final,
         // Extern and abstract function arguments are considered referenced
         .referenced = function_type == .Extern or function_type == .Abstract,
     };
@@ -1527,7 +1527,7 @@ fn addLocal(self: *Self, name: Ast.TokenIndex, local_type: *obj.ObjTypeDef, cons
     return self.current.?.local_count - 1;
 }
 
-fn addGlobal(self: *Self, name: Ast.TokenIndex, global_type: *obj.ObjTypeDef, constant: bool) Error!usize {
+fn addGlobal(self: *Self, name: Ast.TokenIndex, global_type: *obj.ObjTypeDef, final: bool) Error!usize {
     const lexemes = self.ast.tokens.items(.lexeme);
     // Search for an existing placeholder global with the same name
     for (self.globals.items, 0..) |*global, index| {
@@ -1538,7 +1538,7 @@ fn addGlobal(self: *Self, name: Ast.TokenIndex, global_type: *obj.ObjTypeDef, co
             global.exported = self.exporting;
 
             if (global_type.def_type != .Placeholder) {
-                try self.resolvePlaceholder(global.type_def, global_type, constant);
+                try self.resolvePlaceholder(global.type_def, global_type, final);
             }
 
             return index;
@@ -1561,7 +1561,7 @@ fn addGlobal(self: *Self, name: Ast.TokenIndex, global_type: *obj.ObjTypeDef, co
         .{
             .name = qualified_name.items,
             .type_def = global_type,
-            .constant = constant,
+            .final = final,
             .exported = self.exporting,
         },
     );
@@ -1661,7 +1661,7 @@ fn resolvePlaceholderWithRelation(
     self: *Self,
     child: *obj.ObjTypeDef,
     resolved_type: *obj.ObjTypeDef,
-    constant: bool,
+    final: bool,
     relation: obj.PlaceholderDef.PlaceholderRelation,
 ) Error!void {
     const child_placeholder = child.resolved_type.?.Placeholder;
@@ -1906,7 +1906,7 @@ fn resolvePlaceholderWithRelation(
                         try self.resolvePlaceholder(
                             child,
                             field.type_def,
-                            field.constant,
+                            field.final,
                         );
                     } else {
                         self.reportErrorFmt(
@@ -1928,7 +1928,7 @@ fn resolvePlaceholderWithRelation(
                         try self.resolvePlaceholder(
                             child,
                             field.type_def,
-                            field.constant,
+                            field.final,
                         );
                     } else {
                         self.reportErrorFmt(
@@ -2024,11 +2024,11 @@ fn resolvePlaceholderWithRelation(
             }
         },
         .Assignment => {
-            if (constant) {
+            if (final) {
                 self.reporter.reportErrorAt(
-                    .constant,
+                    .final,
                     self.ast.tokens.get(child_placeholder.where),
-                    "Is constant.",
+                    "Is final.",
                 );
                 return;
             }
@@ -2045,7 +2045,7 @@ fn resolvePlaceholderWithRelation(
 // When we encounter the missing declaration we replace it with the resolved type.
 // We then follow the chain of placeholders to see if their assumptions were correct.
 // If not we raise a compile error.
-pub fn resolvePlaceholder(self: *Self, placeholder: *obj.ObjTypeDef, resolved_type: *obj.ObjTypeDef, constant: bool) Error!void {
+pub fn resolvePlaceholder(self: *Self, placeholder: *obj.ObjTypeDef, resolved_type: *obj.ObjTypeDef, final: bool) Error!void {
     std.debug.assert(placeholder.def_type == .Placeholder);
 
     if (BuildOptions.debug_placeholders) {
@@ -2080,7 +2080,7 @@ pub fn resolvePlaceholder(self: *Self, placeholder: *obj.ObjTypeDef, resolved_ty
                 try self.resolvePlaceholderWithRelation(
                     resolved_type,
                     parent,
-                    constant,
+                    final,
                     resolved_type.resolved_type.?.Placeholder.parent_relation.?,
                 );
             }
@@ -2128,7 +2128,7 @@ pub fn resolvePlaceholder(self: *Self, placeholder: *obj.ObjTypeDef, resolved_ty
             try self.resolvePlaceholderWithRelation(
                 child,
                 placeholder,
-                constant,
+                final,
                 child.resolved_type.?.Placeholder.parent_relation.?,
             );
         }
@@ -2182,7 +2182,7 @@ fn resolveUpvalue(self: *Self, frame: *Frame, name: Ast.TokenIndex) Error!?usize
     return null;
 }
 
-fn declareVariable(self: *Self, variable_type: *obj.ObjTypeDef, name: Ast.TokenIndex, constant: bool, check_name: bool) Error!usize {
+fn declareVariable(self: *Self, variable_type: *obj.ObjTypeDef, name: Ast.TokenIndex, final: bool, check_name: bool) Error!usize {
     const lexemes = self.ast.tokens.items(.lexeme);
     const name_lexeme = lexemes[name];
 
@@ -2215,7 +2215,7 @@ fn declareVariable(self: *Self, variable_type: *obj.ObjTypeDef, name: Ast.TokenI
             }
         }
 
-        return try self.addLocal(name, variable_type, constant);
+        return try self.addLocal(name, variable_type, final);
     } else {
         if (check_name) {
             // Check a global with the same name doesn't exists
@@ -2245,7 +2245,7 @@ fn declareVariable(self: *Self, variable_type: *obj.ObjTypeDef, name: Ast.TokenI
                                 );
                             }
 
-                            try self.resolvePlaceholder(global.type_def, variable_type, constant);
+                            try self.resolvePlaceholder(global.type_def, variable_type, final);
                         }
 
                         global.referenced = true;
@@ -2258,7 +2258,7 @@ fn declareVariable(self: *Self, variable_type: *obj.ObjTypeDef, name: Ast.TokenI
             }
         }
 
-        return try self.addGlobal(name, variable_type, constant);
+        return try self.addGlobal(name, variable_type, final);
     }
 }
 
@@ -2266,7 +2266,7 @@ fn parseVariable(
     self: *Self,
     identifier: ?Ast.TokenIndex,
     variable_type: *obj.ObjTypeDef,
-    constant: bool,
+    final: bool,
     error_message: []const u8,
 ) !usize {
     if (identifier == null) {
@@ -2276,7 +2276,7 @@ fn parseVariable(
     return try self.declareVariable(
         variable_type,
         identifier orelse self.current_token.? - 1,
-        constant,
+        final,
         true,
     );
 }
@@ -3057,7 +3057,7 @@ fn parseObjType(self: *Self, generic_types: ?std.AutoArrayHashMap(*obj.ObjString
     var obj_is_not_tuple = false;
     var property_idx: usize = 0;
     while (!self.check(.RightBrace) and !self.check(.Eof)) : (property_idx += 1) {
-        const constant = try self.match(.Const);
+        const final = try self.match(.Final);
 
         const is_tuple = !(try self.match(.Identifier));
         const property_name = if (!is_tuple)
@@ -3121,7 +3121,7 @@ fn parseObjType(self: *Self, generic_types: ?std.AutoArrayHashMap(*obj.ObjString
                 .name = property_name_lexeme,
                 .type_def = self.ast.nodes.items(.type_def)[property_type].?,
                 .location = self.ast.tokens.get(property_name),
-                .constant = constant,
+                .final = final,
                 .static = false,
                 .method = false,
                 .has_default = false,
@@ -4051,7 +4051,7 @@ fn anonymousObjectInit(self: *Self, _: bool) Error!Ast.Node.Index {
                     .location = self.ast.tokens.get(property_name),
                     .static = false,
                     .method = false,
-                    .constant = false,
+                    .final = false,
                     .has_default = false,
                     .index = property_idx,
                 },
@@ -4102,7 +4102,7 @@ fn anonymousObjectInit(self: *Self, _: bool) Error!Ast.Node.Index {
                     .location = self.ast.tokens.get(property_name),
                     .static = false,
                     .method = false,
-                    .constant = false,
+                    .final = false,
                     .has_default = false,
                     .index = property_idx,
                 },
@@ -4501,7 +4501,7 @@ fn dot(self: *Self, can_assign: bool, callee: Ast.Node.Index) Error!Ast.Node.Ind
                     property_type;
 
                 // If its a field or placeholder, we can assign to it
-                // TODO: here get info that field is constant or not
+                // TODO: here get info that field is final or not
                 var components = self.ast.nodes.items(.components);
                 if (can_assign and try self.match(.Equal)) {
                     components[dot_node].Dot.member_kind = .Value;
@@ -5077,18 +5077,18 @@ fn namedVariable(self: *Self, name: []const Ast.TokenIndex, can_assign: bool) Er
     var var_def: ?*obj.ObjTypeDef = null;
     var slot: usize = undefined;
     var slot_type: Ast.SlotType = undefined;
-    var slot_constant = false;
+    var slot_final = false;
     if (name.len == 1) {
         if (try self.resolveLocal(self.current.?, name[0])) |uslot| {
             var_def = self.current.?.locals[uslot].type_def;
             slot = uslot;
             slot_type = .Local;
-            slot_constant = self.current.?.locals[uslot].constant;
+            slot_final = self.current.?.locals[uslot].final;
         } else if (try self.resolveUpvalue(self.current.?, name[0])) |uslot| {
             var_def = self.current.?.enclosing.?.locals[self.current.?.upvalues[uslot].index].type_def;
             slot = uslot;
             slot_type = .UpValue;
-            slot_constant = self.current.?.enclosing.?.locals[self.current.?.upvalues[uslot].index].constant;
+            slot_final = self.current.?.enclosing.?.locals[self.current.?.upvalues[uslot].index].final;
         }
     }
 
@@ -5099,7 +5099,7 @@ fn namedVariable(self: *Self, name: []const Ast.TokenIndex, can_assign: bool) Er
             var_def = global.type_def;
             slot = uslot;
             slot_type = .Global;
-            slot_constant = global.constant;
+            slot_final = global.final;
 
             if (global.imported_from != null and self.script_imports.get(global.imported_from.?) != null) {
                 const imported_from = global.imported_from.?;
@@ -5134,8 +5134,8 @@ fn namedVariable(self: *Self, name: []const Ast.TokenIndex, can_assign: bool) Er
     else
         null;
 
-    if (value != null and slot_constant) {
-        self.reportError(.constant, "Can't assign to constant variable");
+    if (value != null and slot_final) {
+        self.reportError(.final, "Can't assign to final variable");
     }
 
     return try self.ast.appendNode(
@@ -5150,7 +5150,7 @@ fn namedVariable(self: *Self, name: []const Ast.TokenIndex, can_assign: bool) Er
                     .value = value,
                     .slot = @intCast(slot),
                     .slot_type = slot_type,
-                    .slot_constant = slot_constant,
+                    .slot_final = slot_final,
                 },
             },
         },
@@ -5366,7 +5366,7 @@ fn function(
                 const slot = try self.parseVariable(
                     identifier,
                     argument_type,
-                    true, // function arguments are constant
+                    true, // function arguments are final
                     "Expected argument name",
                 );
 
@@ -6518,7 +6518,7 @@ fn objectDeclaration(self: *Self) Error!Ast.Node.Index {
                 .{
                     .name = method_name,
                     .type_def = method_type_def.?,
-                    .constant = true,
+                    .final = true,
                     .static = static,
                     .location = self.ast.tokens.get(method_token),
                     .method = true,
@@ -6540,7 +6540,7 @@ fn objectDeclaration(self: *Self) Error!Ast.Node.Index {
             try fields.put(method_name, {});
             try properties_type.put(method_name, self.ast.nodes.items(.type_def)[method_node].?);
         } else {
-            const constant = try self.match(.Const);
+            const final = try self.match(.Final);
 
             try self.consume(.Identifier, "Expected property name.");
             const property_token = self.current_token.? - 1;
@@ -6627,7 +6627,7 @@ fn objectDeclaration(self: *Self) Error!Ast.Node.Index {
                 .{
                     .name = property_name.lexeme,
                     .type_def = self.ast.nodes.items(.type_def)[property_type].?,
-                    .constant = constant,
+                    .final = final,
                     .static = static,
                     .location = property_name,
                     .method = false,
@@ -6670,7 +6670,7 @@ fn objectDeclaration(self: *Self) Error!Ast.Node.Index {
     const slot = try self.declareVariable(
         &object_type, // Should resolve object_name_tokenect_placeholder and be discarded
         object_name_token,
-        true, // Object is always constant
+        true, // Object is always final
         true,
     );
 
@@ -6814,7 +6814,7 @@ fn protocolDeclaration(self: *Self) Error!Ast.Node.Index {
     const slot = try self.declareVariable(
         &protocol_type, // Should resolve protocol_placeholder and be discarded
         protocol_name,
-        true, // Protocol is always constant
+        true, // Protocol is always final
         true,
     );
 
@@ -7047,7 +7047,7 @@ fn varDeclaration(
     identifier: ?Ast.TokenIndex,
     parsed_type: ?Ast.Node.Index,
     terminator: DeclarationTerminator,
-    constant: bool,
+    final: bool,
     should_assign: bool,
     type_provided_later: bool,
 ) Error!Ast.Node.Index {
@@ -7062,7 +7062,7 @@ fn varDeclaration(
     const slot: usize = try self.parseVariable(
         identifier,
         var_type,
-        constant,
+        final,
         "Expected variable name.",
     );
 
@@ -7142,7 +7142,7 @@ fn varDeclaration(
                     .name = name,
                     .value = value,
                     .type = parsed_type,
-                    .constant = constant,
+                    .final = final,
                     .slot = @intCast(slot),
                     .slot_type = if (self.current.?.scope_depth > 0) .Local else .Global,
                 },
@@ -7152,9 +7152,9 @@ fn varDeclaration(
 }
 
 // Same as varDeclaration but does not parse anything (useful when we need to declare a variable that need to exists but is not exposed to the user)
-fn implicitVarDeclaration(self: *Self, name: Ast.TokenIndex, parsed_type: *obj.ObjTypeDef, constant: bool) Error!Ast.Node.Index {
+fn implicitVarDeclaration(self: *Self, name: Ast.TokenIndex, parsed_type: *obj.ObjTypeDef, final: bool) Error!Ast.Node.Index {
     const var_type = try parsed_type.toInstance(self.gc.allocator, &self.gc.type_registry);
-    const slot = try self.declareVariable(var_type, name, constant, true);
+    const slot = try self.declareVariable(var_type, name, final, true);
     self.markInitialized();
 
     return try self.ast.appendNode(
@@ -7168,7 +7168,7 @@ fn implicitVarDeclaration(self: *Self, name: Ast.TokenIndex, parsed_type: *obj.O
                     .name = name,
                     .value = null,
                     .type = null,
-                    .constant = constant,
+                    .final = final,
                     .slot = @intCast(slot),
                     .slot_type = if (self.current.?.scope_depth > 0) .Local else .Global,
                 },
@@ -7216,7 +7216,7 @@ fn testStatement(self: *Self) Error!Ast.Node.Index {
                     .name = name_token,
                     .value = function_node,
                     .type = self.ast.nodes.items(.components)[function_node].Function.function_signature,
-                    .constant = true,
+                    .final = true,
                     .slot = @intCast(slot),
                     .slot_type = .Global,
                 },
@@ -8025,7 +8025,7 @@ fn zdefStatement(self: *Self) Error!Ast.Node.Index {
 }
 
 // FIXME: this is almost the same as parseUserType!
-fn userVarDeclaration(self: *Self, identifier: Ast.TokenIndex, constant: bool) Error!Ast.Node.Index {
+fn userVarDeclaration(self: *Self, identifier: Ast.TokenIndex, final: bool) Error!Ast.Node.Index {
     const start_location = self.current_token.? - 1;
     var var_type: ?*obj.ObjTypeDef = null;
 
@@ -8171,7 +8171,7 @@ fn userVarDeclaration(self: *Self, identifier: Ast.TokenIndex, constant: bool) E
         identifier,
         user_type_node,
         .Semicolon,
-        constant,
+        final,
         true,
         false,
     );
@@ -8724,7 +8724,7 @@ fn tryStatement(self: *Self) Error!Ast.Node.Index {
             _ = try self.parseVariable(
                 identifier,
                 self.ast.nodes.items(.type_def)[type_def].?,
-                true, // function arguments are constant
+                true, // function arguments are final
                 "Expected error identifier",
             );
 

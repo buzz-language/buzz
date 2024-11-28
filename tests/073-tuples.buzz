@@ -9,19 +9,19 @@ fun pack(names: [str]) > obj{ :str, :str, :str } {
 }
 
 test "Tuples" {
-    const tuple = .{ "joe", "doe" };
+    final tuple = .{ "joe", "doe" };
 
     std\assert(tuple.@"0" == "joe" and tuple.@"1" == "doe");
 
-    const name = "Joe";
-    const age = 42;
+    final name = "Joe";
+    final age = 42;
 
     // Forced tuple
-    const another = .{ (name), (age) };
+    final another = .{ (name), (age) };
 
     std\assert(another.@"0" == "Joe" and another.@"1" == 42);
 
-	const names = pack(["Joe", "John", "James"]);
+	final names = pack(["Joe", "John", "James"]);
 
 	std\assert(names.@"0" == "Joe" and names.@"1" == "John");
 }

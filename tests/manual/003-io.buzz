@@ -2,7 +2,7 @@ import "std";
 import "io";
 
 test "Read stdin" {
-    for (str? line = ""; line != null; line = io\stdin.readLine()) {
+    for (line: str? = ""; line != null; line = io\stdin.readLine()) {
         std\print("= {line}");
         io\stdout.write("> ");
     }

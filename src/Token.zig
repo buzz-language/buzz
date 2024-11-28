@@ -151,7 +151,7 @@ pub const Type = enum {
     Test, // test
     Import, // import
     Export, // export
-    Const, // const
+    Final, // final
     Static, // static
     From, // from
     As, // as
@@ -187,7 +187,7 @@ pub const keywords = std.StaticStringMap(Type).initComptime(
         .{ "bool", .Bool },
         .{ "break", .Break },
         .{ "catch", .Catch },
-        .{ "const", .Const },
+        .{ "final", .Final },
         .{ "continue", .Continue },
         .{ "do", .Do },
         .{ "else", .Else },

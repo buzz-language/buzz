@@ -662,7 +662,7 @@ pub fn highlight(self: *Self, out: anytype, true_color: bool) void {
                     .ForEach,
                     .Break,
                     .Continue,
-                    .Const,
+                    .Final,
                     .Fun,
                     .In,
                     .Str,

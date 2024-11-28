@@ -146,7 +146,7 @@ export object Tester {
             afterAll(this);
         }
 
-        const failed = this.failedTests();
+        final failed = this.failedTests();
 
         io\stdout.write("\n") catch void;
 

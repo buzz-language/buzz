@@ -1,13 +1,13 @@
-// Can't assign to constant variable
+// Can't assign to final variable
 import "std";
 
-test "`const` variable" {
-    const yo = "yo";
+test "`final` variable" {
+    final yo = "yo";
 
     yo = "no way";
 }
 
-// function arguments are `const`
+// function arguments are `final`
 fun illegal(yo: str) > void {
     yo = "no way";
 }

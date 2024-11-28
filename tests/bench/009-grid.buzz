@@ -1,8 +1,8 @@
 import "std";
 
 fun main([str] args) > void {
-    const int width = (if (args.len() > 0) std\parseInt(args[0]) else 80) ?? 80;
-    const int height = (if (args.len() > 1) std\parseInt(args[1]) else 60) ?? 60;
+    final int width = (if (args.len() > 0) std\parseInt(args[0]) else 80) ?? 80;
+    final int height = (if (args.len() > 1) std\parseInt(args[1]) else 60) ?? 60;
 
     var cells = [<bool>];
 

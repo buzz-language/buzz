@@ -2,14 +2,14 @@ namespace testing;
 
 import "std" as std;
 
-const unexported = 42;
+final unexported = 42;
 
 fun hey(message: str) > int {
     std\print(message);
     return unexported;
 }
 
-const ignore = "ignore me!";
+final ignore = "ignore me!";
 
 object PrefixMe {
     name: str = "Joe",

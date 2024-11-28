@@ -1,7 +1,7 @@
 import  "std";
 
 fun main([str] args) > void {
-    const max = (if (args.len() > 0) std\parseInt(args[0]) else null) ?? 750;
+    final max = (if (args.len() > 0) std\parseInt(args[0]) else null) ?? 750;
 
     var list = init(max);
 
@@ -14,8 +14,8 @@ fun main([str] args) > void {
 
 fun init(int max) > [int] {
     [int] list = [];
-    const f = max - 13;
-    const h = ((max - 117) * (max - 13)) / max;
+    final f = max - 13;
+    final h = ((max - 117) * (max - 13)) / max;
 
     for (int i = 0; i < max; i = i + 1) {
         list.append((f * i) % h - (h / 2));
@@ -25,11 +25,11 @@ fun init(int max) > [int] {
 }
 
 fun bubblesort([int] list) > void {
-    const len = list.len();
+    final len = list.len();
     for (int i = 0; i < len - 1; i = i + 1) {
         for (int j = 0; j < len - 1; j = j + 1) {
             if (list[j] > list[j + 1]) {
-                const tmp = list[j];
+                final tmp = list[j];
                 list[j] = list[j + 1];
                 list[j + 1] = tmp;
             }

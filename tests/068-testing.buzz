@@ -1,7 +1,7 @@
 import "testing" as _;
 
 test "Test std lib" {
-    const t = Tester.init(
+    final t = Tester.init(
         beforeAll: fun (t: Tester) {
             t.assert(true);
         },

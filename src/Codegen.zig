@@ -1546,11 +1546,11 @@ fn generateDot(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.
                                         field_name,
                                     },
                                 );
-                            } else if (field.?.constant) {
+                            } else if (field.?.final) {
                                 self.reporter.reportErrorFmt(
                                     .constant_property,
                                     self.ast.tokens.get(locations[value]),
-                                    "`{s}` is constant",
+                                    "`{s}` is final",
                                     .{
                                         field_name,
                                     },

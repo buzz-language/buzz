@@ -38,7 +38,7 @@ object Tail {
 }
 
 test "dot tail call" {
-    const result = Tail{
+    final result = Tail{
         a = 5,
         b = 2,
     }.tail(3);

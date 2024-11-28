@@ -40,7 +40,7 @@ fun generateVoronoi(renderer: Renderer, width: int, height: int, numCells: int) 
             var dmin = hypot(x: width - 1, y: height - 1);
             var j = -1;
             foreach (i in 0..numCells) {
-                const d = hypot(x: nx[i] - x, y: ny[i] - y);
+                final d = hypot(x: nx[i] - x, y: ny[i] - y);
                 if (d < dmin) {
                     dmin = d;
                     j = i;
@@ -67,9 +67,9 @@ fun generateVoronoi(renderer: Renderer, width: int, height: int, numCells: int) 
 }
 
 fun main(_: [str]) > void !> SDLError {
-    const width = 400;
-    const height = 400;
-    const numCells = 50;
+    final width = 400;
+    final height = 400;
+    final numCells = 50;
 
     var sdl = SDL.init([Subsystem.Video]);
 

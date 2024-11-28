@@ -11,7 +11,7 @@ object First {
 }
 
 test "Objects" {
-    const first = First {
+    final first = First {
         name = "John",
     };
 
@@ -38,7 +38,7 @@ object Second {
 }
 
 test "Object with static fields" {
-    const second = Second.init();
+    final second = Second.init();
 
     std\assert(second.id == Second.nextId, message: "could use static fields");
 }

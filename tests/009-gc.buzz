@@ -13,14 +13,14 @@ object Kill {
 
 test "GC, collecting unreferenced objects" {
     var i = 0;
-    const _ = Kill{}; // Should be kept longer
+    final _ = Kill{}; // Should be kept longer
     while (i < 1000) {
-        const _ = Kill{ yo = i }; // Should be collected since not referenced anywhere
+        final _ = Kill{ yo = i }; // Should be collected since not referenced anywhere
 
         i = i + 1;
     }
 
-    const before = gc\allocated();
+    final before = gc\allocated();
 
     gc\collect();
 

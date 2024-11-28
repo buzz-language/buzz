@@ -23,7 +23,7 @@ test "ls" {
         }
     }
 
-    const anotherRandomLocal = "bye there!";
+    final anotherRandomLocal = "bye there!";
 
     std\assert(anotherRandomLocal == "bye there!", message: "foreach break is wrong");
 

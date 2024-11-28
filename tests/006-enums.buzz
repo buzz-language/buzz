@@ -34,11 +34,11 @@ test "Enums" {
 
     std\assert(NaturalEnum.zero.value == 0, message: "natural enum");
 
-    const myCase = NaturalEnum.two;
+    final myCase = NaturalEnum.two;
 
     std\assert(myCase.value == 2, message: "enum instance");
 
-    const fromValue = NaturalEnum(0);
+    final fromValue = NaturalEnum(0);
     std\assert(fromValue != null, message: "Could get enum instance from value");
     std\assert(fromValue?.value == 0, message: "Could get correct enum instance from value");
 }

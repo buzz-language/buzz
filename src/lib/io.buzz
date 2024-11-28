@@ -86,11 +86,11 @@ export object File {
 }
 
 /// stdin
-export const stdin = File{ fd = getStdIn() };
+export final stdin = File{ fd = getStdIn() };
 /// stdout
-export const stdout = File{ fd = getStdOut() };
+export final stdout = File{ fd = getStdOut() };
 /// stderr
-export const stderr = File{ fd = getStdErr() };
+export final stderr = File{ fd = getStdErr() };
 
 /// Run a buzz file
 /// @param filename path to buzz file

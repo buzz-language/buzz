@@ -1,7 +1,7 @@
 import "std";
 
 test "Lambda/Anonymous functions" {
-    const mul: fun (n: int) > int = fun (n: int) > int => n * 2;
+    final mul: fun (n: int) > int = fun (n: int) > int => n * 2;
 
     std\assert(mul(1) == 2, message: "called a lambda function");
 }

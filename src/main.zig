@@ -215,7 +215,7 @@ pub fn main() u8 {
         \\-c, --check            Check script for error without running it
         \\-v, --version          Print version and exit
         \\-L, --library <str>... Add search path for external libraries
-        \\<str>...
+        \\<str>...               Script to run followed by its eventual arguments
         \\
     );
 

@@ -75,7 +75,7 @@ export object Buffer {
     }
 
     static fun fromStr(string: str) > Buffer {
-        const buffer = Buffer.init();
+        final buffer = Buffer.init();
         
         // We're sure we did not read this buffer before
         buffer.write(string) catch void;

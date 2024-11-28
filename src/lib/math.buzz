@@ -20,8 +20,8 @@ extern fun bzceil(n: double) > int;
 /// @return cos of n
 extern fun bzcos(n: double) > double;
 
-/// π constant
-const pi: double = 3.1415926535898;
+/// π
+final pi: double = 3.1415926535898;
 
 /// Convert radian to degree
 fun deg(n: double) > double {

@@ -4,13 +4,13 @@ test "Optional force unwrapping with `!`" {
     // Note: trying to force unwrap a null value raises an uncatchable error
     // Dart allows to catch an null unwrap but swift doesn't
     // I think it's saner for it to not be catchable but to provides safe way to unwrap it
-    const hello: str? = "hello world";
+    final hello: str? = "hello world";
 
     std\assert(hello! == "hello world", message: "Could force unwrap an optional");
 }
 
 test "Optional graceful unwrapping with `?`" {
-    const optList: [int]? = [1, 2, 3];
+    final optList: [int]? = [1, 2, 3];
 
     std\assert(optList?.len() == 3, message: "could unwrap optList");
 }
@@ -20,25 +20,25 @@ object Me {
 }
 
 test "Optional chaining" {
-    const me: Me? = Me{
+    final me: Me? = Me{
         list = [1, 2, 3],
     };
 
     std\assert(me?.list?.len() == 3, message: "chaining optionals work");
 
-    const you: Me? = null;
+    final you: Me? = null;
 
     std\assert(you?.list?.len() == null, message: "chaining optionals work");
 }
 
 test "Null coalescing operator" {
-    const hello: str? = null;
+    final hello: str? = null;
 
     std\assert(hello ?? "world" == "world", message: "null coalescing");
 }
 
 test "Unwrap map subscript" {
-    const map = {
+    final map = {
         "yo": "lo",
         "mo": "jo",
     };
@@ -51,7 +51,7 @@ object You {
 }
 
 test "Field access on map subscript" {
-    const map = {
+    final map = {
         "yo": You{}
     };
 

@@ -10,5 +10,5 @@ test "discarded value" {
 
     "forgot me?";
 
-    const unused = 42;
+    final unused = 42;
 }

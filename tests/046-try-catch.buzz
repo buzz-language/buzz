@@ -49,7 +49,7 @@ test "Try catch" {
         std\assert(false, message: "unreachable");
     }
 
-    const afterLocal = "bye";
+    final afterLocal = "bye";
 
     std\assert(setme == "yes", message: "error was handled and code continues");
 

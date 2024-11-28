@@ -1,9 +1,9 @@
 import "std";
 import "math";
 
-const double pi = 3.141592653589793;
-const double solarMass = 4.0 * pi * pi;
-const double daysPerYear = 365.24;
+final double pi = 3.141592653589793;
+final double solarMass = 4.0 * pi * pi;
+final double daysPerYear = 365.24;
 
 object Body {
     double x,

@@ -602,7 +602,7 @@ pub const NamedVariable = struct {
     value: ?Node.Index,
     slot: Slot,
     slot_type: SlotType,
-    slot_constant: bool,
+    slot_final: bool,
 };
 
 pub const ObjectDeclaration = struct {
@@ -698,7 +698,7 @@ pub const VarDeclaration = struct {
     name: TokenIndex,
     value: ?Node.Index,
     type: ?Node.Index,
-    constant: bool,
+    final: bool,
     slot: Slot,
     slot_type: SlotType,
 };

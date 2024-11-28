@@ -15,6 +15,7 @@
 - Qualified name now use `\` separator instead of `.`
 - The `float` type is renamed to `double` (https://github.com/buzz-language/buzz/issues/311)
 - Enum type is declared between `<>` rather than `()`
+- `const` keyword is renamed to `final` (https://github.com/buzz-language/buzz/issues/318)
 
 ## Added
 - Object can have `const` properties (https://github.com/buzz-language/buzz/issues/13). A object with only `const` properties is considered itself `const`. Although we don't do anything yet with that concept. https://github.com/buzz-language/buzz/issues/114 is the objective but it requires being able to build objects and instances at compile time which is not yet possible.

@@ -34,7 +34,7 @@ pub const Error = enum(u8) {
     comparison_operand_type = 12,
     compile = 13,
     constant_default = 14,
-    constant = 15,
+    final = 15,
     do_condition_type = 16,
     enum_argument = 17,
     enum_case_type = 18,
@@ -174,7 +174,8 @@ pub const ReportItem = struct {
     pub const SortContext = struct {};
 
     pub fn lessThan(_: SortContext, lhs: ReportItem, rhs: ReportItem) bool {
-        return lhs.location.line < rhs.location.line or (lhs.location.line == rhs.location.line and lhs.location.column < rhs.location.column);
+        return lhs.location.line < rhs.location.line or
+            (lhs.location.line == rhs.location.line and lhs.location.column < rhs.location.column);
     }
 };
 

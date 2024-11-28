@@ -1,4 +1,4 @@
 // Expected variable initial value
 test "Var decl without a value" {
-    const canidothis: str;
+    final canidothis: str;
 }

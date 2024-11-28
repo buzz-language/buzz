@@ -6,7 +6,7 @@ object Person {
 }
 
 test "Nullable object field has a default value at null" {
-    const person = Person{
+    final person = Person{
         name = "Joe"
     };
 

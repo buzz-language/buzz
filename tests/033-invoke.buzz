@@ -10,7 +10,7 @@ object A {
 }
 
 test "Chained invoke" {
-    const a = A{
+    final a = A{
         list = [
             A{
                 list = [ A{ list = [<A>] } ]

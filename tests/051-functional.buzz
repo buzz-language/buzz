@@ -1,7 +1,7 @@
 import "std";
 
 test "list.forEach" {
-    const data = [1, 2, 3, 4];
+    final data = [1, 2, 3, 4];
 
     var sum = 0;
     data.forEach(fun (_: int, element: int) > void {
@@ -12,23 +12,23 @@ test "list.forEach" {
 }
 
 test "list.map" {
-    const data = [1, 2, 3, 4];
+    final data = [1, 2, 3, 4];
 
-    const mapped = data.map::<str>(fun (_: int, element: int) => "{element}");
+    final mapped = data.map::<str>(fun (_: int, element: int) => "{element}");
 
     std\assert(mapped.join(", ") == "1, 2, 3, 4", message: "could use map");
 }
 
 test "list.filter" {
-    const data = [1, 2, 3, 4];
+    final data = [1, 2, 3, 4];
 
-    const odd = data.filter(fun (_: int, element: int) => element % 2 != 0);
+    final odd = data.filter(fun (_: int, element: int) => element % 2 != 0);
 
     std\assert(odd.join(", ") == "1, 3", message: "could use filter");
 }
 
 test "list.reduce" {
-    const data = [1, 2, 3, 4];
+    final data = [1, 2, 3, 4];
 
     var sum = data.reduce::<int>(
         fun (_: int, element: int, accumulator: int) => accumulator + element,
@@ -39,7 +39,7 @@ test "list.reduce" {
 }
 
 test "list.sort" {
-    const data = [10, 3, 12, 0, 1, -3];
+    final data = [10, 3, 12, 0, 1, -3];
 
     _ = data.sort(fun (left: int, right: int) => left < right);
 
@@ -49,7 +49,7 @@ test "list.sort" {
 }
 
 test "map.forEach" {
-    const map = {
+    final map = {
         "five": 5,
         "two": 2,
         "one": 1,
@@ -65,14 +65,14 @@ test "map.forEach" {
 }
 
 test "map.map" {
-    const map = {
+    final map = {
         "five": 5,
         "two": 2,
         "one": 1,
         "three": 3,
     };
 
-    const inverted = map.map::<int, str>(
+    final inverted = map.map::<int, str>(
         fun (key: str, value: int) => .{ key = value, value = key },
     );
 
@@ -82,14 +82,14 @@ test "map.map" {
 }
 
 test "map.filter" {
-    const map = {
+    final map = {
         "five": 5,
         "two": 2,
         "one": 1,
         "three": 3,
     };
 
-    const filtered = map.filter(
+    final filtered = map.filter(
         fun (_: str, value: int) => value % 2 != 0
     );
 
@@ -97,7 +97,7 @@ test "map.filter" {
 }
 
 test "map.reduce" {
-    const map = {
+    final map = {
         "five": 5,
         "two": 2,
         "one": 1,
@@ -113,7 +113,7 @@ test "map.reduce" {
 }
 
 test "map.sort" {
-    const map = {
+    final map = {
         "five": 5,
         "two": 2,
         "one": 1,
@@ -125,7 +125,7 @@ test "map.sort" {
         fun (lhs: str, rhs: str) => map[lhs]! < map[rhs]!
     );
 
-    const ordered = [ "one", "two", "three", "five" ];
+    final ordered = [ "one", "two", "three", "five" ];
     var i = 0;
     foreach (key in map.keys()) {
         std\assert(ordered[i] == key, message: "Could sort map");

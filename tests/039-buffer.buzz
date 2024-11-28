@@ -9,7 +9,7 @@ test "Reading and writing in a buffer" {
     buffer.writeDouble(1238.324);
     buffer.writeBoolean(true);
 
-    const expected = [
+    final expected = [
         11, 0, 0, 0,                                          // "hello world".len()
         104, 101, 108, 108, 111, 32, 119, 111, 114, 108, 100, // "hello world"
         158, 239, 167, 198, 75, 89, 147, 64,                  // 1238.324
@@ -21,7 +21,7 @@ test "Reading and writing in a buffer" {
 
     std\assert(buffer.len() == expected.len(), message: "wrote expected number of bytes");
     
-    const len = buffer.readInt() ?? -1;
+    final len = buffer.readInt() ?? -1;
     std\assert(len == 11, message: "could read number");
 
     std\assert(buffer.read(len) == "hello world", message: "could read n bytes");

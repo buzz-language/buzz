@@ -1,5 +1,5 @@
 // Can't be called
 test "Can't be called" {
-    const yo = 12;
+    final yo = 12;
     yo("mo");
 }

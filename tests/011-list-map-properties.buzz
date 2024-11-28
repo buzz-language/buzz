@@ -6,7 +6,7 @@ object Hey {
 }
 
 test "List and Map as Object properties" {
-    const hey = Hey{
+    final hey = Hey{
         ages = [<int>, 1, 2, 3],
         names = {
             <int: str>,

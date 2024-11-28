@@ -490,10 +490,7 @@ pub const VM = struct {
                         .resolved_type = .{
                             .List = ObjList.ListDef.init(
                                 self.gc.allocator,
-                                try self.gc.allocateObject(
-                                    ObjTypeDef,
-                                    ObjTypeDef{ .def_type = .String },
-                                ),
+                                self.gc.type_registry.str_type,
                             ),
                         },
                     },
@@ -621,7 +618,7 @@ pub const VM = struct {
     }
 
     fn readPreviousInstruction(self: *Self) ?u32 {
-        const current_frame: *CallFrame = self.currentFrame().?;
+        const current_frame = self.currentFrame().?;
 
         if (current_frame.ip > 0) {
             return current_frame.closure.function.chunk.code.items[current_frame.ip - 1];
@@ -1012,7 +1009,7 @@ pub const VM = struct {
         const from = @as(u8, @intCast(arg));
         const to = self.readByte();
 
-        const temp: Value = (self.current_fiber.stack_top - to - 1)[0];
+        const temp = (self.current_fiber.stack_top - to - 1)[0];
         (self.current_fiber.stack_top - to - 1)[0] = (self.current_fiber.stack_top - from - 1)[0];
         (self.current_fiber.stack_top - from - 1)[0] = temp;
 

@@ -2,7 +2,7 @@ import "std";
 import "serialize";
 
 test "Json.encode" {
-    const data = {
+    final data = {
         "hello": "world",
         "bye": 42,
     };
@@ -21,7 +21,7 @@ test "Json.decode" {
 }
 
 test "Boxed.q" {
-    const data = {
+    final data = {
         "submap": {
             <str: any>,
             "subsubmap": {

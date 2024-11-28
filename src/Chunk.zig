@@ -166,6 +166,7 @@ pub fn HashMap(V: type) type {
 allocator: std.mem.Allocator,
 /// AST
 ast: Ast,
+// TODO: merge `code` and `lines` in a multiarray
 /// List of opcodes to execute
 code: std.ArrayListUnmanaged(u32),
 /// List of locations

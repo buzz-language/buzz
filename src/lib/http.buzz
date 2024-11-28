@@ -76,7 +76,7 @@ extern fun HttpRequestRead(request: ud) > Response !> HttpError;
 /// @private
 extern fun HttpRequestDeinit(request: ud) > void;
 
-const {int: str} reasons = {
+final {int: str} reasons = {
     100: "Continue",
     101: "Switching Protocols",
     102: "Processing",
@@ -224,7 +224,7 @@ export object Request {
         if (this.request -> request) {
             HttpRequestWait(request);
 
-            const response = HttpRequestRead(request);
+            final response = HttpRequestRead(request);
 
             // - we don't need the request anymore
             // - also this allows to properly reuse the Request object

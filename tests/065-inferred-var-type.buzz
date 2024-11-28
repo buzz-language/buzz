@@ -5,7 +5,7 @@ object Person {
 }
 
 var integer = 42;
-const doubleing = 42.42;
+final doubleing = 42.42;
 
 test "Inferring variable declaration type" {
     std\assert(integer is int, message: "Could infer global variable declaration type");
@@ -15,7 +15,7 @@ test "Inferring variable declaration type" {
 
     std\assert(string is str, message: "Could infer variable declaration type");
 
-    const person = Person{};
+    final person = Person{};
 
     std\assert(person is Person, message: "Could infer constant declaration type");
 }

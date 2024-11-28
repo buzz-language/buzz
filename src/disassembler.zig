@@ -590,7 +590,7 @@ pub const DumpState = struct {
                                 "    {s}{s}{s}: {s}",
                                 .{
                                     if (kv.value_ptr.*.static) "static " else "",
-                                    if (kv.value_ptr.*.constant) "const " else "",
+                                    if (kv.value_ptr.*.final) "final " else "",
                                     kv.key_ptr.*,
                                     field_type_str.items,
                                 },

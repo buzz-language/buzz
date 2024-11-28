@@ -54,7 +54,7 @@ test "do-until statement" {
     std\assert(i == 0, message: "do until");
 }
 
-const ahead = "wat";
+final ahead = "wat";
 
 // object Ahead {
 //     str name = "joe",

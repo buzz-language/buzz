@@ -154,7 +154,7 @@ object JsonParser {
 
     fun skipWhitespaces() > void {
         while (true) {
-            const char = this.peek();
+            final char = this.peek();
 
             if (char == " " or char == "\r" or char == "\t" or char == "\n") {
                 _ = this.advance();
@@ -171,8 +171,8 @@ object JsonParser {
             throw JsonParseError{ message = "Could not parse JSON: end of string" };
         }
 
-        const char = this.advance() ?? "";
-        const byte = char.byte(0);
+        final char = this.advance() ?? "";
+        final byte = char.byte(0);
         if (char == "[") {
             return this.array();
         } else if (char == "\{") {
@@ -230,7 +230,7 @@ object JsonParser {
             }
 
             this.consume("\"");
-            const key = this.string();
+            final key = this.string();
 
             this.skipWhitespaces();
 
@@ -324,7 +324,7 @@ export fun jsonEncode(data: Boxed) > str !> CircularReference, NotSerializable {
         return "{doubleing}";
     } else if (data.map() -> map) {
         var json = "\{";
-        const size = map.size();
+        final size = map.size();
         var count = 0;
         foreach (key, value in map) {
             json = json + "\"{key}\":{jsonEncode(value)}";
@@ -339,7 +339,7 @@ export fun jsonEncode(data: Boxed) > str !> CircularReference, NotSerializable {
     } else if (data.list() -> list) {
         var json = "[";
 
-        const len = list.len();
+        final len = list.len();
         foreach (i, value in list) {
             json = json + jsonEncode(value);
 

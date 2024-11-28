@@ -1,8 +1,8 @@
 import "std";
 
 fun upvals() > fun () {
-    const upvalue = 12;
-    const up = "up";
+    final upvalue = 12;
+    final up = "up";
 
     return fun () > void => std\print("{upvalue} {up}");
 }

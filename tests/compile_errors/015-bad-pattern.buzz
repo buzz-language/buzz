@@ -2,5 +2,5 @@
 import "std";
 
 test "bad pattern" {
-    const bad = $"bad\pattern";
+    final bad = $"bad\pattern";
 }

@@ -8,7 +8,7 @@ fun getInfo() > obj{ name: str, age: int } {
 }
 
 test "Anonymous objects" {
-    const info = getInfo();
+    final info = getInfo();
     // Two anonymous type matches
     _: obj{ name: str, age: int } = info;
 
@@ -17,10 +17,10 @@ test "Anonymous objects" {
 }
 
 test "Named variable init" {
-    const name = "Joe";
-    const age = 42;
+    final name = "Joe";
+    final age = 42;
 
-    const person = .{ name, age };
+    final person = .{ name, age };
 
     std\assert(person.name == "Joe" and person.age == 42);
 }
@@ -32,7 +32,7 @@ fun getPayload::<T>(data: T) > obj{ data: T } {
 }
 
 test "Anonymous object with generics" {
-    const payload = getPayload::<int>(42);
+    final payload = getPayload::<int>(42);
 
     std\assert(payload.data == 42, message: "Could use anonymous object with generic");
 }

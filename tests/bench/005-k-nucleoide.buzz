@@ -31,7 +31,7 @@ fun kfrequency(str sequence, {str: int} frequency, int k, int frame) > void {
 }
 
 fun count(str sequence, str fragment) > void {
-    const int k = fragment.len();
+    final int k = fragment.len();
     {str: int} frequency = {<str: int>};
     for (int frame = 0; frame < k; frame = frame + 1) {
         kfrequency(sequence, frequency: frequency, k: k, frame: frame);

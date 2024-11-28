@@ -3,8 +3,8 @@ namespace examples\fizzbuzz;
 import "std";
 
 fun fizzBuzz(n: int) > str {
-    const fizz = n % 3 == 0;
-    const buzz = n % 5 == 0;
+    final fizz = n % 3 == 0;
+    final buzz = n % 5 == 0;
 
     if (fizz and buzz) {
         return "FizzBuzz";
@@ -18,7 +18,7 @@ fun fizzBuzz(n: int) > str {
 }
 
 fun main(args: [str]) > void {
-    const limit = std\parseInt(args[?0] ?? "10") ?? 10;
+    final limit = std\parseInt(args[?0] ?? "10") ?? 10;
 
     foreach (n in 0..limit) {
         std\print("{n}: {fizzBuzz(n)}");

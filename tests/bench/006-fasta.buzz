@@ -2,11 +2,11 @@ import "std";
 import "math";
 import "buffer" as _;
 
-const double IM = 139968.0;
-const double IA = 3877.0;
-const double IC = 29573.0;
-const int lineLength = 60;
-const int bufferSize = (lineLength + 1) * 1024;
+final double IM = 139968.0;
+final double IA = 3877.0;
+final double IC = 29573.0;
+final int lineLength = 60;
+final int bufferSize = (lineLength + 1) * 1024;
 
 fun makeRepeatFasta(str id, str desc, str s, int nchars) > void {
     std\print(">{id} {desc}");
@@ -57,7 +57,7 @@ object Frequency {
     }
 
     fun selectRandomIntoBuffer(Buffer buffer, int initialBufferIndex, int nRandom) > int !> OutOfBoundError, WriteWhileReadingError {
-        const int len = this.probs.len();
+        final int len = this.probs.len();
         var bufferIndex = initialBufferIndex;
 
         for (int rIndex = 0; rIndex < nRandom; rIndex = rIndex + 1) {
@@ -107,7 +107,7 @@ fun makeRandomFasta(str id, str desc, Frequency fpf, int initialNchars) > void !
     std\print(buffer\toString().sub(0, len: bufferIndex));
 }
 
-const str alu = "GGCCGGGCGCGGTGGCTCACGCCTGTAATCCCAGCACTTTGG"
+final str alu = "GGCCGGGCGCGGTGGCTCACGCCTGTAATCCCAGCACTTTGG"
     + "GAGGCCGAGGCGGGCGGATCACCTGAGGTCAGGAGTTCGAGA"
     + "CCAGCCTGGCCAACATGGTGAAACCCCGTCTCTACTAAAAAT"
     + "ACAAAAATTAGCCGGGCGTGGTGGCGCGCGCCTGTAATCCCA"
@@ -125,7 +125,7 @@ fun main([str] args) > void !> any {
 
     Buffer iubChars = Buffer.init();
     iubChars.write("acgtBDHKMNRSVWY");
-    const Frequency iub = Frequency.init(
+    final Frequency iub = Frequency.init(
         chars: iubChars,
         probs: [ 0.27, 0.12, 0.12, 0.27, 0.02, 0.02, 0.02, 0.02, 0.02, 0.02, 0.02, 0.02, 0.02, 0.02, 0.02 ],
         last: 42.0,
@@ -135,7 +135,7 @@ fun main([str] args) > void !> any {
 
     Buffer homoSapiensChars = Buffer.init();
     homoSapiensChars.write("acgt");
-    const Frequency homoSapiens = Frequency.init(
+    final Frequency homoSapiens = Frequency.init(
         chars: homoSapiensChars,
         probs: [ 0.3029549426680, 0.1979883004921, 0.1975473066391, 0.3015094502008 ],
         last: iub.last,

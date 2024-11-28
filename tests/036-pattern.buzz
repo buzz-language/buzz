@@ -1,9 +1,9 @@
 import "std";
 
 test "pattern.match" {
-    const pattern = $"hello ([a-z]+)";
+    final pattern = $"hello ([a-z]+)";
 
-    const results = pattern.match("All i want to say is hello joe! hello mundo!");
+    final results = pattern.match("All i want to say is hello joe! hello mundo!");
 
     std\assert(results?.len() == 2, message: "1 match and 1 capture");
     std\assert(results![0] == "hello joe", message: "first is match");
@@ -11,9 +11,9 @@ test "pattern.match" {
 }
 
 test "pattern.matchAll" {
-    const pattern = $"hello ([a-z]+)";
+    final pattern = $"hello ([a-z]+)";
 
-    const results = pattern.matchAll("All i want to say is hello joe!\nhello mundo!\nAnd hello neighbor...");
+    final results = pattern.matchAll("All i want to say is hello joe!\nhello mundo!\nAnd hello neighbor...");
 
     std\assert(results?.len() == 3, message: "found 3 matches");
     std\assert(results![2].len() == 2, message: "1 match and 1 capture");
@@ -21,7 +21,7 @@ test "pattern.matchAll" {
 }
 
 test "Escaped pattern delimiter" {
-    const pattern = $"hello \" world";
+    final pattern = $"hello \" world";
 
     std\assert("{pattern}" == "hello \" world", message: "delimiter was properly escaped");
 }

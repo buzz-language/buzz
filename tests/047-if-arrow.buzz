@@ -1,8 +1,8 @@
 import "std";
 
 test "If arrow" {
-    const opt: int? = null;
-    const optS: str? = "hello";
+    final opt: int? = null;
+    final optS: str? = "hello";
 
     if (opt -> _) {
         std\assert(false, message: "unreachable");

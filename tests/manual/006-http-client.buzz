@@ -3,10 +3,10 @@ import "debug";
 import "errors";
 import "serialize";
 
-fun main([str] _) > void !> any {
-    const client = http\Client.init();
+fun main(_: [str]) > void !> any {
+    final client = http\Client.init();
 
-    const request = http\Request{
+    final request = http\Request{
         method = http\Method.GET,
         headers = {
             "accept": "*/*",
@@ -15,8 +15,8 @@ fun main([str] _) > void !> any {
         uri = "https://catfact.ninja/fact",
     };
 
-    const response = client.send(request);
-    const fact = serialize\jsonDecode(response.body ?? "null").q(["fact"]).stringValue();
+    final response = client.send(request);
+    final fact = serialize\jsonDecode(response.body ?? "null").q(["fact"]).stringValue();
 
     debug\dump(fact);
 }

@@ -45,14 +45,14 @@ object MyObject {
 }
 
 test "dump" {
-    const list = [1, 2, 3, 4];
-    const map = {
+    final list = [1, 2, 3, 4];
+    final map = {
         "one": 1,
         "two": 2,
         "three": 3,
     };
 
-    const instance = MyObject{
+    final instance = MyObject{
         name = "joe",
         age = 35,
         data = Data{

@@ -2,7 +2,7 @@ import "std";
 import "serialize";
 
 test "Multiline strings" {
-    const multi = `\{
+    final multi = `\{
         "some": "json",
         "yes": {3 + 12},
         {`
@@ -10,7 +10,7 @@ test "Multiline strings" {
         `}
     }`;
 
-    const json = serialize\jsonDecode(multi);
+    final json = serialize\jsonDecode(multi);
 
     std\assert(json.q(["yes"]).integer() == 15, message: "multiline string is valid");
     std\assert(json.q(["another"]).string() == "one", message: "multiline string is valid");

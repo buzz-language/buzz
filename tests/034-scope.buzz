@@ -1,15 +1,15 @@
 import "std";
 
 test "locals inside a foreach" {
-    const hello = "";
+    final hello = "";
 
     foreach (_ in "hello world") {
-        const new = "yo";
-        const old = "lo";
+        final new = "yo";
+        final old = "lo";
 
         foreach (_ in "goodbye world") {
-            const newnew = "yoyo";
-            const oldold = "lolo";
+            final newnew = "yoyo";
+            final oldold = "lolo";
 
             std\assert(new == "yo", message: "locals are ok");
             std\assert(old == "lo", message: "locals are ok");
@@ -21,8 +21,8 @@ test "locals inside a foreach" {
     }
 
     for (i: int = 0; i < 3; i = i + 1) {
-        const new = "yo";
-        const old = "lo";
+        final new = "yo";
+        final old = "lo";
 
         std\assert(new == "yo", message: "locals are ok");
         std\assert(old == "lo", message: "locals are ok");
