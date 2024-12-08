@@ -1,12 +1,12 @@
 import "std";
 
 object Payload::<K, V> {
-    data: {K: V},
+    data: mut {K: V},
 }
 
 test "Objects generics" {
-    var payload = Payload::<str, int>{
-        data = {
+    final payload = Payload::<str, int>{
+        data = mut {
             "one": 1
         },
     };

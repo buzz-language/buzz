@@ -36,7 +36,7 @@ export object Boxed {
     /// When wrapped data is an object, object property values are themselves wrapped in a `Boxed`
     fun map() > {str: Boxed}? {
         if (this.data as? {str: any} -> dataMap) {
-            var boxedMap = {<str: Boxed>};
+            var boxedMap = mut {<str: Boxed>};
 
             foreach (key, value in dataMap) {
                 boxedMap[key] = Boxed{ data = value };
@@ -51,7 +51,7 @@ export object Boxed {
     /// When wrapped data is a list, list elements are themselves warpped in a `Boxed`
     fun list() > [Boxed]? {
         if (this.data as? [any] -> dataList) {
-            var boxedList = [<Boxed>];
+            var boxedList = mut [<Boxed>];
 
             foreach (element in dataList) {
                 boxedList.append(Boxed{ data = element });
@@ -116,7 +116,7 @@ object JsonParser {
     source: str,
     offset: int = 0,
 
-    fun advance() > str? {
+    mut fun advance() > str? {
         if (this.offset >= this.source.len()) {
             return null;
         }
@@ -136,7 +136,7 @@ object JsonParser {
         return this.source[this.offset];
     }
 
-    fun match(expected: str) > bool {
+    mut fun match(expected: str) > bool {
         if (this.offset > this.source.len() or this.source[this.offset] != expected) {
             return false;
         }
@@ -146,13 +146,13 @@ object JsonParser {
         return true;
     }
 
-    fun consume(expected: str) > void !> JsonParseError {
+    mut fun consume(expected: str) > void !> JsonParseError {
         if (!this.match(expected)) {
             throw JsonParseError{ message = "Could not parse JSON: expected `{expected}` got `{this.peek()}` at offset {this.offset}" };
         }
     }
 
-    fun skipWhitespaces() > void {
+    mut fun skipWhitespaces() > void {
         while (true) {
             final char = this.peek();
 
@@ -164,7 +164,7 @@ object JsonParser {
         }
     }
 
-    fun next() > any !> JsonParseError, buffer\WriteWhileReadingError {
+    mut fun next() > any !> JsonParseError, buffer\WriteWhileReadingError {
         this.skipWhitespaces();
 
         if (this.offset >= this.source.len()) {
@@ -195,8 +195,8 @@ object JsonParser {
         throw JsonParseError{ message = "Could not parse JSON: unexpected character `{char}` at offset {this.offset}" };
     }
 
-    fun array() > [any] !> JsonParseError, buffer\WriteWhileReadingError {
-        var array = [<any>];
+    mut fun array() > [any] !> JsonParseError, buffer\WriteWhileReadingError {
+        var array = mut [<any>];
 
         while (true) {
             this.skipWhitespaces();
@@ -216,11 +216,11 @@ object JsonParser {
             this.consume(",");
         }
 
-        return array;
+        return array.cloneImmutable();
     }
 
-    fun map() > {str: any} !> JsonParseError, buffer\WriteWhileReadingError {
-        var map = {<str: any>};
+    mut fun map() > {str: any} !> JsonParseError, buffer\WriteWhileReadingError {
+        var map = mut {<str: any>};
 
         while (true) {
             this.skipWhitespaces();
@@ -249,10 +249,10 @@ object JsonParser {
             this.consume(",");
         }
 
-        return map;
+        return map.cloneImmutable();
     }
 
-    fun number(parsed: str) > any !> JsonParseError {
+    mut fun number(parsed: str) > any !> JsonParseError {
         var number = parsed;
 
         var isDouble = false;
@@ -281,7 +281,7 @@ object JsonParser {
         throw JsonParseError{ message = "Could not parse JSON: `{number}` is not a number" };
     }
 
-    fun string() > str !> buffer\WriteWhileReadingError {
+    mut fun string() > str !> buffer\WriteWhileReadingError {
         var char = this.advance();
         var string = buffer\Buffer.init();
         
@@ -359,8 +359,8 @@ export fun jsonEncode(data: Boxed) > str !> CircularReference, NotSerializable {
 /// @return Boxed
 export fun jsonDecode(json: str) > Boxed !> JsonParseError, buffer\WriteWhileReadingError {
     return Boxed{
-        data = JsonParser{
+        data = (mut JsonParser{
             source = json
-        }.next()
+        }).next()
     };
 }

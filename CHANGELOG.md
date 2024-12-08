@@ -15,10 +15,12 @@
 - Qualified name now use `\` separator instead of `.`
 - The `float` type is renamed to `double` (https://github.com/buzz-language/buzz/issues/311)
 - Enum type is declared between `<>` rather than `()`
+- Protocol list object is conforming to is declared between `<>` rather than `()`
 - `const` keyword is renamed to `final` (https://github.com/buzz-language/buzz/issues/318)
 
 ## Added
-- Object can have `const` properties (https://github.com/buzz-language/buzz/issues/13). A object with only `const` properties is considered itself `const`. Although we don't do anything yet with that concept. https://github.com/buzz-language/buzz/issues/114 is the objective but it requires being able to build objects and instances at compile time which is not yet possible.
+- **All values are immutable by default**. Values (list, maps, objects and FFI structs) can be declared mutable with the `mut` keyword. Mutability must also be specified in types with the `mut` keyword (https://github.com/buzz-language/buzz/issues/139)
+- Object can have `final` properties (https://github.com/buzz-language/buzz/issues/13)
 - `rg.subsetOf`, `rg.intersect`, `rg.union`
 - Tuples (https://github.com/buzz-language/buzz/issues/298): syntaxic sugar over anonymous objects:
 ```buzz
@@ -26,7 +28,7 @@ const tuple = .{ "john", "james" };
 
 tuple.@"0" == "john";
 ```
-- Checked subscript access to list and strings (https://github.com/buzz-language/buzz/issues/304):
+- Checked subscript access to list and strings (gives `null` when index is out of bound) (https://github.com/buzz-language/buzz/issues/304):
 ```buzz
 var list = [1, 2, 3];
 

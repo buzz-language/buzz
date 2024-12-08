@@ -308,7 +308,9 @@ pub export fn list(ctx: *api.NativeCtx) c_int {
             return -1;
         };
 
-    const file_list = ctx.vm.bz_newList(ctx.vm.bz_stringType());
+    const file_list = ctx.vm.bz_newList(
+        ctx.vm.bz_listType(ctx.vm.bz_stringType(), false),
+    );
 
     ctx.vm.bz_push(file_list);
 

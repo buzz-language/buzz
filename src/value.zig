@@ -160,12 +160,13 @@ pub const Value = packed struct {
         return self;
     }
 
-    pub fn toStringAlloc(value: Value, allocator: Allocator) (Allocator.Error || std.fmt.BufPrintError)!std.ArrayList(u8) {
+    pub fn toStringAlloc(value: Value, allocator: Allocator) (Allocator.Error || std.fmt.BufPrintError)![]const u8 {
         var str = std.ArrayList(u8).init(allocator);
 
         try value.toString(&str.writer());
+        str.shrinkAndFree(str.items.len);
 
-        return str;
+        return str.items;
     }
 
     pub fn toString(self: Value, writer: *const std.ArrayList(u8).Writer) (Allocator.Error || std.fmt.BufPrintError)!void {

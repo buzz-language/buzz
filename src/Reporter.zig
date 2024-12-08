@@ -9,6 +9,7 @@ const Ast = @import("Ast.zig");
 const builtin = @import("builtin");
 const is_wasm = builtin.cpu.arch.isWasm();
 const io = @import("io.zig");
+const BuildOptions = @import("build_options");
 
 const Self = @This();
 
@@ -119,6 +120,8 @@ pub const Error = enum(u8) {
     tuple_limit = 97,
     mix_tuple = 98,
     unclosed = 99,
+    not_mutable = 100,
+    mutable_forbidden = 101,
 };
 
 // Inspired by https://github.com/zesterer/ariadne
@@ -694,6 +697,18 @@ pub fn reportPlaceholder(self: *Self, ast: Ast, placeholder: PlaceholderDef) voi
     if (placeholder.parent) |parent| {
         if (parent.def_type == .Placeholder) {
             self.reportPlaceholder(ast, parent.resolved_type.?.Placeholder);
+        } else if (BuildOptions.debug) {
+            self.reportErrorFmt(
+                .runtime,
+                ast.tokens.get(placeholder.where),
+                "Unresolved placeholder with resolved parent `{s}` relation {s}\n",
+                .{
+                    parent.toStringAlloc(self.allocator) catch unreachable,
+                    @tagName(placeholder.parent_relation.?),
+                },
+            );
+        } else {
+            unreachable;
         }
     } else {
         // Should be a root placeholder with a name

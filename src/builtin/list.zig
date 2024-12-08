@@ -179,12 +179,18 @@ pub fn indexOf(ctx: *NativeCtx) c_int {
     return 1;
 }
 
-pub fn clone(ctx: *NativeCtx) c_int {
+fn cloneRaw(ctx: *NativeCtx, mutable: bool) void {
     const self: *ObjList = ObjList.cast(ctx.vm.peek(0).obj()).?;
 
     var new_list = ctx.vm.gc.allocateObject(
         ObjList,
-        ObjList.init(ctx.vm.gc.allocator, self.type_def) catch {
+        ObjList.init(
+            ctx.vm.gc.allocator,
+            self.type_def.cloneMutable(&ctx.vm.gc.type_registry, mutable) catch {
+                ctx.vm.panic("Out of memory");
+                unreachable;
+            },
+        ) catch {
             ctx.vm.panic("Out of memory");
             unreachable;
         },
@@ -192,12 +198,23 @@ pub fn clone(ctx: *NativeCtx) c_int {
         ctx.vm.panic("Out of memory");
         unreachable;
     };
+
     new_list.items.appendSlice(ctx.vm.gc.allocator, self.items.items) catch {
         ctx.vm.panic("Out of memory");
         unreachable;
     };
 
     ctx.vm.push(new_list.toValue());
+}
+
+pub fn cloneImmutable(ctx: *NativeCtx) c_int {
+    cloneRaw(ctx, false);
+
+    return 1;
+}
+
+pub fn cloneMutable(ctx: *NativeCtx) c_int {
+    cloneRaw(ctx, true);
 
     return 1;
 }

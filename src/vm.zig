@@ -232,7 +232,7 @@ pub const Fiber = struct {
                 assert(instance.object != null);
 
                 // Find the actual field
-                const property_idx = instance.type_def.resolved_type.?.ObjectInstance
+                const property_idx = instance.type_def.resolved_type.?.ObjectInstance.of
                     .resolved_type.?.Object
                     .fields.get(name).?.index;
 
@@ -491,6 +491,7 @@ pub const VM = struct {
                             .List = ObjList.ListDef.init(
                                 self.gc.allocator,
                                 self.gc.type_registry.str_type,
+                                false,
                             ),
                         },
                     },
@@ -1182,13 +1183,13 @@ pub const VM = struct {
         };
         self.push(
             Value.fromObj(
-                (self.gc.copyString(str.items) catch {
+                (self.gc.copyString(str) catch {
                     self.panic("Out of memory");
                     unreachable;
                 }).toObj(),
             ),
         );
-        str.deinit();
+        self.gc.allocator.free(str);
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
@@ -1670,7 +1671,7 @@ pub const VM = struct {
         assert(instance.object != null);
 
         // Find the actual field
-        const property_idx = instance.type_def.resolved_type.?.ObjectInstance
+        const property_idx = instance.type_def.resolved_type.?.ObjectInstance.of
             .resolved_type.?.Object
             .fields.get(name).?.index;
 
@@ -1761,7 +1762,7 @@ pub const VM = struct {
         assert(instance.object != null);
 
         // Find the actual field
-        const property_idx = instance.type_def.resolved_type.?.ObjectInstance
+        const property_idx = instance.type_def.resolved_type.?.ObjectInstance.of
             .resolved_type.?.Object
             .fields.get(name).?.index;
 
@@ -3106,7 +3107,7 @@ pub const VM = struct {
             .string;
 
         // Find the actual field
-        const method_idx = instance.type_def.resolved_type.?.ObjectInstance
+        const method_idx = instance.type_def.resolved_type.?.ObjectInstance.of
             .resolved_type.?.Object
             .fields.get(name).?.index;
 
@@ -4489,7 +4490,7 @@ pub const VM = struct {
                     if (payload.isObj())
                 payload: {
                     if (payload.obj().access(ObjObjectInstance, .ObjectInstance, self.gc)) |instance| {
-                        const object_def = instance.type_def.resolved_type.?.ObjectInstance
+                        const object_def = instance.type_def.resolved_type.?.ObjectInstance.of
                             .resolved_type.?.Object;
 
                         if (object_def.fields.get("message")) |field| {
@@ -4503,10 +4504,10 @@ pub const VM = struct {
                 } else payload;
 
                 const value_str = try processed_payload.toStringAlloc(self.gc.allocator);
-                defer value_str.deinit();
+                defer self.gc.allocator.free(value_str);
 
                 self.reportRuntimeError(
-                    value_str.items,
+                    value_str,
                     error_site,
                     stack.items,
                 );

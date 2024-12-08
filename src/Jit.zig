@@ -1879,7 +1879,7 @@ fn generateCall(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
             ),
             .ObjectInstance => instance: {
                 const field = type_defs[node_components[components.callee].Dot.callee].?
-                    .resolved_type.?.ObjectInstance
+                    .resolved_type.?.ObjectInstance.of
                     .resolved_type.?.Object
                     .fields.get(member_lexeme).?;
 
@@ -3127,7 +3127,7 @@ fn generateList(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
         new_list,
         &[_]m.MIR_op_t{
             m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
-            m.MIR_new_uint_op(self.ctx, type_def.?.resolved_type.?.List.item_type.toValue().val),
+            m.MIR_new_uint_op(self.ctx, type_def.?.toValue().val),
         },
     );
 
@@ -3387,7 +3387,7 @@ fn generateDot(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
                             (try self.generateNode(components.callee)).?,
                             m.MIR_new_uint_op(
                                 self.ctx,
-                                callee_type.resolved_type.?.ObjectInstance
+                                callee_type.resolved_type.?.ObjectInstance.of
                                     .resolved_type.?.Object.fields
                                     .get(member_lexeme).?.index,
                             ),
@@ -3400,7 +3400,7 @@ fn generateDot(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
                 },
                 else => {
                     const field = if (callee_type.def_type == .ObjectInstance)
-                        callee_type.resolved_type.?.ObjectInstance
+                        callee_type.resolved_type.?.ObjectInstance.of
                             .resolved_type.?.Object.fields
                             .get(member_lexeme)
                     else
@@ -4102,7 +4102,7 @@ fn generateObjectInit(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
                 instance,
                 m.MIR_new_uint_op(
                     self.ctx,
-                    type_def.?.resolved_type.?.ObjectInstance
+                    type_def.?.resolved_type.?.ObjectInstance.of
                         .resolved_type.?.Object.fields
                         .get(lexemes[property.name]).?.index,
                 ),
@@ -4929,7 +4929,7 @@ pub fn compileZdefContainer(self: *Self, ast: Ast, zdef_element: Ast.Zdef.ZdefEl
             "Compiling zdef struct getters/setters for `{s}` of type `{s}`\n",
             .{
                 zdef_element.zdef.name,
-                (zdef_element.zdef.type_def.toStringAlloc(self.vm.gc.allocator) catch unreachable).items,
+                zdef_element.zdef.type_def.toStringAlloc(self.vm.gc.allocator) catch unreachable,
             },
         );
     }
@@ -5210,7 +5210,7 @@ pub fn compileZdef(self: *Self, buzz_ast: Ast, zdef: Ast.Zdef.ZdefElement) Error
             "Compiling zdef wrapper for `{s}` of type `{s}`\n",
             .{
                 zdef.zdef.name,
-                (zdef.zdef.type_def.toStringAlloc(self.vm.gc.allocator) catch unreachable).items,
+                zdef.zdef.type_def.toStringAlloc(self.vm.gc.allocator) catch unreachable,
             },
         );
     }

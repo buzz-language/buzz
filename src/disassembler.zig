@@ -27,13 +27,13 @@ fn namedInvokeInstruction(code: OpCode, chunk: *Chunk, offset: usize) usize {
     const catch_count: u24 = @intCast(0x00ffffff & chunk.code.items[offset + 1]);
 
     var value_str = chunk.constants.items[constant].toStringAlloc(global_allocator) catch @panic("Out of memory");
-    defer value_str.deinit();
+    defer global_allocator.free(value_str);
 
     print(
         "{s}\t{s}({} args, {} catches)",
         .{
             @tagName(code),
-            value_str.items[0..@min(value_str.items.len, 100)],
+            value_str[0..@min(value_str.len, 100)],
             arg_count,
             catch_count,
         },
@@ -113,14 +113,14 @@ fn triInstruction(code: OpCode, chunk: *Chunk, offset: usize) usize {
 fn constantInstruction(code: OpCode, chunk: *Chunk, offset: usize) usize {
     const constant: u24 = @intCast(0x00ffffff & chunk.code.items[offset]);
     var value_str = chunk.constants.items[constant].toStringAlloc(global_allocator) catch @panic("Out of memory");
-    defer value_str.deinit();
+    defer global_allocator.free(value_str);
 
     print(
         "{s}\t{} {s}",
         .{
             @tagName(code),
             constant,
-            value_str.items[0..@min(value_str.items.len, 100)],
+            value_str[0..@min(value_str.len, 100)],
         },
     );
 
@@ -177,7 +177,7 @@ pub fn dumpStack(vm: *VM) void {
     var value: [*]Value = @ptrCast(vm.current_fiber.stack[0..]);
     while (@intFromPtr(value) < @intFromPtr(vm.current_fiber.stack_top)) {
         var value_str = value[0].toStringAlloc(global_allocator) catch unreachable;
-        defer value_str.deinit();
+        defer global_allocator.free(value_str);
 
         if (vm.currentFrame().?.slots == value) {
             print(
@@ -185,7 +185,7 @@ pub fn dumpStack(vm: *VM) void {
                 .{
                     @intFromPtr(value),
                     value[0].val,
-                    value_str.items[0..@min(value_str.items.len, 100)],
+                    value_str[0..@min(value_str.len, 100)],
                 },
             );
         } else {
@@ -194,7 +194,7 @@ pub fn dumpStack(vm: *VM) void {
                 .{
                     @intFromPtr(value),
                     value[0].val,
-                    value_str.items[0..@min(value_str.items.len, 100)],
+                    value_str[0..@min(value_str.len, 100)],
                 },
             );
         }
@@ -351,14 +351,14 @@ pub fn disassembleInstruction(chunk: *Chunk, offset: usize) usize {
             var off_offset: usize = offset + 1;
 
             var value_str = chunk.constants.items[constant].toStringAlloc(global_allocator) catch @panic("Out of memory");
-            defer value_str.deinit();
+            defer global_allocator.free(value_str);
 
             print(
                 "{s}\t{} {s}",
                 .{
                     @tagName(instruction),
                     constant,
-                    value_str.items[0..@min(value_str.items.len, 100)],
+                    value_str[0..@min(value_str.len, 100)],
                 },
             );
 
@@ -420,10 +420,10 @@ pub const DumpState = struct {
         if (value.isNull()) {
             out.print("null", .{}) catch unreachable;
         } else if (!value.isObj() or state.seen.get(value.obj()) != null) {
-            const string = value.toStringAlloc(state.vm.gc.allocator) catch std.ArrayList(u8).init(state.vm.gc.allocator);
-            defer string.deinit();
+            const string = value.toStringAlloc(state.vm.gc.allocator) catch unreachable;
+            defer state.vm.gc.allocator.free(string);
 
-            out.print("{s}", .{string.items}) catch unreachable;
+            out.print("{s}", .{string}) catch unreachable;
         } else {
             state.seen.put(value.obj(), {}) catch unreachable;
 
@@ -437,10 +437,10 @@ pub const DumpState = struct {
                 .Fiber,
                 .EnumInstance,
                 => {
-                    const string = value.toStringAlloc(state.vm.gc.allocator) catch std.ArrayList(u8).init(state.vm.gc.allocator);
-                    defer string.deinit();
+                    const string = value.toStringAlloc(state.vm.gc.allocator) catch unreachable;
+                    defer state.vm.gc.allocator.free(string);
 
-                    out.print("{s}", .{string.items}) catch unreachable;
+                    out.print("{s}", .{string}) catch unreachable;
                 },
 
                 .UpValue => {
@@ -478,8 +478,12 @@ pub const DumpState = struct {
                     const list = obj.ObjList.cast(value.obj()).?;
 
                     out.print(
-                        "[{s}",
+                        "{s}[{s}",
                         .{
+                            if (list.type_def.resolved_type.?.List.mutable)
+                                "mut "
+                            else
+                                "",
                             if (list.items.items.len > 0)
                                 "\n"
                             else
@@ -503,8 +507,12 @@ pub const DumpState = struct {
                     const map = obj.ObjMap.cast(value.obj()).?;
 
                     out.print(
-                        "{{{s}",
+                        "{s}{{{s}",
                         .{
+                            if (map.type_def.resolved_type.?.Map.mutable)
+                                "mut "
+                            else
+                                "",
                             if (map.map.count() > 0)
                                 "\n"
                             else
@@ -537,12 +545,12 @@ pub const DumpState = struct {
                     const enumeration = obj.ObjEnum.cast(value.obj()).?;
                     const enum_type_def = enumeration.type_def.resolved_type.?.Enum;
                     const enum_value_type_def = enumeration.type_def.resolved_type.?.Enum.enum_type.toStringAlloc(state.vm.gc.allocator) catch unreachable;
-                    defer enum_value_type_def.deinit();
+                    defer state.vm.gc.allocator.free(enum_value_type_def);
 
                     out.print(
                         "enum({s}) {s} {{\n",
                         .{
-                            enum_value_type_def.items,
+                            enum_value_type_def,
                             enum_type_def.name.string,
                         },
                     ) catch unreachable;
@@ -566,12 +574,12 @@ pub const DumpState = struct {
 
                     out.print("object", .{}) catch unreachable;
                     if (object_def.conforms_to.count() > 0) {
-                        out.print("(", .{}) catch unreachable;
+                        out.print("<", .{}) catch unreachable;
                         var it = object_def.conforms_to.iterator();
                         while (it.next()) |kv| {
                             out.print("{s}, ", .{kv.key_ptr.*.resolved_type.?.Protocol.name.string}) catch unreachable;
                         }
-                        out.print(")", .{}) catch unreachable;
+                        out.print(">", .{}) catch unreachable;
                     }
 
                     out.print(" {s} {{\n", .{object_def.name.string}) catch unreachable;
@@ -580,8 +588,8 @@ pub const DumpState = struct {
                     var it = object_def.fields.iterator();
                     while (it.next()) |kv| {
                         const field = kv.value_ptr.*;
-                        const field_type_str = field.type_def.toStringAlloc(state.vm.gc.allocator) catch std.ArrayList(u8).init(state.vm.gc.allocator);
-                        defer field_type_str.deinit();
+                        const field_type_str = field.type_def.toStringAlloc(state.vm.gc.allocator) catch unreachable;
+                        defer state.vm.gc.allocator.free(field_type_str);
 
                         if (!field.method) {
                             out.print(
@@ -590,7 +598,7 @@ pub const DumpState = struct {
                                     if (kv.value_ptr.*.static) "static " else "",
                                     if (kv.value_ptr.*.final) "final " else "",
                                     kv.key_ptr.*,
-                                    field_type_str.items,
+                                    field_type_str,
                                 },
                             ) catch unreachable;
 
@@ -612,10 +620,11 @@ pub const DumpState = struct {
                             out.print(",\n", .{}) catch unreachable;
                         } else {
                             out.print(
-                                "    {s}{s}\n",
+                                "    {s}{s}{s}\n",
                                 .{
-                                    if (field.static) "static" else "",
-                                    field_type_str.items,
+                                    if (field.static) "static " else "",
+                                    if (field.mutable) "mut " else "",
+                                    field_type_str,
                                 },
                             ) catch unreachable;
                         }
@@ -627,13 +636,17 @@ pub const DumpState = struct {
 
                 .ObjectInstance => {
                     const object_instance = obj.ObjObjectInstance.cast(value.obj()).?;
-                    const fields = object_instance.type_def.resolved_type.?.ObjectInstance
+                    const fields = object_instance.type_def.resolved_type.?.ObjectInstance.of
                         .resolved_type.?.Object
                         .fields;
 
                     out.print(
-                        "{s}{{\n",
+                        "{s}{s}{{\n",
                         .{
+                            if (object_instance.type_def.resolved_type.?.ObjectInstance.mutable)
+                                "mut "
+                            else
+                                "",
                             if (object_instance.object) |object|
                                 object.type_def.resolved_type.?.Object.name.string
                             else

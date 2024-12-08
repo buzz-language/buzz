@@ -5,10 +5,10 @@ protocol Comparable {
 }
 
 protocol Nameable {
-    fun rename(name: str) > void;
+    mut fun rename(name: str) > void;
 }
 
-object(Comparable, Nameable) Person {
+object<Comparable, Nameable> Person {
     name: str,
     age: int,
 
@@ -20,21 +20,21 @@ object(Comparable, Nameable) Person {
         throw "Can't compare to {than}";
     }
 
-    fun rename(name: str) > void {
+    mut fun rename(name: str) > void {
         this.name = name;
     }
 }
 
-object(Nameable) Pet {
+object<Nameable> Pet {
     name: str,
 
-    fun rename(name: str) > void {
+    mut fun rename(name: str) > void {
         this.name = name;
     }
 }
 
 test "Protocols" {
-    final joe = Person{
+    final joe = mut Person{
         name = "Joe",
         age = 25,
     };
@@ -44,7 +44,7 @@ test "Protocols" {
         age = 56,
     };
 
-    final bandit = Pet{
+    final bandit = mut Pet{
         name = "bandit",
     };
 
@@ -53,7 +53,7 @@ test "Protocols" {
     var nameable: Nameable = bandit;
     nameable = joe;
 
-    final nameables: [Nameable] = [bandit, joe];
+    final nameables: [mut Nameable] = [bandit, joe];
     final newNames = ["Chili", "Nick"];
     foreach (i, item in nameables) {
         item.rename(newNames[i]);
