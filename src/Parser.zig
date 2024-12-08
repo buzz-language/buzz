@@ -198,8 +198,9 @@ pub const Local = struct {
     name: Ast.TokenIndex,
     type_def: *obj.ObjTypeDef,
     depth: i32,
-    is_captured: bool,
+    captured: bool,
     final: bool,
+    mutable: bool,
     referenced: bool = false,
 
     pub fn isReferenced(self: Local, ast: Ast) bool {
@@ -222,6 +223,7 @@ pub const Global = struct {
     exported: bool = false,
     hidden: bool = false,
     final: bool,
+    mutable: bool,
     referenced: bool = false,
 
     pub fn isReferenced(self: Global, ast: Ast) bool {
@@ -380,9 +382,9 @@ const ParseFn = *const fn (*Self, bool) Error!Ast.Node.Index;
 const InfixParseFn = *const fn (*Self, bool, Ast.Node.Index) Error!Ast.Node.Index;
 
 const ParseRule = struct {
-    prefix: ?ParseFn,
-    infix: ?InfixParseFn,
-    precedence: Precedence,
+    prefix: ?ParseFn = null,
+    infix: ?InfixParseFn = null,
+    precedence: Precedence = .None,
 };
 
 const search_paths = [_][]const u8{
@@ -425,106 +427,107 @@ const zdef_search_paths = [_][]const u8{
 };
 
 const rules = [_]ParseRule{
-    .{ .prefix = null, .infix = null, .precedence = .None }, // Pipe
+    .{}, // Pipe
     .{ .prefix = list, .infix = subscript, .precedence = .Call }, // LeftBracket
-    .{ .prefix = null, .infix = null, .precedence = .None }, // RightBracket
+    .{}, // RightBracket
     .{ .prefix = grouping, .infix = call, .precedence = .Call }, // LeftParen
-    .{ .prefix = null, .infix = null, .precedence = .None }, // RightParen
+    .{}, // RightParen
     .{ .prefix = map, .infix = objectInit, .precedence = .Primary }, // LeftBrace
-    .{ .prefix = null, .infix = null, .precedence = .None }, // RightBrace
+    .{}, // RightBrace
     .{ .prefix = anonymousObjectInit, .infix = dot, .precedence = .Call }, // Dot
-    .{ .prefix = null, .infix = null, .precedence = .None }, // Comma
-    .{ .prefix = null, .infix = null, .precedence = .None }, // Semicolon
-    .{ .prefix = null, .infix = binary, .precedence = .Comparison }, // Greater
+    .{}, // Comma
+    .{}, // Semicolon
+    .{ .infix = binary, .precedence = .Comparison }, // Greater
     .{ .prefix = typeExpression, .infix = binary, .precedence = .Comparison }, // Less
-    .{ .prefix = null, .infix = binary, .precedence = .Term }, // Plus
+    .{ .infix = binary, .precedence = .Term }, // Plus
     .{ .prefix = unary, .infix = binary, .precedence = .Term }, // Minus
-    .{ .prefix = null, .infix = binary, .precedence = .Factor }, // Star
-    .{ .prefix = null, .infix = binary, .precedence = .Factor }, // Slash
-    .{ .prefix = null, .infix = null, .precedence = .None }, // AntiSlash
-    .{ .prefix = null, .infix = binary, .precedence = .Factor }, // Percent
-    .{ .prefix = null, .infix = gracefulUnwrap, .precedence = .Call }, // Question
+    .{ .infix = binary, .precedence = .Factor }, // Star
+    .{ .infix = binary, .precedence = .Factor }, // Slash
+    .{}, // AntiSlash
+    .{ .infix = binary, .precedence = .Factor }, // Percent
+    .{ .infix = gracefulUnwrap, .precedence = .Call }, // Question
     .{ .prefix = unary, .infix = forceUnwrap, .precedence = .Call }, // Bang
-    .{ .prefix = null, .infix = null, .precedence = .None }, // Colon
-    .{ .prefix = null, .infix = genericResolve, .precedence = .Call }, // DoubleColon
-    .{ .prefix = null, .infix = null, .precedence = .None }, // Equal
-    .{ .prefix = null, .infix = binary, .precedence = .Equality }, // EqualEqual
-    .{ .prefix = null, .infix = binary, .precedence = .Equality }, // BangEqual
-    .{ .prefix = null, .infix = null, .precedence = .None }, // BangGreater
-    .{ .prefix = null, .infix = binary, .precedence = .Comparison }, // GreaterEqual
-    .{ .prefix = null, .infix = binary, .precedence = .Comparison }, // LessEqual
-    .{ .prefix = null, .infix = binary, .precedence = .NullCoalescing }, // QuestionQuestion
-    .{ .prefix = null, .infix = null, .precedence = .None }, // Arrow
-    .{ .prefix = null, .infix = null, .precedence = .None }, // DoubleArrow
-    .{ .prefix = literal, .infix = null, .precedence = .None }, // True
-    .{ .prefix = literal, .infix = null, .precedence = .None }, // False
-    .{ .prefix = literal, .infix = null, .precedence = .None }, // Null
-    .{ .prefix = null, .infix = null, .precedence = .None }, // Str
-    .{ .prefix = null, .infix = null, .precedence = .None }, // Ud
-    .{ .prefix = null, .infix = null, .precedence = .None }, // Int
-    .{ .prefix = null, .infix = null, .precedence = .None }, // Double
-    .{ .prefix = null, .infix = null, .precedence = .None }, // Type
-    .{ .prefix = null, .infix = null, .precedence = .None }, // Bool
-    .{ .prefix = null, .infix = null, .precedence = .None }, // Function
-    .{ .prefix = null, .infix = binary, .precedence = .Shift }, // ShiftRight
-    .{ .prefix = null, .infix = binary, .precedence = .Shift }, // ShiftLeft
-    .{ .prefix = null, .infix = binary, .precedence = .Bitwise }, // Xor
-    .{ .prefix = null, .infix = binary, .precedence = .Bitwise }, // Bor
-    .{ .prefix = unary, .infix = null, .precedence = .Term }, // Bnot
-    .{ .prefix = null, .infix = @"or", .precedence = .Or }, // Or
-    .{ .prefix = null, .infix = @"and", .precedence = .And }, // And
-    .{ .prefix = null, .infix = null, .precedence = .None }, // Return
-    .{ .prefix = inlineIf, .infix = null, .precedence = .None }, // If
-    .{ .prefix = null, .infix = null, .precedence = .None }, // Else
-    .{ .prefix = null, .infix = null, .precedence = .None }, // Do
-    .{ .prefix = null, .infix = null, .precedence = .None }, // Until
-    .{ .prefix = null, .infix = null, .precedence = .None }, // While
-    .{ .prefix = null, .infix = null, .precedence = .None }, // For
-    .{ .prefix = null, .infix = null, .precedence = .None }, // ForEach
-    .{ .prefix = null, .infix = null, .precedence = .None }, // Break
-    .{ .prefix = null, .infix = null, .precedence = .None }, // Continue
-    .{ .prefix = null, .infix = null, .precedence = .None }, // In
-    .{ .prefix = null, .infix = is, .precedence = .IsAs }, // Is
-    .{ .prefix = literal, .infix = null, .precedence = .None }, // Integer
-    .{ .prefix = literal, .infix = null, .precedence = .None }, // FloatValue
-    .{ .prefix = string, .infix = null, .precedence = .None }, // String
-    .{ .prefix = variable, .infix = null, .precedence = .None }, // Identifier
-    .{ .prefix = fun, .infix = null, .precedence = .None }, // Fun
-    .{ .prefix = null, .infix = null, .precedence = .None }, // Object
-    .{ .prefix = null, .infix = null, .precedence = .None }, // Obj
-    .{ .prefix = null, .infix = null, .precedence = .None }, // Protocol
-    .{ .prefix = null, .infix = null, .precedence = .None }, // Enum
-    .{ .prefix = null, .infix = null, .precedence = .None }, // Throw
-    .{ .prefix = null, .infix = null, .precedence = .None }, // Try
-    .{ .prefix = null, .infix = null, .precedence = .None }, // Catch
-    .{ .prefix = null, .infix = null, .precedence = .None }, // Test
-    .{ .prefix = null, .infix = null, .precedence = .None }, // Import
-    .{ .prefix = null, .infix = null, .precedence = .None }, // Export
-    .{ .prefix = null, .infix = null, .precedence = .None }, // Final
-    .{ .prefix = null, .infix = null, .precedence = .None }, // Static
-    .{ .prefix = blockExpression, .infix = null, .precedence = .None }, // From
-    .{ .prefix = null, .infix = null, .precedence = .None }, // As
-    .{ .prefix = null, .infix = as, .precedence = .IsAs }, // AsQuestion
-    .{ .prefix = null, .infix = null, .precedence = .None }, // Extern
-    .{ .prefix = null, .infix = null, .precedence = .None }, // Eof
-    .{ .prefix = null, .infix = null, .precedence = .None }, // Error
-    .{ .prefix = literal, .infix = null, .precedence = .None }, // Void
-    .{ .prefix = null, .infix = null, .precedence = .None }, // Docblock
-    .{ .prefix = pattern, .infix = null, .precedence = .None }, // Pattern
-    .{ .prefix = null, .infix = null, .precedence = .None }, // pat
-    .{ .prefix = null, .infix = null, .precedence = .None }, // fib
+    .{}, // Colon
+    .{ .infix = genericResolve, .precedence = .Call }, // DoubleColon
+    .{}, // Equal
+    .{ .infix = binary, .precedence = .Equality }, // EqualEqual
+    .{ .infix = binary, .precedence = .Equality }, // BangEqual
+    .{}, // BangGreater
+    .{ .infix = binary, .precedence = .Comparison }, // GreaterEqual
+    .{ .infix = binary, .precedence = .Comparison }, // LessEqual
+    .{ .infix = binary, .precedence = .NullCoalescing }, // QuestionQuestion
+    .{}, // Arrow
+    .{}, // DoubleArrow
+    .{ .prefix = literal }, // True
+    .{ .prefix = literal }, // False
+    .{ .prefix = literal }, // Null
+    .{}, // Str
+    .{}, // Ud
+    .{}, // Int
+    .{}, // Double
+    .{}, // Type
+    .{}, // Bool
+    .{}, // Function
+    .{ .infix = binary, .precedence = .Shift }, // ShiftRight
+    .{ .infix = binary, .precedence = .Shift }, // ShiftLeft
+    .{ .infix = binary, .precedence = .Bitwise }, // Xor
+    .{ .infix = binary, .precedence = .Bitwise }, // Bor
+    .{ .prefix = unary, .precedence = .Term }, // Bnot
+    .{ .infix = @"or", .precedence = .Or }, // Or
+    .{ .infix = @"and", .precedence = .And }, // And
+    .{}, // Return
+    .{ .prefix = inlineIf }, // If
+    .{}, // Else
+    .{}, // Do
+    .{}, // Until
+    .{}, // While
+    .{}, // For
+    .{}, // ForEach
+    .{}, // Break
+    .{}, // Continue
+    .{}, // In
+    .{ .infix = is, .precedence = .IsAs }, // Is
+    .{ .prefix = literal }, // Integer
+    .{ .prefix = literal }, // FloatValue
+    .{ .prefix = string }, // String
+    .{ .prefix = variable }, // Identifier
+    .{ .prefix = fun }, // Fun
+    .{}, // Object
+    .{}, // Obj
+    .{}, // Protocol
+    .{}, // Enum
+    .{}, // Throw
+    .{}, // Try
+    .{}, // Catch
+    .{}, // Test
+    .{}, // Import
+    .{}, // Export
+    .{}, // Final
+    .{}, // Static
+    .{ .prefix = blockExpression }, // From
+    .{}, // As
+    .{ .infix = as, .precedence = .IsAs }, // AsQuestion
+    .{}, // Extern
+    .{}, // Eof
+    .{}, // Error
+    .{ .prefix = literal }, // Void
+    .{}, // Docblock
+    .{ .prefix = pattern }, // Pattern
+    .{}, // pat
+    .{}, // fib
     .{ .prefix = asyncCall, .infix = binary, .precedence = .Term }, // &
-    .{ .prefix = resumeFiber, .infix = null, .precedence = .Primary }, // resume
-    .{ .prefix = resolveFiber, .infix = null, .precedence = .Primary }, // resolve
-    .{ .prefix = yield, .infix = null, .precedence = .Primary }, // yield
-    .{ .prefix = null, .infix = range, .precedence = .Primary }, // ..
-    .{ .prefix = null, .infix = null, .precedence = .None }, // any
-    .{ .prefix = null, .infix = null, .precedence = .None }, // zdef
-    .{ .prefix = typeOfExpression, .infix = null, .precedence = .Unary }, // typeof
-    .{ .prefix = null, .infix = null, .precedence = .None }, // var
-    .{ .prefix = null, .infix = null, .precedence = .None }, // out
-    .{ .prefix = null, .infix = null, .precedence = .None }, // namespace
-    .{ .prefix = null, .infix = null, .precedence = .None }, // rg
+    .{ .prefix = resumeFiber, .precedence = .Primary }, // resume
+    .{ .prefix = resolveFiber, .precedence = .Primary }, // resolve
+    .{ .prefix = yield, .precedence = .Primary }, // yield
+    .{ .infix = range, .precedence = .Primary }, // ..
+    .{}, // any
+    .{}, // zdef
+    .{ .prefix = typeOfExpression, .precedence = .Unary }, // typeof
+    .{}, // var
+    .{}, // out
+    .{}, // namespace
+    .{}, // rg
+    .{}, // mut
 };
 
 ast: Ast,
@@ -1026,7 +1029,7 @@ fn beginFrame(self: *Self, function_type: obj.ObjFunction.FunctionType, function
     var local = &self.current.?.locals[self.current.?.local_count];
     self.current.?.local_count += 1;
     local.depth = 0;
-    local.is_captured = false;
+    local.captured = false;
 
     switch (function_type) {
         .Method => {
@@ -1043,6 +1046,7 @@ fn beginFrame(self: *Self, function_type: obj.ObjFunction.FunctionType, function
                         .List = obj.ObjList.ListDef.init(
                             self.gc.allocator,
                             self.gc.type_registry.str_type,
+                            false,
                         ),
                     },
                 },
@@ -1135,7 +1139,7 @@ fn endScope(self: *Self) ![]Chunk.OpCode {
     while (current.local_count > 0 and current.locals[current.local_count - 1].depth > current.scope_depth) {
         const local = current.locals[current.local_count - 1];
 
-        if (local.is_captured) {
+        if (local.captured) {
             try closing.append(.OP_CLOSE_UPVALUE);
         } else {
             try closing.append(.OP_POP);
@@ -1169,7 +1173,7 @@ fn closeScope(self: *Self, upto_depth: usize) ![]Chunk.OpCode {
 
     var local_count = current.local_count;
     while (local_count > 0 and current.locals[local_count - 1].depth > upto_depth - 1) {
-        if (current.locals[local_count - 1].is_captured) {
+        if (current.locals[local_count - 1].captured) {
             try closing.append(.OP_CLOSE_UPVALUE);
         } else {
             try closing.append(.OP_POP);
@@ -1353,6 +1357,9 @@ fn declaration(self: *Self) Error!?Ast.Node.Index {
             );
         }
 
+        // Mutable?
+        const mutable = try self.match(.Mut);
+
         // Simple types
         for ([_]Token.Type{ .Pat, .Ud, .Str, .Int, .Double, .Bool, .Range, .Type, .Any }) |token| {
             if (try self.match(token)) {
@@ -1389,7 +1396,7 @@ fn declaration(self: *Self) Error!?Ast.Node.Index {
         else if (try self.match(.LeftBracket))
             break :variable try self.varDeclaration(
                 identifier,
-                try self.parseListType(null),
+                try self.parseListType(null, mutable),
                 .Semicolon,
                 final,
                 true,
@@ -1398,7 +1405,7 @@ fn declaration(self: *Self) Error!?Ast.Node.Index {
         else if (try self.match(.LeftBrace))
             break :variable try self.varDeclaration(
                 identifier,
-                try self.parseMapType(null),
+                try self.parseMapType(null, mutable),
                 .Semicolon,
                 final,
                 true,
@@ -1417,6 +1424,7 @@ fn declaration(self: *Self) Error!?Ast.Node.Index {
             break :variable try self.userVarDeclaration(
                 identifier,
                 final,
+                mutable,
             );
         }
 
@@ -1505,7 +1513,7 @@ fn statement(self: *Self, hanging: bool, loop_scope: ?LoopScope) !?Ast.Node.Inde
     return try self.expressionStatement(hanging);
 }
 
-fn addLocal(self: *Self, name: Ast.TokenIndex, local_type: *obj.ObjTypeDef, final: bool) Error!usize {
+fn addLocal(self: *Self, name: Ast.TokenIndex, local_type: *obj.ObjTypeDef, final: bool, mutable: bool) Error!usize {
     if (self.current.?.local_count == 255) {
         self.reportError(.locals_count, "Too many local variables in scope.");
         return 0;
@@ -1515,7 +1523,8 @@ fn addLocal(self: *Self, name: Ast.TokenIndex, local_type: *obj.ObjTypeDef, fina
     self.current.?.locals[self.current.?.local_count] = Local{
         .name = name,
         .depth = -1,
-        .is_captured = false,
+        .captured = false,
+        .mutable = mutable,
         .type_def = local_type,
         .final = final,
         // Extern and abstract function arguments are considered referenced
@@ -1527,7 +1536,7 @@ fn addLocal(self: *Self, name: Ast.TokenIndex, local_type: *obj.ObjTypeDef, fina
     return self.current.?.local_count - 1;
 }
 
-fn addGlobal(self: *Self, name: Ast.TokenIndex, global_type: *obj.ObjTypeDef, final: bool) Error!usize {
+fn addGlobal(self: *Self, name: Ast.TokenIndex, global_type: *obj.ObjTypeDef, final: bool, mutable: bool) Error!usize {
     const lexemes = self.ast.tokens.items(.lexeme);
     // Search for an existing placeholder global with the same name
     for (self.globals.items, 0..) |*global, index| {
@@ -1562,6 +1571,7 @@ fn addGlobal(self: *Self, name: Ast.TokenIndex, global_type: *obj.ObjTypeDef, fi
             .name = qualified_name.items,
             .type_def = global_type,
             .final = final,
+            .mutable = mutable,
             .exported = self.exporting,
         },
     );
@@ -1714,7 +1724,11 @@ fn resolvePlaceholderWithRelation(
         .Instance => {
             try self.resolvePlaceholder(
                 child,
-                try resolved_type.toInstance(self.gc.allocator, &self.gc.type_registry),
+                try resolved_type.toInstance(
+                    self.gc.allocator,
+                    &self.gc.type_registry,
+                    child.isMutable(),
+                ),
                 false,
             );
         },
@@ -2170,7 +2184,7 @@ fn resolveUpvalue(self: *Self, frame: *Frame, name: Ast.TokenIndex) Error!?usize
 
     const local: ?usize = try self.resolveLocal(frame.enclosing.?, name);
     if (local) |resolved| {
-        frame.enclosing.?.locals[resolved].is_captured = true;
+        frame.enclosing.?.locals[resolved].captured = true;
         return try self.addUpvalue(frame, resolved, true);
     }
 
@@ -2182,7 +2196,7 @@ fn resolveUpvalue(self: *Self, frame: *Frame, name: Ast.TokenIndex) Error!?usize
     return null;
 }
 
-fn declareVariable(self: *Self, variable_type: *obj.ObjTypeDef, name: Ast.TokenIndex, final: bool, check_name: bool) Error!usize {
+fn declareVariable(self: *Self, variable_type: *obj.ObjTypeDef, name: Ast.TokenIndex, final: bool, mutable: bool, check_name: bool) Error!usize {
     const lexemes = self.ast.tokens.items(.lexeme);
     const name_lexeme = lexemes[name];
 
@@ -2215,7 +2229,12 @@ fn declareVariable(self: *Self, variable_type: *obj.ObjTypeDef, name: Ast.TokenI
             }
         }
 
-        return try self.addLocal(name, variable_type, final);
+        return try self.addLocal(
+            name,
+            variable_type,
+            final,
+            mutable,
+        );
     } else {
         if (check_name) {
             // Check a global with the same name doesn't exists
@@ -2267,6 +2286,7 @@ fn parseVariable(
     identifier: ?Ast.TokenIndex,
     variable_type: *obj.ObjTypeDef,
     final: bool,
+    mutable: bool,
     error_message: []const u8,
 ) !usize {
     if (identifier == null) {
@@ -2277,6 +2297,7 @@ fn parseVariable(
         variable_type,
         identifier orelse self.current_token.? - 1,
         final,
+        mutable,
         true,
     );
 }
@@ -2300,7 +2321,11 @@ fn declarePlaceholder(self: *Self, name: Ast.TokenIndex, placeholder: ?*obj.ObjT
             .{
                 .def_type = .Placeholder,
                 .resolved_type = .{
-                    .Placeholder = obj.PlaceholderDef.init(self.gc.allocator, name),
+                    .Placeholder = obj.PlaceholderDef.init(
+                        self.gc.allocator,
+                        name,
+                        null,
+                    ),
                 },
             },
         );
@@ -2312,6 +2337,7 @@ fn declarePlaceholder(self: *Self, name: Ast.TokenIndex, placeholder: ?*obj.ObjT
         name,
         placeholder_type,
         false,
+        true,
     );
     // markInitialized but we don't care what depth we are in
     self.globals.items[global].initialized = true;
@@ -2362,8 +2388,19 @@ fn parseTypeDef(
     generic_types: ?std.AutoArrayHashMap(*obj.ObjString, *obj.ObjTypeDef),
     instance: bool,
 ) Error!Ast.Node.Index {
+    const mutable = try self.match(.Mut);
+    const mutable_token = self.current_token.?;
+
     if (try self.match(.Str)) {
         const optional = try self.match(.Question);
+
+        if (mutable) {
+            self.reporter.report(
+                .mutable_forbidden,
+                self.ast.tokens.get(mutable_token),
+                "`str` can't be mutable",
+            );
+        }
 
         return self.ast.appendNode(
             .{
@@ -2384,6 +2421,14 @@ fn parseTypeDef(
     } else if (try self.match(.Pat)) {
         const optional = try self.match(.Question);
 
+        if (mutable) {
+            self.reporter.report(
+                .mutable_forbidden,
+                self.ast.tokens.get(mutable_token),
+                "`pat` can't be mutable",
+            );
+        }
+
         return self.ast.appendNode(
             .{
                 .tag = .SimpleType,
@@ -2402,6 +2447,14 @@ fn parseTypeDef(
         );
     } else if (try self.match(.Ud)) {
         const optional = try self.match(.Question);
+
+        if (mutable) {
+            self.reporter.report(
+                .mutable_forbidden,
+                self.ast.tokens.get(mutable_token),
+                "`ud` can't be mutable",
+            );
+        }
 
         return self.ast.appendNode(
             .{
@@ -2422,6 +2475,14 @@ fn parseTypeDef(
     } else if (try self.match(.Type)) {
         const optional = try self.match(.Question);
 
+        if (mutable) {
+            self.reporter.report(
+                .mutable_forbidden,
+                self.ast.tokens.get(mutable_token),
+                "`type` can't be mutable",
+            );
+        }
+
         return self.ast.appendNode(
             .{
                 .tag = .SimpleType,
@@ -2439,6 +2500,14 @@ fn parseTypeDef(
             },
         );
     } else if (try self.match(.Void)) {
+        if (mutable) {
+            self.reporter.report(
+                .mutable_forbidden,
+                self.ast.tokens.get(mutable_token),
+                "`void` can't be mutable",
+            );
+        }
+
         return self.ast.appendNode(
             .{
                 .tag = .SimpleType,
@@ -2452,6 +2521,14 @@ fn parseTypeDef(
         );
     } else if (try self.match(.Int)) {
         const optional = try self.match(.Question);
+
+        if (mutable) {
+            self.reporter.report(
+                .mutable_forbidden,
+                self.ast.tokens.get(mutable_token),
+                "`int` can't be mutable",
+            );
+        }
 
         return self.ast.appendNode(
             .{
@@ -2472,6 +2549,14 @@ fn parseTypeDef(
     } else if (try self.match(.Double)) {
         const optional = try self.match(.Question);
 
+        if (mutable) {
+            self.reporter.report(
+                .mutable_forbidden,
+                self.ast.tokens.get(mutable_token),
+                "`double` can't be mutable",
+            );
+        }
+
         return self.ast.appendNode(
             .{
                 .tag = .SimpleType,
@@ -2491,6 +2576,14 @@ fn parseTypeDef(
     } else if (try self.match(.Bool)) {
         const optional = try self.match(.Question);
 
+        if (mutable) {
+            self.reporter.report(
+                .mutable_forbidden,
+                self.ast.tokens.get(mutable_token),
+                "`bool` can't be mutable",
+            );
+        }
+
         return self.ast.appendNode(
             .{
                 .tag = .SimpleType,
@@ -2509,6 +2602,14 @@ fn parseTypeDef(
         );
     } else if (try self.match(.Range)) {
         const optional = try self.match(.Question);
+
+        if (mutable) {
+            self.reporter.report(
+                .mutable_forbidden,
+                self.ast.tokens.get(mutable_token),
+                "`rg` can't be mutable",
+            );
+        }
 
         return self.ast.appendNode(
             .{
@@ -2538,6 +2639,9 @@ fn parseTypeDef(
                     .{
                         .optional = optional,
                         .def_type = .Any,
+                        .resolved_type = .{
+                            .Any = mutable,
+                        },
                     },
                 ),
                 .components = .{
@@ -2565,9 +2669,9 @@ fn parseTypeDef(
             },
         );
     } else if (try self.match(.LeftBracket)) {
-        return self.parseListType(generic_types);
+        return self.parseListType(generic_types, mutable);
     } else if (try self.match(.LeftBrace)) {
-        return self.parseMapType(generic_types);
+        return self.parseMapType(generic_types, mutable);
     } else if (try self.match(.Fun) or try self.match(.Extern)) {
         return try self.parseFunctionType(generic_types);
     } else if (try self.match(.Fib)) {
@@ -2578,6 +2682,7 @@ fn parseTypeDef(
             self.ast.nodes.items(.type_def)[type_def_node] = try self.ast.nodes.items(.type_def)[type_def_node].?.toInstance(
                 self.gc.allocator,
                 &self.gc.type_registry,
+                mutable,
             );
         }
 
@@ -2687,7 +2792,7 @@ fn parseFiberType(self: *Self, generic_types: ?std.AutoArrayHashMap(*obj.ObjStri
     );
 }
 
-fn parseListType(self: *Self, generic_types: ?std.AutoArrayHashMap(*obj.ObjString, *obj.ObjTypeDef)) Error!Ast.Node.Index {
+fn parseListType(self: *Self, generic_types: ?std.AutoArrayHashMap(*obj.ObjString, *obj.ObjTypeDef), mutable: bool) Error!Ast.Node.Index {
     const start_location = self.current_token.? - 1;
     const item_type = try self.parseTypeDef(generic_types, true);
 
@@ -2701,6 +2806,7 @@ fn parseListType(self: *Self, generic_types: ?std.AutoArrayHashMap(*obj.ObjStrin
                 .List = obj.ObjList.ListDef.init(
                     self.gc.allocator,
                     self.ast.nodes.items(.type_def)[item_type].?,
+                    mutable,
                 ),
             },
         },
@@ -2721,7 +2827,7 @@ fn parseListType(self: *Self, generic_types: ?std.AutoArrayHashMap(*obj.ObjStrin
     );
 }
 
-fn parseMapType(self: *Self, generic_types: ?std.AutoArrayHashMap(*obj.ObjString, *obj.ObjTypeDef)) Error!Ast.Node.Index {
+fn parseMapType(self: *Self, generic_types: ?std.AutoArrayHashMap(*obj.ObjString, *obj.ObjTypeDef), mutable: bool) Error!Ast.Node.Index {
     const start_location = self.current_token.? - 1;
 
     const key_type = try self.parseTypeDef(generic_types, true);
@@ -2748,6 +2854,7 @@ fn parseMapType(self: *Self, generic_types: ?std.AutoArrayHashMap(*obj.ObjString
                             self.gc.allocator,
                             type_defs[key_type].?,
                             type_defs[value_type].?,
+                            mutable,
                         ),
                     },
                 },
@@ -2983,11 +3090,11 @@ fn parseFunctionType(self: *Self, parent_generic_types: ?std.AutoArrayHashMap(*o
         .script_name = try self.gc.copyString(self.script_name),
         .name = name orelse try self.gc.copyString("anonymous"),
         .return_type = if (return_type) |rt|
-            try self.ast.nodes.items(.type_def)[rt].?.toInstance(self.gc.allocator, &self.gc.type_registry)
+            try self.ast.nodes.items(.type_def)[rt].?.toInstance(self.gc.allocator, &self.gc.type_registry, null)
         else
             self.gc.type_registry.void_type,
         .yield_type = if (yield_type) |yt|
-            try self.ast.nodes.items(.type_def)[yt].?.toInstance(self.gc.allocator, &self.gc.type_registry)
+            try self.ast.nodes.items(.type_def)[yt].?.toInstance(self.gc.allocator, &self.gc.type_registry, null)
         else
             self.gc.type_registry.void_type,
         .parameters = parameters,
@@ -4907,6 +5014,7 @@ fn @"if"(self: *Self, is_statement: bool, loop_scope: ?LoopScope) Error!Ast.Node
             self.current_token.? - 1,
             try condition_type_def.?.cloneNonOptional(&self.gc.type_registry),
             true,
+
             "Expected optional unwrap identifier",
         );
         self.markInitialized();
@@ -6462,6 +6570,7 @@ fn objectDeclaration(self: *Self) Error!Ast.Node.Index {
             null;
 
         const static = try self.match(.Static);
+        const mutable = !static and try self.match(.Mut);
 
         if (try self.match(.Fun)) {
             const method_token = self.current_token.?;
@@ -6470,7 +6579,11 @@ fn objectDeclaration(self: *Self) Error!Ast.Node.Index {
                 if (static)
                     object_placeholder
                 else
-                    try object_placeholder.toInstance(self.gc.allocator, &self.gc.type_registry),
+                    try object_placeholder.toInstance(
+                        self.gc.allocator,
+                        &self.gc.type_registry,
+                        mutable,
+                    ),
             );
 
             const method_type_def = self.ast.nodes.items(.type_def)[method_node];
@@ -7224,6 +7337,7 @@ fn testStatement(self: *Self) Error!Ast.Node.Index {
         },
     );
 }
+
 fn searchPaths(self: *Self, file_name: []const u8) ![][]const u8 {
     var paths = std.ArrayList([]const u8).init(self.gc.allocator);
     defer paths.shrinkAndFree(paths.items.len);
@@ -8025,7 +8139,7 @@ fn zdefStatement(self: *Self) Error!Ast.Node.Index {
 }
 
 // FIXME: this is almost the same as parseUserType!
-fn userVarDeclaration(self: *Self, identifier: Ast.TokenIndex, final: bool) Error!Ast.Node.Index {
+fn userVarDeclaration(self: *Self, identifier: Ast.TokenIndex, final: bool, mutable: bool) Error!Ast.Node.Index {
     const start_location = self.current_token.? - 1;
     var var_type: ?*obj.ObjTypeDef = null;
 
@@ -8076,6 +8190,7 @@ fn userVarDeclaration(self: *Self, identifier: Ast.TokenIndex, final: bool) Erro
                     .Placeholder = obj.PlaceholderDef.init(
                         self.gc.allocator,
                         user_type_name[user_type_name.len - 1],
+                        mutable,
                     ),
                 },
             },

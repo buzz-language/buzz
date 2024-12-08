@@ -176,6 +176,7 @@ pub const Type = enum {
     Out, // out
     Namespace, // namespace
     Range, // range
+    Mut, // mut
 };
 
 // FIXME if case had the same name as the actual token we could simply use @tagName
@@ -208,6 +209,7 @@ pub const keywords = std.StaticStringMap(Type).initComptime(
         .{ "int", .Int },
         .{ "is", .Is },
         .{ "namespace", .Namespace },
+        .{ "mut", .Mut },
         .{ "null", .Null },
         .{ "obj", .Obj },
         .{ "object", .Object },
