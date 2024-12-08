@@ -132,7 +132,7 @@ pub fn map(ctx: *NativeCtx) c_int {
     const closure = ctx.vm.peek(0);
 
     const mapped_type = ObjClosure.cast(closure.obj()).?.function.type_def.resolved_type.?.Function
-        .return_type.resolved_type.?.ObjectInstance
+        .return_type.resolved_type.?.ObjectInstance.of
         .resolved_type.?.Object;
 
     var new_map: *ObjMap = ctx.vm.gc.allocateObject(
@@ -148,6 +148,7 @@ pub fn map(ctx: *NativeCtx) c_int {
                             ctx.vm.gc.allocator,
                             mapped_type.fields.get("key").?.type_def,
                             mapped_type.fields.get("value").?.type_def,
+                            self.type_def.resolved_type.?.Map.mutable,
                         ),
                     },
                 },
@@ -177,7 +178,7 @@ pub fn map(ctx: *NativeCtx) c_int {
         );
 
         const instance = ObjObjectInstance.cast(ctx.vm.pop().obj()).?;
-        const object_def = instance.type_def.resolved_type.?.ObjectInstance
+        const object_def = instance.type_def.resolved_type.?.ObjectInstance.of
             .resolved_type.?.Object;
 
         new_map.set(
@@ -354,6 +355,7 @@ pub fn keys(ctx: *NativeCtx) c_int {
                 .List = ObjList.ListDef.init(
                     ctx.vm.gc.allocator,
                     self.type_def.resolved_type.?.Map.key_type,
+                    false,
                 ),
             },
         },
@@ -403,6 +405,7 @@ pub fn values(ctx: *NativeCtx) c_int {
                 .List = ObjList.ListDef.init(
                     ctx.vm.gc.allocator,
                     self.type_def.resolved_type.?.Map.value_type,
+                    false,
                 ),
             },
         },

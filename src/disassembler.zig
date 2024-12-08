@@ -627,7 +627,7 @@ pub const DumpState = struct {
 
                 .ObjectInstance => {
                     const object_instance = obj.ObjObjectInstance.cast(value.obj()).?;
-                    const fields = object_instance.type_def.resolved_type.?.ObjectInstance
+                    const fields = object_instance.type_def.resolved_type.?.ObjectInstance.of
                         .resolved_type.?.Object
                         .fields;
 

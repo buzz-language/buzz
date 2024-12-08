@@ -119,6 +119,8 @@ pub const Error = enum(u8) {
     tuple_limit = 97,
     mix_tuple = 98,
     unclosed = 99,
+    not_mutable = 100,
+    mutable_forbidden = 101,
 };
 
 // Inspired by https://github.com/zesterer/ariadne

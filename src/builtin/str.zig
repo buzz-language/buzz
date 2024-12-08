@@ -68,6 +68,7 @@ pub fn utf8Codepoints(ctx: *NativeCtx) c_int {
                 .List = ObjList.ListDef.init(
                     ctx.vm.gc.allocator,
                     ctx.vm.gc.type_registry.str_type,
+                    false,
                 ),
             },
         },
@@ -260,6 +261,7 @@ pub fn split(ctx: *NativeCtx) c_int {
                 .List = ObjList.ListDef.init(
                     ctx.vm.gc.allocator,
                     ctx.vm.gc.type_registry.str_type,
+                    false,
                 ),
             },
         },

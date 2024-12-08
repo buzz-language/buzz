@@ -84,7 +84,7 @@ export object Buffer {
     }
 
     /// Frees the buffer
-    fun collect() > void {
+    mut fun collect() > void {
         // Avoid double free
         if (!this.released) {
             this.released = true;

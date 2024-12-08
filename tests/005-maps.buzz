@@ -1,7 +1,7 @@
 import "std";
 
 test "Maps" {
-    final map = {
+    final map = mut {
         "hello": 1,
         "bye": 2,
     };

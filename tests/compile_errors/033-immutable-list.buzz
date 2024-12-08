@@ -1,0 +1,9 @@
+// Method `append` requires mutable list
+test "Trying to modify immutable value" {
+    final list = [1, 2, 3];
+
+    // Means a method has to define if its instance is mutable or not!
+    // We might need https://github.com/buzz-language/buzz/issues/98 after all!
+    list.append(4); // Not allowed
+}
+

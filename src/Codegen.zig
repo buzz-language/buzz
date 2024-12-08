@@ -1328,7 +1328,7 @@ fn generateCall(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj
 
         if (callee_def_type == .ObjectInstance) {
             const fields = type_defs[node_components[components.callee].Dot.callee].?
-                .resolved_type.?.ObjectInstance
+                .resolved_type.?.ObjectInstance.of
                 .resolved_type.?.Object.fields;
 
             const field = fields.get(member_lexeme).?;
@@ -1493,8 +1493,9 @@ fn generateDot(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.
         .ForeignContainer, .ObjectInstance, .Object => {
             const field_name = self.ast.tokens.items(.lexeme)[components.identifier];
             const field = switch (callee_type.def_type) {
-                .ObjectInstance => callee_type.resolved_type.?.ObjectInstance
-                    .resolved_type.?.Object.fields
+                .ObjectInstance => callee_type.resolved_type.?.ObjectInstance.of
+                    .resolved_type.?.Object
+                    .fields
                     .get(field_name),
                 .Object => callee_type.resolved_type.?.Object.fields
                     .get(field_name),
@@ -1538,7 +1539,7 @@ fn generateDot(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.
                             {
                                 self.reporter.reportErrorFmt(
                                     .assignable,
-                                    self.ast.tokens.get(locations[value]),
+                                    self.ast.tokens.get(locations[components.callee]),
                                     "`{s}` is not assignable",
                                     .{
                                         field_name,
@@ -1547,11 +1548,24 @@ fn generateDot(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.
                             } else if (field.?.final) {
                                 self.reporter.reportErrorFmt(
                                     .constant_property,
-                                    self.ast.tokens.get(locations[value]),
+                                    self.ast.tokens.get(locations[components.callee]),
                                     "`{s}` is final",
                                     .{
                                         field_name,
                                     },
+                                );
+                            } else if (callee_type.def_type == .ObjectInstance and !callee_type.resolved_type.?.ObjectInstance.mutable) {
+                                self.reporter.reportWithOrigin(
+                                    .not_mutable,
+                                    self.ast.tokens.get(locations[components.callee]),
+                                    callee_type.resolved_type.?.ObjectInstance.of
+                                        .resolved_type.?.Object.location,
+                                    "Instance of `{s}` is not mutable",
+                                    .{
+                                        callee_type.resolved_type.?.ObjectInstance.of
+                                            .resolved_type.?.Object.qualified_name.string,
+                                    },
+                                    "declared here",
                                 );
                             }
 
@@ -1598,6 +1612,12 @@ fn generateDot(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.
                             get_code.?,
                             @intCast(field.?.index),
                         );
+                    } else if (field.?.mutable and !callee_type.resolved_type.?.ObjectInstance.mutable) {
+                        self.reporter.report(
+                            .not_mutable,
+                            self.ast.tokens.get(components.identifier),
+                            "Method requires mutable instance",
+                        );
                     }
 
                     _ = try self.generateNode(components.value_or_call_or_enum.Call, breaks);
@@ -1615,6 +1635,20 @@ fn generateDot(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.
         },
         .ProtocolInstance => {
             if (components.member_kind == .Call) {
+                const field_name = self.ast.tokens.items(.lexeme)[components.identifier];
+                const field = callee_type.resolved_type.?.ProtocolInstance.of
+                    .resolved_type.?.Protocol
+                    .methods
+                    .get(field_name);
+
+                if (field.?.mutable and !callee_type.resolved_type.?.ObjectInstance.mutable) {
+                    self.reporter.report(
+                        .not_mutable,
+                        self.ast.tokens.get(components.identifier),
+                        "Method requires mutable instance",
+                    );
+                }
+
                 _ = try self.generateNode(components.value_or_call_or_enum.Call, breaks);
             } else {
                 std.debug.assert(components.member_kind == .Ref);
@@ -1638,7 +1672,37 @@ fn generateDot(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.
         },
         .List, .Map, .Range => {
             if (components.member_kind == .Call) {
+                const identifier = self.ast.tokens.items(.lexeme)[components.identifier];
+
                 try self.OP_COPY(locations[node], 0);
+
+                switch (callee_type.def_type) {
+                    .List => if (callee_type.resolved_type.?.List.methods.get(identifier).?.mutable and
+                        !callee_type.resolved_type.?.List.mutable)
+                    {
+                        self.reporter.reportErrorFmt(
+                            .not_mutable,
+                            self.ast.tokens.get(components.identifier),
+                            "Method `{s}` requires mutable list",
+                            .{
+                                identifier,
+                            },
+                        );
+                    },
+                    .Map => if (callee_type.resolved_type.?.Map.methods.get(identifier).?.mutable and
+                        !callee_type.resolved_type.?.Map.mutable)
+                    {
+                        self.reporter.reportErrorFmt(
+                            .not_mutable,
+                            self.ast.tokens.get(components.identifier),
+                            "Method `{s}` requires mutable list",
+                            .{
+                                identifier,
+                            },
+                        );
+                    },
+                    else => {},
+                }
 
                 _ = try self.generateNode(components.value_or_call_or_enum.Call, breaks);
             } else {
@@ -1758,11 +1822,15 @@ fn generateEnum(self: *Self, node: Ast.Node.Index, _: ?*Breaks) Error!?*obj.ObjF
         if (case_type_def) |case_type| {
             if (case_type.def_type == .Placeholder) {
                 self.reporter.reportPlaceholder(self.ast, case_type.resolved_type.?.Placeholder);
-            } else if (!((try enum_type.toInstance(self.gc.allocator, &self.gc.type_registry))).eql(case_type)) {
+            } else if (!((try enum_type.toInstance(self.gc.allocator, &self.gc.type_registry, false))).eql(case_type)) {
                 self.reporter.reportTypeCheck(
                     .enum_case_type,
                     self.ast.tokens.get(locations[node]),
-                    (try enum_type.toInstance(self.gc.allocator, &self.gc.type_registry)),
+                    (try enum_type.toInstance(
+                        self.gc.allocator,
+                        &self.gc.type_registry,
+                        false,
+                    )),
                     self.ast.tokens.get(locations[case.value.?]),
                     case_type,
                     "Bad enum case type",
@@ -2078,7 +2146,11 @@ fn generateForEach(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*
                 }
             },
             .Enum => {
-                const iterable_type = try iterable_type_def.toInstance(self.gc.allocator, &self.gc.type_registry);
+                const iterable_type = try iterable_type_def.toInstance(
+                    self.gc.allocator,
+                    &self.gc.type_registry,
+                    false,
+                );
                 if (!iterable_type.strictEql(value_type_def)) {
                     self.reporter.reportTypeCheck(
                         .foreach_value_type,
@@ -2094,6 +2166,7 @@ fn generateForEach(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*
                 const iterable_type = try iterable_type_def.resolved_type.?.Fiber.yield_type.toInstance(
                     self.gc.allocator,
                     &self.gc.type_registry,
+                    false,
                 );
                 if (!iterable_type.strictEql(value_type_def)) {
                     self.reporter.reportTypeCheck(
@@ -2939,11 +3012,11 @@ fn generateObjectDeclaration(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks
                                 self.ast,
                                 type_defs[member.method_or_default_value.?].?.resolved_type.?.Placeholder,
                             );
-                        } else if (!mkv.value_ptr.*.eql(type_defs[member.method_or_default_value.?].?)) {
+                        } else if (!mkv.value_ptr.*.type_def.eql(type_defs[member.method_or_default_value.?].?)) {
                             self.reporter.reportTypeCheck(
                                 .protocol_conforming,
                                 protocol_def.location,
-                                mkv.value_ptr.*,
+                                mkv.value_ptr.*.type_def,
                                 self.ast.tokens.get(locations[member.method_or_default_value.?]),
                                 type_defs[member.method_or_default_value.?].?,
                                 "Method not conforming to protocol",
@@ -2957,11 +3030,11 @@ fn generateObjectDeclaration(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks
                     self.reporter.reportWithOrigin(
                         .protocol_conforming,
                         self.ast.tokens.get(location),
-                        protocol_def.methods_locations.get(mkv.value_ptr.*.resolved_type.?.Function.name.string).?,
+                        protocol_def.methods_locations.get(mkv.value_ptr.*.type_def.resolved_type.?.Function.name.string).?,
                         "Object declared as conforming to protocol `{s}` but doesn't implement method `{s}`",
                         .{
                             protocol_def.name.string,
-                            mkv.value_ptr.*.resolved_type.?.Function.name.string,
+                            mkv.value_ptr.*.type_def.resolved_type.?.Function.name.string,
                         },
                         null,
                     );
@@ -3120,7 +3193,7 @@ fn generateObjectInit(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error
     );
 
     var fields = if (node_type_def.def_type == .ObjectInstance) inst: {
-        const fields = node_type_def.resolved_type.?.ObjectInstance.resolved_type.?.Object.fields;
+        const fields = node_type_def.resolved_type.?.ObjectInstance.of.resolved_type.?.Object.fields;
         var fields_type_defs = std.StringArrayHashMap(*obj.ObjTypeDef).init(self.gc.allocator);
         var it = fields.iterator();
         while (it.next()) |kv| {
@@ -3137,7 +3210,7 @@ fn generateObjectInit(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error
     };
 
     const object_location = if (node_type_def.def_type == .ObjectInstance)
-        node_type_def.resolved_type.?.ObjectInstance.resolved_type.?.Object.location
+        node_type_def.resolved_type.?.ObjectInstance.of.resolved_type.?.Object.location
     else
         node_type_def.resolved_type.?.ForeignContainer.location;
 
@@ -3148,7 +3221,7 @@ fn generateObjectInit(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error
     for (components.properties) |property| {
         const property_name = lexemes[property.name];
         const property_idx = if (node_type_def.def_type == .ObjectInstance)
-            if (node_type_def.resolved_type.?.ObjectInstance
+            if (node_type_def.resolved_type.?.ObjectInstance.of
                 .resolved_type.?.Object
                 .fields.get(property_name)) |field|
                 field.index
@@ -3180,7 +3253,8 @@ fn generateObjectInit(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error
                 self.reporter.reportTypeCheck(
                     .property_type,
                     if (node_type_def.def_type == .ObjectInstance)
-                        node_type_def.resolved_type.?.ObjectInstance.resolved_type.?.Object.fields.get(property_name).?.location
+                        node_type_def.resolved_type.?.ObjectInstance.of
+                            .resolved_type.?.Object.fields.get(property_name).?.location
                     else
                         object_location,
                     prop,
@@ -3219,7 +3293,7 @@ fn generateObjectInit(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error
     // If union we're statisfied with only on field initialized
     if (node_type_def.def_type != .ForeignContainer or node_type_def.resolved_type.?.ForeignContainer.zig_type != .Union or init_properties.count() == 0) {
         const field_defs = if (node_type_def.def_type == .ObjectInstance)
-            node_type_def.resolved_type.?.ObjectInstance.resolved_type.?.Object.fields
+            node_type_def.resolved_type.?.ObjectInstance.of.resolved_type.?.Object.fields
         else
             null;
 
@@ -3532,6 +3606,19 @@ fn generateSubscript(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!
             }
 
             if (components.value) |value| {
+                if (!type_defs[components.subscripted].?.isMutable()) {
+                    const callee_type_str = type_defs[components.subscripted].?.toStringAlloc(self.gc.allocator) catch unreachable;
+                    defer callee_type_str.deinit();
+                    self.reporter.reportErrorFmt(
+                        .not_mutable,
+                        self.ast.tokens.get(locations[components.subscripted]),
+                        "`{s}` not mutable",
+                        .{
+                            callee_type_str.items,
+                        },
+                    );
+                }
+
                 if (!subscripted_type_def.resolved_type.?.List.item_type.eql(value_type_def.?)) {
                     self.reporter.reportTypeCheck(
                         .subscript_value_type,
@@ -3557,6 +3644,19 @@ fn generateSubscript(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!
             }
 
             if (components.value) |value| {
+                if (!type_defs[components.subscripted].?.isMutable()) {
+                    const callee_type_str = type_defs[components.subscripted].?.toStringAlloc(self.gc.allocator) catch unreachable;
+                    defer callee_type_str.deinit();
+                    self.reporter.reportErrorFmt(
+                        .not_mutable,
+                        self.ast.tokens.get(locations[components.subscripted]),
+                        "`{s}` not mutable",
+                        .{
+                            callee_type_str.items,
+                        },
+                    );
+                }
+
                 if (!subscripted_type_def.resolved_type.?.Map.value_type.eql(value_type_def.?)) {
                     self.reporter.reportTypeCheck(
                         .subscript_value_type,
@@ -3915,11 +4015,13 @@ fn generateVarDeclaration(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) E
             self.reporter.reportPlaceholder(self.ast, value_type_def.?.resolved_type.?.Placeholder);
         } else if (type_def.def_type == .Placeholder) {
             self.reporter.reportPlaceholder(self.ast, type_def.resolved_type.?.Placeholder);
-        } else if (!(try type_def.toInstance(self.gc.allocator, &self.gc.type_registry)).eql(value_type_def.?) and !(try (try type_def.toInstance(self.gc.allocator, &self.gc.type_registry)).cloneNonOptional(&self.gc.type_registry)).eql(value_type_def.?)) {
+        } else if (!(try type_def.toInstance(self.gc.allocator, &self.gc.type_registry, type_def.isMutable())).eql(value_type_def.?) and
+            !(try (try type_def.toInstance(self.gc.allocator, &self.gc.type_registry, type_def.isMutable())).cloneNonOptional(&self.gc.type_registry)).eql(value_type_def.?))
+        {
             self.reporter.reportTypeCheck(
                 .assignment_value_type,
                 self.ast.tokens.get(location),
-                try type_def.toInstance(self.gc.allocator, &self.gc.type_registry),
+                try type_def.toInstance(self.gc.allocator, &self.gc.type_registry, type_def.isMutable()),
                 self.ast.tokens.get(locations[value]),
                 value_type_def.?,
                 "Wrong variable type",
