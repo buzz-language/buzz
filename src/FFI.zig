@@ -509,24 +509,24 @@ fn unionContainer(self: *Self, name: []const u8, container: Ast.full.ContainerDe
         },
     );
 
-    const foreign_def = o.ObjForeignContainer.ContainerDef{
-        .location = self.state.?.source,
-        .name = try self.gc.copyString(name),
-        // FIXME
-        .qualified_name = try self.gc.copyString(qualified_name.items),
-        .zig_type = zig_type,
-        .buzz_type = buzz_fields,
-        .fields = get_set_fields,
-    };
-
-    const type_def = o.ObjTypeDef{
-        .def_type = .ForeignContainer,
-        .resolved_type = .{ .ForeignContainer = foreign_def },
-    };
-
     const zdef = try self.gc.allocator.create(Zdef);
     zdef.* = .{
-        .type_def = try self.gc.type_registry.getTypeDef(type_def),
+        .type_def = try self.gc.type_registry.getTypeDef(
+            .{
+                .def_type = .ForeignContainer,
+                .resolved_type = .{
+                    .ForeignContainer = .{
+                        .location = self.state.?.source,
+                        .name = try self.gc.copyString(name),
+                        // FIXME
+                        .qualified_name = try self.gc.copyString(qualified_name.items),
+                        .zig_type = zig_type,
+                        .buzz_type = buzz_fields,
+                        .fields = get_set_fields,
+                    },
+                },
+            },
+        ),
         .zig_type = zig_type,
         .name = name,
     };

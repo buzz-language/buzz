@@ -57,9 +57,9 @@ pub const Obj = struct {
     const Self = @This();
 
     obj_type: ObjType,
-    is_marked: bool = false,
+    marked: bool = false,
     // True when old obj and was modified
-    is_dirty: bool = false,
+    dirty: bool = false,
     node: ?*std.DoublyLinkedList(*Obj).Node = null,
 
     pub fn cast(obj: *Obj, comptime T: type, obj_type: ObjType) ?*T {
@@ -139,6 +139,7 @@ pub const Obj = struct {
                                 vm.gc.allocator,
                                 vm.gc.type_registry.str_type,
                                 vm.gc.type_registry.int_type,
+                                true,
                             ),
                         },
                     },
@@ -173,6 +174,7 @@ pub const Obj = struct {
                 const list_def = ObjList.ListDef.init(
                     vm.gc.allocator,
                     vm.gc.type_registry.any_type,
+                    list.type_def.resolved_type.?.List.mutable,
                 );
 
                 const resolved_type = ObjTypeDef.TypeUnion{ .List = list_def };
@@ -209,6 +211,7 @@ pub const Obj = struct {
                     vm.gc.allocator,
                     vm.gc.type_registry.any_type,
                     vm.gc.type_registry.any_type,
+                    map.type_def.resolved_type.?.Map.mutable,
                 );
 
                 const resolved_type = ObjTypeDef.TypeUnion{ .Map = map_def };
@@ -242,12 +245,13 @@ pub const Obj = struct {
 
             .ObjectInstance => {
                 const instance = self.access(ObjObjectInstance, .ObjectInstance, vm.gc).?;
-                const object_def = instance.type_def.resolved_type.?.ObjectInstance.resolved_type.?.Object;
+                const object_def = instance.type_def.resolved_type.?.ObjectInstance.of.resolved_type.?.Object;
 
                 const map_def = ObjMap.MapDef.init(
                     vm.gc.allocator,
                     vm.gc.type_registry.any_type,
                     vm.gc.type_registry.any_type,
+                    instance.type_def.resolved_type.?.ObjectInstance.mutable,
                 );
 
                 const resolved_type = ObjTypeDef.TypeUnion{ .Map = map_def };
@@ -292,6 +296,7 @@ pub const Obj = struct {
                     vm.gc.allocator,
                     vm.gc.type_registry.any_type,
                     vm.gc.type_registry.any_type,
+                    true,
                 );
 
                 const resolved_type = ObjTypeDef.TypeUnion{ .Map = map_def };
@@ -342,7 +347,11 @@ pub const Obj = struct {
             .Object => ObjObject.cast(self).?.type_def,
             .Enum => ObjEnum.cast(self).?.type_def,
             .ObjectInstance => ObjObjectInstance.cast(self).?.type_def,
-            .EnumInstance => try ObjEnumInstance.cast(self).?.enum_ref.type_def.toInstance(gc.allocator, &gc.type_registry),
+            .EnumInstance => try ObjEnumInstance.cast(self).?.enum_ref.type_def.toInstance(
+                gc.allocator,
+                &gc.type_registry,
+                false,
+            ),
             .Function => ObjFunction.cast(self).?.type_def,
             .UpValue => upvalue: {
                 const upvalue: *ObjUpValue = ObjUpValue.cast(self).?;
@@ -377,9 +386,10 @@ pub const Obj = struct {
 
             .Type, .Object, .Enum => type_def.def_type == .Type,
 
-            .ObjectInstance => (type_def.def_type == .ObjectInstance or type_def.def_type == .Object or type_def.def_type == .Protocol or type_def.def_type == .ProtocolInstance) and ObjObjectInstance.cast(self).?.is(type_def),
+            .ObjectInstance => (type_def.def_type == .ObjectInstance or type_def.def_type == .Object or type_def.def_type == .Protocol or type_def.def_type == .ProtocolInstance) and
+                ObjObjectInstance.cast(self).?.is(type_def),
             .EnumInstance => (type_def.def_type == .Enum and ObjEnumInstance.cast(self).?.enum_ref.type_def == type_def) or
-                (type_def.def_type == .EnumInstance and ObjEnumInstance.cast(self).?.enum_ref.type_def == type_def.resolved_type.?.EnumInstance),
+                (type_def.def_type == .EnumInstance and ObjEnumInstance.cast(self).?.enum_ref.type_def == type_def.resolved_type.?.EnumInstance.of),
             .Function => function: {
                 const function: *ObjFunction = ObjFunction.cast(self).?;
                 break :function function.type_def.eql(type_def);
@@ -573,6 +583,7 @@ pub const Obj = struct {
                             .type_def
                             .resolved_type.?
                             .ObjectInstance
+                            .of
                             .resolved_type.?
                             .Object;
 
@@ -1437,7 +1448,7 @@ pub const ObjObjectInstance = struct {
             .type_def = type_def,
             .fields = try gc.allocateMany(
                 Value,
-                type_def.resolved_type.?.ObjectInstance
+                type_def.resolved_type.?.ObjectInstance.of
                     .resolved_type.?.Object
                     .propertiesCount(),
             ),
@@ -1472,13 +1483,13 @@ pub const ObjObjectInstance = struct {
 
     fn is(self: *Self, type_def: *ObjTypeDef) bool {
         if (type_def.def_type == .ObjectInstance) {
-            return self.type_def.resolved_type.?.ObjectInstance == type_def.resolved_type.?.ObjectInstance;
+            return self.type_def.resolved_type.?.ObjectInstance.of == type_def.resolved_type.?.ObjectInstance.of;
         } else if (type_def.def_type == .Protocol) {
-            return self.type_def.resolved_type.?.ObjectInstance.resolved_type.?.Object.conforms_to.get(type_def) != null;
+            return self.type_def.resolved_type.?.ObjectInstance.of.resolved_type.?.Object.conforms_to.get(type_def) != null;
         } else if (type_def.def_type == .Object) {
-            return self.type_def.resolved_type.?.ObjectInstance == type_def;
+            return self.type_def.resolved_type.?.ObjectInstance.of == type_def;
         } else if (type_def.def_type == .ProtocolInstance) {
-            return self.type_def.resolved_type.?.ObjectInstance.resolved_type.?.Object.conforms_to.get(type_def.resolved_type.?.ProtocolInstance) != null;
+            return self.type_def.resolved_type.?.ObjectInstance.of.resolved_type.?.Object.conforms_to.get(type_def.resolved_type.?.ProtocolInstance.of) != null;
         }
 
         return false;
@@ -1839,7 +1850,7 @@ pub const ObjObject = struct {
         }
 
         // Do they both conform to a common protocol?
-        pub fn both_conforms(self: ObjectDef, other: ObjectDef) ?*ObjTypeDef {
+        pub fn bothConforms(self: ObjectDef, other: ObjectDef) ?*ObjTypeDef {
             var it = self.conforms_to.iterator();
             while (it.next()) |kv| {
                 if (other.conforms_to.get(kv.key_ptr.*) != null) {
@@ -2055,10 +2066,12 @@ pub const ObjList = struct {
 
         item_type: *ObjTypeDef,
         methods: std.StringHashMap(*ObjTypeDef),
+        mutable: bool,
 
-        pub fn init(allocator: Allocator, item_type: *ObjTypeDef) SelfListDef {
+        pub fn init(allocator: Allocator, item_type: *ObjTypeDef, mutable: bool) SelfListDef {
             return .{
                 .item_type = item_type,
+                .mutable = mutable,
                 .methods = std.StringHashMap(*ObjTypeDef).init(allocator),
             };
         }
@@ -2562,7 +2575,11 @@ pub const ObjList = struct {
                     callback_type,
                 );
 
-                const new_list_def = ObjList.ListDef.init(parser.gc.allocator, generic_type);
+                const new_list_def = ObjList.ListDef.init(
+                    parser.gc.allocator,
+                    generic_type,
+                    false,
+                );
 
                 const new_list_type = ObjTypeDef.TypeUnion{ .List = new_list_def };
 
@@ -3121,13 +3138,15 @@ pub const ObjMap = struct {
 
         key_type: *ObjTypeDef,
         value_type: *ObjTypeDef,
+        mutable: bool,
 
         methods: std.StringHashMap(*ObjTypeDef),
 
-        pub fn init(allocator: Allocator, key_type: *ObjTypeDef, value_type: *ObjTypeDef) SelfMapDef {
+        pub fn init(allocator: Allocator, key_type: *ObjTypeDef, value_type: *ObjTypeDef, mutable: bool) SelfMapDef {
             return .{
                 .key_type = key_type,
                 .value_type = value_type,
+                .mutable = mutable,
                 .methods = std.StringHashMap(*ObjTypeDef).init(allocator),
             };
         }
@@ -3230,6 +3249,7 @@ pub const ObjMap = struct {
                                             .List = ObjList.ListDef.init(
                                                 parser.gc.allocator,
                                                 self.key_type,
+                                                false,
                                             ),
                                         },
                                     },
@@ -3263,6 +3283,7 @@ pub const ObjMap = struct {
                                         .List = ObjList.ListDef.init(
                                             parser.gc.allocator,
                                             self.value_type,
+                                            false,
                                         ),
                                     },
                                 }),
@@ -3561,6 +3582,7 @@ pub const ObjMap = struct {
                 callback_method_def.return_type = try entry_type_def.toInstance(
                     parser.gc.allocator,
                     &parser.gc.type_registry,
+                    false,
                 );
 
                 const callback_type = try parser.gc.type_registry.getTypeDef(
@@ -3590,6 +3612,7 @@ pub const ObjMap = struct {
                                 parser.gc.allocator,
                                 generic_key_type,
                                 generic_value_type,
+                                false,
                             ),
                         },
                     }),
@@ -3991,7 +4014,7 @@ pub const ObjTypeDef = struct {
 
     // Always keep types with void value first.
     pub const TypeUnion = union(Type) {
-        Any: void,
+        Any: bool, // true if mutable
         Bool: void,
         Double: void,
         Integer: void,
@@ -4003,7 +4026,7 @@ pub const ObjTypeDef = struct {
         Range: void,
 
         Enum: ObjEnum.EnumDef,
-        EnumInstance: *ObjTypeDef,
+        EnumInstance: Instance,
         Fiber: ObjFiber.FiberDef,
         ForeignContainer: ObjForeignContainer.ContainerDef,
         Function: ObjFunction.FunctionDef,
@@ -4011,10 +4034,15 @@ pub const ObjTypeDef = struct {
         List: ObjList.ListDef,
         Map: ObjMap.MapDef,
         Object: ObjObject.ObjectDef,
-        ObjectInstance: *ObjTypeDef,
+        ObjectInstance: Instance,
         Placeholder: PlaceholderDef,
         Protocol: ObjObject.ProtocolDef,
-        ProtocolInstance: *ObjTypeDef,
+        ProtocolInstance: Instance,
+    };
+
+    pub const Instance = struct {
+        of: *ObjTypeDef,
+        mutable: bool,
     };
 
     obj: Obj = .{ .obj_type = .Type },
@@ -4025,12 +4053,24 @@ pub const ObjTypeDef = struct {
     /// Used when the type is not a basic type
     resolved_type: ?TypeUnion = null,
 
+    pub fn isMutable(self: *Self) bool {
+        return switch (self.def_type) {
+            .List => self.resolved_type.?.List.mutable,
+            .Map => self.resolved_type.?.Map.mutable,
+            .ObjectInstance => self.resolved_type.?.ObjectInstance.mutable,
+            .EnumInstance => self.resolved_type.?.EnumInstance.mutable,
+            .ProtocolInstance => self.resolved_type.?.ProtocolInstance.mutable,
+            .Placeholder => self.resolved_type.?.Placeholder.mutable orelse false,
+            else => false,
+        };
+    }
+
     pub fn mark(self: *Self, gc: *GarbageCollector) !void {
         if (self.resolved_type) |*resolved| {
             if (resolved.* == .ObjectInstance) {
-                try gc.markObj(@constCast(resolved.ObjectInstance.toObj()));
+                try gc.markObj(@constCast(resolved.ObjectInstance.of.toObj()));
             } else if (resolved.* == .EnumInstance) {
-                try gc.markObj(@constCast(resolved.EnumInstance.toObj()));
+                try gc.markObj(@constCast(resolved.EnumInstance.of.toObj()));
             } else if (resolved.* == .Object) {
                 try resolved.Object.mark(gc);
             } else if (resolved.* == .Protocol) {
@@ -4106,6 +4146,7 @@ pub const ObjTypeDef = struct {
                     .Placeholder = PlaceholderDef.init(
                         type_registry.gc.allocator,
                         where,
+                        self.resolved_type.?.Placeholder.mutable,
                     ),
                 };
 
@@ -4163,7 +4204,7 @@ pub const ObjTypeDef = struct {
 
                 break :fiber try type_registry.getTypeDef(new_fiber);
             },
-            .ObjectInstance => try (try self.resolved_type.?.ObjectInstance.populateGenerics(
+            .ObjectInstance => try (try self.resolved_type.?.ObjectInstance.of.populateGenerics(
                 where,
                 origin,
                 generics,
@@ -4172,6 +4213,7 @@ pub const ObjTypeDef = struct {
             )).toInstance(
                 type_registry.gc.allocator,
                 type_registry,
+                self.resolved_type.?.ObjectInstance.mutable,
             ),
             .Object => object: {
                 // Only anonymous objects can be with generics so no need to check anything other than fields
@@ -4245,13 +4287,18 @@ pub const ObjTypeDef = struct {
                 }
 
                 const new_list_def = ObjList.ListDef{
+                    .mutable = old_list_def.mutable,
                     .item_type = try (try old_list_def.item_type.populateGenerics(
                         where,
                         origin,
                         generics,
                         type_registry,
                         visited_ptr,
-                    )).toInstance(type_registry.gc.allocator, type_registry),
+                    )).toInstance(
+                        type_registry.gc.allocator,
+                        type_registry,
+                        old_list_def.item_type.isMutable(),
+                    ),
                     .methods = methods,
                 };
 
@@ -4284,6 +4331,7 @@ pub const ObjTypeDef = struct {
                 }
 
                 const new_map_def = ObjMap.MapDef{
+                    .mutable = old_map_def.mutable,
                     .key_type = try old_map_def.key_type.populateGenerics(
                         where,
                         origin,
@@ -4340,7 +4388,11 @@ pub const ObjTypeDef = struct {
                                 generics,
                                 type_registry,
                                 visited_ptr,
-                            )).toInstance(type_registry.gc.allocator, type_registry),
+                            )).toInstance(
+                                type_registry.gc.allocator,
+                                type_registry,
+                                kv.value_ptr.*.isMutable(),
+                            ),
                         );
                     }
                 }
@@ -4356,7 +4408,11 @@ pub const ObjTypeDef = struct {
                         type_registry,
                         visited_ptr,
                     ))
-                        .toInstance(type_registry.gc.allocator, type_registry),
+                        .toInstance(
+                        type_registry.gc.allocator,
+                        type_registry,
+                        old_fun_def.return_type.isMutable(),
+                    ),
                     .yield_type = try (try (try old_fun_def.yield_type.populateGenerics(
                         where,
                         origin,
@@ -4364,7 +4420,11 @@ pub const ObjTypeDef = struct {
                         type_registry,
                         visited_ptr,
                     ))
-                        .toInstance(type_registry.gc.allocator, type_registry))
+                        .toInstance(
+                        type_registry.gc.allocator,
+                        type_registry,
+                        old_fun_def.yield_type.isMutable(),
+                    ))
                         .cloneOptional(type_registry),
                     .error_types = if (error_types) |types| types.items else null,
                     .parameters = parameters,
@@ -4450,6 +4510,54 @@ pub const ObjTypeDef = struct {
         }
 
         return non_optional;
+    }
+
+    pub fn cloneMutable(self: *Self, type_registry: *TypeRegistry, mutable: bool) !*ObjTypeDef {
+        return switch (self.def_type) {
+            .List => list: {
+                var clone = self.*;
+
+                clone.resolved_type.?.List.mutable = mutable;
+
+                break :list try type_registry.getTypeDef(clone);
+            },
+            .Map => map: {
+                var clone = self.*;
+
+                clone.resolved_type.?.Map.mutable = mutable;
+
+                break :map try type_registry.getTypeDef(clone);
+            },
+            .ObjectInstance => instance: {
+                var clone = self.*;
+
+                clone.resolved_type.?.ObjectInstance.mutable = mutable;
+
+                break :instance try type_registry.getTypeDef(clone);
+            },
+            .ProtocolInstance => instance: {
+                var clone = self.*;
+
+                clone.resolved_type.?.ProtocolInstance.mutable = mutable;
+
+                break :instance try type_registry.getTypeDef(clone);
+            },
+            .EnumInstance => instance: {
+                var clone = self.*;
+
+                clone.resolved_type.?.EnumInstance.mutable = mutable;
+
+                break :instance try type_registry.getTypeDef(clone);
+            },
+            .ForeignContainer => instance: {
+                var clone = self.*;
+
+                clone.resolved_type.?.ForeignContainer.mutable = mutable;
+
+                break :instance try type_registry.getTypeDef(clone);
+            },
+            else => self,
+        };
     }
 
     pub fn deinit(_: *Self) void {
@@ -4561,7 +4669,7 @@ pub const ObjTypeDef = struct {
             },
 
             .ObjectInstance => {
-                const object_def = self.resolved_type.?.ObjectInstance.resolved_type.?.Object;
+                const object_def = self.resolved_type.?.ObjectInstance.of.resolved_type.?.Object;
 
                 if (object_def.anonymous) {
                     try writer.writeAll(".{ ");
@@ -4615,7 +4723,7 @@ pub const ObjTypeDef = struct {
                 }
             },
             .ProtocolInstance => {
-                const protocol_def = self.resolved_type.?.ProtocolInstance.resolved_type.?.Protocol;
+                const protocol_def = self.resolved_type.?.ProtocolInstance.of.resolved_type.?.Protocol;
 
                 if (qualified) {
                     try writer.writeAll(protocol_def.qualified_name.string);
@@ -4625,9 +4733,9 @@ pub const ObjTypeDef = struct {
             },
             .EnumInstance => {
                 if (qualified) {
-                    try writer.writeAll(self.resolved_type.?.EnumInstance.resolved_type.?.Enum.qualified_name.string);
+                    try writer.writeAll(self.resolved_type.?.EnumInstance.of.resolved_type.?.Enum.qualified_name.string);
                 } else {
-                    try writer.writeAll(self.resolved_type.?.EnumInstance.resolved_type.?.Enum.name.string);
+                    try writer.writeAll(self.resolved_type.?.EnumInstance.of.resolved_type.?.Enum.name.string);
                 }
             },
 
@@ -4739,9 +4847,9 @@ pub const ObjTypeDef = struct {
 
     pub fn toParentType(self: *Self, allocator: Allocator, type_registry: *TypeRegistry) !*Self {
         return switch (self.def_type) {
-            .ObjectInstance => self.resolved_type.?.ObjectInstance,
-            .ProtocolInstance => self.resolved_type.?.ProtocolInstance,
-            .EnumInstance => self.resolved_type.?.EnumInstance,
+            .ObjectInstance => self.resolved_type.?.ObjectInstance.of,
+            .ProtocolInstance => self.resolved_type.?.ProtocolInstance.of,
+            .EnumInstance => self.resolved_type.?.EnumInstance.of,
             .Placeholder => placeholder: {
                 if (self.resolved_type.?.Placeholder.parent_relation != null and self.resolved_type.?.Placeholder.parent_relation.? == .Instance) {
                     return self.resolved_type.?.Placeholder.parent.?;
@@ -4753,6 +4861,7 @@ pub const ObjTypeDef = struct {
                         .Placeholder = PlaceholderDef.init(
                             allocator,
                             self.resolved_type.?.Placeholder.where,
+                            self.resolved_type.?.Placeholder.mutable,
                         ),
                     },
                 });
@@ -4765,7 +4874,7 @@ pub const ObjTypeDef = struct {
         };
     }
 
-    pub fn toInstance(self: *Self, allocator: Allocator, type_registry: *TypeRegistry) !*Self {
+    pub fn toInstance(self: *Self, allocator: Allocator, type_registry: *TypeRegistry, mutable: ?bool) !*Self {
         // Avoid placeholder double links like: Object Placeholder -> Instance -> Instance
         if (self.def_type == .Placeholder and self.resolved_type.?.Placeholder.parent_relation != null and self.resolved_type.?.Placeholder.parent_relation.? == .Instance) {
             return self;
@@ -4775,7 +4884,10 @@ pub const ObjTypeDef = struct {
             switch (self.def_type) {
                 .Object => object: {
                     const resolved_type: ObjTypeDef.TypeUnion = ObjTypeDef.TypeUnion{
-                        .ObjectInstance = try self.cloneNonOptional(type_registry),
+                        .ObjectInstance = .{
+                            .of = try self.cloneNonOptional(type_registry),
+                            .mutable = mutable orelse self.resolved_type.?.ObjectInstance.mutable,
+                        },
                     };
 
                     break :object Self{
@@ -4786,7 +4898,10 @@ pub const ObjTypeDef = struct {
                 },
                 .Protocol => protocol: {
                     const resolved_type: ObjTypeDef.TypeUnion = ObjTypeDef.TypeUnion{
-                        .ProtocolInstance = try self.cloneNonOptional(type_registry),
+                        .ProtocolInstance = .{
+                            .of = try self.cloneNonOptional(type_registry),
+                            .mutable = mutable orelse self.resolved_type.?.ProtocolInstance.mutable,
+                        },
                     };
 
                     break :protocol Self{
@@ -4797,7 +4912,10 @@ pub const ObjTypeDef = struct {
                 },
                 .Enum => enum_instance: {
                     const resolved_type: ObjTypeDef.TypeUnion = ObjTypeDef.TypeUnion{
-                        .EnumInstance = try self.cloneNonOptional(type_registry),
+                        .EnumInstance = .{
+                            .of = try self.cloneNonOptional(type_registry),
+                            .mutable = mutable orelse self.resolved_type.?.EnumInstance.mutable,
+                        },
                     };
 
                     break :enum_instance Self{
@@ -4813,9 +4931,18 @@ pub const ObjTypeDef = struct {
                             .Placeholder = PlaceholderDef.init(
                                 allocator,
                                 self.resolved_type.?.Placeholder.where,
+                                mutable orelse self.resolved_type.?.Placeholder.mutable,
                             ),
                         },
                     };
+                },
+                .ObjectInstance, .ProtocolInstance, .EnumInstance => instance: {
+                    if (BuildOptions.debug) {
+                        std.debug.print("toInstance invoked on instance type\n", .{});
+                        unreachable;
+                    }
+
+                    break :instance self.*;
                 },
                 else => self.*,
             },
@@ -4857,16 +4984,16 @@ pub const ObjTypeDef = struct {
 
             .Fiber => expected.Fiber.return_type.eql(actual.Fiber.return_type) and expected.Fiber.yield_type.eql(actual.Fiber.yield_type),
 
-            .ObjectInstance => expected.ObjectInstance.eql(actual.ObjectInstance) or expected.ObjectInstance == actual.ObjectInstance,
+            .ObjectInstance => expected.ObjectInstance.of.eql(actual.ObjectInstance.of) or expected.ObjectInstance.of == actual.ObjectInstance.of,
             .ProtocolInstance => {
                 if (actual == .ProtocolInstance) {
-                    return expected.ProtocolInstance.eql(actual.ProtocolInstance) or expected.ProtocolInstance == actual.ProtocolInstance;
+                    return expected.ProtocolInstance.of.eql(actual.ProtocolInstance.of) or expected.ProtocolInstance.of == actual.ProtocolInstance.of;
                 } else {
                     assert(actual == .ObjectInstance);
-                    return actual.ObjectInstance.resolved_type.?.Object.conforms_to.get(expected.ProtocolInstance) != null;
+                    return actual.ObjectInstance.of.resolved_type.?.Object.conforms_to.get(expected.ProtocolInstance.of) != null;
                 }
             },
-            .EnumInstance => expected.EnumInstance.eql(actual.EnumInstance),
+            .EnumInstance => expected.EnumInstance.of.eql(actual.EnumInstance.of),
 
             .Object => {
                 // If both are anonymous object type, we can deeply compare them
@@ -5084,14 +5211,16 @@ pub const PlaceholderDef = struct {
     parent_relation: ?PlaceholderRelation = null,
     // Children adds themselves here
     children: std.ArrayList(*ObjTypeDef),
+    mutable: ?bool,
 
     // If the placeholder is a function return, we need to remember eventual generic types defined in that call
     resolved_generics: ?[]*ObjTypeDef = null,
 
-    pub fn init(allocator: Allocator, where: Ast.TokenIndex) Self {
+    pub fn init(allocator: Allocator, where: Ast.TokenIndex, mutable: ?bool) Self {
         return Self{
             .where = where,
             .children = std.ArrayList(*ObjTypeDef).init(allocator),
+            .mutable = mutable,
         };
     }
 

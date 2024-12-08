@@ -273,7 +273,7 @@ fn valueDump(value: Value, vm: *VM, seen: *std.AutoHashMap(*_obj.Obj, void), dep
 
             .ObjectInstance => {
                 const object_instance = ObjObjectInstance.cast(value.obj()).?;
-                const object_def = object_instance.type_def.resolved_type.?.ObjectInstance
+                const object_def = object_instance.type_def.resolved_type.?.ObjectInstance.of
                     .resolved_type.?.Object;
 
                 io.print(
@@ -431,29 +431,43 @@ export fn bz_stringType(vm: *VM) Value {
     return vm.gc.type_registry.str_type.toValue();
 }
 
-export fn bz_mapType(vm: *VM, key_type: Value, value_type: Value) Value {
-    const map_def = ObjMap.MapDef.init(
-        vm.gc.allocator,
-        ObjTypeDef.cast(key_type.obj()).?,
-        ObjTypeDef.cast(value_type.obj()).?,
-    );
-
-    const resolved_type: ObjTypeDef.TypeUnion = ObjTypeDef.TypeUnion{
-        .Map = map_def,
-    };
-
-    const typedef = vm.gc.type_registry.getTypeDef(
+export fn bz_listType(vm: *VM, item_type: Value, mutable: bool) Value {
+    return (vm.gc.type_registry.getTypeDef(
         .{
-            .def_type = .Map,
+            .def_type = .List,
             .optional = false,
-            .resolved_type = resolved_type,
+            .resolved_type = .{
+                .List = ObjList.ListDef.init(
+                    vm.gc.allocator,
+                    ObjTypeDef.cast(item_type.obj()).?,
+                    mutable,
+                ),
+            },
         },
     ) catch {
         vm.panic("Out of memory");
         unreachable;
-    };
+    }).toValue();
+}
 
-    return typedef.toValue();
+export fn bz_mapType(vm: *VM, key_type: Value, value_type: Value, mutable: bool) Value {
+    return (vm.gc.type_registry.getTypeDef(
+        .{
+            .def_type = .Map,
+            .optional = false,
+            .resolved_type = .{
+                .Map = ObjMap.MapDef.init(
+                    vm.gc.allocator,
+                    ObjTypeDef.cast(key_type.obj()).?,
+                    ObjTypeDef.cast(value_type.obj()).?,
+                    mutable,
+                ),
+            },
+        },
+    ) catch {
+        vm.panic("Out of memory");
+        unreachable;
+    }).toValue();
 }
 
 export fn bz_containerTypeSize(type_def: Value) usize {
@@ -492,25 +506,13 @@ export fn bz_newRange(vm: *VM, low: Integer, high: Integer) Value {
     ) catch @panic("Could not create range")).toObj());
 }
 
-export fn bz_newList(vm: *VM, of_type: Value) Value {
-    const list_def: ObjList.ListDef = ObjList.ListDef.init(
-        vm.gc.allocator,
-        ObjTypeDef.cast(of_type.obj()).?,
-    );
-
-    const list_def_union: ObjTypeDef.TypeUnion = .{
-        .List = list_def,
-    };
-
-    const list_def_type: *ObjTypeDef = vm.gc.type_registry.getTypeDef(ObjTypeDef{
-        .def_type = .List,
-        .optional = false,
-        .resolved_type = list_def_union,
-    }) catch @panic("Could not create list");
-
+export fn bz_newList(vm: *VM, list_type: Value) Value {
     return (vm.gc.allocateObject(
         ObjList,
-        ObjList.init(vm.gc.allocator, list_def_type) catch @panic("Out of memory"),
+        ObjList.init(
+            vm.gc.allocator,
+            ObjTypeDef.cast(list_type.obj()).?,
+        ) catch @panic("Out of memory"),
     ) catch @panic("Could not create list")).toValue();
 }
 

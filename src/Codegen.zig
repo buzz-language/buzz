@@ -1328,7 +1328,7 @@ fn generateCall(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj
 
         if (callee_def_type == .ObjectInstance) {
             const fields = type_defs[node_components[components.callee].Dot.callee].?
-                .resolved_type.?.ObjectInstance
+                .resolved_type.?.ObjectInstance.of
                 .resolved_type.?.Object.fields;
 
             const field = fields.get(member_lexeme).?;
@@ -1493,8 +1493,9 @@ fn generateDot(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.
         .ForeignContainer, .ObjectInstance, .Object => {
             const field_name = self.ast.tokens.items(.lexeme)[components.identifier];
             const field = switch (callee_type.def_type) {
-                .ObjectInstance => callee_type.resolved_type.?.ObjectInstance
-                    .resolved_type.?.Object.fields
+                .ObjectInstance => callee_type.resolved_type.?.ObjectInstance.of
+                    .resolved_type.?.Object
+                    .fields
                     .get(field_name),
                 .Object => callee_type.resolved_type.?.Object.fields
                     .get(field_name),
@@ -1758,11 +1759,15 @@ fn generateEnum(self: *Self, node: Ast.Node.Index, _: ?*Breaks) Error!?*obj.ObjF
         if (case_type_def) |case_type| {
             if (case_type.def_type == .Placeholder) {
                 self.reporter.reportPlaceholder(self.ast, case_type.resolved_type.?.Placeholder);
-            } else if (!((try enum_type.toInstance(self.gc.allocator, &self.gc.type_registry))).eql(case_type)) {
+            } else if (!((try enum_type.toInstance(self.gc.allocator, &self.gc.type_registry, false))).eql(case_type)) {
                 self.reporter.reportTypeCheck(
                     .enum_case_type,
                     self.ast.tokens.get(locations[node]),
-                    (try enum_type.toInstance(self.gc.allocator, &self.gc.type_registry)),
+                    (try enum_type.toInstance(
+                        self.gc.allocator,
+                        &self.gc.type_registry,
+                        false,
+                    )),
                     self.ast.tokens.get(locations[case.value.?]),
                     case_type,
                     "Bad enum case type",
@@ -2078,7 +2083,11 @@ fn generateForEach(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*
                 }
             },
             .Enum => {
-                const iterable_type = try iterable_type_def.toInstance(self.gc.allocator, &self.gc.type_registry);
+                const iterable_type = try iterable_type_def.toInstance(
+                    self.gc.allocator,
+                    &self.gc.type_registry,
+                    false,
+                );
                 if (!iterable_type.strictEql(value_type_def)) {
                     self.reporter.reportTypeCheck(
                         .foreach_value_type,
@@ -2094,6 +2103,7 @@ fn generateForEach(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*
                 const iterable_type = try iterable_type_def.resolved_type.?.Fiber.yield_type.toInstance(
                     self.gc.allocator,
                     &self.gc.type_registry,
+                    false,
                 );
                 if (!iterable_type.strictEql(value_type_def)) {
                     self.reporter.reportTypeCheck(
@@ -3120,7 +3130,7 @@ fn generateObjectInit(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error
     );
 
     var fields = if (node_type_def.def_type == .ObjectInstance) inst: {
-        const fields = node_type_def.resolved_type.?.ObjectInstance.resolved_type.?.Object.fields;
+        const fields = node_type_def.resolved_type.?.ObjectInstance.of.resolved_type.?.Object.fields;
         var fields_type_defs = std.StringArrayHashMap(*obj.ObjTypeDef).init(self.gc.allocator);
         var it = fields.iterator();
         while (it.next()) |kv| {
@@ -3137,7 +3147,7 @@ fn generateObjectInit(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error
     };
 
     const object_location = if (node_type_def.def_type == .ObjectInstance)
-        node_type_def.resolved_type.?.ObjectInstance.resolved_type.?.Object.location
+        node_type_def.resolved_type.?.ObjectInstance.of.resolved_type.?.Object.location
     else
         node_type_def.resolved_type.?.ForeignContainer.location;
 
@@ -3148,7 +3158,7 @@ fn generateObjectInit(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error
     for (components.properties) |property| {
         const property_name = lexemes[property.name];
         const property_idx = if (node_type_def.def_type == .ObjectInstance)
-            if (node_type_def.resolved_type.?.ObjectInstance
+            if (node_type_def.resolved_type.?.ObjectInstance.of
                 .resolved_type.?.Object
                 .fields.get(property_name)) |field|
                 field.index
@@ -3180,7 +3190,8 @@ fn generateObjectInit(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error
                 self.reporter.reportTypeCheck(
                     .property_type,
                     if (node_type_def.def_type == .ObjectInstance)
-                        node_type_def.resolved_type.?.ObjectInstance.resolved_type.?.Object.fields.get(property_name).?.location
+                        node_type_def.resolved_type.?.ObjectInstance.of
+                            .resolved_type.?.Object.fields.get(property_name).?.location
                     else
                         object_location,
                     prop,
@@ -3219,7 +3230,7 @@ fn generateObjectInit(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error
     // If union we're statisfied with only on field initialized
     if (node_type_def.def_type != .ForeignContainer or node_type_def.resolved_type.?.ForeignContainer.zig_type != .Union or init_properties.count() == 0) {
         const field_defs = if (node_type_def.def_type == .ObjectInstance)
-            node_type_def.resolved_type.?.ObjectInstance.resolved_type.?.Object.fields
+            node_type_def.resolved_type.?.ObjectInstance.of.resolved_type.?.Object.fields
         else
             null;
 
@@ -3915,11 +3926,13 @@ fn generateVarDeclaration(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) E
             self.reporter.reportPlaceholder(self.ast, value_type_def.?.resolved_type.?.Placeholder);
         } else if (type_def.def_type == .Placeholder) {
             self.reporter.reportPlaceholder(self.ast, type_def.resolved_type.?.Placeholder);
-        } else if (!(try type_def.toInstance(self.gc.allocator, &self.gc.type_registry)).eql(value_type_def.?) and !(try (try type_def.toInstance(self.gc.allocator, &self.gc.type_registry)).cloneNonOptional(&self.gc.type_registry)).eql(value_type_def.?)) {
+        } else if (!(try type_def.toInstance(self.gc.allocator, &self.gc.type_registry, type_def.isMutable())).eql(value_type_def.?) and
+            !(try (try type_def.toInstance(self.gc.allocator, &self.gc.type_registry, type_def.isMutable())).cloneNonOptional(&self.gc.type_registry)).eql(value_type_def.?))
+        {
             self.reporter.reportTypeCheck(
                 .assignment_value_type,
                 self.ast.tokens.get(location),
-                try type_def.toInstance(self.gc.allocator, &self.gc.type_registry),
+                try type_def.toInstance(self.gc.allocator, &self.gc.type_registry, type_def.isMutable()),
                 self.ast.tokens.get(locations[value]),
                 value_type_def.?,
                 "Wrong variable type",
