@@ -98,7 +98,7 @@ pub const TypeRegistry = struct {
                 .{
                     entry.key_ptr.*,
                     @intFromPtr(entry.value_ptr.*),
-                    (entry.value_ptr.*.toStringAlloc(self.gc.allocator) catch unreachable).items,
+                    entry.value_ptr.*.toStringAlloc(self.gc.allocator) catch unreachable,
                 },
             );
         }
@@ -148,13 +148,13 @@ pub const TypeRegistry = struct {
 
         assert(type_def.def_type != .Placeholder);
 
-        _ = try self.registry.put(type_def_str.items, type_def);
+        _ = try self.registry.put(type_def_str, type_def);
 
         if (BuildOptions.debug_placeholders or BuildOptions.debug_type_registry) {
             io.print(
                 "`{s}` type set to @{}\n",
                 .{
-                    type_def_str.items,
+                    type_def_str,
                     @intFromPtr(type_def),
                 },
             );
@@ -174,7 +174,7 @@ pub const TypeRegistry = struct {
 };
 
 // Sticky Mark Bits Generational GC basic idea:
-// 1. First GC: do a normal mark, don't clear `is_marked` at the end
+// 1. First GC: do a normal mark, don't clear `marked` at the end
 // 2. Young GC:
 //     - Already marked objects are 'old', don't trace them (because all referenced object from it are also old and marked)and don't clear them
 //     - Write barrier: anytime an object is modified, mark it as 'dirty' and add it to the gray_stack so its traced
@@ -512,8 +512,8 @@ pub const GarbageCollector = struct {
     }
 
     pub fn markObjDirty(self: *Self, obj: *Obj) !void {
-        if (!obj.is_dirty and self.obj_collected != obj) {
-            obj.is_dirty = true;
+        if (!obj.dirty and self.obj_collected != obj) {
+            obj.dirty = true;
 
             // io.print(
             //     "Marked obj @{} {} dirty, gray_stack @{} or GC @{} will be {} items long\n",
@@ -533,13 +533,13 @@ pub const GarbageCollector = struct {
     }
 
     pub fn markObj(self: *Self, obj: *Obj) !void {
-        if (obj.is_marked or self.obj_collected == obj) {
+        if (obj.marked or self.obj_collected == obj) {
             if (BuildOptions.gc_debug) {
                 io.print(
                     "{*} {s} already marked or old\n",
                     .{
                         obj,
-                        (try Value.fromObj(obj).toStringAlloc(self.allocator)).items,
+                        try Value.fromObj(obj).toStringAlloc(self.allocator),
                     },
                 );
             }
@@ -551,12 +551,12 @@ pub const GarbageCollector = struct {
             io.print(
                 "{s}\n",
                 .{
-                    (try Value.fromObj(obj).toStringAlloc(self.allocator)).items,
+                    try Value.fromObj(obj).toStringAlloc(self.allocator),
                 },
             );
         }
 
-        obj.is_marked = true;
+        obj.marked = true;
 
         // Move marked obj to tail so we sweeping can stop going through objects when finding the first marked object
         self.objects.remove(obj.node.?);
@@ -582,7 +582,7 @@ pub const GarbageCollector = struct {
             );
         }
 
-        obj.is_dirty = false;
+        obj.dirty = false;
 
         _ = try switch (obj.obj_type) {
             .String => obj.access(ObjString, .String, self).?.mark(self),
@@ -652,11 +652,11 @@ pub const GarbageCollector = struct {
                 var obj_typedef = ObjTypeDef.cast(obj).?;
 
                 const str = try obj_typedef.toStringAlloc(self.allocator);
-                defer str.deinit();
+                defer self.allocator.free(str);
 
-                if (self.type_registry.registry.get(str.items)) |registered_obj| {
+                if (self.type_registry.registry.get(str)) |registered_obj| {
                     if (registered_obj == obj_typedef) {
-                        _ = self.type_registry.registry.remove(str.items);
+                        _ = self.type_registry.registry.remove(str);
                         if (BuildOptions.gc_debug) {
                             io.print("Removed registered type @{} `{s}`\n", .{ @intFromPtr(registered_obj), str.items });
                         }
@@ -959,14 +959,14 @@ pub const GarbageCollector = struct {
         var obj_node: ?*std.DoublyLinkedList(*Obj).Node = self.objects.first;
         var count: usize = 0;
         while (obj_node) |node| : (count += 1) {
-            if (node.data.is_marked) {
+            if (node.data.marked) {
                 if (BuildOptions.gc_debug and mode == .Full) {
                     io.print("UNMARKING @{}\n", .{@intFromPtr(node.data)});
                 }
-                // If not a full gc, we reset is_marked, this object is now 'old'
-                node.data.is_marked = if (mode == .Full) false else node.data.is_marked;
+                // If not a full gc, we reset marked, this object is now 'old'
+                node.data.marked = if (mode == .Full) false else node.data.marked;
 
-                // If a young collection we don't reset is_marked flags and since we move all marked object
+                // If a young collection we don't reset marked flags and since we move all marked object
                 // to the tail of the list, we can stop here, there's no more objects to collect
                 if (mode == .Young) {
                     break;

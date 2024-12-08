@@ -1,5 +1,6 @@
 import "std";
 import "serialize";
+import "debug";
 
 test "Multiline strings" {
     final multi = `\{

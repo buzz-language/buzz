@@ -186,6 +186,7 @@ pub export fn HttpRequestRead(ctx: *api.NativeCtx) c_int {
     const response = ctx.vm.bz_newQualifiedObjectInstance(
         "http.Response",
         "http.Response".len,
+        false,
     );
 
     // Set body
@@ -215,6 +216,7 @@ pub export fn HttpRequestRead(ctx: *api.NativeCtx) c_int {
         ctx.vm.bz_mapType(
             string_type,
             string_type,
+            true,
         ),
     );
 

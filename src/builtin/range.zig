@@ -8,7 +8,21 @@ pub fn toList(ctx: *obj.NativeCtx) c_int {
         obj.ObjList,
         obj.ObjList.init(
             ctx.vm.gc.allocator,
-            ctx.vm.gc.type_registry.int_type,
+            ctx.vm.gc.type_registry.getTypeDef(
+                .{
+                    .def_type = .List,
+                    .resolved_type = .{
+                        .List = obj.ObjList.ListDef.init(
+                            ctx.vm.gc.allocator,
+                            ctx.vm.gc.type_registry.int_type,
+                            false,
+                        ),
+                    },
+                },
+            ) catch {
+                ctx.vm.panic("Out of memory");
+                unreachable;
+            },
         ) catch {
             ctx.vm.panic("Out of memory");
             unreachable;

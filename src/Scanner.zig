@@ -701,6 +701,7 @@ pub fn highlight(self: *Self, out: anytype, true_color: bool) void {
                     .Out,
                     .Namespace,
                     .Range,
+                    .Mut,
                     => if (true_color) Color.keyword else Color.magenta,
                     // Punctuation
                     .LeftBracket,

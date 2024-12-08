@@ -47,11 +47,11 @@ test "anonymous objects with different fields order" {
 
 // placeholders in anonymous object fields works
 object A {
-    board: [int],
+    board: mut [int],
 
     fun free() > void {
         foreach (x, y in this.board) {
-            var board = [<obj{ x: int }>];
+            var board = mut [<obj{ x: int }>];
             
             board.append(.{ x = x });
         }

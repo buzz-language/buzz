@@ -118,10 +118,10 @@ fn valueDump(value: Value, vm: *VM, seen: *std.AutoHashMap(*_obj.Obj, void), dep
     if (value.isNull()) {
         io.print("null", .{});
     } else if (!value.isObj() or seen.get(value.obj()) != null) {
-        const string = value.toStringAlloc(vm.gc.allocator) catch std.ArrayList(u8).init(vm.gc.allocator);
-        defer string.deinit();
+        const string = value.toStringAlloc(vm.gc.allocator) catch @panic("Out of memory");
+        defer vm.gc.allocator.free(string);
 
-        io.print("{s}", .{string.items});
+        io.print("{s}", .{string});
     } else {
         seen.put(value.obj(), {}) catch unreachable;
 
@@ -135,10 +135,10 @@ fn valueDump(value: Value, vm: *VM, seen: *std.AutoHashMap(*_obj.Obj, void), dep
             .Fiber,
             .EnumInstance,
             => {
-                const string = value.toStringAlloc(vm.gc.allocator) catch std.ArrayList(u8).init(vm.gc.allocator);
-                defer string.deinit();
+                const string = value.toStringAlloc(vm.gc.allocator) catch @panic("Out of memory");
+                defer vm.gc.allocator.free(string);
 
-                io.print("{s}", .{string.items});
+                io.print("{s}", .{string});
             },
 
             .UpValue => {
@@ -162,7 +162,15 @@ fn valueDump(value: Value, vm: *VM, seen: *std.AutoHashMap(*_obj.Obj, void), dep
             .List => {
                 const list = ObjList.cast(value.obj()).?;
 
-                io.print("[ ", .{});
+                io.print(
+                    "{s}[ ",
+                    .{
+                        if (list.type_def.resolved_type.?.List.mutable)
+                            "mut "
+                        else
+                            "",
+                    },
+                );
                 for (list.items.items) |item| {
                     valueDump(item, vm, seen, depth + 1);
                     io.print(", ", .{});
@@ -179,7 +187,15 @@ fn valueDump(value: Value, vm: *VM, seen: *std.AutoHashMap(*_obj.Obj, void), dep
             .Map => {
                 const map = ObjMap.cast(value.obj()).?;
 
-                io.print("{{ ", .{});
+                io.print(
+                    "{s}{{ ",
+                    .{
+                        if (map.type_def.resolved_type.?.Map.mutable)
+                            "mut "
+                        else
+                            "",
+                    },
+                );
                 var it = map.map.iterator();
                 while (it.next()) |kv| {
                     const key = kv.key_ptr.*;
@@ -233,8 +249,8 @@ fn valueDump(value: Value, vm: *VM, seen: *std.AutoHashMap(*_obj.Obj, void), dep
                         const field = kv.value_ptr.*;
                         const field_type_str = field
                             .type_def
-                            .toStringAlloc(vm.gc.allocator) catch std.ArrayList(u8).init(vm.gc.allocator);
-                        defer field_type_str.deinit();
+                            .toStringAlloc(vm.gc.allocator) catch @panic("Out of memory");
+                        defer vm.gc.allocator.free(field_type_str);
 
                         if (!field.method) {
                             io.print(
@@ -243,7 +259,7 @@ fn valueDump(value: Value, vm: *VM, seen: *std.AutoHashMap(*_obj.Obj, void), dep
                                     if (field.static) "static" else "",
                                     if (field.final) "final" else "",
                                     field.name,
-                                    field_type_str.items,
+                                    field_type_str,
                                 },
                             );
 
@@ -261,8 +277,11 @@ fn valueDump(value: Value, vm: *VM, seen: *std.AutoHashMap(*_obj.Obj, void), dep
                             io.print(", ", .{});
                         } else {
                             io.print(
-                                "{s}, ",
-                                .{field_type_str.items},
+                                "{s}{s}, ",
+                                .{
+                                    if (field.mutable) "mut " else "",
+                                    field_type_str,
+                                },
                             );
                         }
                     }
@@ -273,12 +292,16 @@ fn valueDump(value: Value, vm: *VM, seen: *std.AutoHashMap(*_obj.Obj, void), dep
 
             .ObjectInstance => {
                 const object_instance = ObjObjectInstance.cast(value.obj()).?;
-                const object_def = object_instance.type_def.resolved_type.?.ObjectInstance
+                const object_def = object_instance.type_def.resolved_type.?.ObjectInstance.of
                     .resolved_type.?.Object;
 
                 io.print(
-                    "{s}{{ ",
+                    "{s}{s}{{ ",
                     .{
+                        if (object_instance.type_def.resolved_type.?.ObjectInstance.mutable)
+                            "mut "
+                        else
+                            "",
                         if (object_instance.object) |object|
                             object.type_def.resolved_type.?.Object.name.string
                         else
@@ -410,15 +433,12 @@ export fn bz_stringSubscript(obj_string: Value, index_value: Value, checked: boo
 }
 
 export fn bz_valueCastToString(value: Value, vm: *VM) Value {
-    const str = value.toStringAlloc(vm.gc.allocator) catch {
-        @panic("Could not convert value to string");
-    };
-    defer str.deinit();
+    const str = value.toStringAlloc(vm.gc.allocator) catch
+        @panic("Out of memory");
+    defer vm.gc.allocator.free(str);
 
     return Value.fromObj(
-        (vm.gc.copyString(str.items) catch {
-            @panic("Could not convert value to string");
-        }).toObj(),
+        (vm.gc.copyString(str) catch @panic("Out of memory")).toObj(),
     );
 }
 
@@ -431,29 +451,43 @@ export fn bz_stringType(vm: *VM) Value {
     return vm.gc.type_registry.str_type.toValue();
 }
 
-export fn bz_mapType(vm: *VM, key_type: Value, value_type: Value) Value {
-    const map_def = ObjMap.MapDef.init(
-        vm.gc.allocator,
-        ObjTypeDef.cast(key_type.obj()).?,
-        ObjTypeDef.cast(value_type.obj()).?,
-    );
-
-    const resolved_type: ObjTypeDef.TypeUnion = ObjTypeDef.TypeUnion{
-        .Map = map_def,
-    };
-
-    const typedef = vm.gc.type_registry.getTypeDef(
+export fn bz_listType(vm: *VM, item_type: Value, mutable: bool) Value {
+    return (vm.gc.type_registry.getTypeDef(
         .{
-            .def_type = .Map,
+            .def_type = .List,
             .optional = false,
-            .resolved_type = resolved_type,
+            .resolved_type = .{
+                .List = ObjList.ListDef.init(
+                    vm.gc.allocator,
+                    ObjTypeDef.cast(item_type.obj()).?,
+                    mutable,
+                ),
+            },
         },
     ) catch {
         vm.panic("Out of memory");
         unreachable;
-    };
+    }).toValue();
+}
 
-    return typedef.toValue();
+export fn bz_mapType(vm: *VM, key_type: Value, value_type: Value, mutable: bool) Value {
+    return (vm.gc.type_registry.getTypeDef(
+        .{
+            .def_type = .Map,
+            .optional = false,
+            .resolved_type = .{
+                .Map = ObjMap.MapDef.init(
+                    vm.gc.allocator,
+                    ObjTypeDef.cast(key_type.obj()).?,
+                    ObjTypeDef.cast(value_type.obj()).?,
+                    mutable,
+                ),
+            },
+        },
+    ) catch {
+        vm.panic("Out of memory");
+        unreachable;
+    }).toValue();
 }
 
 export fn bz_containerTypeSize(type_def: Value) usize {
@@ -492,25 +526,13 @@ export fn bz_newRange(vm: *VM, low: Integer, high: Integer) Value {
     ) catch @panic("Could not create range")).toObj());
 }
 
-export fn bz_newList(vm: *VM, of_type: Value) Value {
-    const list_def: ObjList.ListDef = ObjList.ListDef.init(
-        vm.gc.allocator,
-        ObjTypeDef.cast(of_type.obj()).?,
-    );
-
-    const list_def_union: ObjTypeDef.TypeUnion = .{
-        .List = list_def,
-    };
-
-    const list_def_type: *ObjTypeDef = vm.gc.type_registry.getTypeDef(ObjTypeDef{
-        .def_type = .List,
-        .optional = false,
-        .resolved_type = list_def_union,
-    }) catch @panic("Could not create list");
-
+export fn bz_newList(vm: *VM, list_type: Value) Value {
     return (vm.gc.allocateObject(
         ObjList,
-        ObjList.init(vm.gc.allocator, list_def_type) catch @panic("Out of memory"),
+        ObjList.init(
+            vm.gc.allocator,
+            ObjTypeDef.cast(list_type.obj()).?,
+        ) catch @panic("Out of memory"),
     ) catch @panic("Could not create list")).toValue();
 }
 
@@ -763,7 +785,7 @@ pub export fn bz_call(
     }
 }
 
-export fn bz_newQualifiedObjectInstance(self: *VM, qualified_name: [*]const u8, len: usize) Value {
+export fn bz_newQualifiedObjectInstance(self: *VM, qualified_name: [*]const u8, len: usize, mutable: bool) Value {
     const object = ObjObject.cast(bz_getQualified(self, qualified_name, len).obj()).?;
 
     const instance: *ObjObjectInstance = self.gc.allocateObject(
@@ -771,7 +793,11 @@ export fn bz_newQualifiedObjectInstance(self: *VM, qualified_name: [*]const u8, 
         ObjObjectInstance.init(
             self,
             object,
-            object.type_def.toInstance(self.gc.allocator, &self.gc.type_registry) catch {
+            object.type_def.toInstance(
+                self.gc.allocator,
+                &self.gc.type_registry,
+                mutable,
+            ) catch {
                 self.panic("Out of memory");
                 unreachable;
             },
@@ -802,11 +828,16 @@ fn instanciateError(
     message: ?[*]const u8,
     mlen: usize,
 ) Value {
-    const instance = bz_newQualifiedObjectInstance(vm, qualified_name, len);
+    const instance = bz_newQualifiedObjectInstance(
+        vm,
+        qualified_name,
+        len,
+        false,
+    );
 
     if (message) |msg| {
         const obj_instance = ObjObjectInstance.cast(instance.obj()).?;
-        const object_def = obj_instance.type_def.resolved_type.?.ObjectInstance
+        const object_def = obj_instance.type_def.resolved_type.?.ObjectInstance.of
             .resolved_type.?.Object
             .fields;
 
@@ -960,7 +991,7 @@ export fn bz_getProtocolMethod(instance_value: Value, method_name: Value, vm: *V
         .access(ObjString, .String, vm.gc).?
         .string;
 
-    const method_idx = instance.type_def.resolved_type.?.ObjectInstance
+    const method_idx = instance.type_def.resolved_type.?.ObjectInstance.of
         .resolved_type.?.Object
         .fields.get(name).?.index;
 

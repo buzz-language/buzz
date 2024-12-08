@@ -1,7 +1,7 @@
 import "std";
 
 test "Maps" {
-    final map = {
+    final map = mut {
         "hello": 1,
         "bye": 2,
     };
@@ -77,7 +77,7 @@ test "map.clone" {
         "two": 2,
         "five": 5,
     };
-    final copy = first.clone();
+    final copy = first.copyImmutable();
 
     std\assert(copy.size() == first.size(), message: "Could clone map");
     foreach (key, value in copy) {
