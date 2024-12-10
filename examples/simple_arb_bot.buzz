@@ -1,0 +1,70 @@
+import "solana/defi" as defi;
+
+// Define pools with minimal syntax
+pool raydium_sol_usdc SOL USDC {
+    fee = 0.3%
+    price = SOL/USDC
+}
+
+pool orca_sol_usdc SOL USDC {
+    fee = 0.3% 
+    price = SOL/USDC
+}
+
+// Define price feeds
+feed "SOL/USDC" {
+    primary = pyth
+    backup = chainlink
+    heartbeat = 60
+}
+
+// Define arbitrage strategy
+strategy arb_strategy {
+    entry {
+        // Enter when price difference > 0.5%
+        (raydium_sol_usdc.price / orca_sol_usdc.price - 1) > 0.005
+    }
+    
+    exit {
+        // Exit when prices converge
+        (raydium_sol_usdc.price / orca_sol_usdc.price - 1) < 0.001
+    }
+    
+    size {
+        // Size based on opportunity
+        min(1000, available_liquidity * 0.1)
+    }
+}
+
+// Define the arbitrage bot
+bot arb_bot {
+    pools = [raydium_sol_usdc, orca_sol_usdc]
+    strategy = arb_strategy
+    risk = 1%
+    feeds = ["SOL/USDC"]
+    
+    // Optional custom execution logic
+    execute {
+        if (strategy.should_enter(state)) {
+            const amount = strategy.position_size();
+            
+            // Execute arb
+            const bought = pools[0].swap(
+                from: "USDC",
+                to: "SOL",
+                amount: amount
+            );
+            
+            const sold = pools[1].swap(
+                from: "SOL", 
+                to: "USDC",
+                amount: bought
+            );
+            
+            record_trade(
+                profit: sold - amount,
+                fees: amount * (pools[0].fee + pools[1].fee)
+            );
+        }
+    }
+}

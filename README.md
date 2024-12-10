@@ -1,13 +1,13 @@
 <p align="center">
-    <img src="https://github.com/buzz-language/buzz/raw/main/logo.png" alt="buzz" width="204" height="204">
+    <img src="https://github.com/buzz-language/buzz/raw/main/logo.png" alt="Pilot Buzz" width="204" height="204">
 </p>
 
-# 👨‍🚀 buzz
+# 👨‍🚀 Pilot Buzz
 
-A small/lightweight statically typed scripting language written in Zig
+A specialized programming language for creating autonomous on-chain Solana agents and DeFi bots with minimal code.
 
 <p align="center">
-    <img src="https://github.com/buzz-language/buzz/raw/main/example.png" alt="buzz code example">
+    <img src="https://github.com/buzz-language/buzz/raw/main/example.png" alt="Pilot Buzz code example">
 </p>
 
 <p align="center">
@@ -16,46 +16,106 @@ A small/lightweight statically typed scripting language written in Zig
 
 ## Features
 
-- Small in size and complexity (just a bit more than Lua though)
-- Statically typed
-- Unambiguous
-- No nonsense coercion
-- [Fibers](#fibers)
-- JIT compilation with [MIR](https://github.com/vnmakarov/mir)
-- Tooling
-    - [Generate doc from docblocks (in progress)](https://github.com/buzz-language/buzz/blob/main/doc/index.md)
-    - [VS Code extension](https://marketplace.visualstudio.com/items?itemName=giann.buzz)
-        - Syntax highlighting
-        - LSP (in progress)
-        - Debugger and DAP (planned)
+- **Agent-First Design**: Built specifically for creating autonomous on-chain agents
+- **DeFi-Native Syntax**: Specialized syntax sugar for common DeFi operations
+- **AI/ML Integration**: First-class support for machine learning models and strategies
+- **Agent Communication**: Built-in protocols for agent-to-agent communication
+- **Safety First**: Static typing and compile-time checks for on-chain safety
+- **Rapid Development**: Create complex DeFi bots in just a few lines of code
 
-## How to build and install
+## Example: Simple Arbitrage Bot in 20 Lines
 
-_Latest zig version supported: 0.14.0-dev.2162+3054486d1_
+```buzz
+import "solana/defi" as defi;
 
-### Requirements
-- Since this is built with Zig, you should be able to build buzz on a wide variety of architectures even though this has only been tested on x86/M1.
-- Linux or macOS (Windows support [is coming](https://github.com/buzz-language/buzz/issues/74))
-- libc
-- zig master
+// Define pools with minimal syntax
+pool raydium_sol_usdc SOL USDC {
+    fee = 0.3%
+    price = SOL/USDC
+}
 
-### Build
-1. Clone the project: `git clone https://github.com/buzz-language/buzz <buzz_dir>`
-2. Checkout submodules: `git submodule update --init`
-3. Copy `pcre2_chartables`:
-```bash
-ln -s vendors/pcre2/src/pcre2_chartables.c.dist vendors/pcre2/src/pcre2_chartables.c
+pool orca_sol_usdc SOL USDC {
+    fee = 0.3%
+    price = SOL/USDC
+}
+
+// Define arbitrage strategy
+strategy arb_strategy {
+    entry {
+        (raydium_sol_usdc.price / orca_sol_usdc.price - 1) > 0.005
+    }
+    size {
+        min(1000, available_liquidity * 0.1)
+    }
+}
+
+// Create and run the bot
+bot arb_bot {
+    pools = [raydium_sol_usdc, orca_sol_usdc]
+    strategy = arb_strategy
+    risk = 1%
+}
 ```
-3. Configure pcre2:
-```bash
-cd vendors/pcre2
-./autogen.sh
-./configure
-cd ../..
-```
-4. Have fun: `zig build run -- <myscript.buzz>` to run a script  or `zig build run` to start the REPL
 
-### Install
+## Key Features for On-Chain Agents
+
+### 1. Agent Communication
+```buzz
+// Define agent-to-agent message protocol
+message OrderIntent {
+    token: str,
+    side: str,
+    amount: double,
+    price: double
+}
+
+// Agent communication channel
+channel dex_orders {
+    broadcast: [OrderIntent],
+    subscribe: fun(handler: fun(OrderIntent) > void)
+}
+```
+
+### 2. Built-in Strategy Patterns
+```buzz
+strategy mean_reversion {
+    entry {
+        price < ma(200) && rsi < 30
+    }
+    exit {
+        price > ma(200) || rsi > 70
+    }
+    size {
+        portfolio.value * 0.1
+    }
+}
+```
+
+### 3. AI Model Integration
+```buzz
+model price_predictor {
+    inputs {
+        price_history: [double],
+        volume_history: [double]
+    }
+    outputs {
+        predicted_price: double,
+        confidence: double
+    }
+}
+```
+
+### 4. Risk Management
+```buzz
+risk_manager {
+    max_position_size = 5%
+    stop_loss = 2%
+    take_profit = 5%
+    max_drawdown = 10%
+}
+```
+
+## Installation
 
 ```bash
 # install locally at ~/.local
@@ -65,8 +125,25 @@ zig build -Doptimize=ReleaseSafe install -p ~/.local
 sudo zig build -Doptimize=ReleaseSafe install -p /usr/local
 ```
 
-If you're usage if performance critical (game dev for example), you can build using `-Doptimize=ReleaseFast`.
+## Documentation
 
-Remember to modify PATH to include the `bin` directory where it is installed. For example, `export PATH=PATH:/home/xxx/.local/bin`. You can then run buzz with `buzz <myscript.buzz>`. Or you can simply run `buzz` to start the REPL.
+- [Getting Started](https://buzz-lang.dev/docs/getting-started)
+- [Agent Development Guide](https://buzz-lang.dev/docs/agents)
+- [DeFi Integration](https://buzz-lang.dev/docs/defi)
+- [Strategy Development](https://buzz-lang.dev/docs/strategies)
+- [Risk Management](https://buzz-lang.dev/docs/risk)
 
-Additionally, install the [VS Code extension](https://marketplace.visualstudio.com/items?itemName=giann.buzz) to get syntax highlighting. If you don't use VS Code but your editor supports [TextMate grammar files](https://github.com/buzz-language/code/blob/main/syntaxes/buzz.tmLanguage.json), you can use that.
+## Examples
+
+- [Simple Arbitrage Bot](examples/simple_arb_bot.buzz)
+- [Yield Farming Bot](examples/yield_farmer_bot.buzz)
+- [Market Making Agent](examples/market_maker.buzz)
+- [Multi-Agent System](examples/multi_agent.buzz)
+
+## Contributing
+
+Contributions are welcome! Please read our [Contributing Guide](CONTRIBUTING.md) for details on our code of conduct and the process for submitting pull requests.
+
+## License
+
+MIT License - see the [LICENSE](LICENSE) file for details.

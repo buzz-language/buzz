@@ -1,0 +1,99 @@
+import "solana" as sol;
+
+// Define token account state
+object TokenState is sol\State {
+    mint: str,
+    owner: str,
+    amount: int,
+    delegates: {str: int},
+
+    fun serialize() > [int] {
+        // Serialization logic
+        return [<int>];
+    }
+
+    fun deserialize(data: [int]) > void {
+        // Deserialization logic
+    }
+}
+
+// Define instruction data types
+object MintInstruction is sol\InstructionData {
+    to: str,
+    amount: int,
+
+    fun serialize() > [int] {
+        // Serialization logic
+        return [<int>];
+    }
+}
+
+object TransferInstruction is sol\InstructionData {
+    from: str,
+    to: str, 
+    amount: int,
+
+    fun serialize() > [int] {
+        // Serialization logic
+        return [<int>];
+    }
+}
+
+// Define the program
+const program = sol\Program{
+    id = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+    state = TokenState{
+        mint = "",
+        owner = "",
+        amount = 0,
+        delegates = {<str: int>},
+    },
+};
+
+// Define instructions
+program.instruction(
+    "mint",
+    fun (ctx: sol\Context, data: MintInstruction) > void {
+        // Verify authority
+        ctx.verify_signer(ctx.accounts[0]);
+        ctx.verify_owner(ctx.accounts[0], program.id);
+        
+        // Update state
+        const state = TokenState{};
+        state.deserialize(ctx.accounts[1].data);
+        state.amount = state.amount + data.amount;
+        
+        // Save state
+        ctx.accounts[1].data = state.serialize();
+    }
+);
+
+program.instruction(
+    "transfer",
+    fun (ctx: sol\Context, data: TransferInstruction) > void {
+        // Verify accounts
+        ctx.verify_signer(ctx.accounts[0]);
+        ctx.verify_writable(ctx.accounts[1]);
+        ctx.verify_writable(ctx.accounts[2]);
+        
+        // Load states
+        const from_state = TokenState{};
+        from_state.deserialize(ctx.accounts[1].data);
+        
+        const to_state = TokenState{};
+        to_state.deserialize(ctx.accounts[2].data);
+        
+        // Verify balances
+        if (from_state.amount < data.amount) {
+            throw "Insufficient funds";
+        }
+        
+        // Transfer
+        from_state.amount = from_state.amount - data.amount;
+        to_state.amount = to_state.amount + data.amount;
+        
+        // Save states
+        ctx.accounts[1].data = from_state.serialize();
+        ctx.accounts[2].data = to_state.serialize();
+    }
+);

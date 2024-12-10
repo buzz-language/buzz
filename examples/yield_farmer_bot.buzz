@@ -1,0 +1,52 @@
+import "solana/defi" as defi;
+
+// Define lending pools
+pool solend_usdc USDC {
+    apy = variable
+    collateral_factor = 0.8
+}
+
+pool mango_sol SOL {
+    apy = variable  
+    collateral_factor = 0.7
+}
+
+// Define yield strategy
+strategy yield_strategy {
+    rebalance {
+        // Move to highest yield pool
+        const best_pool = max_by(pools, p => p.apy);
+        if (best_pool.apy > current_pool.apy + 0.5%) {
+            withdraw_all(current_pool);
+            deposit_all(best_pool);
+        }
+    }
+    
+    risk {
+        // Maintain healthy collateral ratio
+        foreach (pool in pools) {
+            if (pool.utilization > 0.9) {
+                reduce_position(pool, target: 0.8);
+            }
+        }
+    }
+}
+
+// Define yield farming bot
+bot yield_bot {
+    pools = [solend_usdc, mango_sol] 
+    strategy = yield_strategy
+    risk = 2%
+    interval = 1h
+    
+    execute {
+        // Check yields and rebalance
+        strategy.rebalance();
+        
+        // Manage risk
+        strategy.risk();
+        
+        // Compound rewards
+        claim_and_reinvest();
+    }
+}

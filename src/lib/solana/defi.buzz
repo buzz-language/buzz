@@ -1,0 +1,70 @@
+namespace solana\defi;
+
+import "solana" as sol;
+
+/// @sugar Allows defining a liquidity pool with minimal syntax
+/// pool <name> <token0> <token1> {
+///   fee = 0.3%
+///   price = token0/token1
+/// }
+export protocol Pool {
+    fun swap(from: str, to: str, amount: double) > double;
+    fun add_liquidity(amounts: {str: double}) > double;
+    fun remove_liquidity(lp_amount: double) > {str: double};
+}
+
+/// @sugar Allows defining a trading strategy with minimal syntax
+/// strategy <name> {
+///   entry {
+///     price < ma(200) && rsi < 30
+///   }
+///   exit {
+///     price > ma(200) || rsi > 70  
+///   }
+/// }
+export protocol Strategy {
+    fun should_enter(state: MarketState) > bool;
+    fun should_exit(state: MarketState) > bool;
+    fun position_size() > double;
+}
+
+/// @sugar Allows defining price feeds with minimal syntax
+/// feed "SOL/USD" {
+///   primary = pyth
+///   backup = chainlink
+///   heartbeat = 60
+/// }
+export protocol PriceFeed {
+    fun get_price() > double;
+    fun get_confidence() > double;
+}
+
+/// Market state with common indicators
+export object MarketState {
+    price: double,
+    volume: double,
+    timestamp: int,
+    
+    // Technical indicators
+    fun ma(period: int) > double;
+    fun rsi(period: int) > double;
+    fun bbands(period: int, std: double) > obj{ lower: double, middle: double, upper: double };
+}
+
+/// @sugar Allows defining a bot with minimal syntax
+/// bot <name> {
+///   pools = [pool1, pool2]
+///   strategy = strategy1  
+///   risk = 1%
+///   feeds = ["SOL/USD"]
+/// }
+export object Bot {
+    pools: [Pool],
+    strategy: Strategy,
+    feeds: [PriceFeed],
+    state: MarketState,
+    
+    fun execute() > void;
+    fun rebalance() > void;
+    fun get_pnl() > double;
+}

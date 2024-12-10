@@ -1,0 +1,68 @@
+namespace solana\agent;
+
+import "solana" as sol;
+
+/// Represents an observation of the chain state
+export object Observation {
+    timestamp: int,
+    accounts: [sol\Account],
+    prices: {str: double},
+    metrics: {str: double},
+}
+
+/// Base protocol for agent decision making
+export protocol Strategy {
+    fun decide(observation: Observation) > Decision;
+}
+
+/// Represents a decision made by the agent
+export object Decision {
+    action: str,
+    params: {str: any},
+    confidence: double,
+}
+
+/// Base for all agent states
+export object AgentState is sol\State {
+    owner: str,
+    strategy: Strategy,
+    observations: [Observation],
+    decisions: [Decision],
+    performance_metrics: {str: double},
+    
+    fun serialize() > [int] {
+        // Serialization logic
+        return [<int>];
+    }
+    
+    fun deserialize(data: [int]) > void {
+        // Deserialization logic
+    }
+}
+
+/// Agent execution context with AI-specific helpers
+export object AgentContext {
+    context: sol\Context,
+    observation: Observation,
+    
+    fun record_metric(name: str, value: double) > void;
+    fun get_metric_history(name: str) > [double];
+    fun predict_metric(name: str, steps: int) > [double];
+}
+
+/// Common agent behaviors that can be composed
+export object Behaviors {
+    fun mean_reversion(prices: [double], window: int) > double;
+    fun momentum(prices: [double], window: int) > double;
+    fun volatility(prices: [double], window: int) > double;
+    fun correlation(a: [double], b: [double]) > double;
+}
+
+/// Base for reward/objective functions
+export protocol RewardFunction {
+    fun calculate(
+        prev_state: AgentState,
+        action: Decision,
+        new_state: AgentState
+    ) > double;
+}

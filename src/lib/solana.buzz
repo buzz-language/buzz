@@ -1,0 +1,78 @@
+namespace solana;
+
+/// Represents a Solana account
+export object Account {
+    pubkey: str,
+    owner: str,
+    lamports: int,
+    data: [int],
+    executable: bool,
+    rent_epoch: int,
+}
+
+/// Represents program derived address
+export object PDA {
+    pubkey: str,
+    bump: int,
+}
+
+/// Represents instruction data
+export object Instruction {
+    program_id: str,
+    accounts: [Account],
+    data: [int],
+}
+
+/// Base for all program states
+export protocol State {
+    fun serialize() > [int];
+    fun deserialize([int] data) > void;
+}
+
+/// Base for all instructions
+export protocol InstructionData {
+    fun serialize() > [int];
+}
+
+/// Decorator-style syntax for defining program
+export object Program {
+    id: str,
+    state: State?,
+
+    fun instruction(name: str, handler: fun(ctx: Context, data: InstructionData) > void) > void;
+}
+
+/// Execution context
+export object Context {
+    program_id: str,
+    accounts: [Account],
+    remaining_accounts: [Account],
+    bump_seed: int?,
+
+    fun verify_signer(account: Account) > void !> NotSignerError;
+    fun verify_writable(account: Account) > void !> NotWritableError;
+    fun verify_owner(account: Account, owner: str) > void !> WrongOwnerError;
+}
+
+// Common errors
+export object NotSignerError {
+    account: str,
+}
+
+export object NotWritableError {
+    account: str, 
+}
+
+export object WrongOwnerError {
+    account: str,
+    expected: str,
+    actual: str,
+}
+
+// Example of how a token program state could look
+export object TokenAccount {
+    mint: str,
+    owner: str,
+    amount: int,
+    delegates: {str: int},
+}
