@@ -6302,6 +6302,15 @@ fn objectDeclaration(self: *Self) Error!Ast.Node.Index {
         self.reportError(.syntax, "Object must be defined at top-level.");
     }
 
+    // Collect decorators before object declaration
+    var decorators = std.ArrayList(Ast.TokenIndex).init(self.gc.allocator);
+    defer decorators.shrinkAndFree(decorators.items.len);
+
+    while (try self.match(.Decorator)) {
+        const decorator_token = self.current_token.? - 1;
+        try decorators.append(decorator_token);
+    }
+
     const start_location = self.current_token.? - 1;
 
     // Conforms to protocols?
@@ -6678,7 +6687,7 @@ fn objectDeclaration(self: *Self) Error!Ast.Node.Index {
 
     self.markInitialized();
 
-    const node = self.ast.appendNode(
+    const node = try self.ast.appendNode(
         .{
             .tag = .ObjectDeclaration,
             .location = start_location,
@@ -6692,10 +6701,21 @@ fn objectDeclaration(self: *Self) Error!Ast.Node.Index {
                     .protocols = protocol_nodes.items,
                     .generics = generics.items,
                     .members = members.items,
+                    .decorators = decorators.items,
                 },
             },
         },
     );
+
+    // Transform agent decorators after object declaration is complete
+    if (decorators.items.len > 0) {
+        var agent_transform = AgentTransform.init(
+            self.gc.allocator,
+            &self.ast,
+            &self.gc.type_registry,
+        );
+        try agent_transform.transformAgent(node);
+    }
 
     std.debug.assert(object_placeholder.resolved_type.?.Object.placeholders.count() == 0 or object_placeholder.resolved_type.?.Object.static_placeholders.count() == 0);
 

@@ -1,0 +1,35 @@
+```buzz
+// Test basic agent decorator parsing
+@agent
+object SimpleBot {
+    strategy = {
+        entry: price < ma(200) and rsi < 30,
+        exit: price > ma(200) or rsi > 70,
+        size: min(1000, available_liquidity * 0.1)
+    }
+
+    risk = 1%
+    pools = [pool1, pool2]
+}
+
+// Test multiple decorators
+@agent
+@verify_ownership
+object ComplexBot {
+    strategy = {
+        entry: price < ma(200) and volume > 1000,
+        exit: price > ma(200) or stop_loss_hit,
+        size: position_sizing(risk)
+    }
+
+    risk = 2%
+    pools = [pool1]
+}
+
+// Test error cases - missing strategy
+@agent
+object InvalidBot {
+    risk = 1%
+    pools = []
+}
+```
