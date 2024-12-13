@@ -1,0 +1,1 @@
+export const data = JSON.parse("{\"key\":\"v-c907b270\",\"path\":\"/examples/defi.html\",\"title\":\"DeFi Integration\",\"lang\":\"en-US\",\"frontmatter\":{},\"headers\":[],\"git\":{\"updatedTime\":null,\"contributors\":[]},\"filePathRelative\":\"examples/defi.md\"}")

@@ -1,0 +1,1 @@
+export const data = JSON.parse("{\"key\":\"v-be4b1fee\",\"path\":\"/api/stdlib.html\",\"title\":\"Standard Library\",\"lang\":\"en-US\",\"frontmatter\":{},\"headers\":[],\"git\":{\"updatedTime\":null,\"contributors\":[]},\"filePathRelative\":\"api/stdlib.md\"}")

@@ -1,0 +1,1 @@
+export const data = JSON.parse("{\"key\":\"v-001f4eea\",\"path\":\"/api/security.html\",\"title\":\"Security Utilities\",\"lang\":\"en-US\",\"frontmatter\":{},\"headers\":[],\"git\":{\"updatedTime\":null,\"contributors\":[]},\"filePathRelative\":\"api/security.md\"}")
