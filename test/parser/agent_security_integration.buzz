@@ -1,0 +1,29 @@
+// Test integration of security features with agent system
+import "solana/security" as security;
+import "solana/agent" as agent;
+
+@verify_ownership
+@require_signer
+object SecureTrader is agent\AgentState {
+    owner: str = "BzwZDtHxXkHnHMg3MFrH8dmxWX6NswHQpqGVkYqpGCEq",
+    signer: str = "Hx6LbHY3QwvbJ8YazpSB3AHh4wJHyj9pWEe7qHYKQNUm",
+    min_balance: double = 100.0,
+    strategy = {
+        entry: price < ma(200) and balance >= min_balance,
+        exit: price > ma(200) or balance < min_balance,
+        size: min(1000, available_liquidity * 0.1)
+    }
+}
+
+@check_balance
+@prevent_reentrancy
+object SecureArbitrage is agent\AgentState {
+    owner: str = "DxCpxz3uZG5ZvZVqHqyWKmxmqAKvp3YzGzHKVvQJQkwN",
+    min_balance: double = 50.0,
+    lock: bool = false,
+    strategy = {
+        entry: !lock and arb_opportunity > 0.02 and balance >= min_balance,
+        exit: arb_opportunity < 0.01 or balance < min_balance,
+        size: min(500, balance * 0.05)
+    }
+}

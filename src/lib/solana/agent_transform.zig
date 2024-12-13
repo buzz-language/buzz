@@ -17,6 +17,34 @@ pub const AgentTransform = struct {
     pub fn transformAgent(self: *AgentTransform, node: Ast.Node.Index) !void {
         const object_decl = &self.ast.nodes.items(.components)[node].ObjectDeclaration;
 
+        // Check security decorators
+        var needs_ownership = false;
+        var needs_signer = false;
+        var needs_balance = false;
+        var needs_reentrancy = false;
+
+        for (object_decl.decorators) |decorator| {
+            const decorator_token = self.ast.tokens.get(decorator);
+            if (decorator_token.tag == .SecurityDecorator) {
+                const decorator_lexeme = decorator_token.lexeme;
+                if (std.mem.eql(u8, decorator_lexeme, "@verify_ownership")) {
+                    needs_ownership = true;
+                } else if (std.mem.eql(u8, decorator_lexeme, "@require_signer")) {
+                    needs_signer = true;
+                } else if (std.mem.eql(u8, decorator_lexeme, "@check_balance")) {
+                    needs_balance = true;
+                } else if (std.mem.eql(u8, decorator_lexeme, "@prevent_reentrancy")) {
+                    needs_reentrancy = true;
+                }
+            }
+        }
+
+        // Generate security checks
+        if (needs_ownership) try self.generateSecurityCheck(node, "verify_ownership");
+        if (needs_signer) try self.generateSecurityCheck(node, "require_signer");
+        if (needs_balance) try self.generateSecurityCheck(node, "check_balance");
+        if (needs_reentrancy) try self.generateSecurityCheck(node, "prevent_reentrancy");
+
         // Check if object has @agent decorator
         var has_agent_decorator = false;
         for (object_decl.decorators) |decorator| {
@@ -49,6 +77,51 @@ pub const AgentTransform = struct {
                 "Agent object must define a strategy",
             );
         }
+    }
+
+    pub fn generateSecurityCheck(self: *AgentTransform, node: Ast.Node.Index, check_type: []const u8) !void {
+        const object_decl = &self.ast.nodes.items(.components)[node].ObjectDeclaration;
+
+        // Create function call node for security check
+        const call_node = try self.ast.appendNode(.{
+            .tag = .Call,
+            .location = object_decl.name,
+            .end_location = object_decl.name,
+            .components = .{
+                .Call = .{
+                    .callee = try self.ast.appendNode(.{
+                        .tag = .MemberAccess,
+                        .location = object_decl.name,
+                        .end_location = object_decl.name,
+                        .components = .{
+                            .MemberAccess = .{
+                                .object = try self.ast.appendNode(.{
+                                    .tag = .Identifier,
+                                    .location = object_decl.name,
+                                    .end_location = object_decl.name,
+                                    .components = .{ .Identifier = "security" },
+                                }),
+                                .property = check_type,
+                            },
+                        },
+                    }),
+                    .arguments = &[_]Ast.Node.Index{node},
+                },
+            },
+        });
+
+        // Add the security check to the object's initialization
+        try self.ast.appendNode(.{
+            .tag = .SecurityCheck,
+            .location = object_decl.name,
+            .end_location = object_decl.name,
+            .components = .{
+                .SecurityCheck = .{
+                    .type = check_type,
+                    .target = call_node,
+                },
+            },
+        });
     }
 
     fn transformStrategy(self: *AgentTransform, member: Ast.ObjectDeclaration.Member) !void {
