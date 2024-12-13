@@ -1,7 +1,10 @@
 [build]
   base = "docs/"
   publish = "public/"
-  command = "npm run build"
+  command = "npm install && npm run build"
+
+[build.environment]
+  NODE_VERSION = "18"
 
 [[redirects]]
   from = "/decorators/*"
