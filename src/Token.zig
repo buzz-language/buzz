@@ -167,6 +167,7 @@ pub const Type = enum {
     Fib, // fib
     Ampersand, // async or band
     Decorator, // @identifier
+    SecurityDecorator, // @verify_ownership, @require_signer, etc.
     Resume, // resume
     Resolve, // resolve
     Yield, // yield

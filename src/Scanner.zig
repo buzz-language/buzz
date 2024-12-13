@@ -242,6 +242,14 @@ fn atIdentifier(self: *Self) !Token {
             _ = self.advance();
         }
         const decorator_name = self.source[self.current.start..self.current.offset];
+
+        // Check for security decorators
+        if (std.mem.eql(u8, decorator_name, "@verify_ownership") or
+            std.mem.eql(u8, decorator_name, "@require_signer") or
+            std.mem.eql(u8, decorator_name, "@check_balance") or
+            std.mem.eql(u8, decorator_name, "@prevent_reentrancy")) {
+            return self.makeToken(.SecurityDecorator, decorator_name, null, null);
+        }
         return self.makeToken(.Decorator, decorator_name, null, null);
     }
 
