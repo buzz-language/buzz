@@ -5,6 +5,7 @@ export default defineUserConfig({
   lang: "en-US",
   title: "Pilot Buzz",
   description: "Documentation for the Pilot Buzz programming language",
+  dest: "public",
   theme: defaultTheme({
     repo: "aldrin-labs/buzz",
     docsDir: "docs",
