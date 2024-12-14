@@ -1,0 +1,100 @@
+// Security verification utilities for Pilot Buzz
+// These utilities provide compile-time and runtime security checks for agent protocols
+
+export object SecurityError {
+    message: str,
+    code: int
+}
+
+export fun verify_ownership(target: object) > object !> SecurityError {
+    if (!target.has("owner")) {
+        throw SecurityError{
+            message: "Object must have an owner field",
+            code: 4001
+        };
+    }
+
+    // Verify owner is a valid public key at compile time
+    if (!is_valid_pubkey(target.owner)) {
+        throw SecurityError{
+            message: "Invalid owner public key",
+            code: 4002
+        };
+    }
+
+    return target;
+}
+
+export fun require_signer(target: object) > object !> SecurityError {
+    target.verify_signer = true;
+
+    // Add compile-time signer verification
+    if (!target.has("signer")) {
+        throw SecurityError{
+            message: "Object must have a signer field",
+            code: 4003
+        };
+    }
+
+    return target;
+}
+
+export fun check_balance(target: object) > object !> SecurityError {
+    target.balance_check = true;
+
+    // Add compile-time balance field verification
+    if (!target.has("min_balance")) {
+        throw SecurityError{
+            message: "Object must have a min_balance field",
+            code: 4004
+        };
+    }
+
+    // Verify min_balance is a valid number at compile time
+    if (typeof(target.min_balance) != "double" and typeof(target.min_balance) != "int") {
+        throw SecurityError{
+            message: "min_balance must be a number",
+            code: 4005
+        };
+    }
+
+    return target;
+}
+
+export fun prevent_reentrancy(target: object) > object !> SecurityError {
+    target.reentrancy_guard = true;
+
+    // Add compile-time lock field verification
+    if (!target.has("lock")) {
+        throw SecurityError{
+            message: "Object must have a lock field",
+            code: 4006
+        };
+    }
+
+    // Verify lock is a boolean at compile time
+    if (typeof(target.lock) != "bool") {
+        throw SecurityError{
+            message: "lock must be a boolean",
+            code: 4007
+        };
+    }
+
+    return target;
+}
+
+// Utility function to validate Solana public keys at compile time
+fun is_valid_pubkey(key: str) > bool {
+    if (key.length != 44) {
+        return false;
+    }
+
+    // Verify base58 encoding
+    for (char in key) {
+        if (!char.matches("[1-9A-HJ-NP-Za-km-z]")) {
+            return false;
+        }
+    }
+
+    return true;
+}

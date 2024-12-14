@@ -1,6 +1,7 @@
 namespace solana\agent;
 
 import "solana" as sol;
+import "security" as security;
 
 /// Represents an observation of the chain state
 export object Observation {
@@ -25,16 +26,19 @@ export object Decision {
 /// Base for all agent states
 export object AgentState is sol\State {
     owner: str,
+    signer: str?,
+    min_balance: double?,
+    lock: bool?,
     strategy: Strategy,
     observations: [Observation],
     decisions: [Decision],
     performance_metrics: {str: double},
-    
+
     fun serialize() > [int] {
         // Serialization logic
         return [<int>];
     }
-    
+
     fun deserialize(data: [int]) > void {
         // Deserialization logic
     }
@@ -44,7 +48,7 @@ export object AgentState is sol\State {
 export object AgentContext {
     context: sol\Context,
     observation: Observation,
-    
+
     fun record_metric(name: str, value: double) > void;
     fun get_metric_history(name: str) > [double];
     fun predict_metric(name: str, steps: int) > [double];

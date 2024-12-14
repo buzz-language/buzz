@@ -1,0 +1,15 @@
+import solana.decorators.{agent, entry, exit, size};
+import solana.defi.{MarketState, pool1, pool2};
+import solana.indicators.{ma, rsi};
+
+@agent
+object SimpleBot {
+    strategy = {
+        entry: price < ma(200) and rsi < 30,
+        exit: price > ma(200) or rsi > 70,
+        size: min(1000, available_liquidity * 0.1)
+    }
+
+    risk = 1%
+    pools = [pool1, pool2]
+}

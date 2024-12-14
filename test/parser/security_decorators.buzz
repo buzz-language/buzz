@@ -1,0 +1,60 @@
+// Test security decorator parsing and validation
+@verify_ownership
+object SecureOwnershipBot {
+    owner: str,
+    strategy = {
+        entry: price < ma(200),
+        exit: price > ma(200)
+    }
+}
+
+@require_signer
+object SecureSignerBot {
+    signer: str,
+    strategy = {
+        entry: volume > 1000,
+        exit: profit > 0.02
+    }
+}
+
+@check_balance
+object SecureBalanceBot {
+    min_balance: double = 100.0,
+    strategy = {
+        entry: balance >= min_balance,
+        exit: balance < min_balance
+    }
+}
+
+@prevent_reentrancy
+object SecureReentrancyBot {
+    lock: bool = false,
+    strategy = {
+        entry: !lock and price < ma(50),
+        exit: price > ma(50)
+    }
+}
+
+// Test backward compatibility with regular decorators
+@custom_decorator
+object RegularBot {
+    name: str = "regular",
+    strategy = {
+        entry: true,
+        exit: false
+    }
+}
+
+// Test multiple decorators
+@verify_ownership
+@require_signer
+@check_balance
+object MultiSecureBot {
+    owner: str,
+    signer: str,
+    min_balance: double,
+    strategy = {
+        entry: balance > min_balance,
+        exit: balance < min_balance * 0.9
+    }
+}

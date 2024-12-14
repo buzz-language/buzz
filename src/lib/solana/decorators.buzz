@@ -1,0 +1,53 @@
+// Agent decorators for simplified syntax
+export fun agent(target: object) > object {
+    // Verify target has required fields
+    if (!target.has("strategy")) {
+        throw "Agent must have a strategy field";
+    }
+
+    // Extract strategy components
+    const strategy = target.strategy;
+    if (!strategy.has("entry") or !strategy.has("exit") or !strategy.has("size")) {
+        throw "Strategy must have entry, exit, and size fields";
+    }
+
+    // Create Strategy implementation
+    target.strategy = object {
+        fun should_enter(state: MarketState) > bool {
+            return strategy.entry(state);
+        }
+
+        fun should_exit(state: MarketState) > bool {
+            return strategy.exit(state);
+        }
+
+        fun position_size() > double {
+            return strategy.size();
+        }
+    };
+
+    // Set default risk if not specified
+    if (!target.has("risk")) {
+        target.risk = 0.01; // Default 1% risk
+    }
+
+    // Set default pools if not specified
+    if (!target.has("pools")) {
+        target.pools = [];
+    }
+
+    return target;
+}
+
+// Helper decorators for strategy components
+export fun entry(condition: fun(MarketState) > bool) > fun(MarketState) > bool {
+    return condition;
+}
+
+export fun exit(condition: fun(MarketState) > bool) > fun(MarketState) > bool {
+    return condition;
+}
+
+export fun size(calculator: fun() > double) > fun() > double {
+    return calculator;
+}

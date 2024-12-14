@@ -1,0 +1,1 @@
+export const data = JSON.parse("{\"key\":\"v-f3132a0e\",\"path\":\"/solana/agents.html\",\"title\":\"Agents\",\"lang\":\"en-US\",\"frontmatter\":{},\"headers\":[],\"git\":{\"updatedTime\":null,\"contributors\":[]},\"filePathRelative\":\"solana/agents.md\"}")

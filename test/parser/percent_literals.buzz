@@ -1,0 +1,16 @@
+// Test percentage literal parsing
+let risk = 1%; // Should be 0.01
+let allocation = 2.5%; // Should be 0.025
+let max_slippage = 0.1%; // Should be 0.001
+
+// Test in expressions
+let half = 50%;
+let quarter = half / 2; // Should be 0.25
+let double = quarter * 8; // Should be 2.0
+
+// Test in object literals
+let config = {
+    risk: 1%,
+    max_allocation: 5%,
+    min_profit: 0.5%
+};

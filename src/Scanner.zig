@@ -236,6 +236,24 @@ fn atIdentifier(self: *Self) !Token {
     self.current.start_line = self.current.line;
     self.current.start_column = self.current.column;
 
+    // Check if it's a decorator (no quotes after @)
+    if (isLetter(self.peek())) {
+        while (isLetter(self.peek()) or isNumber(self.peek()) or self.peek() == '_') {
+            _ = self.advance();
+        }
+        const decorator_name = self.source[self.current.start..self.current.offset];
+
+        // Check for security decorators
+        if (std.mem.eql(u8, decorator_name, "@verify_ownership") or
+            std.mem.eql(u8, decorator_name, "@require_signer") or
+            std.mem.eql(u8, decorator_name, "@check_balance") or
+            std.mem.eql(u8, decorator_name, "@prevent_reentrancy")) {
+            return self.makeToken(.SecurityDecorator, decorator_name, null, null);
+        }
+        return self.makeToken(.Decorator, decorator_name, null, null);
+    }
+
+    // Handle quoted identifiers
     if (self.advance() != '"') {
         return self.makeToken(.Error, "Unterminated identifier.", null, null);
     }
@@ -280,7 +298,6 @@ fn number(self: *Self) !Token {
     var peeked: u8 = self.peek();
     while (isNumber(peeked) or peeked == '_') {
         _ = self.advance();
-
         peeked = self.peek();
     }
 
@@ -296,7 +313,6 @@ fn number(self: *Self) !Token {
         peeked = self.peek();
         while (isNumber(peeked) or peeked == '_') {
             _ = self.advance();
-
             peeked = self.peek();
         }
     }
@@ -305,8 +321,13 @@ fn number(self: *Self) !Token {
         return self.makeToken(.Error, "'_' must be between digits", null, null);
     }
 
+    const is_percent = self.peek() == '%';
+    if (is_percent) {
+        _ = self.advance(); // Consume %
+    }
+
     const double = if (is_float)
-        std.fmt.parseFloat(f64, self.source[self.current.start..self.current.offset]) catch {
+        std.fmt.parseFloat(f64, self.source[self.current.start..self.current.offset - @as(usize, if (is_percent) 1 else 0)]) catch {
             return self.makeToken(
                 .Error,
                 "double overflow",
@@ -318,7 +339,7 @@ fn number(self: *Self) !Token {
         null;
 
     const int = if (!is_float)
-        std.fmt.parseInt(i32, self.source[self.current.start..self.current.offset], 10) catch {
+        std.fmt.parseInt(i32, self.source[self.current.start..self.current.offset - @as(usize, if (is_percent) 1 else 0)], 10) catch {
             return self.makeToken(
                 .Error,
                 "int overflow",
@@ -328,6 +349,11 @@ fn number(self: *Self) !Token {
         }
     else
         null;
+
+    if (is_percent) {
+        const percent_value = if (is_float) double.? / 100.0 else @as(f64, @floatFromInt(int.?)) / 100.0;
+        return self.makeToken(.PercentLiteral, null, percent_value, null);
+    }
 
     return self.makeToken(
         if (is_float) .FloatValue else .IntegerValue,

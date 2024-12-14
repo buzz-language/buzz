@@ -31,7 +31,7 @@ const BuildOptions = struct {
     }
 
     pub fn needLibC(self: @This()) bool {
-        return !self.target.result.cpu.arch.isWasm();
+        return !self.target.getCpuArch().isWasm();
     }
 
     const DebugOptions = struct {
@@ -107,7 +107,7 @@ pub fn build(b: *Build) !void {
 
     const build_mode = b.standardOptimizeOption(.{});
     const target = b.standardTargetOptions(.{});
-    const is_wasm = target.result.cpu.arch.isWasm();
+    const is_wasm = target.getCpuArch().isWasm();
     const install_step = b.getInstallStep();
 
     var build_options = BuildOptions{
@@ -389,7 +389,7 @@ pub fn build(b: *Build) !void {
 
         if (lib_mimalloc) |mimalloc| {
             lib.linkLibrary(mimalloc);
-            if (lib.root_module.resolved_target.?.result.os.tag == .windows) {
+            if (lib.root_module.target.?.getOsTag() == .windows) {
                 lib.linkSystemLibrary("bcrypt");
             }
         }
@@ -485,7 +485,7 @@ pub fn build(b: *Build) !void {
 
             if (lib_mimalloc) |mimalloc| {
                 std_lib.linkLibrary(mimalloc);
-                if (std_lib.root_module.resolved_target.?.result.os.tag == .windows) {
+                if (std_lib.root_module.target.?.getOsTag() == .windows) {
                     std_lib.linkSystemLibrary("bcrypt");
                 }
             }
@@ -525,7 +525,7 @@ pub fn build(b: *Build) !void {
     }
     if (lib_mimalloc) |mimalloc| {
         tests.linkLibrary(mimalloc);
-        if (tests.root_module.resolved_target.?.result.os.tag == .windows) {
+        if (tests.root_module.target.?.getOsTag() == .windows) {
             tests.linkSystemLibrary("bcrypt");
         }
     }

@@ -92,6 +92,7 @@ pub const Type = enum {
     Slash, // /
     AntiSlash, // \
     Percent, // %
+    PercentLiteral, // 1%
     Question, // ?
     Bang, // !
     Colon, // :
@@ -165,6 +166,8 @@ pub const Type = enum {
     Pat, // pat
     Fib, // fib
     Ampersand, // async or band
+    Decorator, // @identifier
+    SecurityDecorator, // @verify_ownership, @require_signer, etc.
     Resume, // resume
     Resolve, // resolve
     Yield, // yield

@@ -612,6 +612,8 @@ pub const ObjectDeclaration = struct {
     generics: []const TokenIndex,
     // List of either Function (methods) or VarDeclaration (properties)
     members: []const Member,
+    // Store decorators that precede the object declaration
+    decorators: []const TokenIndex,
 
     pub const Member = struct {
         name: TokenIndex,
