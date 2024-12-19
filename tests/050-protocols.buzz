@@ -8,7 +8,7 @@ protocol Nameable {
     fun rename(name: str) > void;
 }
 
-object(Comparable, Nameable) Person {
+object<Comparable, Nameable> Person {
     name: str,
     age: int,
 
@@ -25,7 +25,7 @@ object(Comparable, Nameable) Person {
     }
 }
 
-object(Nameable) Pet {
+object<Nameable> Pet {
     name: str,
 
     fun rename(name: str) > void {

@@ -3,7 +3,7 @@ protocol Living {
     fun live() > void;
 }
 
-object(Living) Ant {
+object<Living> Ant {
     name: str,
 }
 

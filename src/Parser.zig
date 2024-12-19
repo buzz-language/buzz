@@ -6524,8 +6524,8 @@ fn objectDeclaration(self: *Self) Error!Ast.Node.Index {
     var protocol_nodes = std.ArrayList(Ast.Node.Index).init(self.gc.allocator);
     defer protocol_nodes.shrinkAndFree(protocol_nodes.items.len);
     var protocol_count: usize = 0;
-    if (try self.match(.LeftParen)) {
-        while (!self.check(.RightParen) and !self.check(.Eof)) : (protocol_count += 1) {
+    if (try self.match(.Less)) {
+        while (!self.check(.Greater) and !self.check(.Eof)) : (protocol_count += 1) {
             if (protocol_count > 255) {
                 self.reportError(.protocols_count, "Can't conform to more than 255 protocols");
             }
@@ -6553,7 +6553,7 @@ fn objectDeclaration(self: *Self) Error!Ast.Node.Index {
             }
         }
 
-        try self.consume(.RightParen, "Expected `)` after protocols list");
+        try self.consume(.Greater, "Expected `>` after protocols list");
     }
 
     // Get object name
