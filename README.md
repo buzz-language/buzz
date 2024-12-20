@@ -1,18 +1,5 @@
-<p align="center">
-    <img src="https://github.com/buzz-language/buzz/raw/main/logo.png" alt="Pilot Buzz" width="204" height="204">
-</p>
 
 # 👨‍🚀 Pilot Buzz
-
-A specialized programming language for creating autonomous on-chain Solana agents and DeFi bots with minimal code.
-
-<p align="center">
-    <img src="https://github.com/buzz-language/buzz/raw/main/example.png" alt="Pilot Buzz code example">
-</p>
-
-<p align="center">
-    <a href="https://buzz-lang.dev">Homepage</a> — <a href="https://discord.gg/VnMdNSdpNV">Discord</a>
-</p>
 
 ## Features
 
