@@ -1,5 +1,5 @@
 [build]
-  base = "pilot/"
+  base = "./"
   publish = "dist/"
   command = "npm install && npm run build"
 
