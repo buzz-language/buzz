@@ -3,3 +3,56 @@
   overflow-wrap: break-word;
   color: var(--theme-text);
 }
+
+.h1 {
+  color: var(--theme-headline);
+  font-size: 2.5rem;
+  line-height: 1.2;
+  font-weight: 600;
+  margin-bottom: 1.5rem;
+}
+
+.h2 {
+  color: var(--theme-headline);
+  font-size: 2rem;
+  line-height: 1.3;
+  font-weight: 600;
+  margin-bottom: 1.25rem;
+}
+
+.h3 {
+  color: var(--theme-headline-secondary);
+  font-size: 1.5rem;
+  line-height: 1.4;
+  font-weight: 500;
+  margin-bottom: 1rem;
+}
+
+.p {
+  color: var(--theme-text);
+  font-size: 1rem;
+  line-height: 1.6;
+  margin-bottom: 1rem;
+}
+
+.secondary {
+  color: var(--theme-text-secondary);
+}
+
+.tertiary {
+  color: var(--theme-text-tertiary);
+}
+
+@media (max-width: 768px) {
+  .h1 {
+    font-size: 2rem;
+  }
+
+  .h2 {
+    font-size: 1.75rem;
+  }
+
+  .h3 {
+    font-size: 1.25rem;
+  }
+}
