@@ -1,0 +1,17 @@
+.root {
+  align-items: center;
+  bottom: 0;
+  display: flex;
+  justify-content: center;
+  left: 0;
+  pointer-events: none;
+  position: fixed;
+  right: 0;
+  top: 0;
+}
+
+.item {
+  pointer-events: auto;
+  position: absolute;
+  transition: opacity 0.2s ease, transform 0.4s ease;
+}

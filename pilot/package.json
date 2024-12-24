@@ -62,6 +62,7 @@
     "react-router-dom": "^7.1.1",
     "recharts": "^2.12.4",
     "sonner": "^1.7.1",
+    "srcl": "file:www-sacred",
     "tailwind-merge": "^2.6.0",
     "tailwindcss-animate": "^1.0.7",
     "vaul": "^1.1.2",

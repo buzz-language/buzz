@@ -1,53 +1,50 @@
-export const securityExample = `# AI Trading Agent with Security
-@agent
+export const securityExample = `# Secure Token Transfer
+
 @verify_ownership("token")
 @prevent_reentrancy
-contract TradingBot:
+contract SecureTransfer:
     balance: u64
+    owner: PublicKey
+
+    def transfer(amount: u64, recipient: PublicKey):
+        if self.balance >= amount:
+            self.send_tokens(recipient, amount)
+`
+
+export const aiExample = `# AI Trading Strategy
+
+@agent
+@auto_validate
+contract TradingBot:
     risk_level: u8
+    portfolio: TokenAccount
 
-    @auto_validate
-    def swap_tokens(amount: u64):
-        if self.check_market_conditions():
-            self.execute_swap(amount)`
+    def execute_trade(pair: str, amount: u64):
+        if self.analyze_market(pair):
+            self.place_order(amount)
+`
 
-export const daoExample = `# DAO Governance
-@dao_contract
-contract TokenDAO:
-    token: TokenAccount
-    proposals: List[Proposal]
+export const syntaxExample = `# Clean Python-like Syntax
 
-    @quadratic_voting
-    def propose_upgrade(
-        program_id: PublicKey,
-        description: str
-    ):
-        self.proposals.push(
-            Proposal(program_id, description)
-        )`
+contract Calculator:
+    result: u64
+    precision: u8
 
-export const defiExample = `# Liquidity Pool Contract
-@pool_contract
-contract LiquidityPool:
-    token_a: TokenAccount
-    token_b: TokenAccount
+    def compute(a: u64, b: u64):
+        if a > b:
+            self.result = a - b
+        else:
+            self.result = a + b
+`
 
-    @check_balance
-    def provide_liquidity(
-        amount_a: u64,
-        amount_b: u64
-    ):
-        self.validate_ratio(amount_a, amount_b)
-        self.mint_lp_tokens()`
+export const solanaExample = `# Native Solana Integration
 
-export const yieldExample = `# Yield Farming
-@farm_contract
-@auto_compound
-contract YieldFarm:
-    stake_token: TokenAccount
-    reward_token: TokenAccount
+@program_id("ABC123...")
+contract TokenSwap:
+    pool_token: TokenAccount
+    fee_account: TokenAccount
 
-    @check_staking_period
-    def harvest_rewards(user: Account):
-        rewards = self.calculate_rewards(user)
-        self.distribute_rewards(user, rewards)`
+    def swap(amount_in: u64, min_out: u64):
+        self.check_slippage(min_out)
+        self.execute_swap(amount_in)
+`

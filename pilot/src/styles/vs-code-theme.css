@@ -1,86 +1,141 @@
-/* VS Code High Contrast Theme Overrides */
+/* VS Code Light Theme */
 :root {
   --vscode-black: #000000;
-  --vscode-gray: #858585;
-  --vscode-border: #404040;
-  --vscode-keyword: #569CD6;
-  --vscode-type: #4EC9B0;
-  --vscode-string: #CE9178;
-  --vscode-comment: #6A9955;
-  --vscode-variable: #9CDCFE;
-  --vscode-function: #DCDCAA;
-  --vscode-decorator: #C586C0;
+  --vscode-white: #FFFFFF;
+  --vscode-gray: #666666;
+  --vscode-border: #e6e6e6;
+  --vscode-keyword: #000000;
+  --vscode-type: #000000;
+  --vscode-string: #666666;
+  --vscode-comment: #666666;
+  --vscode-variable: #000000;
+  --vscode-function: #000000;
+  --vscode-decorator: #666666;
 }
 
-body {
-  background-color: var(--vscode-black);
-  color: #FFFFFF;
-}
-
-pre {
-  background-color: var(--vscode-black) !important;
-  border: 1px solid var(--vscode-border) !important;
-  margin: 0 !important;
-  padding: 1rem !important;
-}
-
-code {
-  font-family: 'Consolas', 'Monaco', 'Andale Mono', monospace !important;
-  font-size: 14px !important;
-  line-height: 1.5 !important;
-}
-
-/* Prism.js Token Styling */
-.token.comment {
-  color: var(--vscode-comment) !important;
-}
-
-.token.keyword {
-  color: var(--vscode-keyword) !important;
-}
-
-.token.string {
-  color: var(--vscode-string) !important;
-}
-
-.token.function {
-  color: var(--vscode-function) !important;
-}
-
-.token.class-name {
-  color: var(--vscode-type) !important;
-}
-
-.token.decorator {
-  color: var(--vscode-decorator) !important;
-}
-
-.token.variable {
-  color: var(--vscode-variable) !important;
-}
-
-.token.number {
-  color: var(--vscode-variable) !important;
-}
-
-.token.punctuation {
-  color: #FFFFFF !important;
-}
-
-.token.operator {
-  color: var(--vscode-keyword) !important;
-}
-
-/* Line Numbers */
-.line-numbers {
-  color: var(--vscode-gray);
-  border-right: 1px solid var(--vscode-border);
-  padding-right: 1em;
+/* Global Styles */
+pre[class*="language-"],
+code[class*="language-"] {
+  color: var(--vscode-black);
+  font-family: 'Geist-Mono-Regular', monospace;
+  direction: ltr;
+  text-align: left;
+  white-space: pre;
+  word-spacing: normal;
+  word-break: normal;
+  line-height: 1.6;
+  tab-size: 4;
+  hyphens: none;
+  background: var(--vscode-white) !important;
+  text-shadow: none !important;
+  padding: 2ch;
+  margin: 0;
 }
 
 /* Code Block Container */
 .code-block {
-  border-radius: 6px;
+  background: var(--vscode-white) !important;
+  border: 1px solid var(--vscode-border) !important;
+  border-radius: 0;
   overflow: hidden;
-  margin: 1rem 0;
+  position: relative;
+  margin: 2ch 0;
+}
+
+/* Line Numbers */
+.line-numbers .line-numbers-rows {
+  position: absolute;
+  pointer-events: none;
+  top: 2ch;
+  font-size: 100%;
+  left: 0;
+  width: 3.5ch;
+  letter-spacing: -1px;
+  border-right: 1px solid var(--vscode-border);
+  user-select: none;
+  padding: 0;
+  background: var(--vscode-white);
+}
+
+.line-numbers-rows > span {
+  display: block;
+  counter-increment: linenumber;
+  color: var(--vscode-gray) !important;
+}
+
+.line-numbers-rows > span:before {
+  content: counter(linenumber);
+  display: block;
+  padding-right: 0.8ch;
+  text-align: right;
+}
+
+/* Token Colors */
+.token.comment { color: var(--vscode-comment) !important; }
+.token.decorator { color: var(--vscode-decorator) !important; }
+.token.keyword { color: var(--vscode-keyword) !important; }
+.token.string { color: var(--vscode-string) !important; }
+.token.function { color: var(--vscode-function) !important; }
+.token.class-name { color: var(--vscode-type) !important; }
+.token.builtin { color: var(--vscode-keyword) !important; }
+.token.number { color: var(--vscode-variable) !important; }
+.token.operator { color: var(--vscode-keyword) !important; }
+.token.punctuation { color: var(--vscode-black) !important; }
+
+/* Code Block Spacing */
+.code-block pre {
+  margin: 0;
+  padding: 2ch 2ch 2ch 6ch;
+}
+
+.code-block code {
+  display: block;
+  line-height: 1.6;
+  font-size: 14px;
+  tab-size: 4;
+  font-family: 'Geist-Mono-Regular', monospace;
+}
+
+/* Fix Prism Line Numbers Plugin */
+pre[class*="language-"].line-numbers {
+  position: relative;
+  padding-left: 5ch;
+  counter-reset: linenumber;
+}
+
+pre[class*="language-"].line-numbers > code {
+  position: relative;
+  white-space: inherit;
+  padding: 0;
+  margin-left: 0;
+}
+
+/* Add spacing between code blocks */
+.code-block + .code-block {
+  margin-top: 3ch;
+}
+
+/* Ensure proper background color */
+.code-block,
+.code-block pre,
+.code-block code {
+  background: var(--vscode-white) !important;
+}
+
+/* Fix decorator spacing */
+.token.decorator {
+  display: block;
+  margin-bottom: 0.5ch;
+}
+
+/* Fix line number alignment */
+.line-numbers-rows {
+  top: 0 !important;
+  bottom: 0 !important;
+  left: 0 !important;
+  right: 0 !important;
+  height: 100% !important;
+  width: 3ch !important;
+  border-right: 1px solid var(--vscode-border) !important;
+  background: var(--vscode-white) !important;
 }
