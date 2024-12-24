@@ -114,80 +114,77 @@ def transfer(sender: Account, amount: u64):
             <h2 className="text-2xl font-semibold text-white mb-6">Create AI Agents Easily</h2>
             <div className="grid md:grid-cols-2 gap-8">
               <pre className="bg-black p-4 rounded-lg overflow-x-auto border border-gray-800">
-                <code className="language-rust">
-{`// Traditional Solana program
-pub struct TradingAgent {
-    pub strategy: String,
-    pub risk_level: u8,
-    pub max_slippage: u64,
-}
+                <code className="language-python">
+{`# AI Trading Agent with Security
+@agent
+@verify_ownership("token")
+@prevent_reentrancy
+contract TradingBot:
+    balance: u64
+    risk_level: u8
 
-impl TradingAgent {
-    pub fn execute_trade(&self, ctx: Context) -> Result<()> {
-        // Complex setup and validation
-        self.validate_parameters(ctx)?;
-        self.check_market_conditions()?;
-        self.execute_strategy()?;
-        Ok(())
-    }
-}`}
+    @auto_validate
+    def swap_tokens(amount: u64):
+        if self.check_market_conditions():
+            self.execute_swap(amount)
+`}
                 </code>
               </pre>
               <pre className="bg-black p-4 rounded-lg overflow-x-auto border border-gray-800">
                 <code className="language-python">
-{`# Buzz program
-@ai_agent
-class TradingAgent:
-    strategy: str
-    risk_level: u8
-    max_slippage: u64
+{`# DAO Governance
+@dao_contract
+contract TokenDAO:
+    token: TokenAccount
+    proposals: List[Proposal]
 
-    @auto_validate
-    def execute_trade(self):
-        market_data = self.analyze_market()
-        if self.should_trade(market_data):
-            self.perform_trade()`}
+    @quadratic_voting
+    def propose_upgrade(
+        program_id: PublicKey,
+        description: str
+    ):
+        self.proposals.push(
+            Proposal(program_id, description)
+        )
+`}
                 </code>
               </pre>
             </div>
 
-            <h2 className="text-2xl font-semibold text-white mb-6">Secure Token Management</h2>
+            <h2 className="text-2xl font-semibold text-white mb-6 mt-12">DeFi Integration</h2>
             <div className="grid md:grid-cols-2 gap-8">
               <pre className="bg-black p-4 rounded-lg overflow-x-auto border border-gray-800">
-                <code className="language-rust">
-{`// Traditional Solana program
-pub fn process_token_transfer(
-    program_id: &Pubkey,
-    accounts: &[AccountInfo],
-    amount: u64,
-) -> ProgramResult {
-    let account_iter = &mut accounts.iter();
-    let source = next_account_info(account_iter)?;
-    let dest = next_account_info(account_iter)?;
+                <code className="language-python">
+{`# Liquidity Pool Contract
+@pool_contract
+contract LiquidityPool:
+    token_a: TokenAccount
+    token_b: TokenAccount
 
-    if !source.is_signer {
-        return Err(ProgramError::MissingRequiredSignature);
-    }
-
-    // Manual token checks
-    if source.owner != program_id {
-        return Err(ProgramError::InvalidAccountData);
-    }
-}`}
+    @check_balance
+    def provide_liquidity(
+        amount_a: u64,
+        amount_b: u64
+    ):
+        self.validate_ratio(amount_a, amount_b)
+        self.mint_lp_tokens()
+`}
                 </code>
               </pre>
               <pre className="bg-black p-4 rounded-lg overflow-x-auto border border-gray-800">
                 <code className="language-python">
-{`# Buzz program
-@verify_token_account
-@require_signature
-def transfer_tokens(
-    source: TokenAccount,
-    dest: TokenAccount,
-    amount: u64
-):
-    # Automatic validation
-    source.transfer(dest, amount)`}
+{`# Yield Farming
+@farm_contract
+@auto_compound
+contract YieldFarm:
+    stake_token: TokenAccount
+    reward_token: TokenAccount
+
+    @check_staking_period
+    def harvest_rewards(user: Account):
+        rewards = self.calculate_rewards(user)
+        self.distribute_rewards(user, rewards)
+`}
                 </code>
               </pre>
             </div>
