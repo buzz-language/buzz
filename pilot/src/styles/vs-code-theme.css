@@ -3,6 +3,13 @@
   --vscode-black: #000000;
   --vscode-gray: #858585;
   --vscode-border: #404040;
+  --vscode-keyword: #569CD6;
+  --vscode-type: #4EC9B0;
+  --vscode-string: #CE9178;
+  --vscode-comment: #6A9955;
+  --vscode-variable: #9CDCFE;
+  --vscode-function: #DCDCAA;
+  --vscode-decorator: #C586C0;
 }
 
 body {
@@ -10,33 +17,70 @@ body {
   color: #FFFFFF;
 }
 
-.pre {
-  background-color: var(--vscode-black);
-  border: 1px solid var(--vscode-border);
+pre {
+  background-color: var(--vscode-black) !important;
+  border: 1px solid var(--vscode-border) !important;
+  margin: 0 !important;
+  padding: 1rem !important;
 }
 
-.code {
-  font-family: 'Consolas', 'Monaco', 'Andale Mono', monospace;
+code {
+  font-family: 'Consolas', 'Monaco', 'Andale Mono', monospace !important;
+  font-size: 14px !important;
+  line-height: 1.5 !important;
 }
 
+/* Prism.js Token Styling */
+.token.comment {
+  color: var(--vscode-comment) !important;
+}
+
+.token.keyword {
+  color: var(--vscode-keyword) !important;
+}
+
+.token.string {
+  color: var(--vscode-string) !important;
+}
+
+.token.function {
+  color: var(--vscode-function) !important;
+}
+
+.token.class-name {
+  color: var(--vscode-type) !important;
+}
+
+.token.decorator {
+  color: var(--vscode-decorator) !important;
+}
+
+.token.variable {
+  color: var(--vscode-variable) !important;
+}
+
+.token.number {
+  color: var(--vscode-variable) !important;
+}
+
+.token.punctuation {
+  color: #FFFFFF !important;
+}
+
+.token.operator {
+  color: var(--vscode-keyword) !important;
+}
+
+/* Line Numbers */
 .line-numbers {
   color: var(--vscode-gray);
   border-right: 1px solid var(--vscode-border);
+  padding-right: 1em;
 }
 
-.token.tab:not(:empty),
-.token.cr,
-.token.lf,
-.token.space {
-  position: relative;
-  display: inline-block;
-}
-
-.token.tab:not(:empty):before,
-.token.cr:before,
-.token.lf:before,
-.token.space:before {
-  color: var(--vscode-gray);
-  opacity: 0.6;
-  position: absolute;
+/* Code Block Container */
+.code-block {
+  border-radius: 6px;
+  overflow: hidden;
+  margin: 1rem 0;
 }
