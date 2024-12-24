@@ -9,6 +9,7 @@ import { PhantomWalletAdapter } from '@solana/wallet-adapter-wallets'
 import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import '@solana/wallet-adapter-react-ui/styles.css'
 import './index.css'
+import './styles/vs-code-theme.css'
 import App from './App'
 import CreateDao from './pages/create-dao'
 

@@ -1,0 +1,42 @@
+/* VS Code High Contrast Theme Overrides */
+:root {
+  --vscode-black: #000000;
+  --vscode-gray: #858585;
+  --vscode-border: #404040;
+}
+
+body {
+  background-color: var(--vscode-black);
+  color: #FFFFFF;
+}
+
+.pre {
+  background-color: var(--vscode-black);
+  border: 1px solid var(--vscode-border);
+}
+
+.code {
+  font-family: 'Consolas', 'Monaco', 'Andale Mono', monospace;
+}
+
+.line-numbers {
+  color: var(--vscode-gray);
+  border-right: 1px solid var(--vscode-border);
+}
+
+.token.tab:not(:empty),
+.token.cr,
+.token.lf,
+.token.space {
+  position: relative;
+  display: inline-block;
+}
+
+.token.tab:not(:empty):before,
+.token.cr:before,
+.token.lf:before,
+.token.space:before {
+  color: var(--vscode-gray);
+  opacity: 0.6;
+  position: absolute;
+}
