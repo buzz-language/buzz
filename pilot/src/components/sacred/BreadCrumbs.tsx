@@ -1,4 +1,4 @@
-import styles from '@components/BreadCrumbs.module.scss';
+import styles from './BreadCrumbs.module.scss';
 
 import * as React from 'react';
 

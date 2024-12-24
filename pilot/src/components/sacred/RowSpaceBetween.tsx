@@ -1,6 +1,6 @@
 'use client';
 
-import styles from '@components/RowSpaceBetween.module.scss';
+import styles from './RowSpaceBetween.module.scss';
 
 import * as React from 'react';
 

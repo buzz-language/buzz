@@ -1,4 +1,4 @@
-import styles from '@components/CardDouble.module.scss';
+import styles from './CardDouble.module.scss';
 
 import * as React from 'react';
 import * as Utilities from '@common/utilities';

@@ -1,14 +1,14 @@
 'use client';
 
-import styles from '@components/modals/ModalAlert.module.scss';
+import styles from './ModalAlert.module.scss';
 
 import * as React from 'react';
-import * as Utilities from '@common/utilities';
+import * as Utilities from '../../../common/utilities';
 
-import { useModals } from '@components/page/ModalContext';
+import { useModals } from '../../../context/ModalContext';
 
-import Button from '@components/Button';
-import Card from '@components/Card';
+import Button from '../Button';
+import Card from '../Card';
 
 interface ModalAlertProps {
   buttonText?: string | any;

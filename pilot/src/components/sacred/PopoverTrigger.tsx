@@ -1,11 +1,11 @@
 'use client';
 
-import styles from '@components/PopoverTrigger.module.scss';
+import styles from './PopoverTrigger.module.scss';
 
 import * as React from 'react';
 
-import Popover from '@components/Popover';
-import OutsideElementEvent from '@components/detectors/OutsideElementEvent';
+import Popover from './Popover';
+import OutsideElementEvent from './detectors/OutsideElementEvent';
 
 import { createPortal } from 'react-dom';
 

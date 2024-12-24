@@ -1,11 +1,15 @@
 'use client';
 
-import styles from '@components/ListItem.module.scss';
+import styles from './ListItem.module.scss';
 
 import * as React from 'react';
-import * as Utilities from '@common/utilities';
+import * as Utilities from '../../common/utilities';
 
-const ListItem = ({ children }) => {
+interface ListItemProps {
+  children: React.ReactNode;
+}
+
+const ListItem: React.FC<ListItemProps> = ({ children }) => {
   const itemRef = React.useRef<HTMLLIElement>(null);
 
   const handleKeyDown = (event: React.KeyboardEvent<HTMLLIElement>) => {

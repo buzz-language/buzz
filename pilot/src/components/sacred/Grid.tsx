@@ -1,8 +1,9 @@
-import styles from './Grid.module.scss'
-import * as React from 'react'
+import styles from './Grid.module.scss';
+
+import * as React from 'react';
 
 interface GridProps extends React.HTMLAttributes<HTMLDivElement> {
-  children?: React.ReactNode
+  children?: React.ReactNode;
 }
 
 const Grid: React.FC<GridProps> = ({ children, ...rest }) => {
@@ -10,7 +11,7 @@ const Grid: React.FC<GridProps> = ({ children, ...rest }) => {
     <div className={styles.grid} {...rest}>
       {children}
     </div>
-  )
-}
+  );
+};
 
-export default Grid
+export default Grid;

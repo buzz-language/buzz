@@ -1,11 +1,11 @@
 'use client';
 
-import styles from '@components/TooltipTrigger.module.scss';
+import styles from './TooltipTrigger.module.scss';
 
 import * as React from 'react';
 
-import Tooltip from '@components/Tooltip';
-import OutsideElementEvent from '@components/detectors/OutsideElementEvent';
+import Tooltip from './Tooltip';
+import OutsideElementEvent from './detectors/OutsideElementEvent';
 
 import { createPortal } from 'react-dom';
 

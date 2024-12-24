@@ -1,6 +1,6 @@
 'use client';
 
-import styles from '@components/TreeView.module.scss';
+import styles from './TreeView.module.scss';
 
 import * as React from 'react';
 

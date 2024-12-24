@@ -1,6 +1,10 @@
 .container {
   padding: 4ch;
   border: 1px solid var(--theme-border);
-  background: var(--vscode-white);
+  background: linear-gradient(145deg, rgba(45, 45, 45, 0.9) 0%, rgba(26, 26, 26, 0.9) 100%);
+  box-shadow:
+    0 4px 12px rgba(0, 0, 0, 0.2),
+    inset 0 1px 1px rgba(255, 255, 255, 0.05);
   height: 100%;
+  border-radius: 4px;
 }

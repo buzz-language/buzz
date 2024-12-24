@@ -7,7 +7,21 @@ export default defineConfig({
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
+      "@common": path.resolve(__dirname, "./src/common"),
+      "@components": path.resolve(__dirname, "./src/components"),
+      "@modules": path.resolve(__dirname, "./src/modules")
     },
   },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (id.includes('node_modules')) {
+            return 'vendor';
+          }
+        }
+      }
+    }
+  }
 })
 

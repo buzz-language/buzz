@@ -1,17 +1,17 @@
 'use client';
 
-import styles from '@components/modals/ModalError.module.scss';
+import styles from './ModalError.module.scss';
 
 import * as React from 'react';
-import * as Utilities from '@common/utilities';
+import * as Utilities from '../../../common/utilities';
 
-import { useHotkeys } from '@modules/hotkeys';
-import { useModals } from '@components/page/ModalContext';
+import { useHotkeys } from '../../../modules/hotkeys';
+import { useModals } from '../../../context/ModalContext';
 
-import ActionButton from '@components/ActionButton';
-import Button from '@components/Button';
-import CardDouble from '@components/CardDouble';
-import Grid from '@components/Grid';
+import ActionButton from '../ActionButton';
+import Button from '../Button';
+import CardDouble from '../CardDouble';
+import Grid from '../Grid';
 
 interface ModalErrorProps {
   buttonText?: string | any;

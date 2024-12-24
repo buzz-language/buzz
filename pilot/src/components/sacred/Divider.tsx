@@ -1,4 +1,4 @@
-import styles from '@components/Divider.module.scss';
+import styles from './Divider.module.scss';
 
 import * as React from 'react';
 

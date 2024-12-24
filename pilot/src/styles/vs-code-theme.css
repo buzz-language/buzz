@@ -1,22 +1,23 @@
-/* VS Code Light Theme */
+/* VS Code Dark Theme with Gray Gradients */
 :root {
-  --vscode-black: #000000;
-  --vscode-white: #FFFFFF;
-  --vscode-gray: #666666;
-  --vscode-border: #e6e6e6;
-  --vscode-keyword: #000000;
-  --vscode-type: #000000;
-  --vscode-string: #666666;
-  --vscode-comment: #666666;
-  --vscode-variable: #000000;
-  --vscode-function: #000000;
-  --vscode-decorator: #666666;
+  --vscode-black: #1a1a1a;
+  --vscode-white: #e6e6e6;
+  --vscode-gray: #8B8B8B;
+  --vscode-border: #333333;
+  --vscode-keyword: #569cd6;
+  --vscode-type: #4ec9b0;
+  --vscode-string: #ce9178;
+  --vscode-comment: #6a9955;
+  --vscode-variable: #9cdcfe;
+  --vscode-function: #dcdcaa;
+  --vscode-decorator: #c586c0;
+  --vscode-background: linear-gradient(135deg, #1e1e1e 0%, #2d2d2d 100%);
 }
 
 /* Global Styles */
 pre[class*="language-"],
 code[class*="language-"] {
-  color: var(--vscode-black);
+  color: var(--vscode-white);
   font-family: 'Geist-Mono-Regular', monospace;
   direction: ltr;
   text-align: left;
@@ -26,7 +27,7 @@ code[class*="language-"] {
   line-height: 1.6;
   tab-size: 4;
   hyphens: none;
-  background: var(--vscode-white) !important;
+  background: var(--vscode-background) !important;
   text-shadow: none !important;
   padding: 2ch;
   margin: 0;
@@ -34,12 +35,13 @@ code[class*="language-"] {
 
 /* Code Block Container */
 .code-block {
-  background: var(--vscode-white) !important;
+  background: var(--vscode-background) !important;
   border: 1px solid var(--vscode-border) !important;
-  border-radius: 0;
+  border-radius: 4px;
   overflow: hidden;
   position: relative;
   margin: 2ch 0;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
 }
 
 /* Line Numbers */
@@ -54,7 +56,7 @@ code[class*="language-"] {
   border-right: 1px solid var(--vscode-border);
   user-select: none;
   padding: 0;
-  background: var(--vscode-white);
+  background: var(--vscode-background);
 }
 
 .line-numbers-rows > span {
@@ -79,8 +81,8 @@ code[class*="language-"] {
 .token.class-name { color: var(--vscode-type) !important; }
 .token.builtin { color: var(--vscode-keyword) !important; }
 .token.number { color: var(--vscode-variable) !important; }
-.token.operator { color: var(--vscode-keyword) !important; }
-.token.punctuation { color: var(--vscode-black) !important; }
+.token.operator { color: var(--vscode-white) !important; }
+.token.punctuation { color: var(--vscode-white) !important; }
 
 /* Code Block Spacing */
 .code-block pre {
@@ -88,19 +90,13 @@ code[class*="language-"] {
   padding: 2ch 2ch 2ch 6ch;
 }
 
-.code-block code {
-  display: block;
-  line-height: 1.6;
-  font-size: 14px;
-  tab-size: 4;
-  font-family: 'Geist-Mono-Regular', monospace;
-}
-
 /* Fix Prism Line Numbers Plugin */
 pre[class*="language-"].line-numbers {
   position: relative;
   padding-left: 5ch;
   counter-reset: linenumber;
+  background: var(--vscode-background) !important;
+  color: var(--vscode-white) !important;
 }
 
 pre[class*="language-"].line-numbers > code {
@@ -119,7 +115,8 @@ pre[class*="language-"].line-numbers > code {
 .code-block,
 .code-block pre,
 .code-block code {
-  background: var(--vscode-white) !important;
+  background: var(--vscode-background) !important;
+  color: var(--vscode-white) !important;
 }
 
 /* Fix decorator spacing */
@@ -137,5 +134,5 @@ pre[class*="language-"].line-numbers > code {
   height: 100% !important;
   width: 3ch !important;
   border-right: 1px solid var(--vscode-border) !important;
-  background: var(--vscode-white) !important;
+  background: var(--vscode-background) !important;
 }

@@ -1,9 +1,9 @@
-import styles from './Text.module.scss'
+import styles from './Text.module.scss';
 
-import * as React from 'react'
+import * as React from 'react';
 
 interface TextProps extends React.HTMLAttributes<HTMLParagraphElement> {
-  children?: React.ReactNode
+  children?: React.ReactNode;
 }
 
 const Text: React.FC<TextProps> = ({ children, ...rest }) => {
@@ -11,7 +11,7 @@ const Text: React.FC<TextProps> = ({ children, ...rest }) => {
     <p className={styles.text} {...rest}>
       {children}
     </p>
-  )
-}
+  );
+};
 
-export default Text
+export default Text;

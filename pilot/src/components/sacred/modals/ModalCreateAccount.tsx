@@ -1,17 +1,17 @@
 'use client';
 
-import styles from '@components/modals/ModalAlert.module.scss';
+import styles from './ModalCreateAccount.module.scss';
 
 import * as React from 'react';
-import * as Utilities from '@common/utilities';
+import * as Utilities from '../../../common/utilities';
 
-import { useModals } from '@components/page/ModalContext';
+import { useModals } from '../../../context/ModalContext';
 
-import Button from '@components/Button';
-import CardDouble from '@components/CardDouble';
-import Checkbox from '@components/Checkbox';
-import Input from '@components/Input';
-import RadioButtonGroup from '@components/RadioButtonGroup';
+import Button from '../Button';
+import CardDouble from '../CardDouble';
+import Checkbox from '../Checkbox';
+import Input from '../Input';
+import RadioButtonGroup from '../RadioButtonGroup';
 
 function ModalCreateAccount() {
   const { close } = useModals();

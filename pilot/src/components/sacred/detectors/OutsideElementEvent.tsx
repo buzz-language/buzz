@@ -15,14 +15,14 @@ const OutsideElementEvent: React.FC<OutsideElementEventProps> = ({ className, ch
     setIsReady(true);
   }, []);
 
-  const handleOutsideEvent = (event) => {
+  const handleOutsideEvent = (event: MouseEvent | TouchEvent) => {
     if (!isReady) return;
 
-    if (event.target.hasAttribute('data-detector-ignore')) {
+    if ((event.target as HTMLElement).hasAttribute('data-detector-ignore')) {
       return;
     }
 
-    if (ref.current && !ref.current.contains(event.target)) {
+    if (ref.current && !ref.current.contains(event.target as Node)) {
       onOutsideEvent(event);
       return;
     }

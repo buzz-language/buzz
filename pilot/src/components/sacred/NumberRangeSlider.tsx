@@ -1,6 +1,6 @@
 'use client';
 
-import styles from '@components/NumberRangeSlider.module.scss';
+import styles from './NumberRangeSlider.module.scss';
 
 import * as React from 'react';
 

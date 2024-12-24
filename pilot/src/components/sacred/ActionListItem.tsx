@@ -1,4 +1,4 @@
-import styles from '@components/ActionListItem.module.scss';
+import styles from './ActionListItem.module.scss';
 
 import * as React from 'react';
 

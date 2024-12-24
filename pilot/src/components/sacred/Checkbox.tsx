@@ -1,6 +1,6 @@
 'use client';
 
-import styles from '@components/Checkbox.module.scss';
+import styles from './Checkbox.module.scss';
 import * as React from 'react';
 import * as Utilities from '@common/utilities';
 

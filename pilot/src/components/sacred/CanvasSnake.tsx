@@ -1,10 +1,10 @@
 'use client';
 
-import styles from '@components/CanvasSnake.module.scss';
+import styles from './CanvasSnake.module.scss';
 
 import * as React from 'react';
 
-import ActionButton from '@components/ActionButton';
+import ActionButton from './ActionButton';
 
 interface SnakeProps {
   rows?: number;

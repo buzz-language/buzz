@@ -1,14 +1,14 @@
 'use client';
 
-import styles from '@components/page/DefaultActionBar.module.scss';
+import styles from './DefaultActionBar.module.scss';
 import * as React from 'react';
-import * as Utilities from '@common/utilities';
+import * as Utilities from '../../../common/utilities';
 
-import { toggleDebugGrid } from '@components/DebugGrid';
-import { useHotkeys } from '@modules/hotkeys';
+import { toggleDebugGrid } from '../DebugGrid';
+import { useHotkeys } from '../../../modules/hotkeys';
 
-import ActionBar from '@components/ActionBar';
-import ButtonGroup from '@components/ButtonGroup';
+import ActionBar from '../ActionBar';
+import ButtonGroup from '../ButtonGroup';
 
 function isElement(target: EventTarget | null): target is Element {
   return target instanceof Element;
@@ -106,6 +106,7 @@ const useGlobalNavigationHotkeys = () => {
 
 interface DefaultActionBarProps {
   items?: {
+    id: string;
     hotkey: string;
     onClick: () => void;
     body: React.ReactNode;
@@ -124,12 +125,14 @@ const DefaultActionBar: React.FC<DefaultActionBarProps> = ({ items = [] }) => {
       <ActionBar
         items={[
           {
+            id: 'theme-toggle',
             hotkey: '⌃+T',
             onClick: () => Utilities.onHandleThemeChange(),
             body: 'Theme',
             selected: false,
           },
           {
+            id: 'grid-toggle',
             hotkey: '⌃+G',
             onClick: () => {
               toggleDebugGrid();
@@ -137,7 +140,10 @@ const DefaultActionBar: React.FC<DefaultActionBarProps> = ({ items = [] }) => {
             body: 'Grid',
             selected: false,
           },
-          ...items,
+          ...items.map((item) => ({
+            ...item,
+            id: `custom-${item.body}`,
+          })),
         ]}
       />
     </div>

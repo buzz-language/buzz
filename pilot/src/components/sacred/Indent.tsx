@@ -1,4 +1,4 @@
-import styles from '@components/Indent.module.scss';
+import styles from './Indent.module.scss';
 
 import * as React from 'react';
 

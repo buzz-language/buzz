@@ -1,6 +1,6 @@
 'use client';
 
-import styles from '@components/BarProgress.module.scss';
+import styles from './BarProgress.module.scss';
 
 import * as React from 'react';
 

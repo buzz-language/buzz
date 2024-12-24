@@ -1,6 +1,6 @@
 'use client';
 
-import styles from '@components/DatePicker.module.scss';
+import styles from './DatePicker.module.scss';
 
 import * as React from 'react';
 

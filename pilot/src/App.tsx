@@ -4,24 +4,31 @@ import { securityExample, aiExample, syntaxExample, solanaExample } from "./lib/
 import { Link } from 'react-router-dom'
 
 const App: React.FC = () => {
+  const actionBarItems = [
+    {
+      id: 'docs',
+      hotkey: 'd',
+      body: <Link to="/docs"><Text>DOCS</Text></Link>,
+      onClick: () => {}
+    },
+    {
+      id: 'create-dao',
+      hotkey: 'c',
+      body: <Link to="/create-dao"><Text>CREATE DAO</Text></Link>,
+      onClick: () => {}
+    }
+  ];
+
   return (
     <div className="grid-background">
-      <ActionBar>
+      <ActionBar items={actionBarItems}>
         <Text style={{ fontWeight: 500 }}>BUZZ LANG</Text>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '4ch' }}>
-          <Link to="/docs">
-            <Text>DOCS</Text>
-          </Link>
-          <Link to="/create-dao">
-            <Text>CREATE DAO</Text>
-          </Link>
-        </div>
       </ActionBar>
 
       <Grid>
         <div style={{ display: 'flex', flexDirection: 'column', gap: '2ch', maxWidth: '80ch' }}>
-          <Text style={{ fontSize: '24px', fontWeight: 500 }}>The Language for Solana Smart Contracts</Text>
-          <Text style={{ color: 'var(--vscode-gray)' }}>Write secure, efficient, and maintainable Solana programs with Python-like syntax.</Text>
+          <Text style={{ fontSize: '24px', fontWeight: 500, color: 'var(--theme-text)' }}>The Language for Solana Smart Contracts</Text>
+          <Text style={{ color: 'rgba(255, 255, 255, 0.7)' }}>Write secure, efficient, and maintainable Solana programs with Python-like syntax.</Text>
         </div>
 
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4ch', width: '100%' }}>

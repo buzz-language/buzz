@@ -1,6 +1,6 @@
 'use client';
 
-import styles from '@components/Row.module.scss';
+import styles from './Row.module.scss';
 import * as React from 'react';
 
 type RowProps = React.HTMLAttributes<HTMLElement> & {

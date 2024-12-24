@@ -1,4 +1,4 @@
-import styles from '@components/Avatar.module.scss';
+import styles from './Avatar.module.scss';
 
 import * as React from 'react';
 

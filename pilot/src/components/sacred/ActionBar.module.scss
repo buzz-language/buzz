@@ -1,12 +1,10 @@
 .root {
   background: var(--theme-background);
-  border-bottom: 1px solid var(--theme-border);
-  padding: 4ch;
-  max-width: 120ch;
-  margin: 0 auto;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
+  box-shadow: inset 0 0 0 1px var(--theme-border);
+  border-radius: 4px;
+  padding: 2ch;
+}
 
-  a { margin-left: 4ch; }
+.content {
+  color: var(--theme-text);
 }

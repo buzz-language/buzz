@@ -1,4 +1,4 @@
-import styles from '@components/AlertBanner.module.scss';
+import styles from './AlertBanner.module.scss';
 
 import * as React from 'react';
 

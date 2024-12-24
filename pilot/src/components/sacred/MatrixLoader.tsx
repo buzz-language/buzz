@@ -1,6 +1,6 @@
 'use client';
 
-import styles from '@components/MatrixLoader.module.scss';
+import styles from './MatrixLoader.module.scss';
 
 import * as React from 'react';
 

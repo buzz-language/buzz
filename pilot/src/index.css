@@ -4,16 +4,17 @@
 
 @layer base {
   :root {
-    --background: 0 0% 100%;
-    --foreground: 0 0% 0%;
-    --border: 0 0% 90%;
-    --grid: rgba(0, 0, 0, 0.01);
+    --background: 0 0% 10%;
+    --foreground: 0 0% 90%;
+    --border: 0 0% 20%;
+    --grid: rgba(255, 255, 255, 0.015);
     --font-family: 'Geist-Mono-Regular', monospace;
     --font-size: 14px;
     --theme-line-height-base: 1.5;
-    --theme-background: #ffffff;
-    --theme-text: #000000;
-    --theme-border: #e6e6e6;
+    --theme-background: linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%);
+    --theme-text: #e6e6e6;
+    --theme-border: #333333;
+    --theme-code-bg: var(--vscode-background);
   }
 
   body {
@@ -25,12 +26,12 @@
   }
 
   button {
-    @apply bg-white border border-[#e6e6e6] rounded-none;
+    @apply bg-[#2d2d2d] border border-[#404040] rounded-none;
     font-family: var(--font-family);
   }
 
   input, textarea {
-    @apply bg-white border border-[#e6e6e6] rounded-none;
+    @apply bg-[#2d2d2d] border border-[#404040] rounded-none;
     font-family: var(--font-family);
   }
 }

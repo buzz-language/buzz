@@ -1,10 +1,10 @@
 'use client';
 
-import styles from '@components/CanvasPlatformer.module.scss';
+import styles from './CanvasPlatformer.module.scss';
 
 import * as React from 'react';
 
-import ActionButton from '@components/ActionButton';
+import ActionButton from './ActionButton';
 
 interface PlatformerProps {
   rows?: number;

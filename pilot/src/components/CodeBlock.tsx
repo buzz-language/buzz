@@ -52,18 +52,28 @@ export const CodeBlock: React.FC<CodeBlockProps> = ({
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '2ch' }}>
       {title && (
-        <Text style={{ fontWeight: 500 }}>{title}</Text>
+        <Text style={{
+          fontWeight: 500,
+          color: 'var(--theme-text)',
+          marginBottom: '1ch'
+        }}>{title}</Text>
       )}
       <div style={{
         border: '1px solid var(--theme-border)',
         overflow: 'hidden',
-        background: 'var(--vscode-white)',
+        background: 'var(--vscode-background)',
+        boxShadow: '0 4px 12px rgba(0, 0, 0, 0.2)',
+        borderRadius: '4px',
         height: '100%'
       }}>
         <pre
           ref={preRef}
           className={`language-${language} line-numbers`}
-          style={{ margin: 0, background: 'transparent' }}
+          style={{
+            margin: 0,
+            background: 'transparent',
+            padding: '2ch 2ch 2ch 5ch'
+          }}
           data-start="1"
         >
           <code
@@ -76,7 +86,7 @@ export const CodeBlock: React.FC<CodeBlockProps> = ({
               fontFamily: 'var(--font-family)',
               fontSize: 'var(--font-size)',
               lineHeight: 'var(--theme-line-height-base)',
-              padding: '2ch'
+              color: 'var(--theme-text)'
             }}
           >
             {code}
