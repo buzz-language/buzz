@@ -4,43 +4,42 @@
 
 @layer base {
   :root {
-    /* Base colors */
-    --background: 0 0% 100%;
-    --foreground: 240 10% 3.9%;
-    --border: 240 5.9% 90%;
-    --grid: rgba(0, 0, 0, 0.03);
+    /* Color system from modal.com */
+    --color-gray-50: #f9fafb;
+    --color-gray-100: #f3f4f6;
+    --color-gray-200: #e5e7eb;
+    --color-gray-300: #d1d5db;
+    --color-gray-400: #9ca3af;
+    --color-gray-500: #6b7280;
+    --color-gray-600: #4b5563;
+    --color-gray-700: #374151;
+    --color-gray-800: #1f2937;
+    --color-gray-900: #111827;
 
-    /* Theme specific */
+    /* Theme variables */
+    --theme-background: var(--color-gray-50);
+    --theme-surface: var(--color-gray-100);
+    --theme-text: var(--color-gray-900);
+    --theme-text-secondary: var(--color-gray-600);
+    --theme-text-tertiary: var(--color-gray-500);
+    --theme-headline: var(--color-gray-800);
+    --theme-headline-secondary: var(--color-gray-600);
+    --theme-border: var(--color-gray-200);
+    --theme-code-bg: var(--color-gray-50);
+
+    /* Gradients */
+    --gradient-subtle: linear-gradient(to bottom right, var(--color-gray-50), var(--color-gray-100));
+    --gradient-emphasis: linear-gradient(to bottom right, var(--color-gray-100), var(--color-gray-200));
+    --gradient-surface: linear-gradient(180deg, var(--color-gray-50) 0%, var(--color-gray-100) 100%);
+    --gradient-card: linear-gradient(145deg, #ffffff 0%, var(--color-gray-50) 100%);
+
+    /* Font settings */
     --font-family: var(--font-mono, ui-monospace, 'Geist-Mono-Regular', monospace);
     --font-size: 14px;
-    --theme-line-height-base: 1.6;
+    --line-height-base: 1.6;
 
-    /* Sophisticated gradients system */
-    --theme-background: #ffffff;
-    --theme-surface-gradient: linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(249, 250, 251, 0.98) 100%);
-    --theme-gradient-subtle: linear-gradient(145deg, #fafafa 0%, #ffffff 100%);
-    --theme-gradient-card: linear-gradient(145deg, #ffffff 0%, #fafbfc 100%);
-    --theme-gradient-code: linear-gradient(145deg, #ffffff 0%, #fafbfc 100%);
-    --theme-gradient-accent: linear-gradient(145deg, #0ea5e9 0%, #10b981 100%);
-    --theme-gradient-hover: linear-gradient(145deg, #f8fafc 0%, #ffffff 100%);
-    --theme-gradient-active: linear-gradient(145deg, #e2e8f0 0%, #f1f5f9 100%);
-    --theme-gradient-border: linear-gradient(180deg, rgba(226, 232, 240, 0.5) 0%, rgba(241, 245, 249, 0.5) 100%);
-
-    /* Shadows and effects */
-    --theme-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
-    --theme-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
-    --theme-shadow-lg: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
-
-    /* Colors */
-    --theme-text: #1a1a1a;
-    --theme-text-secondary: #4b5563;
-    --theme-text-tertiary: #6b7280;
-    --theme-headline-main: #111827;
-    --theme-headline: #1f2937;
-    --theme-headline-secondary: #4b5563;
-    --theme-border: #e5e5e5;
-    --theme-accent: #10b981;
-    --theme-code-bg: #f8f9fa;
+    /* Grid */
+    --grid-color: rgba(0, 0, 0, 0.03);
   }
 
   body {
@@ -48,16 +47,23 @@
     color: var(--theme-text);
     font-family: var(--font-family);
     font-size: var(--font-size);
-    line-height: var(--theme-line-height-base);
+    line-height: var(--line-height-base);
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    color: var(--theme-headline);
   }
 
   button {
-    @apply bg-gradient-to-br from-white to-gray-50 border border-gray-200 rounded-md shadow-sm hover:from-gray-50 hover:to-gray-100 active:from-gray-100 active:to-gray-200 transition-all duration-200;
+    @apply bg-gradient-to-br from-white to-gray-50 border border-gray-200 rounded-md shadow-sm
+           hover:from-gray-50 hover:to-gray-100 active:from-gray-100 active:to-gray-200
+           transition-all duration-200;
     font-family: var(--font-family);
   }
 
   input, textarea {
-    @apply bg-gradient-to-b from-white to-gray-50 border border-gray-200 rounded-md focus:ring-2 focus:ring-blue-500/20 transition-all duration-200;
+    @apply bg-gradient-to-b from-white to-gray-50 border border-gray-200 rounded-md
+           focus:ring-2 focus:ring-blue-500/20 transition-all duration-200;
     font-family: var(--font-family);
   }
 }
@@ -65,8 +71,8 @@
 .grid-background {
   background-size: 8px 8px;
   background-image:
-    linear-gradient(to right, var(--grid) 1px, transparent 1px),
-    linear-gradient(to bottom, var(--grid) 1px, transparent 1px),
-    var(--theme-surface-gradient);
+    linear-gradient(to right, var(--grid-color) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--grid-color) 1px, transparent 1px),
+    var(--gradient-surface);
 }
 
