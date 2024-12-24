@@ -62,9 +62,10 @@ export const CodeBlock: React.FC<CodeBlockProps> = ({
         border: '1px solid var(--theme-border)',
         overflow: 'hidden',
         background: 'var(--vscode-background)',
-        boxShadow: '0 4px 12px rgba(0, 0, 0, 0.2)',
-        borderRadius: '4px',
-        height: '100%'
+        boxShadow: 'var(--theme-shadow)',
+        borderRadius: '8px',
+        height: '100%',
+        transition: 'all 0.2s ease-in-out'
       }}>
         <pre
           ref={preRef}

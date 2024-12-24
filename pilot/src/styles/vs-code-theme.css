@@ -1,24 +1,24 @@
-/* VS Code Dark Theme with Gray Gradients */
 :root {
-  --vscode-black: #1a1a1a;
-  --vscode-white: #e6e6e6;
-  --vscode-gray: #8B8B8B;
-  --vscode-border: #333333;
-  --vscode-keyword: #569cd6;
-  --vscode-type: #4ec9b0;
-  --vscode-string: #ce9178;
-  --vscode-comment: #6a9955;
-  --vscode-variable: #9cdcfe;
-  --vscode-function: #dcdcaa;
-  --vscode-decorator: #c586c0;
-  --vscode-background: linear-gradient(135deg, #1e1e1e 0%, #2d2d2d 100%);
+  --vscode-white: var(--theme-background);
+  --vscode-black: var(--theme-text);
+  --vscode-gray: var(--theme-text-secondary);
+  --vscode-border: var(--theme-border);
+  --vscode-keyword: #0550ae;
+  --vscode-type: #0a7b83;
+  --vscode-string: #0a7b83;
+  --vscode-comment: #64748b;
+  --vscode-variable: #953800;
+  --vscode-function: #8250df;
+  --vscode-decorator: #0550ae;
+  --vscode-background: var(--theme-gradient-code);
+  --vscode-line-number: #94a3b8;
+  --vscode-line-highlight: rgba(0, 0, 0, 0.02);
 }
 
-/* Global Styles */
 pre[class*="language-"],
 code[class*="language-"] {
-  color: var(--vscode-white);
-  font-family: 'Geist-Mono-Regular', monospace;
+  color: var(--vscode-black);
+  font-family: var(--font-family);
   direction: ltr;
   text-align: left;
   white-space: pre;
@@ -29,22 +29,21 @@ code[class*="language-"] {
   hyphens: none;
   background: var(--vscode-background) !important;
   text-shadow: none !important;
-  padding: 2ch;
+  padding: 3ch;
   margin: 0;
+  border-radius: 8px;
 }
 
-/* Code Block Container */
 .code-block {
   background: var(--vscode-background) !important;
   border: 1px solid var(--vscode-border) !important;
-  border-radius: 4px;
+  border-radius: 8px;
   overflow: hidden;
   position: relative;
   margin: 2ch 0;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+  box-shadow: var(--theme-shadow);
 }
 
-/* Line Numbers */
 .line-numbers .line-numbers-rows {
   position: absolute;
   pointer-events: none;
@@ -62,7 +61,7 @@ code[class*="language-"] {
 .line-numbers-rows > span {
   display: block;
   counter-increment: linenumber;
-  color: var(--vscode-gray) !important;
+  color: var(--vscode-line-number) !important;
 }
 
 .line-numbers-rows > span:before {
@@ -72,7 +71,6 @@ code[class*="language-"] {
   text-align: right;
 }
 
-/* Token Colors */
 .token.comment { color: var(--vscode-comment) !important; }
 .token.decorator { color: var(--vscode-decorator) !important; }
 .token.keyword { color: var(--vscode-keyword) !important; }
@@ -81,22 +79,20 @@ code[class*="language-"] {
 .token.class-name { color: var(--vscode-type) !important; }
 .token.builtin { color: var(--vscode-keyword) !important; }
 .token.number { color: var(--vscode-variable) !important; }
-.token.operator { color: var(--vscode-white) !important; }
-.token.punctuation { color: var(--vscode-white) !important; }
+.token.operator { color: var(--vscode-black) !important; }
+.token.punctuation { color: var(--vscode-gray) !important; }
 
-/* Code Block Spacing */
 .code-block pre {
   margin: 0;
   padding: 2ch 2ch 2ch 6ch;
 }
 
-/* Fix Prism Line Numbers Plugin */
 pre[class*="language-"].line-numbers {
   position: relative;
   padding-left: 5ch;
   counter-reset: linenumber;
   background: var(--vscode-background) !important;
-  color: var(--vscode-white) !important;
+  color: var(--vscode-black) !important;
 }
 
 pre[class*="language-"].line-numbers > code {
@@ -106,26 +102,22 @@ pre[class*="language-"].line-numbers > code {
   margin-left: 0;
 }
 
-/* Add spacing between code blocks */
 .code-block + .code-block {
   margin-top: 3ch;
 }
 
-/* Ensure proper background color */
 .code-block,
 .code-block pre,
 .code-block code {
   background: var(--vscode-background) !important;
-  color: var(--vscode-white) !important;
+  color: var(--vscode-black) !important;
 }
 
-/* Fix decorator spacing */
 .token.decorator {
   display: block;
   margin-bottom: 0.5ch;
 }
 
-/* Fix line number alignment */
 .line-numbers-rows {
   top: 0 !important;
   bottom: 0 !important;
@@ -135,4 +127,9 @@ pre[class*="language-"].line-numbers > code {
   width: 3ch !important;
   border-right: 1px solid var(--vscode-border) !important;
   background: var(--vscode-background) !important;
+}
+
+.code-block:hover {
+  box-shadow: var(--theme-shadow-lg);
+  transition: box-shadow 0.2s ease-in-out;
 }

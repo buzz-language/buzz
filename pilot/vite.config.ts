@@ -5,23 +5,32 @@ import { defineConfig } from "vite"
 export default defineConfig({
   plugins: [react()],
   resolve: {
-    alias: {
-      "@": path.resolve(__dirname, "./src"),
-      "@common": path.resolve(__dirname, "./src/common"),
-      "@components": path.resolve(__dirname, "./src/components"),
-      "@modules": path.resolve(__dirname, "./src/modules")
-    },
+    alias: [
+      {
+        find: '@common/utilities',
+        replacement: path.resolve(__dirname, 'src/common/utilities.ts')
+      },
+      {
+        find: '@',
+        replacement: path.resolve(__dirname, 'src')
+      },
+      {
+        find: '@common',
+        replacement: path.resolve(__dirname, 'src/common')
+      },
+      {
+        find: '@components',
+        replacement: path.resolve(__dirname, 'src/components')
+      },
+      {
+        find: '@modules',
+        replacement: path.resolve(__dirname, 'src/modules')
+      }
+    ]
   },
   build: {
-    rollupOptions: {
-      output: {
-        manualChunks(id) {
-          if (id.includes('node_modules')) {
-            return 'vendor';
-          }
-        }
-      }
-    }
+    target: 'esnext',
+    sourcemap: true
   }
 })
 

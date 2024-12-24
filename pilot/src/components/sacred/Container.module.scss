@@ -1,10 +1,50 @@
 .container {
-  padding: 4ch;
+  padding: 3rem;
   border: 1px solid var(--theme-border);
-  background: linear-gradient(145deg, rgba(45, 45, 45, 0.9) 0%, rgba(26, 26, 26, 0.9) 100%);
+  background: var(--theme-gradient-card);
   box-shadow:
-    0 4px 12px rgba(0, 0, 0, 0.2),
-    inset 0 1px 1px rgba(255, 255, 255, 0.05);
+    var(--theme-shadow),
+    inset 0 1px 1px rgba(255, 255, 255, 0.5);
   height: 100%;
-  border-radius: 4px;
+  border-radius: 12px;
+  backdrop-filter: blur(8px);
+  transition: all 0.2s ease-in-out;
+
+  &:hover {
+    box-shadow:
+      0 4px 12px -2px rgba(0, 0, 0, 0.05),
+      0 2px 6px -1px rgba(0, 0, 0, 0.03),
+      inset 0 1px 1px rgba(255, 255, 255, 0.7);
+    transform: translateY(-1px);
+  }
+}
+
+.mainContainer {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 6rem 2rem;
+  border: none;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+  backdrop-filter: none;
+
+  &:hover {
+    transform: none;
+    box-shadow: none;
+  }
+}
+
+.container + .container {
+  margin-top: 1.5rem;
+}
+
+@media (max-width: 768px) {
+  .container {
+    padding: 1.5rem;
+  }
+
+  .mainContainer {
+    padding: 4rem 1rem;
+  }
 }
