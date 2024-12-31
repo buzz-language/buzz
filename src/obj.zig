@@ -136,7 +136,6 @@ pub const Obj = struct {
                         .def_type = .Map,
                         .resolved_type = .{
                             .Map = ObjMap.MapDef.init(
-                                vm.gc.allocator,
                                 vm.gc.type_registry.str_type,
                                 vm.gc.type_registry.int_type,
                                 true,
@@ -171,18 +170,15 @@ pub const Obj = struct {
             .List => {
                 const list = self.access(ObjList, .List, vm.gc).?;
 
-                const list_def = ObjList.ListDef.init(
-                    vm.gc.allocator,
-                    vm.gc.type_registry.any_type,
-                    list.type_def.resolved_type.?.List.mutable,
-                );
-
-                const resolved_type = ObjTypeDef.TypeUnion{ .List = list_def };
-
                 const list_type = vm.gc.type_registry.getTypeDef(
                     .{
                         .def_type = .List,
-                        .resolved_type = resolved_type,
+                        .resolved_type = .{
+                            .List = ObjList.ListDef.init(
+                                vm.gc.type_registry.any_type,
+                                list.type_def.resolved_type.?.List.mutable,
+                            ),
+                        },
                     },
                 ) catch return error.OutOfMemory;
 
@@ -208,7 +204,6 @@ pub const Obj = struct {
                 const map = self.access(ObjMap, .Map, vm.gc).?;
 
                 const map_def = ObjMap.MapDef.init(
-                    vm.gc.allocator,
                     vm.gc.type_registry.any_type,
                     vm.gc.type_registry.any_type,
                     map.type_def.resolved_type.?.Map.mutable,
@@ -248,7 +243,6 @@ pub const Obj = struct {
                 const object_def = instance.type_def.resolved_type.?.ObjectInstance.of.resolved_type.?.Object;
 
                 const map_def = ObjMap.MapDef.init(
-                    vm.gc.allocator,
                     vm.gc.type_registry.any_type,
                     vm.gc.type_registry.any_type,
                     instance.type_def.resolved_type.?.ObjectInstance.mutable,
@@ -293,7 +287,6 @@ pub const Obj = struct {
                 const container_def = container.type_def.resolved_type.?.ForeignContainer;
 
                 const map_def = ObjMap.MapDef.init(
-                    vm.gc.allocator,
                     vm.gc.type_registry.any_type,
                     vm.gc.type_registry.any_type,
                     true,
@@ -348,7 +341,6 @@ pub const Obj = struct {
             .Enum => ObjEnum.cast(self).?.type_def,
             .ObjectInstance => ObjObjectInstance.cast(self).?.type_def,
             .EnumInstance => try ObjEnumInstance.cast(self).?.enum_ref.type_def.toInstance(
-                gc.allocator,
                 &gc.type_registry,
                 false,
             ),
@@ -676,7 +668,7 @@ pub const Obj = struct {
 
                 break :enum_instance try writer.print("{s}.{s}", .{
                     enum_.type_def.resolved_type.?.Enum.name.string,
-                    enum_.type_def.resolved_type.?.Enum.cases.items[instance.case],
+                    enum_.type_def.resolved_type.?.Enum.cases[instance.case],
                 });
             },
             .Bound => {
@@ -1713,16 +1705,16 @@ pub const ObjObject = struct {
         location: Token,
         name: *ObjString,
         qualified_name: *ObjString,
-        methods: std.StringArrayHashMap(Method),
-        methods_locations: std.StringArrayHashMap(Token),
+        methods: std.StringArrayHashMapUnmanaged(Method),
+        methods_locations: std.StringArrayHashMapUnmanaged(Token),
 
-        pub fn init(allocator: Allocator, location: Token, name: *ObjString, qualified_name: *ObjString) ProtocolDefSelf {
+        pub fn init(location: Token, name: *ObjString, qualified_name: *ObjString) ProtocolDefSelf {
             return ProtocolDefSelf{
                 .name = name,
                 .location = location,
                 .qualified_name = qualified_name,
-                .methods = std.StringArrayHashMap(Method).init(allocator),
-                .methods_locations = std.StringArrayHashMap(Token).init(allocator),
+                .methods = std.StringArrayHashMapUnmanaged(Method){},
+                .methods_locations = std.StringArrayHashMapUnmanaged(Token){},
             };
         }
 
@@ -1772,15 +1764,15 @@ pub const ObjObject = struct {
         location: Token,
         name: *ObjString,
         qualified_name: *ObjString,
-        fields: std.StringArrayHashMap(Field),
+        fields: std.StringArrayHashMapUnmanaged(Field),
         // When we have placeholders we don't know if they are properties or methods
         // That information is available only when the placeholder is resolved
-        placeholders: std.StringHashMap(*ObjTypeDef),
-        static_placeholders: std.StringHashMap(*ObjTypeDef),
+        placeholders: std.StringHashMapUnmanaged(*ObjTypeDef),
+        static_placeholders: std.StringHashMapUnmanaged(*ObjTypeDef),
         anonymous: bool,
-        conforms_to: std.AutoHashMap(*ObjTypeDef, void),
+        conforms_to: std.AutoHashMapUnmanaged(*ObjTypeDef, void),
 
-        generic_types: std.AutoArrayHashMap(*ObjString, *ObjTypeDef),
+        generic_types: std.AutoArrayHashMapUnmanaged(*ObjString, *ObjTypeDef),
         resolved_generics: ?[]*ObjTypeDef = null,
 
         pub fn nextId() usize {
@@ -1790,7 +1782,6 @@ pub const ObjObject = struct {
         }
 
         pub fn init(
-            allocator: Allocator,
             location: Token,
             name: *ObjString,
             qualified_name: *ObjString,
@@ -1801,12 +1792,12 @@ pub const ObjObject = struct {
                 .name = name,
                 .location = location,
                 .qualified_name = qualified_name,
-                .fields = std.StringArrayHashMap(Field).init(allocator),
-                .placeholders = std.StringHashMap(*ObjTypeDef).init(allocator),
-                .static_placeholders = std.StringHashMap(*ObjTypeDef).init(allocator),
+                .fields = std.StringArrayHashMapUnmanaged(Field){},
+                .placeholders = std.StringHashMapUnmanaged(*ObjTypeDef){},
+                .static_placeholders = std.StringHashMapUnmanaged(*ObjTypeDef){},
                 .anonymous = anonymous,
-                .conforms_to = std.AutoHashMap(*ObjTypeDef, void).init(allocator),
-                .generic_types = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(allocator),
+                .conforms_to = std.AutoHashMapUnmanaged(*ObjTypeDef, void){},
+                .generic_types = std.AutoArrayHashMapUnmanaged(*ObjString, *ObjTypeDef){},
             };
         }
 
@@ -1843,6 +1834,7 @@ pub const ObjObject = struct {
             for (fields, 0..) |field_name, index| {
                 const original_field = self.fields.get(field_name).?;
                 try self.fields.put(
+                    allocator,
                     field_name,
                     .{
                         .name = original_field.name,
@@ -2108,14 +2100,14 @@ pub const ObjList = struct {
         };
 
         item_type: *ObjTypeDef,
-        methods: std.StringHashMap(Method),
+        methods: std.StringHashMapUnmanaged(Method),
         mutable: bool,
 
-        pub fn init(allocator: Allocator, item_type: *ObjTypeDef, mutable: bool) SelfListDef {
+        pub fn init(item_type: *ObjTypeDef, mutable: bool) SelfListDef {
             return .{
                 .item_type = item_type,
                 .mutable = mutable,
-                .methods = std.StringHashMap(Method).init(allocator),
+                .methods = std.StringHashMapUnmanaged(Method){},
             };
         }
 
@@ -2171,6 +2163,7 @@ pub const ObjList = struct {
                     .mutable = true,
                 };
                 try self.methods.put(
+                    parser.gc.allocator,
                     "append",
                     member_def,
                 );
@@ -2211,7 +2204,11 @@ pub const ObjList = struct {
                     .type_def = native_type,
                     .mutable = true,
                 };
-                try self.methods.put("remove", member_def);
+                try self.methods.put(
+                    parser.gc.allocator,
+                    "remove",
+                    member_def,
+                );
 
                 return member_def;
             } else if (mem.eql(u8, method, "len")) {
@@ -2238,7 +2235,11 @@ pub const ObjList = struct {
                     .type_def = native_type,
                     .mutable = false,
                 };
-                try self.methods.put("len", member_def);
+                try self.methods.put(
+                    parser.gc.allocator,
+                    "len",
+                    member_def,
+                );
 
                 return member_def;
             } else if (mem.eql(u8, method, "next")) {
@@ -2286,7 +2287,11 @@ pub const ObjList = struct {
                     .type_def = native_type,
                     .mutable = false,
                 };
-                try self.methods.put("next", member_def);
+                try self.methods.put(
+                    parser.gc.allocator,
+                    "next",
+                    member_def,
+                );
 
                 return member_def;
             } else if (mem.eql(u8, method, "sub")) {
@@ -2337,7 +2342,11 @@ pub const ObjList = struct {
                     .type_def = native_type,
                     .mutable = false,
                 };
-                try self.methods.put("sub", member_def);
+                try self.methods.put(
+                    parser.gc.allocator,
+                    "sub",
+                    member_def,
+                );
 
                 return member_def;
             } else if (mem.eql(u8, method, "fill")) {
@@ -2400,7 +2409,11 @@ pub const ObjList = struct {
                     .type_def = native_type,
                     .mutable = true,
                 };
-                try self.methods.put("fill", member_def);
+                try self.methods.put(
+                    parser.gc.allocator,
+                    "fill",
+                    member_def,
+                );
 
                 return member_def;
             } else if (mem.eql(u8, method, "indexOf")) {
@@ -2439,7 +2452,11 @@ pub const ObjList = struct {
                     .type_def = native_type,
                     .mutable = false,
                 };
-                try self.methods.put("indexOf", member_def);
+                try self.methods.put(
+                    parser.gc.allocator,
+                    "indexOf",
+                    member_def,
+                );
 
                 return member_def;
             } else if (mem.eql(u8, method, "join")) {
@@ -2473,7 +2490,11 @@ pub const ObjList = struct {
                     .type_def = native_type,
                     .mutable = false,
                 };
-                try self.methods.put("join", member_def);
+                try self.methods.put(
+                    parser.gc.allocator,
+                    "join",
+                    member_def,
+                );
 
                 return member_def;
             } else if (mem.eql(u8, method, "insert")) {
@@ -2513,7 +2534,11 @@ pub const ObjList = struct {
                     .type_def = native_type,
                     .mutable = true,
                 };
-                try self.methods.put("insert", member_def);
+                try self.methods.put(
+                    parser.gc.allocator,
+                    "insert",
+                    member_def,
+                );
 
                 return member_def;
             } else if (mem.eql(u8, method, "pop")) {
@@ -2540,7 +2565,11 @@ pub const ObjList = struct {
                     .type_def = native_type,
                     .mutable = true,
                 };
-                try self.methods.put("pop", member_def);
+                try self.methods.put(
+                    parser.gc.allocator,
+                    "pop",
+                    member_def,
+                );
 
                 return member_def;
             } else if (mem.eql(u8, method, "forEach")) {
@@ -2607,7 +2636,11 @@ pub const ObjList = struct {
                     .type_def = native_type,
                     .mutable = false,
                 };
-                try self.methods.put("forEach", member_def);
+                try self.methods.put(
+                    parser.gc.allocator,
+                    "forEach",
+                    member_def,
+                );
 
                 return member_def;
             } else if (mem.eql(u8, method, "map")) {
@@ -2666,7 +2699,6 @@ pub const ObjList = struct {
                 );
 
                 const new_list_def = ObjList.ListDef.init(
-                    parser.gc.allocator,
                     generic_type,
                     false,
                 );
@@ -2706,7 +2738,11 @@ pub const ObjList = struct {
                     .type_def = native_type,
                     .mutable = false,
                 };
-                try self.methods.put("map", member_def);
+                try self.methods.put(
+                    parser.gc.allocator,
+                    "map",
+                    member_def,
+                );
 
                 return member_def;
             } else if (mem.eql(u8, method, "filter")) {
@@ -2774,7 +2810,11 @@ pub const ObjList = struct {
                     .type_def = native_type,
                     .mutable = false,
                 };
-                try self.methods.put("filter", member_def);
+                try self.methods.put(
+                    parser.gc.allocator,
+                    "filter",
+                    member_def,
+                );
 
                 return member_def;
             } else if (mem.eql(u8, method, "reduce")) {
@@ -2864,7 +2904,11 @@ pub const ObjList = struct {
                     .type_def = native_type,
                     .mutable = false,
                 };
-                try self.methods.put("reduce", member_def);
+                try self.methods.put(
+                    parser.gc.allocator,
+                    "reduce",
+                    member_def,
+                );
 
                 return member_def;
             } else if (mem.eql(u8, method, "sort")) {
@@ -2931,7 +2975,11 @@ pub const ObjList = struct {
                     .type_def = native_type,
                     .mutable = true,
                 };
-                try self.methods.put("sort", member_def);
+                try self.methods.put(
+                    parser.gc.allocator,
+                    "sort",
+                    member_def,
+                );
 
                 return member_def;
             } else if (mem.eql(u8, method, "reverse")) {
@@ -2961,7 +3009,11 @@ pub const ObjList = struct {
                     .type_def = native_type,
                     .mutable = false,
                 };
-                try self.methods.put("reverse", member_def);
+                try self.methods.put(
+                    parser.gc.allocator,
+                    "reverse",
+                    member_def,
+                );
 
                 return member_def;
             } else if ((self.mutable and (mem.eql(u8, method, "cloneImmutable") or
@@ -2997,7 +3049,11 @@ pub const ObjList = struct {
                     .mutable = mem.eql(u8, method, "cloneImmutable") or mem.eql(u8, method, "copyMutable"),
                 };
 
-                try self.methods.put(method, member_def);
+                try self.methods.put(
+                    parser.gc.allocator,
+                    method,
+                    member_def,
+                );
 
                 return member_def;
             }
@@ -3271,14 +3327,14 @@ pub const ObjMap = struct {
         value_type: *ObjTypeDef,
         mutable: bool,
 
-        methods: std.StringHashMap(Method),
+        methods: std.StringHashMapUnmanaged(Method),
 
-        pub fn init(allocator: Allocator, key_type: *ObjTypeDef, value_type: *ObjTypeDef, mutable: bool) SelfMapDef {
+        pub fn init(key_type: *ObjTypeDef, value_type: *ObjTypeDef, mutable: bool) SelfMapDef {
             return .{
                 .key_type = key_type,
                 .value_type = value_type,
                 .mutable = mutable,
-                .methods = std.StringHashMap(Method).init(allocator),
+                .methods = std.StringHashMapUnmanaged(Method){},
             };
         }
 
@@ -3326,7 +3382,11 @@ pub const ObjMap = struct {
                     .type_def = native_type,
                     .mutable = false,
                 };
-                try self.methods.put("size", method_def);
+                try self.methods.put(
+                    parser.gc.allocator,
+                    "size",
+                    method_def,
+                );
 
                 return method_def;
             } else if (mem.eql(u8, method, "remove")) {
@@ -3366,7 +3426,11 @@ pub const ObjMap = struct {
                     .type_def = native_type,
                     .mutable = true,
                 };
-                try self.methods.put("remove", method_def);
+                try self.methods.put(
+                    parser.gc.allocator,
+                    "remove",
+                    method_def,
+                );
 
                 return method_def;
             } else if (mem.eql(u8, method, "keys")) {
@@ -3386,7 +3450,6 @@ pub const ObjMap = struct {
                                         .optional = false,
                                         .resolved_type = .{
                                             .List = ObjList.ListDef.init(
-                                                parser.gc.allocator,
                                                 self.key_type,
                                                 false,
                                             ),
@@ -3405,7 +3468,11 @@ pub const ObjMap = struct {
                     .type_def = native_type,
                     .mutable = false,
                 };
-                try self.methods.put("keys", method_def);
+                try self.methods.put(
+                    parser.gc.allocator,
+                    "keys",
+                    method_def,
+                );
 
                 return method_def;
             } else if (mem.eql(u8, method, "values")) {
@@ -3424,7 +3491,6 @@ pub const ObjMap = struct {
                                     .optional = false,
                                     .resolved_type = .{
                                         .List = ObjList.ListDef.init(
-                                            parser.gc.allocator,
                                             self.value_type,
                                             false,
                                         ),
@@ -3442,7 +3508,11 @@ pub const ObjMap = struct {
                     .type_def = native_type,
                     .mutable = false,
                 };
-                try self.methods.put("values", method_def);
+                try self.methods.put(
+                    parser.gc.allocator,
+                    "values",
+                    method_def,
+                );
 
                 return method_def;
             } else if (mem.eql(u8, method, "sort")) {
@@ -3503,7 +3573,11 @@ pub const ObjMap = struct {
                     .type_def = native_type,
                     .mutable = true,
                 };
-                try self.methods.put("sort", method_def);
+                try self.methods.put(
+                    parser.gc.allocator,
+                    "sort",
+                    method_def,
+                );
 
                 return method_def;
             } else if (mem.eql(u8, method, "diff")) {
@@ -3540,7 +3614,11 @@ pub const ObjMap = struct {
                     .type_def = native_type,
                     .mutable = false,
                 };
-                try self.methods.put("diff", method_def);
+                try self.methods.put(
+                    parser.gc.allocator,
+                    "diff",
+                    method_def,
+                );
 
                 return method_def;
             } else if (mem.eql(u8, method, "intersect")) {
@@ -3577,7 +3655,11 @@ pub const ObjMap = struct {
                     .type_def = native_type,
                     .mutable = false,
                 };
-                try self.methods.put("intersect", method_def);
+                try self.methods.put(
+                    parser.gc.allocator,
+                    "intersect",
+                    method_def,
+                );
 
                 return method_def;
             } else if (mem.eql(u8, method, "forEach")) {
@@ -3644,7 +3726,11 @@ pub const ObjMap = struct {
                     .type_def = native_type,
                     .mutable = false,
                 };
-                try self.methods.put("forEach", method_def);
+                try self.methods.put(
+                    parser.gc.allocator,
+                    "forEach",
+                    method_def,
+                );
 
                 return method_def;
             } else if (mem.eql(u8, method, "map")) {
@@ -3701,7 +3787,6 @@ pub const ObjMap = struct {
 
                 // Calback return type
                 var entry_def = ObjObject.ObjectDef.init(
-                    parser.gc.allocator,
                     Token.identifier("user callback"),
                     try parser.gc.copyString("anonymous"),
                     try parser.gc.copyString("anonymous"),
@@ -3709,6 +3794,7 @@ pub const ObjMap = struct {
                 );
 
                 try entry_def.fields.put(
+                    parser.gc.allocator,
                     "key",
                     .{
                         .name = "key",
@@ -3723,6 +3809,7 @@ pub const ObjMap = struct {
                     },
                 );
                 try entry_def.fields.put(
+                    parser.gc.allocator,
                     "value",
                     .{
                         .name = "value",
@@ -3745,7 +3832,6 @@ pub const ObjMap = struct {
                 );
 
                 callback_method_def.return_type = try entry_type_def.toInstance(
-                    parser.gc.allocator,
                     &parser.gc.type_registry,
                     false,
                 );
@@ -3774,7 +3860,6 @@ pub const ObjMap = struct {
                         .def_type = .Map,
                         .resolved_type = .{
                             .Map = ObjMap.MapDef.init(
-                                parser.gc.allocator,
                                 generic_key_type,
                                 generic_value_type,
                                 false,
@@ -3807,7 +3892,11 @@ pub const ObjMap = struct {
                     .type_def = native_type,
                     .mutable = false,
                 };
-                try self.methods.put("map", member_def);
+                try self.methods.put(
+                    parser.gc.allocator,
+                    "map",
+                    member_def,
+                );
 
                 return member_def;
             } else if (mem.eql(u8, method, "filter")) {
@@ -3874,7 +3963,11 @@ pub const ObjMap = struct {
                     .type_def = native_type,
                     .mutable = false,
                 };
-                try self.methods.put("filter", member_def);
+                try self.methods.put(
+                    parser.gc.allocator,
+                    "filter",
+                    member_def,
+                );
 
                 return member_def;
             } else if (mem.eql(u8, method, "reduce")) {
@@ -3964,10 +4057,14 @@ pub const ObjMap = struct {
                     .type_def = native_type,
                     .mutable = false,
                 };
-                try self.methods.put("reduce", method_def);
+                try self.methods.put(
+                    parser.gc.allocator,
+                    "reduce",
+                    method_def,
+                );
 
                 return method_def;
-            } else if ((self.mutable and (mem.eql(u8, method, "cloneImutable") or
+            } else if ((self.mutable and (mem.eql(u8, method, "cloneImmutable") or
                 mem.eql(u8, method, "copyMutable"))) or
                 (!self.mutable and (mem.eql(u8, method, "cloneMutable") or
                 mem.eql(u8, method, "copyImmutable"))))
@@ -4000,7 +4097,11 @@ pub const ObjMap = struct {
                     .mutable = mem.eql(u8, method, "cloneImmutable") or mem.eql(u8, method, "copyMutable"),
                 };
 
-                try self.methods.put(method, method_def);
+                try self.methods.put(
+                    parser.gc.allocator,
+                    method,
+                    method_def,
+                );
 
                 return method_def;
             }
@@ -4074,15 +4175,15 @@ pub const ObjEnum = struct {
         qualified_name: *ObjString,
         enum_type: *ObjTypeDef,
         // TODO: should be a slice
-        cases: std.ArrayList([]const u8),
+        cases: [][]const u8,
         // Circular reference but needed so that we can generate enum case at compile time
         value: ?*ObjEnum = null,
 
-        pub fn init(allocator: Allocator, name: *ObjString, qualified_name: *ObjString, enum_type: *ObjTypeDef) EnumDefSelf {
+        pub fn init(name: *ObjString, qualified_name: *ObjString, enum_type: *ObjTypeDef, cases: [][]const u8) EnumDefSelf {
             return EnumDefSelf{
                 .name = name,
                 .qualified_name = qualified_name,
-                .cases = std.ArrayList([]const u8).init(allocator),
+                .cases = cases,
                 .enum_type = enum_type,
             };
         }
@@ -4331,7 +4432,6 @@ pub const ObjTypeDef = struct {
             .Placeholder => placeholder: {
                 var placeholder_resolved_type: ObjTypeDef.TypeUnion = .{
                     .Placeholder = PlaceholderDef.init(
-                        type_registry.gc.allocator,
                         where,
                         self.resolved_type.?.Placeholder.mutable,
                     ),
@@ -4347,6 +4447,7 @@ pub const ObjTypeDef = struct {
                 );
 
                 try PlaceholderDef.link(
+                    type_registry.gc.allocator,
                     self,
                     placeholder,
                     .GenericResolve,
@@ -4398,7 +4499,6 @@ pub const ObjTypeDef = struct {
                 type_registry,
                 visited_ptr,
             )).toInstance(
-                type_registry.gc.allocator,
                 type_registry,
                 self.resolved_type.?.ObjectInstance.mutable,
             ),
@@ -4407,22 +4507,22 @@ pub const ObjTypeDef = struct {
                 const old_object_def = self.resolved_type.?.Object;
 
                 var resolved = ObjObject.ObjectDef.init(
-                    type_registry.gc.allocator,
                     old_object_def.location,
                     old_object_def.name,
                     old_object_def.qualified_name,
                     old_object_def.anonymous,
                 );
 
-                resolved.generic_types.deinit();
-                resolved.generic_types = try old_object_def.generic_types.clone();
+                resolved.generic_types.deinit(type_registry.gc.allocator);
+                resolved.generic_types = try old_object_def.generic_types.clone(type_registry.gc.allocator);
                 resolved.resolved_generics = generics;
 
                 {
-                    var fields = std.StringArrayHashMap(ObjObject.ObjectDef.Field).init(type_registry.gc.allocator);
+                    var fields = std.StringArrayHashMapUnmanaged(ObjObject.ObjectDef.Field){};
                     var it = old_object_def.fields.iterator();
                     while (it.next()) |kv| {
                         try fields.put(
+                            type_registry.gc.allocator,
                             kv.key_ptr.*,
                             .{
                                 .name = kv.value_ptr.*.name,
@@ -4459,10 +4559,11 @@ pub const ObjTypeDef = struct {
             .List => list: {
                 const old_list_def = self.resolved_type.?.List;
 
-                var methods = std.StringHashMap(ObjList.ListDef.Method).init(type_registry.gc.allocator);
+                var methods = std.StringHashMapUnmanaged(ObjList.ListDef.Method){};
                 var it = old_list_def.methods.iterator();
                 while (it.next()) |kv| {
                     try methods.put(
+                        type_registry.gc.allocator,
                         kv.key_ptr.*,
                         .{
                             .type_def = try kv.value_ptr.*.type_def.populateGenerics(
@@ -4491,7 +4592,6 @@ pub const ObjTypeDef = struct {
                                     type_registry,
                                     visited_ptr,
                                 )).toInstance(
-                                    type_registry.gc.allocator,
                                     type_registry,
                                     old_list_def.item_type.isMutable(),
                                 ),
@@ -4504,10 +4604,11 @@ pub const ObjTypeDef = struct {
             .Map => map: {
                 const old_map_def = self.resolved_type.?.Map;
 
-                var methods = std.StringHashMap(ObjMap.MapDef.Method).init(type_registry.gc.allocator);
+                var methods = std.StringHashMapUnmanaged(ObjMap.MapDef.Method){};
                 var it = old_map_def.methods.iterator();
                 while (it.next()) |kv| {
                     try methods.put(
+                        type_registry.gc.allocator,
                         kv.key_ptr.*,
                         .{
                             .type_def = try kv.value_ptr.*.type_def.populateGenerics(
@@ -4579,7 +4680,6 @@ pub const ObjTypeDef = struct {
                                 type_registry,
                                 visited_ptr,
                             )).toInstance(
-                                type_registry.gc.allocator,
                                 type_registry,
                                 kv.value_ptr.*.isMutable(),
                             ),
@@ -4599,7 +4699,6 @@ pub const ObjTypeDef = struct {
                         visited_ptr,
                     ))
                         .toInstance(
-                        type_registry.gc.allocator,
                         type_registry,
                         old_fun_def.return_type.isMutable(),
                     ),
@@ -4611,7 +4710,6 @@ pub const ObjTypeDef = struct {
                         visited_ptr,
                     ))
                         .toInstance(
-                        type_registry.gc.allocator,
                         type_registry,
                         old_fun_def.yield_type.isMutable(),
                     ))
@@ -4672,10 +4770,15 @@ pub const ObjTypeDef = struct {
             // Destroyed copied placeholder link
             optional.resolved_type.?.Placeholder.parent = null;
             optional.resolved_type.?.Placeholder.parent_relation = null;
-            optional.resolved_type.?.Placeholder.children = std.ArrayList(*ObjTypeDef).init(type_registry.gc.allocator);
+            optional.resolved_type.?.Placeholder.children = std.ArrayListUnmanaged(*ObjTypeDef){};
 
             // Make actual link
-            try PlaceholderDef.link(self, optional, .Optional);
+            try PlaceholderDef.link(
+                type_registry.gc.allocator,
+                self,
+                optional,
+                .Optional,
+            );
         }
 
         return optional;
@@ -4693,10 +4796,15 @@ pub const ObjTypeDef = struct {
             // Destroyed copied placeholder link
             non_optional.resolved_type.?.Placeholder.parent = null;
             non_optional.resolved_type.?.Placeholder.parent_relation = null;
-            non_optional.resolved_type.?.Placeholder.children = std.ArrayList(*ObjTypeDef).init(type_registry.gc.allocator);
+            non_optional.resolved_type.?.Placeholder.children = std.ArrayListUnmanaged(*ObjTypeDef){};
 
             // Make actual link
-            try PlaceholderDef.link(self, non_optional, .Unwrap);
+            try PlaceholderDef.link(
+                type_registry.gc.allocator,
+                self,
+                non_optional,
+                .Unwrap,
+            );
         }
 
         return non_optional;
@@ -4718,6 +4826,7 @@ pub const ObjTypeDef = struct {
                 // Link won't be made if parent already exists
                 placeholder.resolved_type.?.Placeholder.parent = null;
                 try PlaceholderDef.link(
+                    type_registry.gc.allocator,
                     clone.resolved_type.?.Placeholder.parent.?,
                     placeholder,
                     clone.resolved_type.?.Placeholder.parent_relation.?,
@@ -5116,7 +5225,7 @@ pub const ObjTypeDef = struct {
         return Value.fromObj(self.toObj());
     }
 
-    pub fn toParentType(self: *Self, allocator: Allocator, type_registry: *TypeRegistry) !*Self {
+    pub fn toParentType(self: *Self, type_registry: *TypeRegistry) !*Self {
         return switch (self.def_type) {
             .ObjectInstance => self.resolved_type.?.ObjectInstance.of,
             .ProtocolInstance => self.resolved_type.?.ProtocolInstance.of,
@@ -5130,14 +5239,18 @@ pub const ObjTypeDef = struct {
                     .def_type = .Placeholder,
                     .resolved_type = .{
                         .Placeholder = PlaceholderDef.init(
-                            allocator,
                             self.resolved_type.?.Placeholder.where,
                             self.resolved_type.?.Placeholder.mutable,
                         ),
                     },
                 });
 
-                try PlaceholderDef.link(self, placeholder, .Parent);
+                try PlaceholderDef.link(
+                    type_registry.gc.allocator,
+                    self,
+                    placeholder,
+                    .Parent,
+                );
 
                 break :placeholder placeholder;
             },
@@ -5145,7 +5258,7 @@ pub const ObjTypeDef = struct {
         };
     }
 
-    pub fn toInstance(self: *Self, allocator: Allocator, type_registry: *TypeRegistry, mutable: bool) !*Self {
+    pub fn toInstance(self: *Self, type_registry: *TypeRegistry, mutable: bool) !*Self {
         // Avoid placeholder double links like: Object Placeholder -> Instance -> Instance
         if (self.def_type == .Placeholder and self.resolved_type.?.Placeholder.parent_relation != null and self.resolved_type.?.Placeholder.parent_relation.? == .Instance) {
             return self;
@@ -5185,7 +5298,6 @@ pub const ObjTypeDef = struct {
                         .def_type = .Placeholder,
                         .resolved_type = .{
                             .Placeholder = PlaceholderDef.init(
-                                allocator,
                                 self.resolved_type.?.Placeholder.where,
                                 mutable,
                             ),
@@ -5205,7 +5317,12 @@ pub const ObjTypeDef = struct {
         );
 
         if (self.def_type == .Placeholder and instance_type.def_type == .Placeholder) {
-            try PlaceholderDef.link(self, instance_type, .Instance);
+            try PlaceholderDef.link(
+                type_registry.gc.allocator,
+                self,
+                instance_type,
+                .Instance,
+            );
         }
 
         return instance_type;
@@ -5466,25 +5583,25 @@ pub const PlaceholderDef = struct {
     // What's the relation with the parent?
     parent_relation: ?PlaceholderRelation = null,
     // Children adds themselves here
-    children: std.ArrayList(*ObjTypeDef),
+    children: std.ArrayListUnmanaged(*ObjTypeDef),
     mutable: ?bool,
 
     // If the placeholder is a function return, we need to remember eventual generic types defined in that call
     resolved_generics: ?[]*ObjTypeDef = null,
 
-    pub fn init(allocator: Allocator, where: Ast.TokenIndex, mutable: ?bool) Self {
+    pub fn init(where: Ast.TokenIndex, mutable: ?bool) Self {
         return Self{
             .where = where,
-            .children = std.ArrayList(*ObjTypeDef).init(allocator),
+            .children = std.ArrayListUnmanaged(*ObjTypeDef){},
             .mutable = mutable,
         };
     }
 
-    pub fn deinit(self: *Self) void {
-        self.children.deinit();
+    pub fn deinit(self: *Self, allocator: Allocator) void {
+        self.children.deinit(allocator);
     }
 
-    pub fn link(parent: *ObjTypeDef, child: *ObjTypeDef, relation: PlaceholderRelation) !void {
+    pub fn link(allocator: Allocator, parent: *ObjTypeDef, child: *ObjTypeDef, relation: PlaceholderRelation) !void {
         assert(parent.def_type == .Placeholder);
         assert(child.def_type == .Placeholder);
 
@@ -5507,7 +5624,7 @@ pub const PlaceholderDef = struct {
         }
 
         child.resolved_type.?.Placeholder.parent = parent;
-        try parent.resolved_type.?.Placeholder.children.append(child);
+        try parent.resolved_type.?.Placeholder.children.append(allocator, child);
         child.resolved_type.?.Placeholder.parent_relation = relation;
 
         if (BuildOptions.debug_placeholders) {

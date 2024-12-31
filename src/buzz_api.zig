@@ -219,7 +219,7 @@ fn valueDump(value: Value, vm: *VM, seen: *std.AutoHashMap(*_obj.Obj, void), dep
                         enum_type_def.name.string,
                     },
                 );
-                for (enum_type_def.cases.items, 0..) |case, i| {
+                for (enum_type_def.cases, 0..) |case, i| {
                     io.print("{s} -> ", .{case});
                     valueDump(enumeration.cases[i], vm, seen, depth);
                     io.print(", ", .{});
@@ -458,7 +458,6 @@ export fn bz_listType(vm: *VM, item_type: Value, mutable: bool) Value {
             .optional = false,
             .resolved_type = .{
                 .List = ObjList.ListDef.init(
-                    vm.gc.allocator,
                     ObjTypeDef.cast(item_type.obj()).?,
                     mutable,
                 ),
@@ -477,7 +476,6 @@ export fn bz_mapType(vm: *VM, key_type: Value, value_type: Value, mutable: bool)
             .optional = false,
             .resolved_type = .{
                 .Map = ObjMap.MapDef.init(
-                    vm.gc.allocator,
                     ObjTypeDef.cast(key_type.obj()).?,
                     ObjTypeDef.cast(value_type.obj()).?,
                     mutable,
@@ -794,7 +792,6 @@ export fn bz_newQualifiedObjectInstance(self: *VM, qualified_name: [*]const u8, 
             self,
             object,
             object.type_def.toInstance(
-                self.gc.allocator,
                 &self.gc.type_registry,
                 mutable,
             ) catch {
@@ -1019,7 +1016,7 @@ export fn bz_getEnumCase(enum_value: Value, case_name_value: Value, vm: *VM) Val
     const case = ObjString.cast(case_name_value.obj()).?.string;
     var case_index: usize = 0;
 
-    for (self.type_def.resolved_type.?.Enum.cases.items, 0..) |enum_case, index| {
+    for (self.type_def.resolved_type.?.Enum.cases, 0..) |enum_case, index| {
         if (std.mem.eql(u8, case, enum_case)) {
             case_index = index;
             break;

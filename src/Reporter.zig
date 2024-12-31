@@ -357,10 +357,10 @@ pub const Report = struct {
                     @intCast(before),
                     after,
                 );
-                defer lines.deinit();
+                defer reporter.allocator.free(lines);
 
                 var l: usize = line - @min(line, @as(usize, @intCast(before)));
-                for (lines.items, 0..) |src_line, line_index| {
+                for (lines, 0..) |src_line, line_index| {
                     if (l != line) {
                         if (self.options.color) {
                             try out.print("\x1b[2m", .{});
@@ -373,7 +373,7 @@ pub const Report = struct {
                             l + 1,
                             if (line_index == 0 and (reported_files.count() == 1 or index > 0))
                                 "╭─"
-                            else if (line_index == lines.items.len - 1)
+                            else if (line_index == lines.len - 1)
                                 "╰─"
                             else
                                 "│ ",

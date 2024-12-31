@@ -161,7 +161,6 @@ pub fn map(ctx: *NativeCtx) c_int {
                     .def_type = .Map,
                     .resolved_type = .{
                         .Map = ObjMap.MapDef.init(
-                            ctx.vm.gc.allocator,
                             mapped_type.fields.get("key").?.type_def,
                             mapped_type.fields.get("value").?.type_def,
                             self.type_def.resolved_type.?.Map.mutable,
@@ -369,7 +368,6 @@ pub fn keys(ctx: *NativeCtx) c_int {
             .optional = false,
             .resolved_type = .{
                 .List = ObjList.ListDef.init(
-                    ctx.vm.gc.allocator,
                     self.type_def.resolved_type.?.Map.key_type,
                     false,
                 ),
@@ -419,7 +417,6 @@ pub fn values(ctx: *NativeCtx) c_int {
             .optional = false,
             .resolved_type = .{
                 .List = ObjList.ListDef.init(
-                    ctx.vm.gc.allocator,
                     self.type_def.resolved_type.?.Map.value_type,
                     false,
                 ),

@@ -196,7 +196,7 @@ pub const GarbageCollector = struct {
     };
 
     allocator: std.mem.Allocator,
-    strings: std.StringHashMap(*ObjString),
+    strings: std.StringHashMapUnmanaged(*ObjString),
     type_registry: TypeRegistry,
     bytes_allocated: usize = 0,
     // next_gc == next_full_gc at first so the first cycle is a full gc
@@ -204,8 +204,8 @@ pub const GarbageCollector = struct {
     next_full_gc: usize = if (builtin.mode == .Debug) 1024 else 1024 * BuildOptions.initial_gc,
     last_gc: ?Mode = null,
     objects: std.DoublyLinkedList(*Obj) = .{},
-    gray_stack: std.ArrayList(*Obj),
-    active_vms: std.AutoHashMap(*VM, void),
+    gray_stack: std.ArrayListUnmanaged(*Obj),
+    active_vms: std.AutoHashMapUnmanaged(*VM, void),
     // Obj being collected, useful to avoid setting object instance dirty while running its collector method
     obj_collected: ?*Obj = null,
 
@@ -231,10 +231,10 @@ pub const GarbageCollector = struct {
     pub fn init(allocator: std.mem.Allocator) !Self {
         const self = Self{
             .allocator = allocator,
-            .strings = std.StringHashMap(*ObjString).init(allocator),
+            .strings = std.StringHashMapUnmanaged(*ObjString){},
             .type_registry = undefined,
-            .gray_stack = std.ArrayList(*Obj).init(allocator),
-            .active_vms = std.AutoHashMap(*VM, void).init(allocator),
+            .gray_stack = std.ArrayListUnmanaged(*Obj){},
+            .active_vms = std.AutoHashMapUnmanaged(*VM, void){},
             .debugger = if (BuildOptions.gc_debug_access) GarbageCollectorDebugger.init(allocator) else null,
 
             .objfiber_members = try allocator.alloc(?*ObjNative, ObjFiber.members.len),
@@ -271,7 +271,11 @@ pub const GarbageCollector = struct {
     }
 
     pub fn registerVM(self: *Self, vm: *VM) !void {
-        try self.active_vms.put(vm, {});
+        try self.active_vms.put(
+            self.allocator,
+            vm,
+            {},
+        );
     }
 
     pub fn unregisterVM(self: *Self, vm: *VM) void {
@@ -438,7 +442,11 @@ pub const GarbageCollector = struct {
             ObjString{ .string = chars },
         );
 
-        try self.strings.put(string.string, string);
+        try self.strings.put(
+            self.allocator,
+            string.string,
+            string,
+        );
 
         return string;
     }
@@ -528,7 +536,7 @@ pub const GarbageCollector = struct {
 
             // A dirty obj is: an old object with reference to potential young objects that will need to be marked
             // Since old object are ignored when tracing references, this will force tracing for it
-            try self.gray_stack.append(obj);
+            try self.gray_stack.append(self.allocator, obj);
         }
     }
 
@@ -568,7 +576,7 @@ pub const GarbageCollector = struct {
         };
         self.objects.append(obj.node.?);
 
-        try self.gray_stack.append(obj);
+        try self.gray_stack.append(self.allocator, obj);
     }
 
     fn blackenObject(self: *Self, obj: *Obj) !void {
@@ -1097,13 +1105,13 @@ pub const GarbageCollectorDebugger = struct {
 
     allocator: std.mem.Allocator,
     reporter: Reporter,
-    tracker: std.AutoHashMap(*Obj, Ptr),
+    tracker: std.AutoHashMapUnmanaged(*Obj, Ptr),
     invoking_collector: bool = false,
 
     pub fn init(allocator: std.mem.Allocator) Self {
         return .{
             .allocator = allocator,
-            .tracker = std.AutoHashMap(*Obj, Ptr).init(allocator),
+            .tracker = std.AutoHashMapUnmanaged(*Obj, Ptr){},
             .reporter = Reporter{
                 .allocator = allocator,
             },
