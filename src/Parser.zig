@@ -316,7 +316,7 @@ pub const Frame = struct {
 pub const ObjectFrame = struct {
     name: Token,
     type_def: *obj.ObjTypeDef,
-    generics: ?*std.AutoArrayHashMap(*obj.ObjString, *obj.ObjTypeDef) = null,
+    generics: ?*std.AutoArrayHashMapUnmanaged(*obj.ObjString, *obj.ObjTypeDef) = null,
 };
 
 pub const ScriptImport = struct {
@@ -1044,7 +1044,6 @@ fn beginFrame(self: *Self, function_type: obj.ObjFunction.FunctionType, function
                     .def_type = .List,
                     .resolved_type = .{
                         .List = obj.ObjList.ListDef.init(
-                            self.gc.allocator,
                             self.gc.type_registry.str_type,
                             false,
                         ),
@@ -1725,7 +1724,6 @@ fn resolvePlaceholderWithRelation(
             try self.resolvePlaceholder(
                 child,
                 try resolved_type.toInstance(
-                    self.gc.allocator,
                     &self.gc.type_registry,
                     child.isMutable(),
                 ),
@@ -1735,7 +1733,7 @@ fn resolvePlaceholderWithRelation(
         .Parent => {
             try self.resolvePlaceholder(
                 child,
-                try resolved_type.toParentType(self.gc.allocator, &self.gc.type_registry),
+                try resolved_type.toParentType(&self.gc.type_registry),
                 false,
             );
         },
@@ -1996,7 +1994,7 @@ fn resolvePlaceholderWithRelation(
                     const enum_def = resolved_type.resolved_type.?.Enum;
 
                     // Search for a case matching the placeholder
-                    for (enum_def.cases.items) |case| {
+                    for (enum_def.cases) |case| {
                         if (std.mem.eql(u8, case, child_placeholder_name)) {
                             try self.resolvePlaceholder(
                                 child,
@@ -2061,7 +2059,6 @@ fn resolvePlaceholderWithRelation(
                 child,
                 // Assignment relation from a once Placeholder and now Object/Enum is creating an instance
                 try resolved_type.toInstance(
-                    self.gc.allocator,
                     &self.gc.type_registry,
                     child.resolved_type.?.Placeholder.mutable.?,
                 ),
@@ -2103,7 +2100,7 @@ pub fn resolvePlaceholder(self: *Self, placeholder: *obj.ObjTypeDef, resolved_ty
 
         if (resolved_type.resolved_type.?.Placeholder.parent) |parent| {
             if (parent.def_type == .Placeholder) {
-                try parent.resolved_type.?.Placeholder.children.append(placeholder);
+                try parent.resolved_type.?.Placeholder.children.append(self.gc.allocator, placeholder);
             } else {
                 // Parent already resolved, resolve this now orphan placeholder
                 try self.resolvePlaceholderWithRelation(
@@ -2163,7 +2160,7 @@ pub fn resolvePlaceholder(self: *Self, placeholder: *obj.ObjTypeDef, resolved_ty
         }
     }
 
-    placeholder_def.deinit();
+    placeholder_def.deinit(self.gc.allocator);
 
     // TODO: should resolved_type be freed?
     // TODO: does this work with vm.type_defs? (i guess not)
@@ -2349,7 +2346,6 @@ fn declarePlaceholder(self: *Self, name: Ast.TokenIndex, placeholder: ?*obj.ObjT
                 .def_type = .Placeholder,
                 .resolved_type = .{
                     .Placeholder = obj.PlaceholderDef.init(
-                        self.gc.allocator,
                         name,
                         null,
                     ),
@@ -2707,7 +2703,6 @@ fn parseTypeDef(
         const type_def_node = try self.parseObjType(generic_types);
         if (instance) {
             self.ast.nodes.items(.type_def)[type_def_node] = try self.ast.nodes.items(.type_def)[type_def_node].?.toInstance(
-                self.gc.allocator,
                 &self.gc.type_registry,
                 mutable,
             );
@@ -2831,7 +2826,6 @@ fn parseListType(self: *Self, generic_types: ?std.AutoArrayHashMap(*obj.ObjStrin
             .def_type = .List,
             .resolved_type = .{
                 .List = obj.ObjList.ListDef.init(
-                    self.gc.allocator,
                     self.ast.nodes.items(.type_def)[item_type].?,
                     mutable,
                 ),
@@ -2878,7 +2872,6 @@ fn parseMapType(self: *Self, generic_types: ?std.AutoArrayHashMap(*obj.ObjString
                     .def_type = .Map,
                     .resolved_type = .{
                         .Map = obj.ObjMap.MapDef.init(
-                            self.gc.allocator,
                             type_defs[key_type].?,
                             type_defs[value_type].?,
                             mutable,
@@ -3027,6 +3020,7 @@ fn parseFunctionType(self: *Self, parent_generic_types: ?std.AutoArrayHashMap(*o
 
                 if (expr_type_def != null and expr_type_def.?.def_type == .Placeholder and arg_type_def.?.def_type == .Placeholder) {
                     try obj.PlaceholderDef.link(
+                        self.gc.allocator,
                         arg_type_def.?,
                         expr_type_def.?,
                         .Assignment,
@@ -3167,7 +3161,6 @@ fn parseObjType(self: *Self, generic_types: ?std.AutoArrayHashMap(*obj.ObjString
     try qualified_name.writer().print("{s}.anonymous", .{qualifier});
 
     const object_def = obj.ObjObject.ObjectDef.init(
-        self.gc.allocator,
         self.ast.tokens.get(start_location),
         try self.gc.copyString("anonymous"),
         try self.gc.copyString(qualified_name.items),
@@ -3249,6 +3242,7 @@ fn parseObjType(self: *Self, generic_types: ?std.AutoArrayHashMap(*obj.ObjString
             try self.consume(.Comma, "Expected `,` after property definition.");
         }
         try object_type.resolved_type.?.Object.fields.put(
+            self.gc.allocator,
             property_name_lexeme,
             .{
                 .name = property_name_lexeme,
@@ -3322,7 +3316,6 @@ fn parseUserType(self: *Self, instance: bool, mutable: bool) Error!Ast.Node.Inde
                 .def_type = .Placeholder,
                 .resolved_type = .{
                     .Placeholder = obj.PlaceholderDef.init(
-                        self.gc.allocator,
                         user_type_name[user_type_name.len - 1],
                         null,
                     ),
@@ -3400,7 +3393,6 @@ fn parseUserType(self: *Self, instance: bool, mutable: bool) Error!Ast.Node.Inde
             .end_location = self.current_token.? - 1,
             .type_def = if (instance)
                 try var_type.?.toInstance(
-                    self.gc.allocator,
                     &self.gc.type_registry,
                     mutable,
                 )
@@ -3485,6 +3477,7 @@ fn subscript(self: *Self, can_assign: bool, subscripted: Ast.Node.Index) Error!A
     const type_defs = self.ast.nodes.items(.type_def);
     if (subscript_type_def.?.def_type == .Placeholder and index_type_def.?.def_type == .Placeholder) {
         try obj.PlaceholderDef.link(
+            self.gc.allocator,
             type_defs[subscripted].?,
             type_defs[index].?,
             .Key,
@@ -3502,7 +3495,6 @@ fn subscript(self: *Self, can_assign: bool, subscripted: Ast.Node.Index) Error!A
                             .def_type = .Placeholder,
                             .resolved_type = .{
                                 .Placeholder = obj.PlaceholderDef.init(
-                                    self.gc.allocator,
                                     self.current_token.? - 1,
                                     null,
                                 ),
@@ -3510,7 +3502,12 @@ fn subscript(self: *Self, can_assign: bool, subscripted: Ast.Node.Index) Error!A
                         },
                     );
 
-                    try obj.PlaceholderDef.link(type_def, placeholder, .Subscript);
+                    try obj.PlaceholderDef.link(
+                        self.gc.allocator,
+                        type_def,
+                        placeholder,
+                        .Subscript,
+                    );
 
                     subscripted_type_def = placeholder;
                 },
@@ -3538,7 +3535,12 @@ fn subscript(self: *Self, can_assign: bool, subscripted: Ast.Node.Index) Error!A
         const value_type_def = self.ast.nodes.items(.type_def)[value.?];
 
         if (subscript_type_def.?.def_type == .Placeholder and value_type_def.?.def_type == .Placeholder) {
-            try obj.PlaceholderDef.link(subscript_type_def.?, value_type_def.?, .Subscript);
+            try obj.PlaceholderDef.link(
+                self.gc.allocator,
+                subscript_type_def.?,
+                value_type_def.?,
+                .Subscript,
+            );
         }
     }
 
@@ -3618,7 +3620,6 @@ fn list(self: *Self, _: bool) Error!Ast.Node.Index {
                                 .ObjectInstance.of.resolved_type.?
                                 .Object.bothConforms(actual_type_def.resolved_type.?.ObjectInstance.of.resolved_type.?.Object)) |protocol_type_def|
                                 try protocol_type_def.toInstance(
-                                    self.gc.allocator,
                                     &self.gc.type_registry,
                                     common_type.?.resolved_type.?.ObjectInstance.mutable,
                                 )
@@ -3678,7 +3679,6 @@ fn list(self: *Self, _: bool) Error!Ast.Node.Index {
                     .def_type = .List,
                     .resolved_type = .{
                         .List = obj.ObjList.ListDef.init(
-                            self.gc.allocator,
                             item_type orelse self.gc.type_registry.any_type,
                             false, // If mutable, will be modified by `mutableExpression`
                         ),
@@ -3831,7 +3831,7 @@ fn call(self: *Self, _: bool, callee: Ast.Node.Index) Error!Ast.Node.Index {
     var type_def = if (callee_type_def != null and callee_type_def.?.def_type == .Function)
         callee_type_def.?.resolved_type.?.Function.return_type
     else if (callee_type_def != null and callee_type_def.?.def_type == .Enum)
-        try (try callee_type_def.?.toInstance(self.gc.allocator, &self.gc.type_registry, false))
+        try (try callee_type_def.?.toInstance(&self.gc.type_registry, false))
             .cloneOptional(&self.gc.type_registry)
     else
         null;
@@ -3852,7 +3852,6 @@ fn call(self: *Self, _: bool, callee: Ast.Node.Index) Error!Ast.Node.Index {
                     .def_type = .Placeholder,
                     .resolved_type = .{
                         .Placeholder = obj.PlaceholderDef.init(
-                            self.gc.allocator,
                             start_location,
                             null,
                         ),
@@ -3861,6 +3860,7 @@ fn call(self: *Self, _: bool, callee: Ast.Node.Index) Error!Ast.Node.Index {
             );
 
             try obj.PlaceholderDef.link(
+                self.gc.allocator,
                 callee_type_def.?,
                 type_def.?,
                 .Call,
@@ -3946,7 +3946,6 @@ fn map(self: *Self, _: bool) Error!Ast.Node.Index {
                                 actual_type_def.resolved_type.?.ObjectInstance.of.resolved_type.?.Object,
                             )) |protocol_type_def|
                                 try protocol_type_def.toInstance(
-                                    self.gc.allocator,
                                     &self.gc.type_registry,
                                     common_key_type.?.isMutable(),
                                 )
@@ -3971,7 +3970,6 @@ fn map(self: *Self, _: bool) Error!Ast.Node.Index {
                                 actual_type_def.resolved_type.?.ObjectInstance.of.resolved_type.?.Object,
                             )) |protocol_type_def|
                                 try protocol_type_def.toInstance(
-                                    self.gc.allocator,
                                     &self.gc.type_registry,
                                     // All values must be mutable for the map value type to be mutable
                                     common_value_type.?.isMutable() and actual_type_def.isMutable(),
@@ -4042,7 +4040,6 @@ fn map(self: *Self, _: bool) Error!Ast.Node.Index {
                     .def_type = .Map,
                     .resolved_type = .{
                         .Map = obj.ObjMap.MapDef.init(
-                            self.gc.allocator,
                             key_type_def orelse self.gc.type_registry.any_type,
                             value_type_def orelse self.gc.type_registry.any_type,
                             false, // Will be set to true by `mutableExpression`
@@ -4096,7 +4093,6 @@ fn objectInit(self: *Self, _: bool, object: Ast.Node.Index) Error!Ast.Node.Index
                     .def_type = .Placeholder,
                     .resolved_type = .{
                         .Placeholder = obj.PlaceholderDef.init(
-                            self.gc.allocator,
                             property_name,
                             null,
                         ),
@@ -4105,6 +4101,7 @@ fn objectInit(self: *Self, _: bool, object: Ast.Node.Index) Error!Ast.Node.Index
             );
 
             try obj.PlaceholderDef.link(
+                self.gc.allocator,
                 obj_type_def.?,
                 property_placeholder.?,
                 .FieldAccess,
@@ -4144,7 +4141,6 @@ fn objectInit(self: *Self, _: bool, object: Ast.Node.Index) Error!Ast.Node.Index
             .end_location = self.current_token.? - 1,
             .type_def = if (self.ast.nodes.items(.type_def)[object]) |type_def|
                 try type_def.toInstance(
-                    self.gc.allocator,
                     &self.gc.type_registry,
                     false, // Will be modified by `mutableExpression`
                 )
@@ -4171,7 +4167,6 @@ fn anonymousObjectInit(self: *Self, _: bool) Error!Ast.Node.Index {
     try qualified_name.writer().print("{s}.anonymous", .{qualifier});
 
     const object_def = obj.ObjObject.ObjectDef.init(
-        self.gc.allocator,
         self.ast.tokens.get(start_location),
         try self.gc.copyString("anonymous"),
         try self.gc.copyString(qualified_name.items),
@@ -4260,6 +4255,7 @@ fn anonymousObjectInit(self: *Self, _: bool) Error!Ast.Node.Index {
             );
 
             try object_type.resolved_type.?.Object.fields.put(
+                self.gc.allocator,
                 property_name_lexeme,
                 .{
                     .name = property_name_lexeme,
@@ -4312,6 +4308,7 @@ fn anonymousObjectInit(self: *Self, _: bool) Error!Ast.Node.Index {
             );
 
             try object_type.resolved_type.?.Object.fields.put(
+                self.gc.allocator,
                 property_name_lexeme,
                 .{
                     .name = property_name_lexeme,
@@ -4342,7 +4339,6 @@ fn anonymousObjectInit(self: *Self, _: bool) Error!Ast.Node.Index {
             .location = start_location,
             .end_location = self.current_token.? - 1,
             .type_def = try (try self.gc.type_registry.getTypeDef(object_type)).toInstance(
-                self.gc.allocator,
                 &self.gc.type_registry,
                 false, // Will be modified by `mutableExpression`
             ),
@@ -4573,7 +4569,6 @@ fn dot(self: *Self, can_assign: bool, callee: Ast.Node.Index) Error!Ast.Node.Ind
                             .def_type = .Placeholder,
                             .resolved_type = .{
                                 .Placeholder = obj.PlaceholderDef.init(
-                                    self.gc.allocator,
                                     member_name_token,
                                     null,
                                 ),
@@ -4590,7 +4585,11 @@ fn dot(self: *Self, can_assign: bool, callee: Ast.Node.Index) Error!Ast.Node.Ind
                             },
                         );
                     }
-                    try callee_type_def.?.resolved_type.?.Object.static_placeholders.put(member_name, placeholder);
+                    try callee_type_def.?.resolved_type.?.Object.static_placeholders.put(
+                        self.gc.allocator,
+                        member_name,
+                        placeholder,
+                    );
 
                     property_type = placeholder;
                 } else if (property_type == null) {
@@ -4683,7 +4682,6 @@ fn dot(self: *Self, can_assign: bool, callee: Ast.Node.Index) Error!Ast.Node.Ind
                             .def_type = .Placeholder,
                             .resolved_type = .{
                                 .Placeholder = obj.PlaceholderDef.init(
-                                    self.gc.allocator,
                                     member_name_token,
                                     null,
                                 ),
@@ -4701,7 +4699,11 @@ fn dot(self: *Self, can_assign: bool, callee: Ast.Node.Index) Error!Ast.Node.Ind
                             },
                         );
                     }
-                    try object.resolved_type.?.Object.placeholders.put(member_name, placeholder);
+                    try object.resolved_type.?.Object.placeholders.put(
+                        self.gc.allocator,
+                        member_name,
+                        placeholder,
+                    );
 
                     property_type = placeholder;
                 } else if (property_type == null) {
@@ -4806,7 +4808,7 @@ fn dot(self: *Self, can_assign: bool, callee: Ast.Node.Index) Error!Ast.Node.Ind
             .Enum => {
                 const enum_def = callee_type_def.?.resolved_type.?.Enum;
 
-                for (enum_def.cases.items, 0..) |case, index| {
+                for (enum_def.cases, 0..) |case, index| {
                     if (std.mem.eql(u8, case, member_name)) {
                         self.ast.nodes.items(.type_def)[dot_node] = try self.gc.type_registry.getTypeDef(
                             .{
@@ -4930,7 +4932,6 @@ fn dot(self: *Self, can_assign: bool, callee: Ast.Node.Index) Error!Ast.Node.Ind
                         .def_type = .Placeholder,
                         .resolved_type = .{
                             .Placeholder = obj.PlaceholderDef.init(
-                                self.gc.allocator,
                                 member_name_token,
                                 null,
                             ),
@@ -4939,6 +4940,7 @@ fn dot(self: *Self, can_assign: bool, callee: Ast.Node.Index) Error!Ast.Node.Ind
                 );
 
                 try obj.PlaceholderDef.link(
+                    self.gc.allocator,
                     callee_type_def.?,
                     placeholder,
                     .FieldAccess,
@@ -5149,7 +5151,6 @@ fn @"if"(self: *Self, is_statement: bool, loop_scope: ?LoopScope) Error!Ast.Node
         _ = try self.parseVariable(
             identifier,
             try self.ast.nodes.items(.type_def)[casted_type.?].?.toInstance(
-                self.gc.allocator,
                 &self.gc.type_registry,
                 condition_type_def.?.isMutable(),
             ),
@@ -5621,6 +5622,7 @@ fn function(
 
                             if (expr_type_def != null and expr_type_def.?.def_type == .Placeholder and argument_type.def_type == .Placeholder) {
                                 try obj.PlaceholderDef.link(
+                                    self.gc.allocator,
                                     argument_type,
                                     expr_type_def.?,
                                     .Assignment,
@@ -5919,7 +5921,6 @@ fn asyncCall(self: *Self, _: bool) Error!Ast.Node.Index {
                 .def_type = .Placeholder,
                 .resolved_type = .{
                     .Placeholder = obj.PlaceholderDef.init(
-                        self.gc.allocator,
                         self.current_token.? - 1,
                         null,
                     ),
@@ -5928,6 +5929,7 @@ fn asyncCall(self: *Self, _: bool) Error!Ast.Node.Index {
         );
 
         try obj.PlaceholderDef.link(
+            self.gc.allocator,
             function_type,
             return_placeholder,
             .Call,
@@ -5938,7 +5940,6 @@ fn asyncCall(self: *Self, _: bool) Error!Ast.Node.Index {
                 .def_type = .Placeholder,
                 .resolved_type = .{
                     .Placeholder = obj.PlaceholderDef.init(
-                        self.gc.allocator,
                         self.current_token.? - 1,
                         null,
                     ),
@@ -5947,6 +5948,7 @@ fn asyncCall(self: *Self, _: bool) Error!Ast.Node.Index {
         );
 
         try obj.PlaceholderDef.link(
+            self.gc.allocator,
             function_type,
             yield_placeholder,
             .Yield,
@@ -6040,7 +6042,6 @@ fn resumeFiber(self: *Self, _: bool) Error!Ast.Node.Index {
                 .def_type = .Placeholder,
                 .resolved_type = .{
                     .Placeholder = obj.PlaceholderDef.init(
-                        self.gc.allocator,
                         self.current_token.? - 1,
                         null,
                     ),
@@ -6049,6 +6050,7 @@ fn resumeFiber(self: *Self, _: bool) Error!Ast.Node.Index {
         )).cloneOptional(&self.gc.type_registry);
 
         try obj.PlaceholderDef.link(
+            self.gc.allocator,
             fiber_type.?,
             yield_placeholder,
             .Yield,
@@ -6104,7 +6106,6 @@ fn resolveFiber(self: *Self, _: bool) Error!Ast.Node.Index {
                 .def_type = .Placeholder,
                 .resolved_type = .{
                     .Placeholder = obj.PlaceholderDef.init(
-                        self.gc.allocator,
                         self.current_token.? - 1,
                         null,
                     ),
@@ -6113,6 +6114,7 @@ fn resolveFiber(self: *Self, _: bool) Error!Ast.Node.Index {
         );
 
         try obj.PlaceholderDef.link(
+            self.gc.allocator,
             fiber_type.?,
             return_placeholder,
             .Yield,
@@ -6579,7 +6581,7 @@ fn objectDeclaration(self: *Self) Error!Ast.Node.Index {
     const start_location = self.current_token.? - 1;
 
     // Conforms to protocols?
-    var protocols = std.AutoHashMap(*obj.ObjTypeDef, void).init(self.gc.allocator);
+    var protocols = std.AutoHashMapUnmanaged(*obj.ObjTypeDef, void){};
     var protocol_nodes = std.ArrayList(Ast.Node.Index).init(self.gc.allocator);
     defer protocol_nodes.shrinkAndFree(protocol_nodes.items.len);
     var protocol_count: usize = 0;
@@ -6604,7 +6606,11 @@ fn objectDeclaration(self: *Self) Error!Ast.Node.Index {
                 );
             }
 
-            try protocols.put(protocol, {});
+            try protocols.put(
+                self.gc.allocator,
+                protocol,
+                {},
+            );
             try protocol_nodes.append(protocol_node);
 
             if (!(try self.match(.Comma))) {
@@ -6632,14 +6638,13 @@ fn objectDeclaration(self: *Self) Error!Ast.Node.Index {
     const object_placeholder = self.globals.items[placeholder_index].type_def;
 
     var object_def = obj.ObjObject.ObjectDef.init(
-        self.gc.allocator,
         object_name,
         try self.gc.copyString(object_name.lexeme),
         try self.gc.copyString(qualified_object_name.items),
         false,
     );
 
-    object_def.conforms_to.deinit();
+    object_def.conforms_to.deinit(self.gc.allocator);
     object_def.conforms_to = protocols;
 
     const resolved_type = obj.ObjTypeDef.TypeUnion{ .Object = object_def };
@@ -6676,6 +6681,7 @@ fn objectDeclaration(self: *Self) Error!Ast.Node.Index {
                 };
                 const resolved_generic_type = obj.ObjTypeDef.TypeUnion{ .Generic = generic };
                 try object_type.resolved_type.?.Object.generic_types.put(
+                    self.gc.allocator,
                     generic_identifier,
                     try self.gc.type_registry.getTypeDef(
                         .{
@@ -6747,7 +6753,6 @@ fn objectDeclaration(self: *Self) Error!Ast.Node.Index {
                     object_placeholder
                 else
                     try object_placeholder.toInstance(
-                        self.gc.allocator,
                         &self.gc.type_registry,
                         mutable,
                     ),
@@ -6794,6 +6799,7 @@ fn objectDeclaration(self: *Self) Error!Ast.Node.Index {
             }
 
             try object_type.resolved_type.?.Object.fields.put(
+                self.gc.allocator,
                 method_name,
                 .{
                     .name = method_name,
@@ -6904,6 +6910,7 @@ fn objectDeclaration(self: *Self) Error!Ast.Node.Index {
             }
 
             try object_type.resolved_type.?.Object.fields.put(
+                self.gc.allocator,
                 property_name.lexeme,
                 .{
                     .name = property_name.lexeme,
@@ -7030,7 +7037,6 @@ fn protocolDeclaration(self: *Self) Error!Ast.Node.Index {
         .def_type = .Protocol,
         .resolved_type = .{
             .Protocol = obj.ObjObject.ProtocolDef.init(
-                self.gc.allocator,
                 self.ast.tokens.get(protocol_name),
                 try self.gc.copyString(self.ast.tokens.items(.lexeme)[protocol_name]),
                 try self.gc.copyString(qualified_protocol_name.items),
@@ -7060,7 +7066,6 @@ fn protocolDeclaration(self: *Self) Error!Ast.Node.Index {
         const method_node = try self.method(
             true,
             try protocol_placeholder.toInstance(
-                self.gc.allocator,
                 &self.gc.type_registry,
                 mutable,
             ),
@@ -7076,6 +7081,7 @@ fn protocolDeclaration(self: *Self) Error!Ast.Node.Index {
         }
 
         try protocol_type.resolved_type.?.Protocol.methods.put(
+            self.gc.allocator,
             method_name,
             .{
                 .type_def = method_type_def.?,
@@ -7085,6 +7091,7 @@ fn protocolDeclaration(self: *Self) Error!Ast.Node.Index {
 
         // FIXME: we should not need this, the VM has a reference to the AST
         try protocol_type.resolved_type.?.Protocol.methods_locations.put(
+            self.gc.allocator,
             method_name,
             self.ast.tokens.get(method_name_token),
         );
@@ -7151,7 +7158,6 @@ fn enumDeclaration(self: *Self) Error!Ast.Node.Index {
 
     const enum_case_type = if (enum_case_type_node) |enum_type|
         try self.ast.nodes.items(.type_def)[enum_type].?.toInstance(
-            self.gc.allocator,
             &self.gc.type_registry,
             false,
         )
@@ -7173,10 +7179,10 @@ fn enumDeclaration(self: *Self) Error!Ast.Node.Index {
     );
 
     const enum_def = obj.ObjEnum.EnumDef.init(
-        self.gc.allocator,
         try self.gc.copyString(enum_name_lexeme),
         try self.gc.copyString(qualified_name.items),
         enum_case_type,
+        undefined,
     );
 
     const enum_resolved = obj.ObjTypeDef.TypeUnion{ .Enum = enum_def };
@@ -7201,6 +7207,8 @@ fn enumDeclaration(self: *Self) Error!Ast.Node.Index {
 
     var cases = std.ArrayList(Ast.Enum.Case).init(self.gc.allocator);
     defer cases.shrinkAndFree(cases.items.len);
+    var def_cases = std.ArrayList([]const u8).init(self.gc.allocator);
+    defer def_cases.shrinkAndFree(def_cases.items.len);
     var picked = std.ArrayList(bool).init(self.gc.allocator);
     var case_index: i32 = 0;
     while (!self.check(.RightBrace) and !self.check(.Eof)) : (case_index += 1) {
@@ -7270,12 +7278,14 @@ fn enumDeclaration(self: *Self) Error!Ast.Node.Index {
             try picked.append(false);
         }
 
-        try enum_type.resolved_type.?.Enum.cases.append(case_name);
+        try def_cases.append(case_name);
 
         if (!self.check(.RightBrace)) {
             try self.consume(.Comma, "Expected `,` after case definition.");
         }
     }
+
+    enum_type.resolved_type.?.Enum.cases = def_cases.items;
 
     try self.consume(.RightBrace, "Expected `}` after enum body.");
 
@@ -7350,7 +7360,6 @@ fn varDeclaration(
 ) Error!Ast.Node.Index {
     var var_type = if (parsed_type) |ptype|
         try self.ast.nodes.items(.type_def)[ptype].?.toInstance(
-            self.gc.allocator,
             &self.gc.type_registry,
             self.ast.nodes.items(.type_def)[ptype].?.isMutable(), // ???
         )
@@ -7386,7 +7395,12 @@ fn varDeclaration(
     }
 
     if (var_type.def_type == .Placeholder and value != null and value_type_def != null and value_type_def.?.def_type == .Placeholder) {
-        try obj.PlaceholderDef.link(var_type, value_type_def.?, .Assignment);
+        try obj.PlaceholderDef.link(
+            self.gc.allocator,
+            var_type,
+            value_type_def.?,
+            .Assignment,
+        );
     }
 
     if (parsed_type == null and value != null and value_type_def != null) {
@@ -7459,7 +7473,6 @@ fn implicitVarDeclaration(
     mutable: bool,
 ) Error!Ast.Node.Index {
     const var_type = try parsed_type.toInstance(
-        self.gc.allocator,
         &self.gc.type_registry,
         mutable,
     );
@@ -8392,7 +8405,6 @@ fn userVarDeclaration(self: *Self, identifier: Ast.TokenIndex, final: bool, muta
                 .resolved_type = .{
                     // TODO: token is wrong but what else can we put here?
                     .Placeholder = obj.PlaceholderDef.init(
-                        self.gc.allocator,
                         user_type_name[user_type_name.len - 1],
                         mutable,
                     ),
@@ -8468,7 +8480,6 @@ fn userVarDeclaration(self: *Self, identifier: Ast.TokenIndex, final: bool, muta
     } else null;
 
     var_type = try var_type.?.toInstance(
-        self.gc.allocator,
         &self.gc.type_registry,
         mutable,
     );
@@ -8682,7 +8693,6 @@ fn forEachStatement(self: *Self) Error!Ast.Node.Index {
                     .def_type = .Placeholder,
                     .resolved_type = .{
                         .Placeholder = obj.PlaceholderDef.init(
-                            self.gc.allocator,
                             self.ast.nodes.items(.location)[if (key_omitted) iterable else key],
                             null,
                         ),
@@ -8691,6 +8701,7 @@ fn forEachStatement(self: *Self) Error!Ast.Node.Index {
             );
 
             try obj.PlaceholderDef.link(
+                self.gc.allocator,
                 iterable_type_def,
                 placeholder,
                 .Key,
@@ -8711,7 +8722,7 @@ fn forEachStatement(self: *Self) Error!Ast.Node.Index {
         .Range => self.gc.type_registry.int_type,
         .String => self.gc.type_registry.str_type,
         .Map => iterable_type_def.resolved_type.?.Map.value_type,
-        .Enum => try iterable_type_def.toInstance(self.gc.allocator, &self.gc.type_registry, false),
+        .Enum => try iterable_type_def.toInstance(&self.gc.type_registry, false),
         .Fiber => iterable_type_def.resolved_type.?.Fiber.yield_type,
         .Placeholder => placeholder: {
             const placeholder = try self.gc.type_registry.getTypeDef(
@@ -8719,7 +8730,6 @@ fn forEachStatement(self: *Self) Error!Ast.Node.Index {
                     .def_type = .Placeholder,
                     .resolved_type = .{
                         .Placeholder = obj.PlaceholderDef.init(
-                            self.gc.allocator,
                             self.ast.nodes.items(.location)[value.?],
                             null,
                         ),
@@ -8728,6 +8738,7 @@ fn forEachStatement(self: *Self) Error!Ast.Node.Index {
             );
 
             try obj.PlaceholderDef.link(
+                self.gc.allocator,
                 iterable_type_def,
                 placeholder,
                 .UnwrappedSubscript,

@@ -118,7 +118,7 @@ pub const Fiber = struct {
     instruction: u32,
     extra_instruction: ?u32,
 
-    frames: std.ArrayList(CallFrame),
+    frames: std.ArrayListUnmanaged(CallFrame),
     // FIXME: this is useless since we actually pop items from the frames list
     frame_count: usize = 0,
     recursive_count: u32 = 0,
@@ -151,7 +151,7 @@ pub const Fiber = struct {
             .parent_fiber = parent_fiber,
             .stack = try allocator.alloc(Value, BuildOptions.stack_size),
             .stack_top = undefined,
-            .frames = std.ArrayList(CallFrame).init(allocator),
+            .frames = std.ArrayListUnmanaged(CallFrame){},
             .open_upvalues = null,
             .instruction = instruction,
             .extra_instruction = extra_instruction,
@@ -171,7 +171,7 @@ pub const Fiber = struct {
     pub fn deinit(self: *Self) void {
         self.allocator.free(self.stack);
 
-        self.frames.deinit();
+        self.frames.deinit(self.allocator);
     }
 
     // FIXME: we replicate here what opcodes do, would be easier to call the opcodes themselves but they assume
@@ -489,7 +489,6 @@ pub const VM = struct {
                         .optional = false,
                         .resolved_type = .{
                             .List = ObjList.ListDef.init(
-                                self.gc.allocator,
                                 self.gc.type_registry.str_type,
                                 false,
                             ),
@@ -4761,7 +4760,7 @@ pub const VM = struct {
         };
 
         if (self.current_fiber.frames.items.len <= self.current_fiber.frame_count) {
-            try self.current_fiber.frames.append(frame);
+            try self.current_fiber.frames.append(self.gc.allocator, frame);
         } else {
             self.current_fiber.frames.items[self.current_fiber.frame_count] = frame;
         }

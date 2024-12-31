@@ -13,7 +13,6 @@ pub fn toList(ctx: *obj.NativeCtx) c_int {
                     .def_type = .List,
                     .resolved_type = .{
                         .List = obj.ObjList.ListDef.init(
-                            ctx.vm.gc.allocator,
                             ctx.vm.gc.type_registry.int_type,
                             false,
                         ),

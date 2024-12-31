@@ -1824,12 +1824,11 @@ fn generateEnum(self: *Self, node: Ast.Node.Index, _: ?*Breaks) Error!?*obj.ObjF
         if (case_type_def) |case_type| {
             if (case_type.def_type == .Placeholder) {
                 self.reporter.reportPlaceholder(self.ast, case_type.resolved_type.?.Placeholder);
-            } else if (!((try enum_type.toInstance(self.gc.allocator, &self.gc.type_registry, false))).eql(case_type)) {
+            } else if (!((try enum_type.toInstance(&self.gc.type_registry, false))).eql(case_type)) {
                 self.reporter.reportTypeCheck(
                     .enum_case_type,
                     self.ast.tokens.get(locations[node]),
                     (try enum_type.toInstance(
-                        self.gc.allocator,
                         &self.gc.type_registry,
                         false,
                     )),
@@ -2149,7 +2148,6 @@ fn generateForEach(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*
             },
             .Enum => {
                 const iterable_type = try iterable_type_def.toInstance(
-                    self.gc.allocator,
                     &self.gc.type_registry,
                     false,
                 );
@@ -2166,7 +2164,6 @@ fn generateForEach(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*
             },
             .Fiber => {
                 const iterable_type = try iterable_type_def.resolved_type.?.Fiber.yield_type.toInstance(
-                    self.gc.allocator,
                     &self.gc.type_registry,
                     false,
                 );
@@ -4025,13 +4022,13 @@ fn generateVarDeclaration(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) E
             self.reporter.reportPlaceholder(self.ast, value_type_def.?.resolved_type.?.Placeholder);
         } else if (type_def.def_type == .Placeholder) {
             self.reporter.reportPlaceholder(self.ast, type_def.resolved_type.?.Placeholder);
-        } else if (!(try type_def.toInstance(self.gc.allocator, &self.gc.type_registry, type_def.isMutable())).eql(value_type_def.?) and
-            !(try (try type_def.toInstance(self.gc.allocator, &self.gc.type_registry, type_def.isMutable())).cloneNonOptional(&self.gc.type_registry)).eql(value_type_def.?))
+        } else if (!(try type_def.toInstance(&self.gc.type_registry, type_def.isMutable())).eql(value_type_def.?) and
+            !(try (try type_def.toInstance(&self.gc.type_registry, type_def.isMutable())).cloneNonOptional(&self.gc.type_registry)).eql(value_type_def.?))
         {
             self.reporter.reportTypeCheck(
                 .assignment_value_type,
                 self.ast.tokens.get(location),
-                try type_def.toInstance(self.gc.allocator, &self.gc.type_registry, type_def.isMutable()),
+                try type_def.toInstance(&self.gc.type_registry, type_def.isMutable()),
                 self.ast.tokens.get(locations[value]),
                 value_type_def.?,
                 "Wrong variable type",
