@@ -1091,7 +1091,7 @@ fn generateCall(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj
     // First push on the stack arguments has they are parsed
     var needs_reorder = false;
     for (components.arguments, 0..) |argument, index| {
-        const argument_type_def = type_defs[argument.value].?;
+        var argument_type_def = type_defs[argument.value].?;
         const arg_key = if (argument.name) |arg_name|
             try self.gc.copyString(lexemes[arg_name])
         else
@@ -1109,6 +1109,9 @@ fn generateCall(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj
 
         // Type check the argument
         if (def_arg_type) |arg_type| {
+            self.populateEmptyCollectionType(argument.value, arg_type);
+            argument_type_def = type_defs[argument.value].?;
+
             if (argument_type_def.def_type == .Placeholder) {
                 self.reporter.reportPlaceholder(self.ast, argument_type_def.resolved_type.?.Placeholder);
             } else if (!arg_type.eql(argument_type_def)) {
@@ -1513,7 +1516,7 @@ fn generateDot(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.
             switch (components.member_kind) {
                 .Value => {
                     const value = components.value_or_call_or_enum.Value;
-                    const value_type_def = type_defs[value].?;
+                    var value_type_def = type_defs[value].?;
                     if (value_type_def.def_type == .Placeholder) {
                         self.reporter.reportPlaceholder(self.ast, value_type_def.resolved_type.?.Placeholder);
                     }
@@ -1570,6 +1573,9 @@ fn generateDot(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.
                                     "declared here",
                                 );
                             }
+
+                            self.populateEmptyCollectionType(value, field.?.type_def);
+                            value_type_def = type_defs[value].?;
 
                             if (!field.?.type_def.eql(value_type_def)) {
                                 self.reporter.reportTypeCheck(
@@ -3011,7 +3017,9 @@ fn generateObjectDeclaration(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks
                                 self.ast,
                                 type_defs[member.method_or_default_value.?].?.resolved_type.?.Placeholder,
                             );
-                        } else if (!mkv.value_ptr.*.type_def.eql(type_defs[member.method_or_default_value.?].?)) {
+                        } else if (!mkv.value_ptr.*.type_def.eql(type_defs[member.method_or_default_value.?].?) or
+                            mkv.value_ptr.*.mutable != object_def.fields.get(mkv.key_ptr.*).?.mutable)
+                        {
                             self.reporter.reportTypeCheck(
                                 .protocol_conforming,
                                 protocol_def.location,
@@ -3114,7 +3122,9 @@ fn generateObjectDeclaration(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks
 
             // Create property default value
             if (member.method_or_default_value) |default| {
+                self.populateEmptyCollectionType(default, property_type);
                 const default_type_def = type_defs[default].?;
+
                 if (default_type_def.def_type == .Placeholder) {
                     self.reporter.reportPlaceholder(self.ast, default_type_def.resolved_type.?.Placeholder);
                 } else if (!property_type.eql(default_type_def)) {
@@ -3232,10 +3242,11 @@ fn generateObjectInit(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error
             node_type_def.resolved_type.?.ForeignContainer
                 .fields.getIndex(property_name);
 
-        const value_type_def = type_defs[property.value].?;
-
         if (fields.get(property_name)) |prop| {
             try self.OP_COPY(location, 0); // Will be popped by OP_SET_PROPERTY
+
+            self.populateEmptyCollectionType(property.value, prop);
+            const value_type_def = type_defs[property.value].?;
 
             if (value_type_def.def_type == .Placeholder) {
                 self.reporter.reportPlaceholder(self.ast, value_type_def.resolved_type.?.Placeholder);
@@ -4217,6 +4228,30 @@ fn generateZdef(self: *Self, node: Ast.Node.Index, _: ?*Breaks) Error!?*obj.ObjF
     try self.endScope(node);
 
     return null;
+}
+
+pub fn populateEmptyCollectionType(self: *Self, value: Ast.Node.Index, target_type: *obj.ObjTypeDef) void {
+    const tags = self.ast.nodes.items(.tag);
+    const components = self.ast.nodes.items(.components);
+
+    // variable: [T] = [<any>] -> variable: [T] = [<T>];
+    if (target_type.def_type == .List and
+        tags[value] == .List and
+        components[value].List.explicit_item_type == null and
+        components[value].List.items.len == 0)
+    {
+        self.ast.nodes.items(.type_def)[value] = target_type;
+    }
+
+    // variable: {K: V} = {<any: any>} -> variable: {K: V} = [<K: V>];
+    if (target_type.def_type == .Map and
+        tags[value] == .Map and
+        components[value].Map.explicit_key_type == null and
+        components[value].Map.explicit_value_type == null and
+        components[value].Map.entries.len == 0)
+    {
+        self.ast.nodes.items(.type_def)[value] = target_type;
+    }
 }
 
 fn OP_SWAP(self: *Self, location: Ast.TokenIndex, slotA: u24, slotB: u24) !void {

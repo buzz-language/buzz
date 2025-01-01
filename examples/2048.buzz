@@ -41,7 +41,7 @@ object Pair {
 }
 
 object Game {
-    board: [[int]] = [<[int]>],
+    board: [[int]] = [],
     size: int = 4,
     goal: int = 2048,
     score: int = 0,
@@ -54,7 +54,7 @@ object Game {
         };
 
         foreach (x in 0..game.size) {
-            game.board.append([<int>]);
+            game.board.append([]);
 
             foreach (_ in 0..game.size) {
                 game.board[x].append(0);
@@ -91,7 +91,7 @@ object Game {
 
     // Return list of free spots
     fun freeSpots() > [obj{ x: int, y: int }] {
-        var spots = [<obj{ x: int, y: int }>];
+        var spots: [obj{ x: int, y: int }] = [];
 
         foreach (x, row in this.board) {
             foreach (y, value in row) {
@@ -154,7 +154,7 @@ object Game {
     }
 
     fun iterate(axis: bool, direction: int) > [Pair] {
-        var result = [<Pair>];
+        var result: [Pair] = [];
 
         foreach (x in 0..this.size) {
             foreach (y in 0..this.size) {

@@ -207,7 +207,7 @@ export object Request {
     request: ud? = null,
     response: Response? = null,
     method: Method,
-    headers: {str: str}  = {<str str>},
+    headers: {str: str}  = {},
     uri: str = "/",
     body: str? = null,
     collected: bool = false,
@@ -261,7 +261,7 @@ export object Request {
 // Don't change proeprties order
 export object Response {
     status: int = 200,
-    headers: {str: str} = {<str: str>},
+    headers: {str: str} = {},
     body: str? = null,
 
     fun toString() > str {

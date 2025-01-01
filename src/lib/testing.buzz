@@ -62,8 +62,8 @@ export fun oncyan(text: str) => color(text, color: Color.oncyan);
 export fun onwhite(text: str) => color(text, color: Color.onwhite);
 
 export object Tester {
-    tests: mut [bool] = mut [<bool>],
-    asserts: mut [bool] = mut [<bool>],
+    tests: mut [bool] = mut [],
+    asserts: mut [bool] = mut [],
     elapsed: double = 0.0,
     beforeAll: fun (t: Tester) > void?,
     beforeEach: fun (t: Tester) > void?,
@@ -91,8 +91,8 @@ export object Tester {
     }
 
     mut fun reset() > void {
-        this.tests = mut [<bool>];
-        this.asserts = mut [<bool>];
+        this.tests = mut [];
+        this.asserts = mut [];
         this.elapsed = 0.0;
     }
 

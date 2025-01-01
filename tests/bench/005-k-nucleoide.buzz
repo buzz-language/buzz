@@ -4,7 +4,7 @@ import "errors";
 
 fun readSequence() > str !> errors\ReadWriteError, errors\FileSystemError, errors\UnexpectedError {
     var skippedIgnoredSequences = false;
-    final lines = [<str>];
+    final lines: [str] = [];
     for (line: str? = ""; line != null; line = io\stdin.readLine()) { // catch null doesn't work
         if (!skippedIgnoredSequences) {
             if (line?.startsWith(">THREE") ?? true) {
@@ -32,7 +32,7 @@ fun kfrequency(sequence: str, frequency: {str: int}, k: int, frame: int) > void 
 
 fun count(sequence: str, fragment: str) > void {
     final k = fragment.len();
-    final frequency = {<str: int>};
+    final frequency: {str: int} = {};
     for (frame: int = 0; frame < k; frame = frame + 1) {
         kfrequency(sequence, frequency: frequency, k: k, frame: frame);
     }
@@ -40,7 +40,7 @@ fun count(sequence: str, fragment: str) > void {
 }
 
 fun frequency(sequence: str, k: int) > void {
-    final frequency = {<str: int>};
+    final frequency: {str: int} = {};
     for (frame: int = 0; frame < k; frame = frame + 1) {
         kfrequency(sequence, frequency: frequency, k: k, frame: frame);
     }

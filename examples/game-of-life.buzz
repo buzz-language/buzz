@@ -12,7 +12,7 @@ object World {
         var world = World{
             width ,
             height,
-            cells = [<bool>],
+            cells = [],
         };
 
         for (i: int = 0; i < width * height; i = i + 1) {
@@ -36,7 +36,7 @@ object World {
     }
 
     fun step() > void {
-        var cells = [<bool>];
+        var cells = [];
         for (y: int = 0; y < this.height; y = y + 1) {
             for (x: int = 0; x < this.width; x = x + 1) {
                 final coordinate = y * this.width + x;

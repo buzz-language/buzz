@@ -78,7 +78,7 @@ fun main(_: [str]) > void !> SDLError {
 
     var canvas: [[bool]] = [];
     foreach (i in 0..sizeX) {
-        canvas.append([<bool>]);
+        canvas.append([]);
 
         foreach (_ in 0..sizeY) {
             canvas[i].append(false);

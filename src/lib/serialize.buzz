@@ -36,7 +36,7 @@ export object Boxed {
     /// When wrapped data is an object, object property values are themselves wrapped in a `Boxed`
     fun map() > {str: Boxed}? {
         if (this.data as? {str: any} -> dataMap) {
-            var boxedMap = mut {<str: Boxed>};
+            var boxedMap: mut {str: Boxed} = mut {};
 
             foreach (key, value in dataMap) {
                 boxedMap[key] = Boxed{ data = value };
@@ -51,7 +51,7 @@ export object Boxed {
     /// When wrapped data is a list, list elements are themselves warpped in a `Boxed`
     fun list() > [Boxed]? {
         if (this.data as? [any] -> dataList) {
-            var boxedList = mut [<Boxed>];
+            var boxedList: mut [Boxed] = mut [];
 
             foreach (element in dataList) {
                 boxedList.append(Boxed{ data = element });
@@ -196,7 +196,7 @@ object JsonParser {
     }
 
     mut fun array() > [any] !> JsonParseError, buffer\WriteWhileReadingError {
-        var array = mut [<any>];
+        var array: mut [any] = mut [];
 
         while (true) {
             this.skipWhitespaces();
@@ -220,7 +220,7 @@ object JsonParser {
     }
 
     mut fun map() > {str: any} !> JsonParseError, buffer\WriteWhileReadingError {
-        var map = mut {<str: any>};
+        var map: mut {str: any} = mut {};
 
         while (true) {
             this.skipWhitespaces();

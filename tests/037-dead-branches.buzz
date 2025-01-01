@@ -9,7 +9,7 @@ test "if" {
 }
 
 test "foreach" {
-    foreach (_ in {<str: str>}) {
+    foreach (_ in {}) {
         std\assert(false, message: "unreachable");
     }
 }
