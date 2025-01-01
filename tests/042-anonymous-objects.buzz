@@ -51,7 +51,7 @@ object A {
 
     fun free() > void {
         foreach (x, y in this.board) {
-            var board = mut [<obj{ x: int }>];
+            var board: mut [obj{ x: int }] = mut [];
             
             board.append(.{ x = x });
         }

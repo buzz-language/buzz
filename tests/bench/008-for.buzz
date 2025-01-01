@@ -1,7 +1,7 @@
 import "std";
 
 fun main(_: [str]) > void {
-    final list = [<int>];
+    final list: [int] = [];
 
     foreach (i in 0..1_000_000) {
         list.append(i);

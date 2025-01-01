@@ -13,7 +13,7 @@ fun main(args: [str]) > void {
 }
 
 fun init(max: int) > [int] {
-    final list = [<int>];
+    final list: [int] = [];
     final f = max - 13;
     final h = ((max - 117) * (max - 13)) / max;
 

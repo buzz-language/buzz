@@ -156,7 +156,7 @@ export object Statement {
         std\print("Executing query `{this.query}`");
         var code: ResultCode = ResultCode.Ok;
 
-        final rows = [<[Boxed]>];
+        final rows: [[Boxed]] = [];
         while (code != ResultCode.Done) {
             code = ResultCode(sqlite3_step(this.stmt)) ?? ResultCode.Error;
             if (code != ResultCode.Ok and code != ResultCode.Row and code != ResultCode.Done) {
@@ -171,7 +171,7 @@ export object Statement {
             }
 
             final columnCount = sqlite3_column_count(this.stmt);
-            var row = [<any>];
+            var row: [any] = [];
             for (i: int = 0; i < columnCount; i = i + 1) {
                 final columnType = Type(sqlite3_column_type(this.stmt, col: i)) ?? Type.Null;
 

@@ -13,9 +13,9 @@ fun hypot(x: int, y: int) > int {
 }
 
 fun generateVoronoi(renderer: Renderer, width: int, height: int, numCells: int) > void !> SDLError {
-    var nx = [<int>];
-    var ny = [<int>];
-    var colors = [<Color>];
+    var nx: [int] = [];
+    var ny: [int] = [];
+    var colors: [Color] = [];
 
     foreach (_ in 0..numCells) {
         nx.append(std\random(min: 0, max: width));

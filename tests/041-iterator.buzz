@@ -25,7 +25,7 @@ test "finobacci generator" {
 
 object Hello {
     fun getRange() > [int] *> int? {
-        var list = mut [<int>];
+        var list: mut [int] = mut [];
         foreach (i in 0..10) {
             _ = yield i;
 

@@ -34,9 +34,9 @@ fun AtAv(x: [double], y: [double], t: [double], N: int) > void {
 fun main(args: [str]) > void {
     final N = std\parseInt(args[?0] ?? "100") ?? 100;
 
-    final u = [<double>];
-    final v = [<double>];
-    final t = [<double>];
+    final u: [double] = [];
+    final v: [double] = [];
+    final t: [double] = [];
     foreach (_ in 0..N) {
         u.append(1.0);
         v.append(0.0);

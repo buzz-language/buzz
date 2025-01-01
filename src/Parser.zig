@@ -4619,8 +4619,10 @@ fn dot(self: *Self, can_assign: bool, callee: Ast.Node.Index) Error!Ast.Node.Ind
                 var components = self.ast.nodes.items(.components);
                 if (can_assign and try self.match(.Equal)) {
                     components[dot_node].Dot.member_kind = .Value;
+                    const value = try self.expression(false);
+                    components = self.ast.nodes.items(.components);
                     components[dot_node].Dot.value_or_call_or_enum = .{
-                        .Value = try self.expression(false),
+                        .Value = value,
                     };
                     self.ast.nodes.items(.type_def)[dot_node] = property_type;
                 } else if (try self.match(.LeftParen)) { // Do we call it
@@ -4672,7 +4674,10 @@ fn dot(self: *Self, can_assign: bool, callee: Ast.Node.Index) Error!Ast.Node.Ind
                 const obj_def = object.resolved_type.?.Object;
 
                 const property_field = obj_def.fields.get(member_name);
-                var property_type = (if (property_field) |field| field.type_def else null) orelse obj_def.placeholders.get(member_name);
+                var property_type = (if (property_field) |field|
+                    field.type_def
+                else
+                    null) orelse obj_def.placeholders.get(member_name);
 
                 // Else create placeholder
                 if (property_type == null and self.current_object != null and std.mem.eql(u8, self.current_object.?.name.lexeme, obj_def.name.string)) {
@@ -4736,6 +4741,7 @@ fn dot(self: *Self, can_assign: bool, callee: Ast.Node.Index) Error!Ast.Node.Ind
                     components[dot_node].Dot.value_or_call_or_enum = .{
                         .Value = expr,
                     };
+
                     self.ast.nodes.items(.type_def)[dot_node] = property_type;
                 } else if (try self.match(.LeftParen)) { // If it's a method or placeholder we can call it
                     // `call` will look to the parent node for the function definition
@@ -7424,13 +7430,24 @@ fn varDeclaration(
         const components = self.ast.nodes.items(.components);
         const parsed_type_def = if (parsed_type) |pt| self.ast.nodes.items(.type_def)[pt] else null;
 
-        // [T] variable = [] -> [T] variable = [<T>];
-        if (parsed_type_def != null and parsed_type_def.?.def_type == .List and tags[uvalue] == .List and components[uvalue].List.explicit_item_type == null and components[uvalue].List.items.len == 0) {
+        // var variable: [T] = [<any>] -> var variable: [T] = [<T>];
+        if (parsed_type_def != null and
+            parsed_type_def.?.def_type == .List and
+            tags[uvalue] == .List and
+            components[uvalue].List.explicit_item_type == null and
+            components[uvalue].List.items.len == 0)
+        {
             self.ast.nodes.items(.type_def)[uvalue] = parsed_type_def.?;
         }
 
-        // {K: V} variable = {} -> {K: V} variable = [<K: V>];
-        if (parsed_type_def != null and parsed_type_def.?.def_type == .Map and tags[uvalue] == .Map and components[uvalue].Map.explicit_key_type == null and components[uvalue].Map.explicit_value_type == null and components[uvalue].Map.entries.len == 0) {
+        // var variable: {K: V} = {<any: any>} -> var variable: {K: V} = [<K: V>];
+        if (parsed_type_def != null and
+            parsed_type_def.?.def_type == .Map and
+            tags[uvalue] == .Map and
+            components[uvalue].Map.explicit_key_type == null and
+            components[uvalue].Map.explicit_value_type == null and
+            components[uvalue].Map.entries.len == 0)
+        {
             self.ast.nodes.items(.type_def)[uvalue] = parsed_type_def.?;
         }
     }

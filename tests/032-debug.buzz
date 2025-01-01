@@ -39,7 +39,7 @@ object MyObject {
         return MyObject{
             name = name,
             age = age,
-            data = Data{ data = [<int>] },
+            data = Data{ data = [] },
         };
     }
 }
