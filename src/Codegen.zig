@@ -3193,6 +3193,8 @@ fn generateObjectInit(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error
             self.ast.tokens.get(location),
             "Expected object or foreign struct.",
         );
+
+        return null;
     }
 
     try self.emitOpCode(
