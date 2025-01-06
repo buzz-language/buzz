@@ -124,27 +124,13 @@ const crypto_api = if (is_wasm) std.StaticStringMap(buzz_api.NativeFn).initCompt
 const libs = if (is_wasm)
     std.StaticStringMap(std.StaticStringMap(buzz_api.NativeFn)).initComptime(
         .{
-            .{
-                "std", std_api,
-            },
-            .{
-                "gc", gc_api,
-            },
-            .{
-                "math", math_api,
-            },
-            .{
-                "buffer", buffer_api,
-            },
-            .{
-                "debug", debug_api,
-            },
-            .{
-                "serialize", serialize_api,
-            },
-            .{
-                "crypto", crypto_api,
-            },
+            .{ "std", std_api },
+            .{ "gc", gc_api },
+            .{ "math", math_api },
+            .{ "buffer", buffer_api },
+            .{ "debug", debug_api },
+            .{ "serialize", serialize_api },
+            .{ "crypto", crypto_api },
         },
     )
 else
