@@ -38,7 +38,7 @@ pub fn init(allocator: Allocator, script_name: []const u8, source: []const u8) S
     };
 }
 
-pub fn scanToken(self: *Self) !Token {
+pub fn scanToken(self: *Self) Allocator.Error!Token {
     self.skipWhitespaces();
 
     self.current.start = self.current.offset;
@@ -50,8 +50,8 @@ pub fn scanToken(self: *Self) !Token {
     }
 
     const char: u8 = self.advance();
-    return try switch (char) {
-        'a'...'z', 'A'...'Z' => try self.identifier(),
+    return switch (char) {
+        'a'...'z', 'A'...'Z' => self.identifier(),
         '_' => self.makeToken(
             .Identifier,
             self.source[self.current.start..self.current.offset],
@@ -63,8 +63,8 @@ pub fn scanToken(self: *Self) !Token {
         else if (self.match('b'))
             self.binary()
         else
-            try self.number(),
-        '1'...'9' => try self.number(),
+            self.number(),
+        '1'...'9' => self.number(),
 
         '[' => self.makeToken(.LeftBracket, null, null, null),
         ']' => self.makeToken(.RightBracket, null, null, null),
@@ -130,11 +130,11 @@ pub fn scanToken(self: *Self) !Token {
                 null,
                 null,
             ),
-        '"' => try self.string(false),
-        '`' => try self.string(true),
+        '"' => self.string(false),
+        '`' => self.string(true),
         '\'' => self.byte(),
-        '@' => try self.atIdentifier(),
-        '$' => try self.pattern(),
+        '@' => self.atIdentifier(),
+        '$' => self.pattern(),
         '\\' => self.makeToken(.AntiSlash, null, null, null),
 
         else => self.makeToken(
@@ -231,7 +231,7 @@ fn docblock(self: *Self) !Token {
     return self.makeToken(.Docblock, std.mem.trim(u8, block.items, " "), null, null);
 }
 
-fn atIdentifier(self: *Self) !Token {
+fn atIdentifier(self: *Self) Token {
     self.current.start = self.current.offset;
     self.current.start_line = self.current.line;
     self.current.start_column = self.current.column;
@@ -240,7 +240,7 @@ fn atIdentifier(self: *Self) !Token {
         return self.makeToken(.Error, "Unterminated identifier.", null, null);
     }
 
-    const string_token = try self.string(false);
+    const string_token = self.string(false);
 
     self.token_index += 1;
     return .{
@@ -257,7 +257,7 @@ fn atIdentifier(self: *Self) !Token {
     };
 }
 
-fn identifier(self: *Self) !Token {
+fn identifier(self: *Self) Token {
     while (isLetter(self.peek()) or isNumber(self.peek()) or self.peek() == '_') {
         _ = self.advance();
     }
@@ -276,7 +276,7 @@ fn identifier(self: *Self) !Token {
     }
 }
 
-fn number(self: *Self) !Token {
+fn number(self: *Self) Token {
     var peeked: u8 = self.peek();
     while (isNumber(peeked) or peeked == '_') {
         _ = self.advance();
@@ -436,7 +436,7 @@ fn hexa(self: *Self) Token {
     );
 }
 
-fn pattern(self: *Self) !Token {
+fn pattern(self: *Self) Token {
     if (self.advance() != '"') {
         return self.makeToken(.Error, "Unterminated pattern.", null, null);
     }
@@ -469,7 +469,7 @@ fn pattern(self: *Self) !Token {
     );
 }
 
-fn string(self: *Self, multiline: bool) !Token {
+fn string(self: *Self, multiline: bool) Token {
     const delimiter: u8 = if (multiline) '`' else '"';
     var in_interp: bool = false;
     var interp_depth: usize = 0;
