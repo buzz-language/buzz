@@ -76,7 +76,7 @@ extern fun HttpRequestRead(request: ud) > Response !> HttpError;
 /// @private
 extern fun HttpRequestDeinit(request: ud) > void;
 
-final {int: str} reasons = {
+final reasons = {
     100: "Continue",
     101: "Switching Protocols",
     102: "Processing",
@@ -167,7 +167,7 @@ export object Client {
         };
     }
 
-    fun send(request: Request) > Response *> void !> HttpError, errors\InvalidArgumentError, HttpParseError {
+    fun send(request: mut Request) > Response *> void !> HttpError, errors\InvalidArgumentError, HttpParseError {
         _ = this.start(request);
 
         yield void;
@@ -175,7 +175,7 @@ export object Client {
         return request.wait();
     }
 
-    fun start(request: Request) > Request !> HttpError {
+    fun start(request: mut Request) > mut Request !> HttpError {
         if (this.collected) {
             throw HttpError.ClientCollected;
         }
@@ -194,7 +194,7 @@ export object Client {
         return request;
     }
 
-    fun collect() > void {
+    mut fun collect() > void {
         if (!this.collected) {
             this.collected = true;
 
@@ -212,7 +212,7 @@ export object Request {
     body: str? = null,
     collected: bool = false,
 
-    fun wait() > Response !> HttpError, errors\InvalidArgumentError, HttpParseError {
+    mut fun wait() > Response !> HttpError, errors\InvalidArgumentError, HttpParseError {
         if (this.collected) {
             throw HttpError.RequestCollected;
         }
@@ -245,7 +245,7 @@ export object Request {
             var result = buffer\Buffer.init();
 
             result.write("{this.method.value} {this.uri} HTTP/1.1\r\n");
-            foreach (str key, str value in this.headers) {
+            foreach (key, value in this.headers) {
                 result.write("{key}: {value}\r\n");
             }
 
@@ -269,7 +269,7 @@ export object Response {
             var result = buffer\Buffer.init();
 
             result.write("HTTP/1.1 {this.status} {reasons[this.status]}\r\n");
-            foreach (str key, str value in this.headers) {
+            foreach (key, value in this.headers) {
                 result.write("{key}: {value}\r\n");
             }
 

@@ -6,7 +6,7 @@ import "serialize";
 fun main(_: [str]) > void !> any {
     final client = http\Client.init();
 
-    final request = http\Request{
+    final request = mut http\Request{
         method = http\Method.GET,
         headers = {
             "accept": "*/*",
