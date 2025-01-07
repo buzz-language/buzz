@@ -1499,7 +1499,7 @@ fn statement(self: *Self, hanging: bool, loop_scope: ?LoopScope) !?Ast.Node.Inde
 }
 
 fn addLocal(self: *Self, name: Ast.TokenIndex, local_type: *obj.ObjTypeDef, final: bool, mutable: bool) Error!usize {
-    if (self.current.?.local_count == 255) {
+    if (self.current.?.local_count == std.math.maxInt(u8)) {
         self.reportError(.locals_count, "Too many local variables in scope.");
         return 0;
     }
@@ -2163,7 +2163,7 @@ fn addUpvalue(self: *Self, frame: *Frame, index: usize, is_local: bool) Error!us
         }
     }
 
-    if (upvalue_count == 255) {
+    if (upvalue_count == std.math.maxInt(u8)) {
         self.reportError(.closures_count, "Too many closure variables in function.");
         return 0;
     }
@@ -3787,7 +3787,7 @@ fn argumentList(self: *Self) ![]Ast.Call.Argument {
             },
         );
 
-        if (arg_count == 255) {
+        if (arg_count == std.math.maxInt(u8)) {
             self.reportError(.arguments_count, "Can't have more than 255 arguments.");
 
             return arguments.items;
@@ -6579,7 +6579,7 @@ fn objectDeclaration(self: *Self) Error!Ast.Node.Index {
     var protocol_count: usize = 0;
     if (try self.match(.Less)) {
         while (!self.check(.Greater) and !self.check(.Eof)) : (protocol_count += 1) {
-            if (protocol_count > 255) {
+            if (protocol_count > std.math.maxInt(u8)) {
                 self.reportError(.protocols_count, "Can't conform to more than 255 protocols");
             }
 
@@ -7204,7 +7204,7 @@ fn enumDeclaration(self: *Self) Error!Ast.Node.Index {
     var picked = std.ArrayList(bool).init(self.gc.allocator);
     var case_index: i32 = 0;
     while (!self.check(.RightBrace) and !self.check(.Eof)) : (case_index += 1) {
-        if (case_index > 255) {
+        if (case_index > std.math.maxInt(u8)) {
             self.reportError(.enum_cases_count, "Too many enum cases.");
         }
 
@@ -7914,6 +7914,8 @@ fn importScript(
         parser.current_token = self.current_token;
         const token_before_import = self.ast.tokens.get(self.current_token.?);
         const previous_root = self.ast.root;
+        const previous_tokens_len = self.ast.tokens.len;
+        const previous_node_len = self.ast.nodes.len;
 
         if (try parser.parse(source_and_path.?[0], file_name)) |ast| {
             self.ast = ast;
@@ -7959,14 +7961,19 @@ fn importScript(
                     .location = path_token,
                 },
             );
-        }
 
-        // Caught up this parser with the import parser status
-        self.ast.root = previous_root;
-        // Last token of imported script is Eof, we discard it
-        // Move scanned token just after import statement to replace the imported script Eof
-        self.ast.tokens.set(parser.current_token.?, token_before_import);
-        self.current_token = parser.current_token;
+            // Caught up this parser with the import parser status
+            self.ast.root = previous_root;
+            // Last token of imported script is Eof, we discard it
+            // Move scanned token just after import statement to replace the imported script Eof
+            self.ast.tokens.set(parser.current_token.?, token_before_import);
+            self.current_token = parser.current_token;
+        } else {
+            self.ast.root = previous_root;
+            self.ast.nodes.shrinkRetainingCapacity(previous_node_len);
+            self.ast.tokens.shrinkRetainingCapacity(previous_tokens_len);
+            self.current_token = @intCast(previous_tokens_len);
+        }
     }
 
     if (import) |imported| {
@@ -8004,8 +8011,16 @@ fn importScript(
             try self.globals.append(global);
         }
     } else {
-        // TODO: when it cannot load dynamic library, the error is the same
-        self.reportErrorFmt(.compile, "Could not compile import or import external dynamic library `{s}`", .{file_name});
+        // FIXME: here we must have messed up the token list because this crashes
+        // self.reportErrorFmt(
+        //     .compile,
+        //     "Could not compile import or import external dynamic library `{s}`",
+        //     .{
+        //         file_name,
+        //     },
+        // );
+
+        return Error.CantCompile;
     }
 
     return import;
