@@ -1,7 +1,7 @@
 import "std";
 import "io";
 
-test "Read stdin" {
+fun main(_: [str]) > void !> any {
     for (line: str? = ""; line != null; line = io\stdin.readLine()) {
         std\print("= {line}");
         io\stdout.write("> ");

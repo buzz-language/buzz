@@ -10,13 +10,13 @@ fun main(_: [str]) > void !> any {
         method = http\Method.GET,
         headers = {
             "accept": "*/*",
-            "user-agent": "buzz",
         },
-        uri = "https://catfact.ninja/fact",
+        uri = "https://staging.web-fr-front-19.boursorama.com",
     };
 
     final response = client.send(request);
-    final fact = serialize\jsonDecode(response.body ?? "null").q(["fact"]).stringValue();
+    debug\dump(response.body ?? "none");
+    // final fact = serialize\jsonDecode(response.body ?? "null").q(["fact"]).stringValue();
 
-    debug\dump(fact);
+    // debug\dump(fact);
 }
