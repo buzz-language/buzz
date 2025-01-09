@@ -30,7 +30,7 @@ test "list.filter" {
 test "list.reduce" {
     final data = [1, 2, 3, 4];
 
-    var sum = data.reduce::<int>(
+    final sum = data.reduce::<int>(
         fun (_: int, element: int, accumulator: int) => accumulator + element,
         initial: 0
     );
@@ -104,7 +104,7 @@ test "map.reduce" {
         "three": 3,
     };
 
-    var sum = map.reduce::<int>(
+    final sum = map.reduce::<int>(
         fun (_: str, value: int, accumulator: int) => accumulator + value,
         initial: 0
     );

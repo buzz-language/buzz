@@ -1,7 +1,7 @@
 import "std";
 
 test "block expression" {
-    var value = from {
+    final value = from {
         std\print("doing stuff in my block...");
 
         out "my value";

@@ -122,6 +122,7 @@ pub const Error = enum(u8) {
     unclosed = 99,
     not_mutable = 100,
     mutable_forbidden = 101,
+    unassigned_final_local = 102,
 };
 
 // Inspired by https://github.com/zesterer/ariadne

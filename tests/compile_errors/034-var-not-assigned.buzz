@@ -1,0 +1,6 @@
+// Local `m` is declared `var` but is never assigned
+fun h() > void {
+    var m = [];
+    _ = m;
+}
+

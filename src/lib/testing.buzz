@@ -76,7 +76,7 @@ export object Tester {
         afterAll: fun (t: Tester) > void?,
         afterEach: fun (t: Tester) > void?
     ) > mut Tester {
-        var t = mut Tester{
+        final t = mut Tester{
             beforeAll = beforeAll,
             beforeEach = beforeEach,
             afterAll = afterAll,
@@ -121,7 +121,7 @@ export object Tester {
     }
 
     mut fun it(message: str, fn: fun () > void) > void {
-        var startTime = os\time();
+        final startTime = os\time();
 
         io\stdout.write(yellow("▶ Test: {message}\n")) catch void;
 
@@ -129,7 +129,7 @@ export object Tester {
             beforeEach(this);
         }
 
-        var previousFailCount = this.failedAsserts();
+        final previousFailCount = this.failedAsserts();
         fn();
 
         if (this.afterEach -> afterEach) {

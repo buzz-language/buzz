@@ -121,7 +121,7 @@ object JsonParser {
             return null;
         }
 
-        var char = this.source[this.offset];
+        final char = this.source[this.offset];
 
         this.offset = this.offset + 1;
 
@@ -196,7 +196,7 @@ object JsonParser {
     }
 
     mut fun array() > [any] !> JsonParseError, buffer\WriteWhileReadingError {
-        var array: mut [any] = mut [];
+        final array: mut [any] = mut [];
 
         while (true) {
             this.skipWhitespaces();
@@ -220,7 +220,7 @@ object JsonParser {
     }
 
     mut fun map() > {str: any} !> JsonParseError, buffer\WriteWhileReadingError {
-        var map: mut {str: any} = mut {};
+        final map: mut {str: any} = mut {};
 
         while (true) {
             this.skipWhitespaces();
@@ -283,7 +283,7 @@ object JsonParser {
 
     mut fun string() > str !> buffer\WriteWhileReadingError {
         var char = this.advance();
-        var string = buffer\Buffer.init();
+        final string = buffer\Buffer.init();
         
         while (char != null and char != "\"") {
             if (char == "\\") {
@@ -305,9 +305,7 @@ object JsonParser {
             char = this.advance();
         }
 
-        var result = string.toString();
-
-        return result;
+        return string.toString();
     }
 }
 

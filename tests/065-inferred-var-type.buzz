@@ -4,14 +4,14 @@ object Person {
     name: str = "Joe",
 }
 
-var integer = 42;
+final integer = 42;
 final doubleing = 42.42;
 
 test "Inferring variable declaration type" {
     std\assert(integer is int, message: "Could infer global variable declaration type");
     std\assert(doubleing is double, message: "Could infer global constant declaration type");
 
-    var string = "hello";
+    final string = "hello";
 
     std\assert(string is str, message: "Could infer variable declaration type");
 

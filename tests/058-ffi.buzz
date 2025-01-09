@@ -17,7 +17,7 @@ test "cstring" {
 }
 
 test "pointer with Buffer" {
-    var buffer = Buffer.init();
+    final buffer = Buffer.init();
 
     buffer.writeZ::<int>("i32", values: [1, 2, 3]);
     buffer.writeZ::<int>("i32", values: [1, 2, 3]);
@@ -93,7 +93,7 @@ test "write/read struct in buffer" {
         value = 42.0,
     };
 
-    var buffer = Buffer.init();
+    final buffer = Buffer.init();
 
     buffer.writeStruct::<Data>(Data, values: [data]);
 

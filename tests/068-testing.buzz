@@ -19,7 +19,7 @@ test "Test std lib" {
     t.it(
         "Should be an integer equal to 12",
         fn: fun () {
-            var value = 12;
+            final value = 12;
 
             t.assertOfType::<int>(value);
 
