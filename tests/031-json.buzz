@@ -32,7 +32,7 @@ test "Boxed.q" {
         }
     };
 
-    var boxed = serialize\Boxed.init(data);
+    final boxed = serialize\Boxed.init(data);
 
     std\assert(boxed.q(["submap", "subsubmap", "one"]).integer() == 1, message: "Boxed.q");
 }

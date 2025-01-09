@@ -14,7 +14,7 @@ test "Nullable object field has a default value at null" {
 }
 
 test "Nullable variable has a default value at null" {
-    var hello: int?;
+    final hello: int?;
 
     std\assert(hello == null, message: "Nullable variable has default value at null");
 }

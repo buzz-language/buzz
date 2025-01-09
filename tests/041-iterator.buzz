@@ -25,7 +25,7 @@ test "finobacci generator" {
 
 object Hello {
     fun getRange() > [int] *> int? {
-        var list: mut [int] = mut [];
+        final list: mut [int] = mut [];
         foreach (i in 0..10) {
             _ = yield i;
 
@@ -37,7 +37,7 @@ object Hello {
 }
 
 test "dot async call" {
-    var hello = Hello{};
+    final hello = Hello{};
 
     foreach (i in &hello.getRange()) {
         std\print("i {i}");

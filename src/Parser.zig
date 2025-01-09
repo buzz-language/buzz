@@ -188,6 +188,7 @@ pub const Local = struct {
     final: bool,
     mutable: bool,
     referenced: bool = false,
+    assigned: bool = false,
 
     pub fn isReferenced(self: Local, ast: Ast) bool {
         const lexemes = ast.tokens.items(.lexeme);
@@ -196,6 +197,15 @@ pub const Local = struct {
             self.type_def.def_type == .Placeholder or
             lexemes[self.name][0] == '$' or
             (lexemes[self.name][0] == '_' and lexemes[self.name].len == 1);
+    }
+
+    pub fn isAssigned(self: Local, ast: Ast) bool {
+        const name = ast.tokens.items(.lexeme)[self.name];
+        return self.final or
+            self.assigned or
+            std.mem.eql(u8, name, "_") or
+            std.mem.startsWith(u8, name, "$") or
+            std.mem.eql(u8, name, "this");
     }
 };
 
@@ -963,8 +973,8 @@ pub fn parse(self: *Self, source: []const u8, file_name: []const u8) !?Ast {
         entry.exported_count = self.globals.items.len;
     }
 
-    // Check there's no more root placeholders
     for (self.globals.items) |global| {
+        // Check there's no more root placeholders
         if (global.type_def.def_type == .Placeholder) {
             self.reporter.reportPlaceholder(self.ast, global.type_def.resolved_type.?.Placeholder);
         }
@@ -1066,19 +1076,30 @@ fn endFrame(self: *Self) Ast.Node.Index {
     while (i < self.current.?.local_count) : (i += 1) {
         const local = self.current.?.locals[i];
 
-        // Check discarded locals
-        if (self.flavor != .Repl and !local.isReferenced(self.ast)) {
-            const type_def_str = local.type_def.toStringAlloc(self.gc.allocator) catch unreachable;
-            defer self.gc.allocator.free(type_def_str);
+        if (self.flavor != .Repl) {
+            // Check discarded locals
+            if (!local.isReferenced(self.ast)) {
+                self.reporter.warnFmt(
+                    .unused_argument,
+                    self.ast.tokens.get(local.name),
+                    "Local `{s}` is never referenced",
+                    .{
+                        self.ast.tokens.items(.lexeme)[local.name],
+                    },
+                );
+            }
 
-            self.reporter.warnFmt(
-                .unused_argument,
-                self.ast.tokens.get(local.name),
-                "Unused local of type `{s}`",
-                .{
-                    type_def_str,
-                },
-            );
+            // Check var local never assigned
+            if (!local.isAssigned(self.ast)) {
+                self.reporter.warnFmt(
+                    .unassigned_final_local,
+                    self.ast.tokens.get(local.name),
+                    "Local `{s}` is declared `var` but is never assigned",
+                    .{
+                        self.ast.tokens.items(.lexeme)[local.name],
+                    },
+                );
+            }
         }
     }
 
@@ -1128,21 +1149,6 @@ fn endScope(self: *Self) ![]Chunk.OpCode {
             try closing.append(.OP_CLOSE_UPVALUE);
         } else {
             try closing.append(.OP_POP);
-        }
-
-        // Check discarded locals
-        if (self.flavor != .Repl and !local.isReferenced(self.ast)) {
-            const type_def_str = local.type_def.toStringAlloc(self.gc.allocator) catch unreachable;
-            defer self.gc.allocator.free(type_def_str);
-
-            self.reporter.warnFmt(
-                .unused_argument,
-                self.ast.tokens.get(local.name),
-                "Unused local of type `{s}`",
-                .{
-                    type_def_str,
-                },
-            );
         }
 
         current.local_count -= 1;
@@ -5361,8 +5367,14 @@ fn namedVariable(self: *Self, name: []const Ast.TokenIndex, can_assign: bool) Er
     else
         null;
 
-    if (value != null and slot_final) {
-        self.reportError(.final, "Can't assign to final variable");
+    if (value != null) {
+        if (slot_final) {
+            self.reportError(.final, "Can't assign to final variable");
+        } else if (slot_type == .Local) {
+            self.current.?.locals[slot].assigned = true;
+        } else if (slot_type == .UpValue) {
+            self.current.?.enclosing.?.locals[self.current.?.upvalues[slot].index].assigned = true;
+        }
     }
 
     return try self.ast.appendNode(

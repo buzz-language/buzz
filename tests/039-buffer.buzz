@@ -2,7 +2,7 @@ import "std";
 import "buffer" as _;
 
 test "Reading and writing in a buffer" {
-    var buffer = Buffer.init();
+    final buffer = Buffer.init();
 
     buffer.writeInt("hello world".len());
     buffer.write("hello world");

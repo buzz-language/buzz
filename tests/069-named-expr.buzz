@@ -7,10 +7,10 @@ object Person {
 }
 
 test "Named expr object properties" {
-    var name = "joe";
-    var age = 24;
+    final name = "joe";
+    final age = 24;
 
-    var person = Person{
+    final person = Person{
         name,
         age,
         sex = true,
@@ -33,10 +33,10 @@ fun hello(name: str, age: int, sex: bool) > Person {
 }
 
 test "Name expr function argument" {
-    var name = "joe";
-    var age = 24;
+    final name = "joe";
+    final age = 24;
 
-    var person = hello(name, age, sex: true);
+    final person = hello(name, age, sex: true);
     
     std\assert(
         person.name == "joe"
