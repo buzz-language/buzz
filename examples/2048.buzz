@@ -41,14 +41,14 @@ object Pair {
 }
 
 object Game {
-    board: [[int]] = [],
+    board: mut [mut [int]] = mut [],
     size: int = 4,
     goal: int = 2048,
     score: int = 0,
     invalidMove: bool = false,
 
-    static fun init(size: int = 4, goal: int = 2048) > Game {
-        final game = Game{
+    static fun init(size: int = 4, goal: int = 2048) > mut Game {
+        final game = mut Game{
             size,
             goal
         };
@@ -64,7 +64,7 @@ object Game {
         return game;
     }
 
-    fun reset() > void {
+    mut fun reset() > void {
         this.score = 0;
 
         foreach (x in 0..this.size) {
@@ -91,7 +91,7 @@ object Game {
 
     // Return list of free spots
     fun freeSpots() > [obj{ x: int, y: int }] {
-        var spots: [obj{ x: int, y: int }] = [];
+        var spots: mut [obj{ x: int, y: int }] = mut [];
 
         foreach (x, row in this.board) {
             foreach (y, value in row) {
@@ -105,7 +105,7 @@ object Game {
     }
 
     // Render board
-    fun render() > void {
+    mut fun render() > void {
         try {
             io\stdout.write("\27\91H\27\91J╭{"─".repeat(this.size * 7)}╮\n");
 
@@ -153,12 +153,12 @@ object Game {
         }
     }
 
-    fun iterate(axis: bool, direction: int) > [Pair] {
-        var result: [Pair] = [];
+    mut fun iterate(axis: bool, direction: int) > [Pair] {
+        var result: mut [Pair] = mut [];
 
         foreach (x in 0..this.size) {
             foreach (y in 0..this.size) {
-                final pair = Pair{
+                final pair = mut Pair{
                     srcX = x,
                     srcY = y,
                     srcValue = this.board[x][y],
@@ -185,7 +185,7 @@ object Game {
         return result;
     }
 
-    fun shift(axis: bool, direction: int) > int {
+    mut fun shift(axis: bool, direction: int) > int {
         var totalDone = 0;
 
         foreach (_ in 0..this.size) {
@@ -209,7 +209,7 @@ object Game {
         return totalDone;
     }
 
-    fun merge(axis: bool, direction: int) > int {
+    mut fun merge(axis: bool, direction: int) > int {
         var done = 0;
 
         foreach (pair in this.iterate(axis, direction)) {
@@ -225,7 +225,7 @@ object Game {
         return done;
     }
 
-    fun move() > bool {
+    mut fun move() > bool {
         io\stdout.write("(wasd to move, q to quit, r to restart)\n> ") catch void;
         final command = io\stdin.read(1) catch void;
 
@@ -268,7 +268,7 @@ object Game {
         return done > 0;
     }
 
-    fun step() > void {
+    mut fun step() > void {
         this.render();
 
         if (this.move()) {

@@ -1,5 +1,5 @@
 import "os";
 
-test "os\exit" {
+fun main(_: [str]) > void {
     os\exit(12);
 }

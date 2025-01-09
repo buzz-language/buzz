@@ -6,13 +6,13 @@ import "examples/sdl-wrapped" as _;
 object World {
     width: int,
     height: int,
-    cells: [bool],
+    cells: mut [bool],
 
-    static fun init(width: int, height: int) > World {
-        var world = World{
+    static fun init(width: int, height: int) > mut World {
+        var world = mut World{
             width ,
             height,
-            cells = [],
+            cells = mut [],
         };
 
         for (i: int = 0; i < width * height; i = i + 1) {
@@ -35,8 +35,8 @@ object World {
         return liveCount - if (this.cells[y * this.width + x]) 1 else 0;
     }
 
-    fun step() > void {
-        var cells = [];
+    mut fun step() > void {
+        final cells: mut [bool] = mut [];
         for (y: int = 0; y < this.height; y = y + 1) {
             for (x: int = 0; x < this.width; x = x + 1) {
                 final coordinate = y * this.width + x;
@@ -106,7 +106,7 @@ object World {
     }
 }
 
-fun loop(world: World, sdl: SDL, renderer: Renderer, texture: Texture) > void !> SDLError {
+fun loop(world: mut World, sdl: SDL, renderer: Renderer, texture: Texture) > void !> SDLError {
     var dt = sdl.ticks();
     while (true) {
         if (sdl.pollEvent() -> event) {
@@ -133,21 +133,21 @@ fun loop(world: World, sdl: SDL, renderer: Renderer, texture: Texture) > void !>
 }
 
 fun main(args: [str]) > void !> SDLError {
-    var sdl = SDL.init([Subsystem.Video]);
+    final sdl = SDL.init([Subsystem.Video]);
 
-    var window = Window.init(
+    final window = Window.init(
         "buzz example: Game of Life",
         width: 800,
         height: 600,
         flags: [WindowFlag.OpenGL, WindowFlag.AllowHighDPI],
     );
 
-    var renderer = window.createRenderer(
+    final renderer = window.createRenderer(
         index: -1,
         flags: [RendererFlag.Accelerated, RendererFlag.TargetTexture],
     );
 
-    var texture = renderer.createTexture(
+    final texture = renderer.createTexture(
         format: PixelFormat.RGBA8888,
         access: TextureAccess.Target,
         width: 800,
@@ -157,7 +157,7 @@ fun main(args: [str]) > void !> SDLError {
     final width = if (args.len() > 0) std\parseInt(args[0]) else null;
     final height = if (args.len() > 1) std\parseInt(args[1]) else null;
 
-    var world = World.init(
+    final world = World.init(
         width: width ?? 10,
         height: height ?? 10,
     );
