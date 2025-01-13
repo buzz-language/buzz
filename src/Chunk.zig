@@ -165,7 +165,7 @@ pub fn HashMap(V: type) type {
 
 allocator: std.mem.Allocator,
 /// AST
-ast: Ast,
+ast: Ast.Slice,
 // TODO: merge `code` and `lines` in a multiarray
 /// List of opcodes to execute
 code: std.ArrayListUnmanaged(u32),
@@ -174,7 +174,7 @@ lines: std.ArrayListUnmanaged(Ast.TokenIndex),
 /// List of constants defined in this chunk
 constants: std.ArrayListUnmanaged(Value),
 
-pub fn init(allocator: std.mem.Allocator, ast: Ast) Self {
+pub fn init(allocator: std.mem.Allocator, ast: Ast.Slice) Self {
     return Self{
         .allocator = allocator,
         .ast = ast,

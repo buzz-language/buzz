@@ -46,7 +46,7 @@ const GenState = struct {
     opt_jump: ?OptJump = null,
 
     // Frame related stuff, since we compile one function at a time, we don't stack frames while compiling
-    ast: Ast,
+    ast: Ast.Slice,
     ast_node: Ast.Node.Index,
     return_counts: bool = false,
     return_emitted: bool = false,
@@ -151,7 +151,7 @@ fn reset(self: *Self) void {
     self.state = null;
 }
 
-pub fn compileFunction(self: *Self, ast: Ast, closure: *o.ObjClosure) Error!void {
+pub fn compileFunction(self: *Self, ast: Ast.Slice, closure: *o.ObjClosure) Error!void {
     const function = closure.function;
 
     // Did we already compile a function with the same body?
@@ -255,7 +255,7 @@ pub fn compileFunction(self: *Self, ast: Ast, closure: *o.ObjClosure) Error!void
     self.reset();
 }
 
-pub fn compileHotSpot(self: *Self, ast: Ast, closure: *o.ObjClosure, hotspot_node: Ast.Node.Index) Error!*anyopaque {
+pub fn compileHotSpot(self: *Self, ast: Ast.Slice, closure: *o.ObjClosure, hotspot_node: Ast.Node.Index) Error!*anyopaque {
     var seen = std.AutoHashMap(Ast.Node.Index, void).init(self.vm.gc.allocator);
     defer seen.deinit();
     if (try ast.usesFiber(
@@ -343,7 +343,7 @@ pub fn compileHotSpot(self: *Self, ast: Ast, closure: *o.ObjClosure, hotspot_nod
     return hotspot_native orelse Error.CantCompile;
 }
 
-fn buildCollateralFunctions(self: *Self, ast: Ast) Error!void {
+fn buildCollateralFunctions(self: *Self, ast: Ast.Slice) Error!void {
     var it = self.functions_queue.iterator();
     while (it.next()) |kv| {
         const node = kv.key_ptr.*;
@@ -366,7 +366,7 @@ fn buildCollateralFunctions(self: *Self, ast: Ast) Error!void {
     }
 }
 
-fn buildFunction(self: *Self, ast: Ast, closure: ?*o.ObjClosure, ast_node: Ast.Node.Index) Error!void {
+fn buildFunction(self: *Self, ast: Ast.Slice, closure: ?*o.ObjClosure, ast_node: Ast.Node.Index) Error!void {
     self.state = .{
         .ast = ast,
         .module = undefined,
@@ -4915,7 +4915,7 @@ fn getQualifiedName(self: *Self, node: Ast.Node.Index, raw: bool) !std.ArrayList
     }
 }
 
-pub fn compileZdefContainer(self: *Self, ast: Ast, zdef_element: Ast.Zdef.ZdefElement) Error!void {
+pub fn compileZdefContainer(self: *Self, ast: Ast.Slice, zdef_element: Ast.Zdef.ZdefElement) Error!void {
     var wrapper_name = std.ArrayList(u8).init(self.vm.gc.allocator);
     defer wrapper_name.deinit();
 
@@ -5190,7 +5190,7 @@ fn buildZigValueToBuzzValue(self: *Self, buzz_type: *o.ObjTypeDef, zig_type: Zig
     }
 }
 
-pub fn compileZdef(self: *Self, buzz_ast: Ast, zdef: Ast.Zdef.ZdefElement) Error!*o.ObjNative {
+pub fn compileZdef(self: *Self, buzz_ast: Ast.Slice, zdef: Ast.Zdef.ZdefElement) Error!*o.ObjNative {
     var wrapper_name = std.ArrayList(u8).init(self.vm.gc.allocator);
     defer wrapper_name.deinit();
 

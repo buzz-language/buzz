@@ -683,8 +683,9 @@ export fn bz_run(
     }
 
     if (parser.parse(source.?[0..source_len], file_name.?[0..file_name_len]) catch null) |ast| {
-        if (codegen.generate(ast) catch null) |function| {
-            self.interpret(ast, function, null) catch {
+        const ast_slice = ast.slice();
+        if (codegen.generate(ast_slice) catch null) |function| {
+            self.interpret(ast_slice, function, null) catch {
                 return false;
             };
 

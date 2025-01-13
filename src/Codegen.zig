@@ -50,7 +50,7 @@ const Break = struct {
 const Breaks = std.ArrayList(Break);
 
 current: ?*Frame = null,
-ast: Ast,
+ast: Ast.Slice = undefined,
 gc: *GarbageCollector,
 flavor: RunFlavor,
 /// Jump to patch at end of current expression with a optional unwrapping in the middle of it
@@ -134,7 +134,6 @@ pub fn init(
     jit: ?*JIT,
 ) Self {
     return .{
-        .ast = undefined,
         .gc = gc,
         .parser = parser,
         .flavor = flavor,
@@ -152,7 +151,7 @@ pub inline fn currentCode(self: *Self) usize {
     return self.current.?.function.?.chunk.code.items.len;
 }
 
-pub fn generate(self: *Self, ast: Ast) Error!?*obj.ObjFunction {
+pub fn generate(self: *Self, ast: Ast.Slice) Error!?*obj.ObjFunction {
     self.ast = ast;
     self.reporter.last_error = null;
     self.reporter.panic_mode = false;
