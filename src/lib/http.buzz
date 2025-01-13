@@ -180,7 +180,7 @@ export object Client {
             throw HttpError.ClientCollected;
         }
     
-        var requestPtr = HttpClientSend(
+        final requestPtr = HttpClientSend(
             client: this.client,
             method: request.method,
             uri: request.uri,

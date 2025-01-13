@@ -4,7 +4,7 @@ fun main(args: [str]) > void {
     final width = std\parseInt(args[?0] ?? "80") ?? 80;
     final height = std\parseInt(args[?1] ?? "60") ?? 60;
 
-    var cells: [bool] = [];
+    final cells: mut [bool] = mut [];
 
     foreach (_ in 0..width * height) {
         cells.append(std\random(max: 5) == 1);

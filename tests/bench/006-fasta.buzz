@@ -28,11 +28,11 @@ fun makeRepeatFasta(id: str, desc: str, s: str, nchars: int) > void {
 
 object Frequency {
     chars: Buffer,
-    probs: [double],
+    probs: mut [double],
     last: double,
 
-    static fun init(chars: Buffer, probs: [double], last: double) > Frequency {
-        final freq = Frequency{
+    static fun init(chars: Buffer, probs: mut [double], last: double) > mut Frequency {
+        final freq = mut Frequency{
             chars = chars,
             probs = probs,
             last = last,
@@ -43,12 +43,12 @@ object Frequency {
         return freq;
     }
 
-    fun random(max: double) > double {
+    mut fun random(max: double) > double {
         this.last = (this.last * IA + IC) % IM;
         return max * this.last * (1.0 / IM);
     }
 
-    fun makeCumulative() > void {
+    mut fun makeCumulative() > void {
         var cp = 0.0;
         foreach (i, prob in this.probs) {
             cp = cp + prob;
@@ -56,7 +56,7 @@ object Frequency {
         }
     }
 
-    fun selectRandomIntoBuffer(buffer: Buffer, initialBufferIndex: int, nRandom: int) > int !> OutOfBoundError, WriteWhileReadingError {
+    mut fun selectRandomIntoBuffer(buffer: Buffer, initialBufferIndex: int, nRandom: int) > int !> OutOfBoundError, WriteWhileReadingError {
         final len = this.probs.len();
         var bufferIndex = initialBufferIndex;
 
@@ -82,7 +82,7 @@ object Frequency {
     }
 }
 
-fun makeRandomFasta(id: str, desc: str, fpf: Frequency, initialNchars: int) > void !> OutOfBoundError, WriteWhileReadingError {
+fun makeRandomFasta(id: str, desc: str, fpf: mut Frequency, initialNchars: int) > void !> OutOfBoundError, WriteWhileReadingError {
     std\print(">{id} {desc}");
     var nchars = initialNchars;
 
@@ -124,7 +124,7 @@ fun main(args: [str]) > void !> any {
     iubChars.write("acgtBDHKMNRSVWY");
     final iub = Frequency.init(
         chars: iubChars,
-        probs: [ 0.27, 0.12, 0.12, 0.27, 0.02, 0.02, 0.02, 0.02, 0.02, 0.02, 0.02, 0.02, 0.02, 0.02, 0.02 ],
+        probs: mut [ 0.27, 0.12, 0.12, 0.27, 0.02, 0.02, 0.02, 0.02, 0.02, 0.02, 0.02, 0.02, 0.02, 0.02, 0.02 ],
         last: 42.0,
     );
 
@@ -134,7 +134,7 @@ fun main(args: [str]) > void !> any {
     homoSapiensChars.write("acgt");
     final homoSapiens = Frequency.init(
         chars: homoSapiensChars,
-        probs: [ 0.3029549426680, 0.1979883004921, 0.1975473066391, 0.3015094502008 ],
+        probs: mut [ 0.3029549426680, 0.1979883004921, 0.1975473066391, 0.3015094502008 ],
         last: iub.last,
     );
 

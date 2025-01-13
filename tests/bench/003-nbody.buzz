@@ -15,7 +15,7 @@ object Body {
     mass: double,
 }
 
-fun advance(bodies: [Body], nbody: int, dt: double) > void {
+fun advance(bodies: [mut Body], nbody: int, dt: double) > void {
     foreach (i in 0..nbody) {
         final bi = bodies[i];
         final bix = bi.x;
@@ -76,7 +76,7 @@ fun energy(bodies: [Body], nbody: int) > double {
     return e;
 }
 
-fun offsetMomentum(b: [Body], nbody: int) > void {
+fun offsetMomentum(b: [mut Body], nbody: int) > void {
     var px = 0.0;
     var py = 0.0;
     var pz = 0.0;
@@ -96,7 +96,7 @@ fun offsetMomentum(b: [Body], nbody: int) > void {
 }
 
 fun main(args: [str]) > void {
-    final sun = Body{
+    final sun = mut mut Body{
         x = 0.0,
         y = 0.0,
         z = 0.0,
@@ -106,7 +106,7 @@ fun main(args: [str]) > void {
         mass = solarMass,
     };
 
-    final jupiter = Body{
+    final jupiter = mut Body{
         x = 4.84143144246472090,
         y = -1.16032004402742839,
         z = -0.103622044471123109,
@@ -116,7 +116,7 @@ fun main(args: [str]) > void {
         mass = 0.000954791938424326609 * solarMass,
     };
 
-    final saturn = Body{
+    final saturn = mut Body{
         x = 8.34336671824457987,
         y = 4.12479856412430479,
         z = -0.403523417114321381,
@@ -126,7 +126,7 @@ fun main(args: [str]) > void {
         mass = 0.00028588598066613 * solarMass,
     };
 
-    final uranus = Body{
+    final uranus = mut Body{
         x = 12.894369562139,
         y = -15.111151401699,
         z = -0.22330757889266,
@@ -136,7 +136,7 @@ fun main(args: [str]) > void {
         mass = 0.0000436624404335156298 * solarMass,
     };
 
-    final neptune = Body{
+    final neptune = mut Body{
         x = 15.379697114851,
         y = -25.9193146099879641,
         z = 0.179258772950371181,
