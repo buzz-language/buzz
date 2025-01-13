@@ -316,12 +316,13 @@ fn runSource(
         parsing_time = timer.read();
         timer.reset();
 
-        if (try codegen.generate(ast)) |function| {
+        const ast_slice = ast.slice();
+        if (try codegen.generate(ast_slice)) |function| {
             codegen_time = timer.read();
             timer.reset();
 
             try vm.interpret(
-                ast,
+                ast_slice,
                 function,
                 null,
             );

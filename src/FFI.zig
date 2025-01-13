@@ -183,7 +183,7 @@ pub const State = struct {
     script: []const u8,
     source: Token,
     ast: Ast,
-    buzz_ast: ?BuzzAst = null,
+    buzz_ast: ?BuzzAst.Slice = null,
     parser: ?*Parser,
     parsing_type_expr: bool = false,
     structs: std.StringHashMap(*Zdef),
@@ -248,7 +248,10 @@ pub fn parse(self: *Self, parser: ?*Parser, source: Token, parsing_type_expr: bo
         .parsing_type_expr = parsing_type_expr,
         .source = source,
         .parser = parser,
-        .buzz_ast = if (parser) |p| p.ast else null,
+        .buzz_ast = if (parser) |p|
+            p.ast.slice()
+        else
+            null,
         .ast = Ast.parse(
             self.gc.allocator,
             duped,

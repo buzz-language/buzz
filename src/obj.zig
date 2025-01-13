@@ -1308,7 +1308,7 @@ pub const ObjFunction = struct {
     // JIT compiled function callable by buzz VM
     native: ?*anyopaque = null,
 
-    pub fn init(allocator: Allocator, ast: Ast, node: Ast.Node.Index) !Self {
+    pub fn init(allocator: Allocator, ast: Ast.Slice, node: Ast.Node.Index) !Self {
         return Self{
             .node = node,
             .chunk = Chunk.init(allocator, ast),

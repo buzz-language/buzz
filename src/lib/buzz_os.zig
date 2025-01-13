@@ -604,6 +604,7 @@ pub export fn SocketWrite(ctx: *api.NativeCtx) c_int {
             error.FileTooBig,
             error.NoSpaceLeft,
             error.DeviceBusy,
+            error.NoDevice,
             => ctx.vm.pushErrorEnum("errors.FileSystemError", @errorName(err)),
             error.OperationAborted,
             error.BrokenPipe,

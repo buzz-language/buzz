@@ -694,7 +694,7 @@ pub fn reportTypeCheck(
 }
 
 // Got to the root placeholder and report it
-pub fn reportPlaceholder(self: *Self, ast: Ast, placeholder: PlaceholderDef) void {
+pub fn reportPlaceholder(self: *Self, ast: Ast.Slice, placeholder: PlaceholderDef) void {
     if (placeholder.parent) |parent| {
         if (parent.def_type == .Placeholder) {
             self.reportPlaceholder(ast, parent.resolved_type.?.Placeholder);

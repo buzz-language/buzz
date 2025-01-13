@@ -100,7 +100,7 @@ fn getBuzzPrefix(b: *Build) ![]const u8 {
 pub fn build(b: *Build) !void {
     // Check minimum zig version
     const current_zig = builtin.zig_version;
-    const min_zig = std.SemanticVersion.parse("0.14.0-dev.1588+2111f4c38") catch return;
+    const min_zig = std.SemanticVersion.parse("0.14.0-dev.2634+b36ea592b") catch return;
     if (current_zig.order(min_zig).compare(.lt)) {
         @panic(b.fmt("Your Zig version v{} does not meet the minimum build requirement of v{}", .{ current_zig, min_zig }));
     }

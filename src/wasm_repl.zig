@@ -187,18 +187,19 @@ fn runSource(
     parser: *Parser,
 ) !?Value {
     if (try parser.parse(source, file_name)) |ast| {
-        if (try codegen.generate(ast)) |function| {
+        const ast_slice = ast.slice();
+        if (try codegen.generate(ast_slice)) |function| {
             try vm.interpret(
-                ast,
+                ast_slice,
                 function,
                 null,
             );
 
             // Does the user code ends with a lone expression?
-            const fnode = ast.nodes.items(.components)[ast.root.?].Function;
-            const statements = ast.nodes.items(.components)[fnode.body.?].Block;
+            const fnode = ast_slice.nodes.items(.components)[ast.root.?].Function;
+            const statements = ast_slice.nodes.items(.components)[fnode.body.?].Block;
             const last_statement = if (statements.len > 0) statements[statements.len - 1] else null;
-            if (last_statement != null and ast.nodes.items(.tag)[last_statement.?] == .Expression) {
+            if (last_statement != null and ast_slice.nodes.items(.tag)[last_statement.?] == .Expression) {
                 return vm.pop();
             }
         } else {

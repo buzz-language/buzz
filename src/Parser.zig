@@ -976,7 +976,7 @@ pub fn parse(self: *Self, source: []const u8, file_name: []const u8) !?Ast {
     for (self.globals.items) |global| {
         // Check there's no more root placeholders
         if (global.type_def.def_type == .Placeholder) {
-            self.reporter.reportPlaceholder(self.ast, global.type_def.resolved_type.?.Placeholder);
+            self.reporter.reportPlaceholder(self.ast.slice(), global.type_def.resolved_type.?.Placeholder);
         }
     }
 
@@ -3019,7 +3019,7 @@ fn parseFunctionType(self: *Self, parent_generic_types: ?std.AutoArrayHashMap(*o
                     );
                 }
 
-                if (!self.ast.isConstant(expr)) {
+                if (!self.ast.slice().isConstant(expr)) {
                     self.reportError(
                         .constant_default,
                         "Default parameters must be constant values.",
@@ -3037,7 +3037,7 @@ fn parseFunctionType(self: *Self, parent_generic_types: ?std.AutoArrayHashMap(*o
                 },
             );
             if (if (default) |dflt|
-                try self.ast.toValue(dflt, self.gc)
+                try self.ast.slice().toValue(dflt, self.gc)
             else if (arg_type_def.?.optional)
                 Value.Null
             else
@@ -4612,6 +4612,8 @@ fn dot(self: *Self, can_assign: bool, callee: Ast.Node.Index) Error!Ast.Node.Ind
                 if (can_assign and try self.match(.Equal)) {
                     components[dot_node].Dot.member_kind = .Value;
                     const value = try self.expression(false);
+                    // For some reason we blow the comptime quota here
+                    @setEvalBranchQuota(1000000);
                     components = self.ast.nodes.items(.components);
                     components[dot_node].Dot.value_or_call_or_enum = .{
                         .Value = value,
@@ -5657,7 +5659,7 @@ fn function(
                 if (default) |dft| {
                     try function_typedef.resolved_type.?.Function.defaults.put(
                         try self.gc.copyString(self.ast.tokens.items(.lexeme)[local.name]),
-                        try self.ast.toValue(dft, self.gc),
+                        try self.ast.slice().toValue(dft, self.gc),
                     );
                 }
 
@@ -6895,7 +6897,7 @@ fn objectDeclaration(self: *Self) Error!Ast.Node.Index {
             else
                 null;
 
-            if (default != null and !self.ast.isConstant(default.?)) {
+            if (default != null and !self.ast.slice().isConstant(default.?)) {
                 self.reporter.reportErrorAt(
                     .constant_default,
                     self.ast.tokens.get(self.ast.nodes.items(.location)[default.?]),
@@ -7323,7 +7325,7 @@ fn enumDeclaration(self: *Self) Error!Ast.Node.Index {
     var obj_cases = std.ArrayList(Value).init(self.gc.allocator);
     defer obj_cases.shrinkAndFree(obj_cases.items.len);
     for (cases.items, 0..) |case, idx| {
-        if (case.value != null and !self.ast.isConstant(case.value.?)) {
+        if (case.value != null and !self.ast.slice().isConstant(case.value.?)) {
             self.reporter.reportErrorAt(
                 .enum_case,
                 self.ast.tokens.get(self.ast.nodes.items(.location)[case.value.?]),
@@ -7335,7 +7337,7 @@ fn enumDeclaration(self: *Self) Error!Ast.Node.Index {
 
         try obj_cases.append(
             if (case.value) |case_value|
-                try self.ast.toValue(case_value, self.gc)
+                try self.ast.slice().toValue(case_value, self.gc)
             else if (enum_type.def_type == .Integer)
                 Value.fromInteger(@intCast(idx))
             else if (enum_type.def_type == .String)

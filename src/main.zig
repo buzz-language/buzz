@@ -134,14 +134,16 @@ fn runFile(allocator: Allocator, file_name: []const u8, args: [][:0]u8, flavor: 
         }
 
         if (flavor == .Run or flavor == .Test) {
-            if (try codegen.generate(ast)) |function| {
+            const ast_slice = ast.slice();
+
+            if (try codegen.generate(ast_slice)) |function| {
                 if (!is_wasm) {
                     codegen_time = timer.read();
                     timer.reset();
                 }
 
                 try vm.interpret(
-                    ast,
+                    ast_slice,
                     function,
                     args,
                 );

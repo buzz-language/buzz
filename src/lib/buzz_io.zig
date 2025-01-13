@@ -344,6 +344,7 @@ pub export fn FileWrite(ctx: *api.NativeCtx) c_int {
             error.NoSpaceLeft,
             error.SystemResources,
             error.WouldBlock,
+            error.NoDevice,
             => ctx.vm.pushErrorEnum("errors.FileSystemError", @errorName(err)),
 
             error.BrokenPipe,

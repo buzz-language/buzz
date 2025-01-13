@@ -17,7 +17,8 @@ const JIT = if (!is_wasm) @import("Jit.zig") else void;
 const Token = @import("Token.zig");
 const Reporter = @import("Reporter.zig");
 const FFI = if (!is_wasm) @import("FFI.zig") else void;
-const dispatch_call_modifier: std.builtin.CallModifier = if (!is_wasm) .always_tail else .auto;
+// TODO: put back .always_tail once https://github.com/ziglang/zig/issues/22474 is fixed
+const dispatch_call_modifier: std.builtin.CallModifier = .auto; //if (!is_wasm) .always_tail else .auto;
 const io = @import("io.zig");
 
 const ObjType = _obj.ObjType;
@@ -444,7 +445,7 @@ pub const VM = struct {
 
     gc: *GarbageCollector,
     current_fiber: *Fiber,
-    current_ast: Ast,
+    current_ast: Ast.Slice,
     globals: std.ArrayList(Value),
     // FIXME: remove
     globals_count: usize = 0,
@@ -571,7 +572,7 @@ pub const VM = struct {
         return self.currentFrame().?.closure.globals;
     }
 
-    pub fn interpret(self: *Self, ast: Ast, function: *ObjFunction, args: ?[][:0]u8) Error!void {
+    pub fn interpret(self: *Self, ast: Ast.Slice, function: *ObjFunction, args: ?[][:0]u8) Error!void {
         self.current_ast = ast;
 
         self.current_fiber = try self.gc.allocator.create(Fiber);
