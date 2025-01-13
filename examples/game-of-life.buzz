@@ -9,7 +9,7 @@ object World {
     cells: mut [bool],
 
     static fun init(width: int, height: int) > mut World {
-        var world = mut World{
+        final world = mut World{
             width ,
             height,
             cells = mut [],

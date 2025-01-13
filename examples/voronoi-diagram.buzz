@@ -13,9 +13,9 @@ fun hypot(x: int, y: int) > int {
 }
 
 fun generateVoronoi(renderer: Renderer, width: int, height: int, numCells: int) > void !> SDLError {
-    var nx: [int] = [];
-    var ny: [int] = [];
-    var colors: [Color] = [];
+    final nx: mut [int] = mut [];
+    final ny: mut [int] = mut [];
+    final colors: mut [Color] = mut [];
 
     foreach (_ in 0..numCells) {
         nx.append(std\random(min: 0, max: width));
@@ -71,21 +71,21 @@ fun main(_: [str]) > void !> SDLError {
     final height = 400;
     final numCells = 50;
 
-    var sdl = SDL.init([Subsystem.Video]);
+    final sdl = SDL.init([Subsystem.Video]);
 
-    var window = Window.init(
+    final window = Window.init(
         "buzz example: Voronoi Diagram",
         width,
         height,
         flags: [WindowFlag.OpenGL, WindowFlag.AllowHighDPI],
     );
 
-    var renderer = window.createRenderer(
+    final renderer = window.createRenderer(
         index: -1,
         flags: [RendererFlag.Accelerated, RendererFlag.TargetTexture],
     );
 
-    var texture = renderer.createTexture(
+    final texture = renderer.createTexture(
         format: PixelFormat.RGBA8888,
         access: TextureAccess.Target,
         width,

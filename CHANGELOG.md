@@ -19,7 +19,12 @@
 - `const` keyword is renamed to `final` (https://github.com/buzz-language/buzz/issues/318)
 
 ## Added
-- **All values are immutable by default**. Values (list, maps, objects and FFI structs) can be declared mutable with the `mut` keyword. Mutability must also be specified in types with the `mut` keyword (https://github.com/buzz-language/buzz/issues/139)
+- Immutability by default (https://github.com/buzz-language/buzz/issues/139)
+    - All non-scalar values are immutable by default
+    - Mutability can be specified in types and for values with the `mut` keyword
+    - Object methods that mutate `this` must be prefixed by `mut`
+    - FFI data are considered mutable
+- Compile will warn about variable declared with `var` but never assigned
 - Object can have `final` properties (https://github.com/buzz-language/buzz/issues/13)
 - `rg.subsetOf`, `rg.intersect`, `rg.union`
 - Tuples (https://github.com/buzz-language/buzz/issues/298): syntaxic sugar over anonymous objects:
