@@ -201,7 +201,7 @@ pub fn init(gc: *m.GarbageCollector) Self {
             .allocator = gc.allocator,
             .error_prefix = "FFI",
         },
-        .type_expr_cache = std.StringHashMap(?*Zdef).init(gc.allocator),
+        .type_expr_cache = .init(gc.allocator),
     };
 }
 
@@ -257,7 +257,7 @@ pub fn parse(self: *Self, parser: ?*Parser, source: Token, parsing_type_expr: bo
             duped,
             .zig,
         ) catch @panic("Could not parse zdef"),
-        .structs = std.StringHashMap(*Zdef).init(self.gc.allocator),
+        .structs = .init(self.gc.allocator),
     };
     defer {
         self.state.?.structs.deinit();
@@ -807,10 +807,10 @@ fn fnProto(self: *Self, tag: Ast.Node.Tag, decl_index: Ast.Node.Index) anyerror!
         else
             self.gc.type_registry.void_type,
         .yield_type = self.gc.type_registry.void_type,
-        .parameters = std.AutoArrayHashMap(*o.ObjString, *o.ObjTypeDef).init(self.gc.allocator),
-        .defaults = std.AutoArrayHashMap(*o.ObjString, v.Value).init(self.gc.allocator),
+        .parameters = .init(self.gc.allocator),
+        .defaults = .init(self.gc.allocator),
         .function_type = .Extern,
-        .generic_types = std.AutoArrayHashMap(*o.ObjString, *o.ObjTypeDef).init(self.gc.allocator),
+        .generic_types = .init(self.gc.allocator),
     };
 
     var parameters_zig_types = std.ArrayList(ZigType.FnType.Param).init(self.gc.allocator);

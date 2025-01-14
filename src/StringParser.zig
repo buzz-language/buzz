@@ -34,8 +34,8 @@ pub fn init(
     return Self{
         .parser = parser,
         .source = source,
-        .current_chunk = std.ArrayList(u8).init(parser.gc.allocator),
-        .elements = std.ArrayList(Ast.Node.Index).init(parser.gc.allocator),
+        .current_chunk = .init(parser.gc.allocator),
+        .elements = .init(parser.gc.allocator),
         .line_offset = line_offset,
         .column_offset = column_offset,
         .script_name = script_name,
@@ -74,7 +74,7 @@ pub fn parse(self: *Self) !Ast.Node.Index {
                     if (self.current_chunk.items.len > 0) {
                         try self.push(self.current_chunk.items);
                         // The previous `current_chunk` memory is owned by the parser
-                        self.current_chunk = std.ArrayList(u8).init(self.parser.gc.allocator);
+                        self.current_chunk = .init(self.parser.gc.allocator);
 
                         try self.inc();
                     }
@@ -93,7 +93,7 @@ pub fn parse(self: *Self) !Ast.Node.Index {
         try self.push(self.current_chunk.items);
 
         // The previous `current_chunk` memory is owned by the parser
-        self.current_chunk = std.ArrayList(u8).init(self.parser.gc.allocator);
+        self.current_chunk = .init(self.parser.gc.allocator);
     }
 
     self.elements.shrinkAndFree(self.elements.items.len);
