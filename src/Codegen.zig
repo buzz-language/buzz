@@ -3718,7 +3718,7 @@ fn generateTry(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.
     const locations = self.ast.nodes.items(.location);
     const location = locations[node];
 
-    self.current.?.try_should_handle = std.AutoHashMap(*obj.ObjTypeDef, Ast.TokenIndex).init(self.gc.allocator);
+    self.current.?.try_should_handle = .init(self.gc.allocator);
     defer {
         self.current.?.try_should_handle.?.deinit();
         self.current.?.try_should_handle = null;
@@ -4004,7 +4004,7 @@ fn generateUnwrap(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*o
     const jump = try self.OP_JUMP_IF_FALSE(location);
 
     if (self.opt_jumps == null) {
-        self.opt_jumps = std.ArrayList(usize).init(self.gc.allocator);
+        self.opt_jumps = .init(self.gc.allocator);
     }
     try self.opt_jumps.?.append(jump);
 

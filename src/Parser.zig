@@ -561,9 +561,9 @@ pub fn init(
     return .{
         .gc = gc,
         .imports = imports,
-        .script_imports = std.StringHashMap(LocalScriptImport).init(gc.allocator),
+        .script_imports = .init(gc.allocator),
         .imported = imported,
-        .globals = std.ArrayList(Global).init(gc.allocator),
+        .globals = .init(gc.allocator),
         .flavor = flavor,
         .reporter = Reporter{
             .allocator = gc.allocator,
@@ -877,10 +877,10 @@ pub fn parse(self: *Self, source: []const u8, file_name: []const u8) !?Ast {
                             .script_name = try self.gc.copyString(file_name),
                             .return_type = self.gc.type_registry.void_type,
                             .yield_type = self.gc.type_registry.void_type,
-                            .parameters = std.AutoArrayHashMap(*obj.ObjString, *obj.ObjTypeDef).init(self.gc.allocator),
-                            .defaults = std.AutoArrayHashMap(*obj.ObjString, Value).init(self.gc.allocator),
+                            .parameters = .init(self.gc.allocator),
+                            .defaults = .init(self.gc.allocator),
                             .function_type = function_type,
-                            .generic_types = std.AutoArrayHashMap(*obj.ObjString, *obj.ObjTypeDef).init(self.gc.allocator),
+                            .generic_types = .init(self.gc.allocator),
                         },
                     },
                 },
@@ -889,7 +889,7 @@ pub fn parse(self: *Self, source: []const u8, file_name: []const u8) !?Ast {
                 .Function = .{
                     .function_signature = null,
                     .id = Ast.Function.nextId(),
-                    .upvalue_binding = std.AutoArrayHashMap(u8, bool).init(self.gc.allocator),
+                    .upvalue_binding = .init(self.gc.allocator),
                     .body = body_node,
                 },
             },
@@ -1013,8 +1013,8 @@ fn beginFrame(self: *Self, function_type: obj.ObjFunction.FunctionType, function
         .upvalues = [_]UpValue{undefined} ** 255,
         .enclosing = enclosing,
         .function_node = function_node,
-        .constants = std.ArrayList(Value).init(self.gc.allocator),
-        .scopes = std.ArrayList(?Ast.Node.Index).init(self.gc.allocator),
+        .constants = .init(self.gc.allocator),
+        .scopes = .init(self.gc.allocator),
     };
 
     if (function_type == .Extern) {
@@ -5038,7 +5038,7 @@ fn unwrap(self: *Self, force: bool, unwrapped: Ast.Node.Index) Error!Ast.Node.In
     );
 
     if (!force) {
-        self.opt_jumps = self.opt_jumps orelse std.ArrayList(Precedence).init(self.gc.allocator);
+        self.opt_jumps = .init(self.gc.allocator);
 
         try self.opt_jumps.?.append(
             getRule(
@@ -5468,7 +5468,7 @@ fn function(
             .components = .{
                 .Function = .{
                     .id = Ast.Function.nextId(),
-                    .upvalue_binding = std.AutoArrayHashMap(u8, bool).init(self.gc.allocator),
+                    .upvalue_binding = .init(self.gc.allocator),
                     .function_signature = function_signature,
                 },
             },
@@ -5489,10 +5489,10 @@ fn function(
             try self.gc.copyString("anonymous"),
         .return_type = undefined,
         .yield_type = self.gc.type_registry.void_type,
-        .parameters = std.AutoArrayHashMap(*obj.ObjString, *obj.ObjTypeDef).init(self.gc.allocator),
-        .defaults = std.AutoArrayHashMap(*obj.ObjString, Value).init(self.gc.allocator),
+        .parameters = .init(self.gc.allocator),
+        .defaults = .init(self.gc.allocator),
         .function_type = function_type,
-        .generic_types = std.AutoArrayHashMap(*obj.ObjString, *obj.ObjTypeDef).init(self.gc.allocator),
+        .generic_types = .init(self.gc.allocator),
         .resolved_generics = null,
     };
 
@@ -7937,7 +7937,7 @@ fn importScript(
 
             import = ScriptImport{
                 .function = self.ast.root.?,
-                .globals = std.ArrayList(Global).init(self.gc.allocator),
+                .globals = .init(self.gc.allocator),
                 .absolute_path = try self.gc.copyString(source_and_path.?[1]),
             };
 

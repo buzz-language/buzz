@@ -58,8 +58,8 @@ pub const TypeRegistry = struct {
     pub fn init(gc: *GarbageCollector) !Self {
         var self = Self{
             .gc = gc,
-            .registry = std.StringHashMap(*ObjTypeDef).init(gc.allocator),
-            .type_def_key_buffer = std.ArrayList(u8).init(gc.allocator),
+            .registry = .init(gc.allocator),
+            .type_def_key_buffer = .init(gc.allocator),
             .void_type = undefined,
             .str_type = undefined,
             .int_type = undefined,
@@ -666,7 +666,7 @@ pub const GarbageCollector = struct {
                     if (registered_obj == obj_typedef) {
                         _ = self.type_registry.registry.remove(str);
                         if (BuildOptions.gc_debug) {
-                            io.print("Removed registered type @{} `{s}`\n", .{ @intFromPtr(registered_obj), str.items });
+                            io.print("Removed registered type @{} `{s}`\n", .{ @intFromPtr(registered_obj), str });
                         }
                     } else {
                         // io.print(

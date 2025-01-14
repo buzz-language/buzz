@@ -17,8 +17,7 @@ const JIT = if (!is_wasm) @import("Jit.zig") else void;
 const Token = @import("Token.zig");
 const Reporter = @import("Reporter.zig");
 const FFI = if (!is_wasm) @import("FFI.zig") else void;
-// TODO: put back .always_tail once https://github.com/ziglang/zig/issues/22474 is fixed
-const dispatch_call_modifier: std.builtin.CallModifier = .auto; //if (!is_wasm) .always_tail else .auto;
+const dispatch_call_modifier: std.builtin.CallModifier = if (!is_wasm) .always_tail else .auto;
 const io = @import("io.zig");
 
 const ObjType = _obj.ObjType;
@@ -5188,6 +5187,7 @@ pub const VM = struct {
             // Marked as compilable
             self.current_ast.nodes.items(.compilable)[node] and
             self.jit != null and
+            BuildOptions.jit_hotspot_on and
             // JIT compile all the thing?
             (
                 // Always compile

@@ -117,13 +117,13 @@ pub fn init(vm: *VM) Self {
     return .{
         .vm = vm,
         .ctx = m.MIR_init(),
-        .compiled_nodes = std.AutoHashMap(Ast.Node.Index, void).init(vm.gc.allocator),
-        .blacklisted_nodes = std.AutoHashMap(Ast.Node.Index, void).init(vm.gc.allocator),
-        .functions_queue = std.AutoHashMap(Ast.Node.Index, ?[2]?m.MIR_item_t).init(vm.gc.allocator),
-        .objclosures_queue = std.AutoHashMap(*o.ObjClosure, void).init(vm.gc.allocator),
-        .required_ext_api = std.AutoHashMap(ExternApi, void).init(vm.gc.allocator),
-        .modules = std.ArrayList(m.MIR_module_t).init(vm.gc.allocator),
-        .compiled_functions_bodies = Chunk.HashMap(CompiledFunction).init(vm.gc.allocator),
+        .compiled_nodes = .init(vm.gc.allocator),
+        .blacklisted_nodes = .init(vm.gc.allocator),
+        .functions_queue = .init(vm.gc.allocator),
+        .objclosures_queue = .init(vm.gc.allocator),
+        .required_ext_api = .init(vm.gc.allocator),
+        .modules = .init(vm.gc.allocator),
+        .compiled_functions_bodies = .init(vm.gc.allocator),
     };
 }
 
@@ -370,11 +370,11 @@ fn buildFunction(self: *Self, ast: Ast.Slice, closure: ?*o.ObjClosure, ast_node:
     self.state = .{
         .ast = ast,
         .module = undefined,
-        .prototypes = std.AutoHashMap(ExternApi, m.MIR_item_t).init(self.vm.gc.allocator),
+        .prototypes = .init(self.vm.gc.allocator),
         .ast_node = ast_node,
-        .registers = std.AutoHashMap([*:0]const u8, usize).init(self.vm.gc.allocator),
+        .registers = .init(self.vm.gc.allocator),
         .closure = closure orelse self.state.?.closure,
-        .breaks_label = Breaks.init(self.vm.gc.allocator),
+        .breaks_label = .init(self.vm.gc.allocator),
     };
 
     const tag = self.state.?.ast.nodes.items(.tag)[ast_node];
@@ -2075,7 +2075,7 @@ fn generateCall(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
         _ = try self.buildPush(m.MIR_new_uint_op(self.ctx, Value.Void.val));
     }
 
-    const args: std.AutoArrayHashMap(*o.ObjString, *o.ObjTypeDef) = function_type_def.resolved_type.?.Function.parameters;
+    const args = function_type_def.resolved_type.?.Function.parameters;
     const defaults = function_type_def.resolved_type.?.Function.defaults;
     const arg_keys = args.keys();
 
@@ -4034,7 +4034,7 @@ fn generateUnwrap(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
         self.state.?.opt_jump = .{
             // Store the value on the stack, that spot will be overwritten with the final value of the optional chain
             .alloca = try self.REG("opt", m.MIR_T_I64),
-            .current_insn = std.ArrayList(m.MIR_insn_t).init(self.vm.gc.allocator),
+            .current_insn = .init(self.vm.gc.allocator),
         };
     }
 
@@ -4938,11 +4938,11 @@ pub fn compileZdefContainer(self: *Self, ast: Ast.Slice, zdef_element: Ast.Zdef.
     self.state = .{
         .ast = ast,
         .module = module,
-        .prototypes = std.AutoHashMap(ExternApi, m.MIR_item_t).init(self.vm.gc.allocator),
+        .prototypes = .init(self.vm.gc.allocator),
         .ast_node = undefined,
-        .registers = std.AutoHashMap([*:0]const u8, usize).init(self.vm.gc.allocator),
+        .registers = .init(self.vm.gc.allocator),
         .closure = undefined,
-        .breaks_label = Breaks.init(self.vm.gc.allocator),
+        .breaks_label = .init(self.vm.gc.allocator),
     };
     defer self.reset();
 
@@ -5219,11 +5219,11 @@ pub fn compileZdef(self: *Self, buzz_ast: Ast.Slice, zdef: Ast.Zdef.ZdefElement)
     self.state = .{
         .ast = buzz_ast,
         .module = module,
-        .prototypes = std.AutoHashMap(ExternApi, m.MIR_item_t).init(self.vm.gc.allocator),
+        .prototypes = .init(self.vm.gc.allocator),
         .ast_node = undefined,
-        .registers = std.AutoHashMap([*:0]const u8, usize).init(self.vm.gc.allocator),
+        .registers = .init(self.vm.gc.allocator),
         .closure = undefined,
-        .breaks_label = Breaks.init(self.vm.gc.allocator),
+        .breaks_label = .init(self.vm.gc.allocator),
     };
     defer self.reset();
 
