@@ -58,6 +58,7 @@ const BuildOptions = struct {
         on: bool,
         always_on: bool,
         hotspot_always_on: bool,
+        hotspot_on: bool,
         debug: bool,
         prof_threshold: f128 = 0.05,
 
@@ -67,6 +68,7 @@ const BuildOptions = struct {
             options.addOption(@TypeOf(self.hotspot_always_on), "jit_hotspot_always_on", self.hotspot_always_on);
             options.addOption(@TypeOf(self.on), "jit", self.on);
             options.addOption(@TypeOf(self.prof_threshold), "jit_prof_threshold", self.prof_threshold);
+            options.addOption(@TypeOf(self.hotspot_on), "jit_hotspot_on", self.hotspot_on);
         }
     };
 
@@ -242,6 +244,11 @@ pub fn build(b: *Build) !void {
                 "jit_hotspot_always_on",
                 "JIT engine will compile any hotspot encountered",
             ) orelse false,
+            .hotspot_on = !is_wasm and b.option(
+                bool,
+                "jit_hotspot_on",
+                "JIT engine will compile hotspot when threshold reached",
+            ) orelse true,
             .on = !is_wasm and b.option(
                 bool,
                 "jit",
