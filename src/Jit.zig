@@ -2118,8 +2118,13 @@ fn generateCall(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
         }
     }
 
+    // We store the callee NativeCtx in an alloca. Since the alloca is declared outside of the callee, it will outlive it until the enclosing function returns
+    // So we use BSTART/BEND so the new_ctx is released once the callee is done
+    const block = try self.REG("call_block", m.MIR_T_I64);
+    self.BSTART(block);
     const new_ctx = try self.REG("new_ctx", m.MIR_T_I64);
     self.ALLOCA(new_ctx, @sizeOf(o.NativeCtx));
+
     try self.buildExternApiCall(
         .bz_context,
         callee,
@@ -2161,6 +2166,8 @@ fn generateCall(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
             m.MIR_new_reg_op(self.ctx, return_alloca.?),
         );
     }
+
+    self.BEND(block);
 
     if (function_type == .Extern) {
         return try self.generateHandleExternReturn(
@@ -6766,6 +6773,32 @@ inline fn ALLOCA(self: *Self, reg: m.MIR_reg_t, size: usize) void {
             &[_]m.MIR_op_t{
                 m.MIR_new_reg_op(self.ctx, reg),
                 m.MIR_new_uint_op(self.ctx, size),
+            },
+        ),
+    );
+}
+
+inline fn BSTART(self: *Self, into: m.MIR_reg_t) void {
+    self.append(
+        m.MIR_new_insn_arr(
+            self.ctx,
+            @intFromEnum(m.MIR_Instruction.BSTART),
+            1,
+            &[_]m.MIR_op_t{
+                m.MIR_new_reg_op(self.ctx, into),
+            },
+        ),
+    );
+}
+
+inline fn BEND(self: *Self, from: m.MIR_reg_t) void {
+    self.append(
+        m.MIR_new_insn_arr(
+            self.ctx,
+            @intFromEnum(m.MIR_Instruction.BEND),
+            1,
+            &[_]m.MIR_op_t{
+                m.MIR_new_reg_op(self.ctx, from),
             },
         ),
     );
