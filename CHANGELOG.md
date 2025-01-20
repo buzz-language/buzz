@@ -44,15 +44,17 @@ list[?10] == null;
 - User input is syntax highlighted in REPL (https://github.com/buzz-language/buzz/issues/217)
 - REPL handles multilines input (https://github.com/buzz-language/buzz/issues/218)
 - `std\args()`: returns the command line arguments with which the script was launched
+- Compiler is better at inferring empty list/map type from their context (https://github.com/buzz-language/buzz/issues/86)
 
 ## Modified
-- Enum can now have `rg`, `ud`, `void`, `pat` has value type
+- Enum can now have `rg`, `ud`, `void`, `pat` as value type
 - Anonymous object can also omit property name when initial value is a named variable
 - Mir was updated to 1.0 (https://github.com/buzz-language/buzz/issues/300)
 
 ## Fixed
 - Type checking was not done on object instance property assignments
 - Http client could not be collected because it kept connection opened to previous requests' domains
+- Fixed an issue where a JIT compiled function making a lot of function calls would stack overflow
 
 ## Internal
 - Properties are now retrieved with an index rather than a hashmap lookup (https://github.com/buzz-language/buzz/issues/90) which gives a nice performance boost of about 40% on some benches
