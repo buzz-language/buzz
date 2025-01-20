@@ -437,9 +437,7 @@ export fn bz_valueCastToString(value: Value, vm: *VM) Value {
         @panic("Out of memory");
     defer vm.gc.allocator.free(str);
 
-    return Value.fromObj(
-        (vm.gc.copyString(str) catch @panic("Out of memory")).toObj(),
-    );
+    return (vm.gc.copyString(str) catch @panic("Out of memory")).toValue();
 }
 
 // Other stuff
@@ -1218,15 +1216,17 @@ export fn bz_context(ctx: *NativeCtx, closure_value: Value, new_ctx: *NativeCtx,
         .stack_top = &ctx.vm.current_fiber.stack_top,
     };
 
-    if (closure != null and closure.?.function.native_raw == null and closure.?.function.native == null) {
-        ctx.vm.jit.?.compileFunction(ctx.vm.current_ast, closure.?) catch @panic("Failed compiling function");
-    }
-
     if (closure) |cls| {
+        if (cls.function.native_raw == null and cls.function.native == null) {
+            ctx.vm.jit.?.compileFunction(ctx.vm.current_ast, cls) catch @panic("Failed compiling function");
+        }
+
         ctx.vm.current_fiber.current_compiled_function = cls.function;
+
+        return cls.function.native_raw.?;
     }
 
-    return if (closure) |cls| cls.function.native_raw.? else native.?.native;
+    return native.?.native;
 }
 
 export fn bz_closure(
