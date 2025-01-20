@@ -1366,8 +1366,11 @@ fn buildValueToOptionalUserData(self: *Self, value: m.MIR_op_t, dest: m.MIR_op_t
     self.append(null_label);
 }
 
-fn buildValueFromFloat(self: *Self, value: m.MIR_op_t, dest: m.MIR_op_t) void {
+fn buildValueFromFloat(self: *Self, value: m.MIR_op_t, dest: m.MIR_op_t) !void {
     // Allocate memory
+    const block = try self.REG("call_block", m.MIR_T_I64);
+    self.BSTART(block);
+    defer self.BEND(block); // release alloca after result is put in dest registry
     const addr = self.REG("cast", m.MIR_T_I64) catch unreachable;
     self.ALLOCA(addr, @sizeOf(u64));
 
@@ -1398,8 +1401,11 @@ fn buildValueFromFloat(self: *Self, value: m.MIR_op_t, dest: m.MIR_op_t) void {
     );
 }
 
-fn buildValueFromDouble(self: *Self, value: m.MIR_op_t, dest: m.MIR_op_t) void {
+fn buildValueFromDouble(self: *Self, value: m.MIR_op_t, dest: m.MIR_op_t) !void {
     // Allocate memory
+    const block = try self.REG("call_block", m.MIR_T_I64);
+    self.BSTART(block);
+    defer self.BEND(block); // release alloca after result is put in dest registry
     const addr = self.REG("cast", m.MIR_T_I64) catch unreachable;
     self.ALLOCA(addr, @sizeOf(u64));
 
@@ -1430,8 +1436,11 @@ fn buildValueFromDouble(self: *Self, value: m.MIR_op_t, dest: m.MIR_op_t) void {
     );
 }
 
-fn buildValueToDouble(self: *Self, value: m.MIR_op_t, dest: m.MIR_op_t) void {
+fn buildValueToDouble(self: *Self, value: m.MIR_op_t, dest: m.MIR_op_t) !void {
     // Allocate memory
+    const block = try self.REG("call_block", m.MIR_T_I64);
+    self.BSTART(block);
+    defer self.BEND(block); // release alloca after result is put in dest registry
     const addr = self.REG("cast", m.MIR_T_I64) catch unreachable;
     self.ALLOCA(addr, @sizeOf(u64));
 
@@ -1462,8 +1471,11 @@ fn buildValueToDouble(self: *Self, value: m.MIR_op_t, dest: m.MIR_op_t) void {
     );
 }
 
-fn buildValueToFloat(self: *Self, value: m.MIR_op_t, dest: m.MIR_op_t) void {
+fn buildValueToFloat(self: *Self, value: m.MIR_op_t, dest: m.MIR_op_t) !void {
     // Allocate memory
+    const block = try self.REG("call_block", m.MIR_T_I64);
+    self.BSTART(block);
+    defer self.BEND(block); // release alloca after result is put in dest registry
     const addr = self.REG("cast", m.MIR_T_I64) catch unreachable;
     self.ALLOCA(addr, @sizeOf(u64));
 
@@ -1581,7 +1593,7 @@ fn unwrap(self: *Self, def_type: o.ObjTypeDef.Type, value: m.MIR_op_t, dest: m.M
     return switch (def_type) {
         .Bool => self.buildValueToBoolean(value, dest),
         .Integer => self.buildValueToInteger(value, dest),
-        .Double => self.buildValueToDouble(value, dest),
+        .Double => try self.buildValueToDouble(value, dest),
         .Void => self.MOV(dest, value),
         .String,
         .Pattern,
@@ -1608,11 +1620,11 @@ fn unwrap(self: *Self, def_type: o.ObjTypeDef.Type, value: m.MIR_op_t, dest: m.M
 }
 
 // Wrap mir value to buzz Value
-fn wrap(self: *Self, def_type: o.ObjTypeDef.Type, value: m.MIR_op_t, dest: m.MIR_op_t) void {
+fn wrap(self: *Self, def_type: o.ObjTypeDef.Type, value: m.MIR_op_t, dest: m.MIR_op_t) !void {
     return switch (def_type) {
         .Bool => self.buildValueFromBoolean(value, dest),
         .Integer => self.buildValueFromInteger(value, dest),
-        .Double => self.buildValueFromDouble(value, dest),
+        .Double => try self.buildValueFromDouble(value, dest),
         .Void => self.MOV(dest, m.MIR_new_uint_op(self.ctx, Value.Void.val)),
         .String,
         .Pattern,
@@ -1982,6 +1994,12 @@ fn generateCall(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
     const error_types = function_type_def.resolved_type.?.Function.error_types;
     const has_catch_clause = components.catch_default != null and error_types != null and error_types.?.len > 0 and function_type != .Extern;
 
+    // We store the callee NativeCtx and eventual catch value in an alloca
+    // Since the alloca is declared outside of the callee, it will outlive it until the enclosing function returns
+    // So we use BSTART/BEND so the new_ctx is released once the callee is done
+    const block = try self.REG("call_block", m.MIR_T_I64);
+    self.BSTART(block);
+
     // If we have a catch value, create alloca for return value so we can replace it when error is raised
     const return_alloca = if (has_catch_clause)
         try self.REG("return_value", m.MIR_T_I64)
@@ -2118,10 +2136,6 @@ fn generateCall(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
         }
     }
 
-    // We store the callee NativeCtx in an alloca. Since the alloca is declared outside of the callee, it will outlive it until the enclosing function returns
-    // So we use BSTART/BEND so the new_ctx is released once the callee is done
-    const block = try self.REG("call_block", m.MIR_T_I64);
-    self.BSTART(block);
     const new_ctx = try self.REG("new_ctx", m.MIR_T_I64);
     self.ALLOCA(new_ctx, @sizeOf(o.NativeCtx));
 
@@ -2636,7 +2650,7 @@ fn generateBinary(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
                             else => unreachable,
                         }
 
-                        self.wrap(.Bool, res, res);
+                        try self.wrap(.Bool, res, res);
                     } else {
                         switch (components.operator) {
                             .Greater => self.GTS(res, left, right),
@@ -2646,7 +2660,7 @@ fn generateBinary(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
                             else => unreachable,
                         }
 
-                        self.wrap(.Bool, res, res);
+                        try self.wrap(.Bool, res, res);
                     }
                 },
                 .Plus => {
@@ -2677,11 +2691,11 @@ fn generateBinary(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
                                 );
                                 self.DADD(f_res, left, right);
 
-                                self.wrap(.Double, f_res, res);
+                                try self.wrap(.Double, f_res, res);
                             } else {
                                 self.ADDS(res, left, right);
 
-                                self.wrap(.Integer, res, res);
+                                try self.wrap(.Integer, res, res);
                             }
                         },
                         .String => {
@@ -2746,11 +2760,11 @@ fn generateBinary(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
                         );
                         self.DSUB(f_res, left, right);
 
-                        self.wrap(.Double, f_res, res);
+                        try self.wrap(.Double, f_res, res);
                     } else {
                         self.SUBS(res, left, right);
 
-                        self.wrap(.Integer, res, res);
+                        try self.wrap(.Integer, res, res);
                     }
                 },
                 .Star => {
@@ -2779,11 +2793,11 @@ fn generateBinary(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
                         );
                         self.DMUL(f_res, left, right);
 
-                        self.wrap(.Double, f_res, res);
+                        try self.wrap(.Double, f_res, res);
                     } else {
                         self.MULS(res, left, right);
 
-                        self.wrap(.Integer, res, res);
+                        try self.wrap(.Integer, res, res);
                     }
                 },
                 .Slash => {
@@ -2812,11 +2826,11 @@ fn generateBinary(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
                         );
                         self.DDIV(f_res, left, right);
 
-                        self.wrap(.Double, f_res, res);
+                        try self.wrap(.Double, f_res, res);
                     } else {
                         self.DIVS(res, left, right);
 
-                        self.wrap(.Integer, res, res);
+                        try self.wrap(.Integer, res, res);
                     }
                 },
                 .Percent => {
@@ -2832,7 +2846,7 @@ fn generateBinary(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
                     } else {
                         self.MODS(res, left, right);
 
-                        self.wrap(.Integer, res, res);
+                        try self.wrap(.Integer, res, res);
                     }
                 },
                 else => unreachable,
@@ -2922,7 +2936,7 @@ fn generateBitwise(self: *Self, binary: Ast.Binary) Error!?m.MIR_op_t {
         else => unreachable,
     }
 
-    self.wrap(.Integer, res, res);
+    try self.wrap(.Integer, res, res);
 
     return res;
 }
@@ -4208,7 +4222,7 @@ fn generateUnary(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
         .Bnot => {
             try self.unwrap(.Integer, left, result);
             self.NOTS(result, result);
-            self.wrap(.Integer, result, result);
+            try self.wrap(.Integer, result, result);
         },
         .Bang => {
             try self.unwrap(.Bool, left, result);
@@ -4247,7 +4261,7 @@ fn generateUnary(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
                 self.DNEG(result, result);
             }
 
-            self.wrap(
+            try self.wrap(
                 left_type_def.?.def_type,
                 result,
                 result,
@@ -5085,7 +5099,7 @@ fn buildBuzzValueToZigValue(self: *Self, buzz_type: *o.ObjTypeDef, zig_type: Zig
                 );
 
                 // This is a int represented by a buzz double value
-                self.buildValueToDouble(buzz_value, tmp_float);
+                try self.buildValueToDouble(buzz_value, tmp_float);
 
                 // Convert it back to an int
                 self.D2I(dest, tmp_float);
@@ -5096,10 +5110,10 @@ fn buildBuzzValueToZigValue(self: *Self, buzz_type: *o.ObjTypeDef, zig_type: Zig
         // TODO: double can't be truncated like ints, we need a D2F instruction
         .Double => {
             if (zig_type.Double.bits == 64) {
-                self.buildValueToDouble(buzz_value, dest);
+                try self.buildValueToDouble(buzz_value, dest);
             } else {
                 std.debug.assert(zig_type.Double.bits == 32);
-                self.buildValueToFloat(buzz_value, dest);
+                try self.buildValueToFloat(buzz_value, dest);
             }
         },
         .Bool => self.buildValueToBoolean(buzz_value, dest),
@@ -5151,17 +5165,17 @@ fn buildZigValueToBuzzValue(self: *Self, buzz_type: *o.ObjTypeDef, zig_type: Zig
                 }
 
                 // And to a buzz value
-                self.buildValueFromDouble(tmp_float, dest);
+                try self.buildValueFromDouble(tmp_float, dest);
             } else {
                 self.buildValueFromInteger(zig_value, dest);
             }
         },
         .Double => {
             if (zig_type.Double.bits == 64) {
-                self.buildValueFromDouble(zig_value, dest);
+                try self.buildValueFromDouble(zig_value, dest);
             } else {
                 std.debug.assert(zig_type.Double.bits == 32);
-                self.buildValueFromFloat(zig_value, dest);
+                try self.buildValueFromFloat(zig_value, dest);
             }
         },
         .Bool => self.buildValueFromBoolean(zig_value, dest),
