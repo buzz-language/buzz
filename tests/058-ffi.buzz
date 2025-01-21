@@ -58,7 +58,7 @@ zdef("tests/utils/libforeign", `
     const Data = extern struct {
         id: i32,
         msg: [*:0]const u8,
-        value: f32,
+        value: f64,
     };
 
     fn get_data_msg(data: *Data) [*:0]const u8;
@@ -133,6 +133,9 @@ test "union" {
         }
     };
 
+    std\print(ffi\rawData(misc).hex());
+    std\print("value = {misc.data.value}");
+
     std\assert(get_misc_msg(misc) == ffi\cstr("hello world"), message: "Could read union field");
 
     misc.flag = Flag{
@@ -140,9 +143,13 @@ test "union" {
         value = true,
     };
 
+    std\print(ffi\rawData(misc).hex());
+
     std\assert(get_misc_flag(misc), message: "Could read union field");
 
     misc.id = 321;
+
+    std\print(ffi\rawData(misc).hex());
 
     std\assert(misc.id == 321, message: "Got expected memory layout of a C union");
     std\assert(misc.data.id == 321, message: "Got expected memory layout of a C union");

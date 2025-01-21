@@ -83,3 +83,22 @@ pub export fn alignOfStruct(ctx: *api.NativeCtx) c_int {
 
     return 1;
 }
+
+pub export fn rawData(ctx: *api.NativeCtx) c_int {
+    const data = ctx.vm.bz_peek(0);
+
+    if (!data.bz_valueIsForeignContainer()) {
+        ctx.vm.pushError("ffi.ValueNotForeignContainer", null);
+
+        return -1;
+    }
+
+    var len: usize = 0;
+    const data_ptr = data.bz_foreignContainerSlice(&len);
+
+    ctx.vm.bz_push(
+        ctx.vm.bz_stringToValue(data_ptr, len),
+    );
+
+    return 1;
+}

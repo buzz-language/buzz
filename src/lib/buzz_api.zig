@@ -124,6 +124,7 @@ pub const Value = packed struct {
     pub extern fn bz_valueToString(value: Value, len: *usize) ?[*]const u8;
     pub extern fn bz_valueToCString(value: Value) ?[*:0]const u8;
     pub extern fn bz_valueToForeignContainerPtr(value: Value) [*]u8;
+    pub extern fn bz_valueIsForeignContainer(value: Value) bool;
     pub extern fn bz_valueDump(value: Value, vm: *VM) void;
     pub extern fn bz_valueEqual(self: Value, other: Value) Value;
     pub extern fn bz_valueIs(self: Value, type_def: Value) Value;

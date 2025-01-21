@@ -20,6 +20,7 @@ export fn sum(values: [*]i32, len: i32) i32 {
 pub const Data = extern struct {
     id: i32,
     msg: [*:0]u8,
+    value: f64,
 };
 
 export fn get_data_msg(data: *Data) [*:0]u8 {
@@ -46,6 +47,12 @@ export fn get_misc_msg(misc: *Misc) [*:0]u8 {
 }
 
 export fn get_misc_flag(misc: *Misc) bool {
+    std.debug.print(
+        "> {x:0>2}\n",
+        .{
+            std.mem.asBytes(misc),
+        },
+    );
     return misc.flag.value;
 }
 
