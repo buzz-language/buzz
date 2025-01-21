@@ -66,7 +66,7 @@ fn printBanner(out: anytype, full: bool) void {
     }
 }
 
-fn runFile(allocator: Allocator, file_name: []const u8, args: [][:0]u8, flavor: RunFlavor) !void {
+fn runFile(allocator: Allocator, file_name: []const u8, args: []const []const u8, flavor: RunFlavor) !void {
     var total_timer = if (!is_wasm) std.time.Timer.start() catch unreachable else {};
     var import_registry = ImportRegistry.init(allocator);
     var gc = try GarbageCollector.init(allocator);
@@ -204,7 +204,7 @@ fn runFile(allocator: Allocator, file_name: []const u8, args: [][:0]u8, flavor: 
 
 pub fn main() u8 {
     var gpa = std.heap.GeneralPurposeAllocator(.{ .safety = builtin.mode == .Debug }){};
-    var allocator: std.mem.Allocator = if (builtin.mode == .Debug or is_wasm)
+    const allocator: std.mem.Allocator = if (builtin.mode == .Debug or is_wasm)
         gpa.allocator()
     else if (BuildOptions.mimalloc)
         @import("mimalloc.zig").mim_allocator
@@ -279,19 +279,6 @@ pub fn main() u8 {
         Parser.user_library_paths = list.items;
     }
 
-    var positionals = std.ArrayList([:0]u8).init(allocator);
-    for (res.positionals) |pos| {
-        positionals.append(
-            allocator.dupeZ(u8, pos) catch return 1,
-        ) catch return 1;
-    }
-    defer {
-        for (positionals.items) |pos| {
-            allocator.free(pos);
-        }
-        positionals.deinit();
-    }
-
     const flavor: RunFlavor = if (res.args.check == 1)
         .Check
     else if (res.args.@"test" == 1)
@@ -305,11 +292,11 @@ pub fn main() u8 {
         repl(allocator) catch {
             return 1;
         };
-    } else if (!is_wasm and positionals.items.len > 0) {
+    } else if (!is_wasm and res.positionals[0].len > 0) {
         runFile(
             allocator,
+            res.positionals[0][0],
             res.positionals[0],
-            positionals.items[1..],
             flavor,
         ) catch {
             return 1;
