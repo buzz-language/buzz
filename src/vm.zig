@@ -476,7 +476,7 @@ pub const VM = struct {
         self.ffi.deinit();
     }
 
-    pub fn cliArgs(self: *Self, args: ?[][:0]u8) !*ObjList {
+    pub fn cliArgs(self: *Self, args: ?[]const []const u8) !*ObjList {
         var arg_list = try self.gc.allocateObject(
             ObjList,
             try ObjList.init(
@@ -571,7 +571,7 @@ pub const VM = struct {
         return self.currentFrame().?.closure.globals;
     }
 
-    pub fn interpret(self: *Self, ast: Ast.Slice, function: *ObjFunction, args: ?[][:0]u8) Error!void {
+    pub fn interpret(self: *Self, ast: Ast.Slice, function: *ObjFunction, args: ?[]const []const u8) Error!void {
         self.current_ast = ast;
 
         self.current_fiber = try self.gc.allocator.create(Fiber);

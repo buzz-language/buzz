@@ -727,7 +727,7 @@ fn ptrType(self: *Self, tag: Ast.Node.Tag, decl_index: Ast.Node.Index) anyerror!
             .type_def = self.gc.type_registry.str_type,
             .zig_type = ZigType{
                 .Pointer = .{
-                    .size = .C,
+                    .size = .c,
                     .is_const = ptr_type.const_token != null,
                     .is_volatile = undefined,
                     .alignment = undefined,
@@ -744,7 +744,7 @@ fn ptrType(self: *Self, tag: Ast.Node.Tag, decl_index: Ast.Node.Index) anyerror!
             .type_def = child_type.type_def,
             .zig_type = ZigType{
                 .Pointer = .{
-                    .size = .C,
+                    .size = .c,
                     .is_const = ptr_type.const_token != null,
                     .is_volatile = undefined,
                     .alignment = undefined,
@@ -761,7 +761,7 @@ fn ptrType(self: *Self, tag: Ast.Node.Tag, decl_index: Ast.Node.Index) anyerror!
             .type_def = self.gc.type_registry.ud_type,
             .zig_type = ZigType{
                 .Pointer = .{
-                    .size = .C,
+                    .size = .c,
                     .is_const = ptr_type.const_token != null,
                     .is_volatile = undefined,
                     .alignment = undefined,
@@ -815,7 +815,7 @@ fn fnProto(self: *Self, tag: Ast.Node.Tag, decl_index: Ast.Node.Index) anyerror!
 
     var parameters_zig_types = std.ArrayList(ZigType.FnType.Param).init(self.gc.allocator);
     var zig_fn_type = ZigType.FnType{
-        .calling_convention = .C,
+        .calling_convention = .c,
         // How could it be something else?
         .alignment = 4,
         .is_generic = false,
