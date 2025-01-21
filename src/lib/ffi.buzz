@@ -10,6 +10,10 @@ export object FFIZigTypeParseError {
     message: str = "Could not parse zig type",
 }
 
+export object ValueNotForeignContainer {
+    message: str = "Value is not a foreign container",
+}
+
 export extern fun alignOf(zigType: str) > int;
 
 export extern fun sizeOf(zigType: str) > int;
@@ -17,3 +21,5 @@ export extern fun sizeOf(zigType: str) > int;
 export extern fun sizeOfStruct(structType: type) > int;
 
 export extern fun alignOfStruct(structType: type) > int;
+
+export extern fun rawData(data: any) > str;

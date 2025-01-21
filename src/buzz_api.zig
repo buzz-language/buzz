@@ -1512,6 +1512,10 @@ export fn bz_foreignContainerSlice(container_value: Value, len: *usize) [*]u8 {
     return container.data.ptr;
 }
 
+export fn bz_valueIsForeignContainer(value: Value) bool {
+    return value.isObj() and value.obj().obj_type == .ForeignContainer;
+}
+
 export fn bz_newForeignContainerFromSlice(vm: *VM, type_def: Value, ptr: [*]u8, len: usize) Value {
     var container = (vm.gc.allocateObject(
         ObjForeignContainer,
