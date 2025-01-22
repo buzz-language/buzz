@@ -283,7 +283,7 @@ pub fn main() u8 {
         .Check
     else if (res.args.@"test" == 1)
         .Test
-    else if (res.positionals.len == 0)
+    else if (res.positionals[0].len == 0)
         .Repl
     else
         .Run;
