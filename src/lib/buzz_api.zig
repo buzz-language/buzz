@@ -230,7 +230,7 @@ pub const VM = opaque {
     pub extern fn bz_rethrow(vm: *VM) void;
     pub extern fn bz_getQualified(self: *VM, qualified_name: [*]const u8, len: usize) Value;
     pub extern fn bz_allocated(self: *VM) usize;
-    pub extern fn bz_collect(self: *VM) bool;
+    pub extern fn bz_collect(self: *VM) void;
     pub extern fn bz_setTryCtx(self: *VM) *TryCtx;
     pub extern fn bz_popTryCtx(self: *VM) void;
     pub extern fn bz_closeUpValues(vm: *VM, last: *Value) void;

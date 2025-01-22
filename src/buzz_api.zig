@@ -504,12 +504,8 @@ export fn bz_allocated(self: *VM) usize {
     return self.gc.bytes_allocated;
 }
 
-export fn bz_collect(self: *VM) bool {
-    self.gc.collectGarbage() catch {
-        return false;
-    };
-
-    return true;
+export fn bz_collect(self: *VM) void {
+    self.gc.collectGarbage() catch @panic("Could not collect");
 }
 
 export fn bz_newRange(vm: *VM, low: Integer, high: Integer) Value {
