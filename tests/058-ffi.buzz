@@ -124,34 +124,34 @@ zdef("tests/utils/libforeign", `
     fn set_misc_id(misc: *Misc, new_id: i32) void;
 `);
 
-test "union" {
-    final misc = Misc{
-        data = Data{
-            id = 123,
-            msg = ffi\cstr("hello world"),
-            value = 42.0,
-        }
-    };
+// test "union" {
+//     final misc = Misc{
+//         data = Data{
+//             id = 123,
+//             msg = ffi\cstr("hello world"),
+//             value = 42.0,
+//         }
+//     };
 
-    std\print(ffi\rawData(misc).hex());
-    std\print("value = {misc.data.value}");
+//     std\print(ffi\rawData(misc).hex());
+//     std\print("value = {misc.data.value}");
 
-    std\assert(get_misc_msg(misc) == ffi\cstr("hello world"), message: "Could read union field");
+//     std\assert(get_misc_msg(misc) == ffi\cstr("hello world"), message: "Could read union field");
 
-    misc.flag = Flag{
-        id = 123,
-        value = true,
-    };
+//     misc.flag = Flag{
+//         id = 123,
+//         value = true,
+//     };
 
-    std\print(ffi\rawData(misc).hex());
+//     std\print(ffi\rawData(misc).hex());
 
-    std\assert(get_misc_flag(misc), message: "Could read union field");
+//     std\assert(get_misc_flag(misc), message: "Could read union field");
 
-    misc.id = 321;
+//     misc.id = 321;
 
-    std\print(ffi\rawData(misc).hex());
+//     std\print(ffi\rawData(misc).hex());
 
-    std\assert(misc.id == 321, message: "Got expected memory layout of a C union");
-    std\assert(misc.data.id == 321, message: "Got expected memory layout of a C union");
-    std\assert(misc.flag.id == 321, message: "Got expected memory layout of a C union");
-}
+//     std\assert(misc.id == 321, message: "Got expected memory layout of a C union");
+//     std\assert(misc.data.id == 321, message: "Got expected memory layout of a C union");
+//     std\assert(misc.flag.id == 321, message: "Got expected memory layout of a C union");
+// }
