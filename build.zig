@@ -564,12 +564,19 @@ pub fn buildPcre2(b: *Build, target: Build.ResolvedTarget, optimize: std.builtin
         "vendors/pcre2/src/pcre2_chartables.c",
     );
 
+    const flags: []const []const u8 = &.{
+        "-std=c99",
+        "-DHAVE_CONFIG_H",
+        "-DPCRE2_CODE_UNIT_WIDTH=8",
+        "-DPCRE2_STATIC",
+    };
     const lib = b.addStaticLibrary(.{
         .name = "pcre2",
         .target = target,
         .optimize = optimize,
     });
-    lib.addIncludePath(b.path("src"));
+    lib.addIncludePath(b.path("vendors/pcre2/src"));
+    lib.addIncludePath(copyFiles.getDirectory().path(b, "vendors/pcre2/src"));
     lib.addCSourceFiles(
         .{
             .files = &.{
@@ -598,14 +605,14 @@ pub fn buildPcre2(b: *Build, target: Build.ResolvedTarget, optimize: std.builtin
                 "vendors/pcre2/src/pcre2_ucd.c",
                 "vendors/pcre2/src/pcre2_valid_utf.c",
                 "vendors/pcre2/src/pcre2_xclass.c",
-                "vendors/pcre2/src/pcre2_chartables.c",
             },
-            .flags = &.{
-                "-std=c99",
-                "-DHAVE_CONFIG_H",
-                "-DPCRE2_CODE_UNIT_WIDTH=8",
-                "-DPCRE2_STATIC",
-            },
+            .flags = flags,
+        },
+    );
+    lib.addCSourceFile(
+        .{
+            .file = copyFiles.getDirectory().path(b, "vendors/pcre2/src/pcre2_chartables.c"),
+            .flags = flags,
         },
     );
     lib.step.dependOn(&copyFiles.step);

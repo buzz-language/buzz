@@ -5,50 +5,48 @@ on:
     branches: [main]
 
 jobs:
-  # test-macos:
-  #   runs-on: macos-latest
-  #   steps:
-  #     - name: Install homebrew
-  #       run: /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-  #     - name: Install pcre
-  #       run: brew install pcre
-  #     - name: Checkout project
-  #       uses: actions/checkout@v3.0.0
-  #     - name: Checkout submodules
-  #       run: git submodule update --init --recursive
-  #     - name: Setup nightly Zig
-  #       uses: mlugg/setup-zig@v1
-  #       with:
-  #         version: master
-  #     - name: Build test ffi lib
-  #       run: zig build-lib -dynamic tests/utils/foreign.zig && mv libforeign.* tests/utils/
+  test-macos:
+    runs-on: macos-latest
+    steps:
+      - name: Install homebrew
+        run: /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+      - name: Checkout project
+        uses: actions/checkout@v3.0.0
+      - name: Checkout submodules
+        run: git submodule update --init --recursive
+      - name: Setup nightly Zig
+        uses: mlugg/setup-zig@v1
+        with:
+          version: master
+      - name: Build test ffi lib
+        run: zig build-lib -dynamic tests/utils/foreign.zig && mv libforeign.* tests/utils/
 
-  #     - name: Run tests Debug
-  #       run: zig build test
-  #     - name: Cleanup
-  #       run: rm -rf zig-out zig-cache
-  #     - name: Run tests Debug with JIT always on
-  #       run: zig build -Djit_always_on test
-  #     - name: Cleanup
-  #       run: rm -rf zig-out zig-cache
+      - name: Run tests Debug
+        run: zig build test
+      - name: Cleanup
+        run: rm -rf zig-out zig-cache
+      - name: Run tests Debug with JIT always on
+        run: zig build -Djit_always_on test
+      - name: Cleanup
+        run: rm -rf zig-out zig-cache
 
-  #     - name: Run tests ReleaseSafe
-  #       run: zig build -Doptimize=ReleaseSafe test
-  #     - name: Cleanup
-  #       run: rm -rf zig-out zig-cache
-  #     - name: Run tests ReleaseSafe with JIT always on
-  #       run: zig build -Doptimize=ReleaseSafe -Djit_always_on test
-  #     - name: Cleanup
-  #       run: rm -rf zig-out zig-cache
+      - name: Run tests ReleaseSafe
+        run: zig build -Doptimize=ReleaseSafe test
+      - name: Cleanup
+        run: rm -rf zig-out zig-cache
+      - name: Run tests ReleaseSafe with JIT always on
+        run: zig build -Doptimize=ReleaseSafe -Djit_always_on test
+      - name: Cleanup
+        run: rm -rf zig-out zig-cache
 
-  #     - name: Run tests ReleaseFast
-  #       run: zig build -Doptimize=ReleaseFast test
-  #     - name: Cleanup
-  #       run: rm -rf zig-out zig-cache
-  #     - name: Run tests ReleaseFast with JIT always on
-  #       run: zig build -Doptimize=ReleaseFast -Djit_always_on test
-  #     - name: Cleanup
-  #       run: rm -rf zig-out zig-cache
+      - name: Run tests ReleaseFast
+        run: zig build -Doptimize=ReleaseFast test
+      - name: Cleanup
+        run: rm -rf zig-out zig-cache
+      - name: Run tests ReleaseFast with JIT always on
+        run: zig build -Doptimize=ReleaseFast -Djit_always_on test
+      - name: Cleanup
+        run: rm -rf zig-out zig-cache
   test-linux:
     runs-on: ubuntu-latest
     steps:
@@ -56,8 +54,6 @@ jobs:
         uses: actions/checkout@v3.0.0
       - name: Checkout submodules
         run: git submodule update --init --recursive
-      - name: Configure pcre2
-        run: cp vendors/pcre2/src/pcre2_chartables.c.dist vendors/pcre2/src/pcre2_chartables.c && cd vendors/pcre2 && ./autogen.sh && ./configure && cd ../..
       - name: Setup nightly Zig
         uses: mlugg/setup-zig@v1
         with:
@@ -98,8 +94,6 @@ jobs:
         uses: actions/checkout@v3.0.0
       - name: Checkout submodules
         run: git submodule update --init --recursive
-      - name: Configure pcre2
-        run: cp vendors/pcre2/src/pcre2_chartables.c.dist vendors/pcre2/src/pcre2_chartables.c && cd vendors/pcre2 && ./autogen.sh && ./configure && cd ../..
       - name: Setup nightly Zig
         uses: mlugg/setup-zig@v1
         with:
