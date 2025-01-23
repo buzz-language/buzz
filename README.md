@@ -23,7 +23,7 @@ A small/lightweight statically typed scripting language written in Zig
 - [Fibers](#fibers)
 - JIT compilation with [MIR](https://github.com/vnmakarov/mir)
 - Tooling
-    - [Generate doc from docblocks (in progress)](https://github.com/buzz-language/buzz/blob/main/doc/index.md)
+    - Generate doc from docblocks (planned)
     - [VS Code extension](https://marketplace.visualstudio.com/items?itemName=giann.buzz)
         - Syntax highlighting
         - LSP (in progress)
@@ -42,18 +42,7 @@ _Latest zig version supported: 0.14.0-dev.2643+fb43e91b2_
 ### Build
 1. Clone the project: `git clone https://github.com/buzz-language/buzz <buzz_dir>`
 2. Checkout submodules: `git submodule update --init`
-3. Copy `pcre2_chartables`:
-```bash
-ln -s vendors/pcre2/src/pcre2_chartables.c.dist vendors/pcre2/src/pcre2_chartables.c
-```
-3. Configure pcre2:
-```bash
-cd vendors/pcre2
-./autogen.sh
-./configure
-cd ../..
-```
-4. Have fun: `zig build run -- <myscript.buzz>` to run a script  or `zig build run` to start the REPL
+3. Have fun: `zig build run -- <myscript.buzz>` to run a script  or `zig build run` to start the REPL
 
 ### Install
 
