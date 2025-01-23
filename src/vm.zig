@@ -473,7 +473,9 @@ pub const VM = struct {
     pub fn deinit(self: *Self) void {
         // TODO: we can't free this because exported closure refer to it
         // self.globals.deinit();
-        self.ffi.deinit();
+        if (!is_wasm) {
+            self.ffi.deinit();
+        }
     }
 
     pub fn cliArgs(self: *Self, args: ?[]const []const u8) !*ObjList {

@@ -611,33 +611,29 @@ export fn bz_getUserDataPtr(userdata: Value) u64 {
     return ObjUserData.cast(userdata.obj()).?.userdata;
 }
 
-export fn bz_newVM(self: *VM) ?*VM {
-    const vm = self.gc.allocator.create(VM) catch {
-        return null;
-    };
-    var gc = self.gc.allocator.create(GarbageCollector) catch {
-        return null;
-    };
+export fn bz_newVM() *VM {
+    const vm = allocator.create(VM) catch @panic("Out of memory");
+    var gc = allocator.create(GarbageCollector) catch @panic("Out of memory");
     // FIXME: should share strings between gc
-    gc.* = GarbageCollector.init(self.gc.allocator) catch {
-        vm.panic("Out of memory");
-        unreachable;
-    };
-    gc.type_registry = TypeRegistry.init(gc) catch {
-        vm.panic("Out of memory");
-        unreachable;
-    };
+    gc.* = GarbageCollector.init(allocator) catch @panic("Out of memory");
+    gc.type_registry = TypeRegistry.init(gc) catch @panic("Out of memory");
+    const import_registry = allocator.create(_vm.ImportRegistry) catch @panic("Out of memory");
+    import_registry.* = _vm.ImportRegistry.init(allocator);
 
     // FIXME: give reference to JIT?
-    vm.* = VM.init(gc, self.import_registry, self.flavor) catch {
-        return null;
-    };
+    vm.* = VM.init(
+        gc,
+        import_registry,
+        .Run,
+    ) catch @panic("Out of memory");
 
     return vm;
 }
 
-export fn bz_deinitVM(_: *VM) void {
-    // self.deinit();
+export fn bz_deinitVM(self: *VM) void {
+    self.deinit();
+    self.import_registry.deinit();
+    self.gc.deinit();
 }
 
 export fn bz_panic(vm: *VM, msg: [*]const u8, len: usize) void {

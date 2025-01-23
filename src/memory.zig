@@ -283,11 +283,11 @@ pub const GarbageCollector = struct {
     }
 
     pub fn deinit(self: *Self) void {
-        self.gray_stack.deinit();
-        self.strings.deinit();
-        self.active_vms.deinit();
-        if (self.debugger) |debugger| {
-            debugger.deinit();
+        self.gray_stack.deinit(self.allocator);
+        self.strings.deinit(self.allocator);
+        self.active_vms.deinit(self.allocator);
+        if (self.debugger != null) {
+            self.debugger.?.deinit();
         }
 
         self.allocator.free(self.objfiber_members);
@@ -1119,7 +1119,7 @@ pub const GarbageCollectorDebugger = struct {
     }
 
     pub fn deinit(self: *Self) void {
-        self.tracker.deinit();
+        self.tracker.deinit(self.allocator);
     }
 
     pub fn allocated(self: *Self, ptr: *Obj, at: ?Token, what: _obj.ObjType) void {

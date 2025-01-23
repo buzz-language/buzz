@@ -195,7 +195,7 @@ pub const VM = opaque {
     else
         std.heap.c_allocator;
 
-    pub extern fn bz_newVM(self: *VM) *VM;
+    pub extern fn bz_newVM() *VM;
     pub extern fn bz_deinitVM(self: *VM) void;
     pub extern fn bz_panic(vm: *VM, msg: [*]const u8, len: usize) void;
     pub extern fn bz_run(self: *VM, source: ?[*]const u8, source_len: usize, file_name: ?[*]const u8, file_name_len: usize) bool;

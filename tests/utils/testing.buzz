@@ -1,6 +1,6 @@
 namespace testing;
 
-import "std" as std;
+import "std";
 
 final unexported = 42;
 
