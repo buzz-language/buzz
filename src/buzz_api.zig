@@ -1127,7 +1127,7 @@ export fn bz_rethrow(vm: *VM) void {
     if ((vm.currentFrame() == null or vm.currentFrame().?.in_native_call) and vm.current_fiber.try_context != null) {
         // FIXME: close try scope
 
-        if (builtin.os.tag == .macos or builtin.os.tag == .linux or builtin.os.windows) {
+        if (builtin.os.tag == .macos or builtin.os.tag == .linux) {
             jmp._longjmp(&vm.current_fiber.try_context.?.env, 1);
         } else {
             jmp.longjmp(&vm.current_fiber.try_context.?.env, 1);

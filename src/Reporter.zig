@@ -193,7 +193,9 @@ pub const Report = struct {
     error_type: Error,
     items: []const ReportItem,
     notes: []const Note = &[_]Note{},
-    options: ReportOptions = .{},
+    options: ReportOptions = .{
+        .color = builtin.os.tag != .windows,
+    },
 
     pub inline fn reportStderr(self: *Report, reporter: *Self) !void {
         return self.report(reporter, io.stdErrWriter);

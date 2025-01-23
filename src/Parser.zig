@@ -146,9 +146,14 @@ pub fn defaultBuzzPrefix() []const u8 {
 }
 
 var _buzz_path_buffer: [4096]u8 = undefined;
-pub fn buzzPrefix() []const u8 {
+pub fn buzzPrefix(allocator: std.mem.Allocator) error{OutOfMemory}![]const u8 {
     // FIXME: don't use std.posix directly
-    if (std.posix.getenv("BUZZ_PATH")) |buzz_path| {
+    if (std.process.getEnvVarOwned(allocator, "BUZZ_PATH") catch |err| env: {
+        switch (err) {
+            error.EnvironmentVariableNotFound, error.InvalidWtf8 => break :env null,
+            else => return error.OutOfMemory,
+        }
+    }) |buzz_path| {
         return buzz_path;
     }
 
@@ -164,8 +169,8 @@ pub fn buzzPrefix() []const u8 {
 
 var _buzz_path_buffer2: [4096]u8 = undefined;
 /// the returned string can be used only until next call to this function
-pub fn buzzLibPath() ![]const u8 {
-    const path2 = buzzPrefix();
+pub fn buzzLibPath(allocator: std.mem.Allocator) ![]const u8 {
+    const path2 = try buzzPrefix(allocator);
     const sep = std.fs.path.sep_str;
     return std.fmt.bufPrint(
         &_buzz_path_buffer2,
@@ -384,44 +389,70 @@ const ParseRule = struct {
     precedence: Precedence = .None,
 };
 
-const search_paths = [_][]const u8{
-    "$/?.!",
-    "$/?/main.!",
-    "$/?/src/?.!",
-    "$/?/src/main.!",
-    "./?.!",
-    "./?/main.!",
-    "./?/src/main.!",
-    "./?/src/?.!",
-    "/usr/share/buzz/?.!",
-    "/usr/share/buzz/?/main.!",
-    "/usr/share/buzz/?/src/main.!",
-    "/usr/local/share/buzz/?/src/?.!",
-    "/usr/local/share/buzz/?.!",
-    "/usr/local/share/buzz/?/main.!",
-    "/usr/local/share/buzz/?/src/main.!",
-    "/usr/local/share/buzz/?/src/?.!",
-};
+const search_paths = if (builtin.os.tag == .windows)
+    [_][]const u8{
+        "$/?.!",
+        "$/?/main.!",
+        "$/?/src/?.!",
+        "$/?/src/main.!",
+        "./?.!",
+        "./?/main.!",
+        "./?/src/main.!",
+        "./?/src/?.!",
+        // TODO: what would be common windows paths for this?
+    }
+else
+    [_][]const u8{
+        "$/?.!",
+        "$/?/main.!",
+        "$/?/src/?.!",
+        "$/?/src/main.!",
+        "./?.!",
+        "./?/main.!",
+        "./?/src/main.!",
+        "./?/src/?.!",
+        "/usr/share/buzz/?.!",
+        "/usr/share/buzz/?/main.!",
+        "/usr/share/buzz/?/src/main.!",
+        "/usr/local/share/buzz/?/src/?.!",
+        "/usr/local/share/buzz/?.!",
+        "/usr/local/share/buzz/?/main.!",
+        "/usr/local/share/buzz/?/src/main.!",
+        "/usr/local/share/buzz/?/src/?.!",
+    };
 
-const lib_search_paths = [_][]const u8{
-    "$/lib?.!",
-    "$/?/src/lib?.!",
-    "./lib?.!",
-    "./?/src/lib?.!",
-    "/usr/share/buzz/lib?.!",
-    "/usr/share/buzz/?/src/lib?.!",
-    "/usr/share/local/buzz/lib?.!",
-    "/usr/share/local/buzz/?/src/lib?.!",
-};
+const lib_search_paths = if (builtin.os.tag == .windows)
+    [_][]const u8{
+        "$/?.!",
+        "$/?/src/?.!",
+        "./?.!",
+        "./?/src/?.!",
+    }
+else
+    [_][]const u8{
+        "$/lib?.!",
+        "$/?/src/lib?.!",
+        "./lib?.!",
+        "./?/src/lib?.!",
+        "/usr/share/buzz/lib?.!",
+        "/usr/share/buzz/?/src/lib?.!",
+        "/usr/share/local/buzz/lib?.!",
+        "/usr/share/local/buzz/?/src/lib?.!",
+    };
 
-const zdef_search_paths = [_][]const u8{
-    "./?.!",
-    "/usr/lib/?.!",
-    "/usr/local/lib/?.!",
-    "./lib?.!",
-    "/usr/lib/lib?.!",
-    "/usr/local/lib/lib?.!",
-};
+const zdef_search_paths = if (builtin.os.tag == .windows)
+    [_][]const u8{
+        "./?.!",
+    }
+else
+    [_][]const u8{
+        "./?.!",
+        "/usr/lib/?.!",
+        "/usr/local/lib/?.!",
+        "./lib?.!",
+        "/usr/lib/lib?.!",
+        "/usr/local/lib/lib?.!",
+    };
 
 const rules = [_]ParseRule{
     .{}, // Pipe
@@ -7598,10 +7629,21 @@ fn searchPaths(self: *Self, file_name: []const u8) ![][]const u8 {
             self.gc.allocator,
             suffixed,
             "$",
-            try buzzLibPath(),
+            try buzzLibPath(self.gc.allocator),
         );
 
-        try paths.append(prefixed);
+        if (builtin.os.tag == .windows) {
+            const windows = try std.mem.replaceOwned(
+                u8,
+                self.gc.allocator,
+                prefixed,
+                "/",
+                "\\",
+            );
+            try paths.append(windows);
+        } else {
+            try paths.append(prefixed);
+        }
     }
 
     return paths.items;
@@ -7637,10 +7679,21 @@ fn searchLibPaths(self: *Self, file_name: []const u8) !std.ArrayList([]const u8)
             self.gc.allocator,
             suffixed,
             "$",
-            try buzzLibPath(),
+            try buzzLibPath(self.gc.allocator),
         );
 
-        try paths.append(prefixed);
+        if (builtin.os.tag == .windows) {
+            const windows = try std.mem.replaceOwned(
+                u8,
+                self.gc.allocator,
+                prefixed,
+                "/",
+                "\\",
+            );
+            try paths.append(windows);
+        } else {
+            try paths.append(prefixed);
+        }
     }
 
     for (user_library_paths orelse &[_][]const u8{}) |path| {
@@ -7650,7 +7703,12 @@ fn searchLibPaths(self: *Self, file_name: []const u8) !std.ArrayList([]const u8)
             "{s}{s}{s}.{s}",
             .{
                 path,
-                if (!std.mem.endsWith(u8, path, "/")) "/" else "",
+                if (builtin.os.tag == .windows and !std.mem.endsWith(u8, path, "\\"))
+                    "\\"
+                else if (!std.mem.endsWith(u8, path, "/"))
+                    "/"
+                else
+                    "",
                 file_name,
                 switch (builtin.os.tag) {
                     .linux, .freebsd, .openbsd => "so",
@@ -7671,7 +7729,12 @@ fn searchLibPaths(self: *Self, file_name: []const u8) !std.ArrayList([]const u8)
             "{s}{s}lib{s}.{s}",
             .{
                 path,
-                if (!std.mem.endsWith(u8, path, "/")) "/" else "",
+                if (builtin.os.tag == .windows and !std.mem.endsWith(u8, path, "\\"))
+                    "\\"
+                else if (!std.mem.endsWith(u8, path, "/"))
+                    "/"
+                else
+                    "",
                 file_name,
                 switch (builtin.os.tag) {
                     .linux, .freebsd, .openbsd => "so",
@@ -7709,7 +7772,19 @@ fn searchZdefLibPaths(self: *Self, file_name: []const u8) !std.ArrayList([]const
                 else => unreachable,
             },
         );
-        try paths.append(suffixed);
+
+        if (builtin.os.tag == .windows) {
+            const windows = try std.mem.replaceOwned(
+                u8,
+                self.gc.allocator,
+                suffixed,
+                "/",
+                "\\",
+            );
+            try paths.append(windows);
+        } else {
+            try paths.append(suffixed);
+        }
     }
 
     for (Self.user_library_paths orelse &[_][]const u8{}) |path| {
@@ -7719,7 +7794,12 @@ fn searchZdefLibPaths(self: *Self, file_name: []const u8) !std.ArrayList([]const
             "{s}{s}{s}.{s}",
             .{
                 path,
-                if (!std.mem.endsWith(u8, path, "/")) "/" else "",
+                if (builtin.os.tag == .windows and !std.mem.endsWith(u8, path, "\\"))
+                    "\\"
+                else if (!std.mem.endsWith(u8, path, "/"))
+                    "/"
+                else
+                    "",
                 file_name,
                 switch (builtin.os.tag) {
                     .linux, .freebsd, .openbsd => "so",
@@ -7740,7 +7820,12 @@ fn searchZdefLibPaths(self: *Self, file_name: []const u8) !std.ArrayList([]const
             "{s}{s}lib{s}.{s}",
             .{
                 path,
-                if (!std.mem.endsWith(u8, path, "/")) "/" else "",
+                if (builtin.os.tag == .windows and !std.mem.endsWith(u8, path, "\\"))
+                    "\\"
+                else if (!std.mem.endsWith(u8, path, "/"))
+                    "/"
+                else
+                    "",
                 file_name,
                 switch (builtin.os.tag) {
                     .linux, .freebsd, .openbsd => "so",
@@ -8090,7 +8175,10 @@ fn importLibSymbol(self: *Self, full_file_name: []const u8, symbol: []const u8) 
 
     var lib: ?std.DynLib = null;
     for (paths.items) |path| {
-        lib = std.DynLib.open(path) catch null;
+        lib = std.DynLib.open(path) catch |err| l: {
+            std.debug.print(">>> {s} => {}\n", .{ path, err });
+            break :l null;
+        };
         if (lib != null) {
             break;
         }
@@ -8138,7 +8226,7 @@ fn importLibSymbol(self: *Self, full_file_name: []const u8, symbol: []const u8) 
         "External library `{s}` not found: {s}{s}\n",
         .{
             file_basename,
-            if (builtin.link_libc)
+            if (builtin.link_libc and builtin.os.tag != .windows)
                 std.mem.sliceTo(dlerror(), 0)
             else
                 "",
@@ -8349,7 +8437,7 @@ fn zdefStatement(self: *Self) Error!Ast.Node.Index {
                         "External library `{s}` not found: {s}{s}\n",
                         .{
                             lib_name_str,
-                            if (builtin.link_libc)
+                            if (builtin.link_libc and builtin.os.tag != .windows)
                                 std.mem.sliceTo(dlerror(), 0)
                             else
                                 "",

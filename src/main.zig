@@ -157,7 +157,10 @@ fn runFile(allocator: Allocator, file_name: []const u8, args: []const []const u8
 
             if (BuildOptions.show_perf and flavor != .Check and flavor != .Fmt) {
                 io.print(
-                    "\x1b[2mParsing: {[parsing]d}\nCodegen: {[codegen]d}\nRun: {[running]d}\nJIT: {[jit]d}\nGC: {[gc]d}\nTotal: {[total]}\nFull GC: {[gc_full]} | GC: {[gc_light]} | Max allocated: {[max_alloc]}\n\x1b[0m",
+                    if (builtin.os.tag != .windows)
+                        "\x1b[2mParsing: {[parsing]d}\nCodegen: {[codegen]d}\nRun: {[running]d}\nJIT: {[jit]d}\nGC: {[gc]d}\nTotal: {[total]}\nFull GC: {[gc_full]} | GC: {[gc_light]} | Max allocated: {[max_alloc]}\n\x1b[0m"
+                    else
+                        "Parsing: {[parsing]d}\nCodegen: {[codegen]d}\nRun: {[running]d}\nJIT: {[jit]d}\nGC: {[gc]d}\nTotal: {[total]}\nFull GC: {[gc_full]} | GC: {[gc_light]} | Max allocated: {[max_alloc]}\n",
                     .{
                         .parsing = std.fmt.fmtDuration(parsing_time),
                         .codegen = std.fmt.fmtDuration(codegen_time),
@@ -371,13 +374,14 @@ test "Testing behavior" {
                 // First line of test file is expected error message
                 const test_file = try std.fs.cwd().openFile(file_name, .{ .mode = .read_only });
                 const reader = test_file.reader();
-                const first_line = try reader.readUntilDelimiterAlloc(allocator, '\n', std.math.maxInt(usize));
+                var first_line = try reader.readUntilDelimiterAlloc(allocator, '\n', std.math.maxInt(usize));
+                first_line = @constCast(std.mem.trim(u8, first_line, "\r\n"));
                 defer allocator.free(first_line);
                 const arg0 = std.fmt.allocPrintZ(
                     allocator,
                     "{s}/bin/buzz",
                     .{
-                        Parser.buzzPrefix(),
+                        try Parser.buzzPrefix(allocator),
                     },
                 ) catch unreachable;
                 defer allocator.free(arg0);

@@ -1,10 +1,53 @@
 on:
   push:
-    branches: [main]
+    branches: [main, windows]
   pull_request:
     branches: [main]
 
 jobs:
+  test-windows:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout project
+        uses: actions/checkout@v3.0.0
+      - name: Checkout submodules
+        run: git submodule update --init --recursive
+      - name: Setup nightly Zig
+        uses: mlugg/setup-zig@v1
+        with:
+          version: master
+      - name: Build test ffi lib
+        run: zig build-lib -dynamic tests/utils/foreign.zig && mv foreign.* tests/utils/
+
+      - name: Build
+        run: zig build && ls ./zig-out/lib/buzz
+
+      # - name: Run tests Debug
+      #   run: zig build test
+      # - name: Cleanup
+      #   run: rm -rf zig-out zig-cache
+      # - name: Run tests Debug with JIT always on
+      #   run: zig build -Djit_always_on test
+      # - name: Cleanup
+      #   run: rm -rf zig-out zig-cache
+
+      # - name: Run tests ReleaseSafe
+      #   run: zig build -Doptimize=ReleaseSafe test
+      # - name: Cleanup
+      #   run: rm -rf zig-out zig-cache
+      # - name: Run tests ReleaseSafe with JIT always on
+      #   run: zig build -Doptimize=ReleaseSafe -Djit_always_on test
+      # - name: Cleanup
+      #   run: rm -rf zig-out zig-cache
+
+      # - name: Run tests ReleaseFast
+      #   run: zig build -Doptimize=ReleaseFast test
+      # - name: Cleanup
+      #   run: rm -rf zig-out zig-cache
+      # - name: Run tests ReleaseFast with JIT always on
+      #   run: zig build -Doptimize=ReleaseFast -Djit_always_on test
+      # - name: Cleanup
+      #   run: rm -rf zig-out zig-cache
   test-macos:
     runs-on: macos-latest
     steps:

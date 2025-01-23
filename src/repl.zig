@@ -31,7 +31,7 @@ const ObjForeignContainer = _obj.ObjForeignContainer;
 const Parser = @import("Parser.zig");
 const CompileError = Parser.CompileError;
 const JIT = @import("Jit.zig");
-const ln = @import("linenoise.zig");
+const ln = if (builtin.os.tag != .windows) @import("linenoise.zig") else void;
 const Value = @import("value.zig").Value;
 const disassembler = @import("disassembler.zig");
 const dumpStack = disassembler.dumpStack;
@@ -89,7 +89,9 @@ pub fn printBanner(out: anytype, full: bool) void {
 }
 
 pub fn repl(allocator: std.mem.Allocator) !void {
-    const colorterm = std.posix.getenv("COLORTERM");
+    var envMap = try std.process.getEnvMap(allocator);
+    defer envMap.deinit();
+    const colorterm = envMap.get("COLORTERM");
     const true_color = if (colorterm) |ct|
         std.mem.eql(u8, ct, "24bit") or std.mem.eql(u8, ct, "truecolor")
     else
@@ -144,11 +146,13 @@ pub fn repl(allocator: std.mem.Allocator) !void {
 
     try buzz_history_path.writer().print(
         "{s}/.buzz_history\x00",
-        .{std.posix.getenv("HOME") orelse "."},
+        .{envMap.get("HOME") orelse "."},
     );
 
-    _ = ln.linenoiseHistorySetMaxLen(100);
-    _ = ln.linenoiseHistoryLoad(@ptrCast(buzz_history_path.items.ptr));
+    if (builtin.os.tag != .windows) {
+        _ = ln.linenoiseHistorySetMaxLen(100);
+        _ = ln.linenoiseHistoryLoad(@ptrCast(buzz_history_path.items.ptr));
+    }
 
     // Import std and debug as commodity
     _ = runSource(
@@ -165,20 +169,37 @@ pub fn repl(allocator: std.mem.Allocator) !void {
     var previous_globals = try vm.globals.clone();
     var previous_type_registry = try gc.type_registry.registry.clone();
     var previous_input: ?[]u8 = null;
+    const stdin_buffer = if (builtin.os.tag == .windows)
+        gc.allocator.alloc(u8, 2048) catch @panic("Out of memory")
+    else
+        null;
 
     while (true) {
-        const read_source = ln.linenoise(
-            if (previous_input != null)
-                MULTILINE_PROMPT
-            else
-                PROMPT,
-        );
+        if (builtin.os.tag == .windows) {
+            std.io.getStdOut().writeAll(
+                if (previous_input != null)
+                    MULTILINE_PROMPT
+                else
+                    PROMPT,
+            ) catch @panic("Could not write to stdout");
+        }
+
+        const read_source = if (builtin.os.tag != .windows)
+            ln.linenoise(
+                if (previous_input != null)
+                    MULTILINE_PROMPT
+                else
+                    PROMPT,
+            )
+        else
+            std.io.getStdIn().reader()
+                .readUntilDelimiterOrEof(stdin_buffer, '\n') catch @panic("Could not read stdin");
 
         if (read_source == null) {
             std.process.exit(0);
         }
 
-        var source = std.mem.span(read_source.?);
+        var source = if (builtin.os.tag == .windows) read_source.? else std.mem.span(read_source.?);
         const original_source = source;
 
         if (source.len > 0) {
@@ -190,7 +211,7 @@ pub fn repl(allocator: std.mem.Allocator) !void {
             );
             // Go up one line, erase it
             stdout.print(
-                "\x1b[1A\r\x1b[2K{s}",
+                "{s}",
                 .{
                     if (previous_input != null)
                         MULTILINE_PROMPT
@@ -232,8 +253,10 @@ pub fn repl(allocator: std.mem.Allocator) !void {
             };
 
             if (parser.reporter.last_error == null and codegen.reporter.last_error == null) {
-                _ = ln.linenoiseHistoryAdd(source);
-                _ = ln.linenoiseHistorySave(@ptrCast(buzz_history_path.items.ptr));
+                if (builtin.os.tag != .windows) {
+                    _ = ln.linenoiseHistoryAdd(source);
+                    _ = ln.linenoiseHistorySave(@ptrCast(buzz_history_path.items.ptr));
+                }
                 // FIXME: why can't I deinit those?
                 // previous_parser_globals.deinit();
                 previous_parser_globals = try parser.globals.clone();
@@ -284,7 +307,7 @@ pub fn repl(allocator: std.mem.Allocator) !void {
                 if (parser.reporter.last_error == .unclosed) {
                     previous_input = gc.allocator.alloc(u8, source.len) catch @panic("Out of memory");
                     std.mem.copyForwards(u8, previous_input.?, source);
-                } else {
+                } else if (builtin.os.tag != .windows) {
                     _ = ln.linenoiseHistoryAdd(source);
                     _ = ln.linenoiseHistorySave(@ptrCast(buzz_history_path.items.ptr));
                 }

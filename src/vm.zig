@@ -4574,7 +4574,10 @@ pub const VM = struct {
             if (next) |unext| {
                 const function_name = unext.closure.function.type_def.resolved_type.?.Function.name.string;
                 writer.print(
-                    "\t{s} in \x1b[36m{s}\x1b[0m at {s}",
+                    if (builtin.os.tag != .windows)
+                        "\t{s} in \x1b[36m{s}\x1b[0m at {s}"
+                    else
+                        "\t{s} in {s} at {s}",
                     .{
                         if (i == 0)
                             "╰─┬─"
@@ -4745,7 +4748,10 @@ pub const VM = struct {
 
         if (self.flavor == .Test and closure.function.type_def.resolved_type.?.Function.function_type == .Test) {
             io.print(
-                "\x1b[33m▶ Test: {s}\x1b[0m\n",
+                if (builtin.os.tag != .windows)
+                    "\x1b[33m▶ Test: {s}\x1b[0m\n"
+                else
+                    "▶ Test: {s}\n",
                 .{
                     self.current_ast.tokens.items(.lexeme)[self.current_ast.nodes.items(.components)[closure.function.node].Function.test_message.?],
                 },

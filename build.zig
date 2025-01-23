@@ -95,11 +95,10 @@ const BuildOptions = struct {
     };
 };
 
-fn getBuzzPrefix(b: *Build) ![]const u8 {
-    return std.posix.getenv("BUZZ_PATH") orelse std.fs.path.dirname(b.exe_dir).?;
-}
-
 pub fn build(b: *Build) !void {
+    var envMap = try std.process.getEnvMap(b.allocator);
+    defer envMap.deinit();
+
     // Check minimum zig version
     const current_zig = builtin.zig_version;
     const min_zig = std.SemanticVersion.parse("0.14.0-dev.2851+b074fb7dd") catch return;
@@ -116,8 +115,8 @@ pub fn build(b: *Build) !void {
         .target = target,
         .version = std.SemanticVersion{ .major = 0, .minor = 6, .patch = 0 },
         // Current commit sha
-        .sha = std.posix.getenv("GIT_SHA") orelse
-            std.posix.getenv("GITHUB_SHA") orelse std.mem.trim(
+        .sha = envMap.get("GIT_SHA") orelse
+            envMap.get("GITHUB_SHA") orelse std.mem.trim(
             u8,
             b.run(
                 &.{
@@ -264,22 +263,6 @@ pub fn build(b: *Build) !void {
 
     const build_option_module = build_options.step(b);
 
-    var sys_libs = std.ArrayList([]const u8).init(b.allocator);
-    defer sys_libs.deinit();
-    var includes = std.ArrayList([]const u8).init(b.allocator);
-    defer includes.deinit();
-    var llibs = std.ArrayList([]const u8).init(b.allocator);
-    defer llibs.deinit();
-
-    includes.appendSlice(&[_][]const u8{
-        "./vendors/mir",
-        "./vendors/mimalloc/include",
-    }) catch unreachable;
-
-    llibs.appendSlice(&[_][]const u8{
-        "./vendors/mir",
-    }) catch unreachable;
-
     const lib_pcre2 = if (!is_wasm)
         try buildPcre2(b, target, build_mode)
     else
@@ -288,7 +271,7 @@ pub fn build(b: *Build) !void {
         try buildMimalloc(b, target, build_mode)
     else
         null;
-    const lib_linenoise = if (!is_wasm)
+    const lib_linenoise = if (!is_wasm and target.result.os.tag != .windows)
         try buildLinenoise(b, target, build_mode)
     else
         null;
@@ -337,20 +320,6 @@ pub fn build(b: *Build) !void {
     }
     b.step("run", "run buzz").dependOn(&run_exe.step);
 
-    for (includes.items) |include| {
-        exe.addIncludePath(b.path(include));
-        exe_check.addIncludePath(b.path(include));
-    }
-    for (llibs.items) |lib| {
-        exe.addLibraryPath(b.path(lib));
-        exe_check.addLibraryPath(b.path(lib));
-    }
-    for (sys_libs.items) |slib| {
-        // FIXME: if mir is linked as static library (libmir.a), here also need to link libc
-        // it's better to built it with Zig's build system
-        exe.linkSystemLibrary(slib);
-        exe_check.linkSystemLibrary(slib);
-    }
     if (build_options.needLibC()) {
         exe.linkLibC();
         exe_check.linkLibC();
@@ -372,15 +341,6 @@ pub fn build(b: *Build) !void {
 
         b.installArtifact(lib);
 
-        for (includes.items) |include| {
-            lib.addIncludePath(b.path(include));
-        }
-        for (llibs.items) |llib| {
-            lib.addLibraryPath(b.path(llib));
-        }
-        for (sys_libs.items) |slib| {
-            lib.linkSystemLibrary(slib);
-        }
         if (build_options.needLibC()) {
             lib.linkLibC();
         }
@@ -392,17 +352,23 @@ pub fn build(b: *Build) !void {
 
         if (lib_pcre2) |pcre| {
             lib.linkLibrary(pcre);
+            exe.linkLibrary(pcre);
         }
 
         if (lib_mimalloc) |mimalloc| {
+            lib.addIncludePath(b.path("vendors/mimalloc/include"));
+            exe.addIncludePath(b.path("vendors/mimalloc/include"));
             lib.linkLibrary(mimalloc);
+            exe.linkLibrary(mimalloc);
             if (lib.root_module.resolved_target.?.result.os.tag == .windows) {
                 lib.linkSystemLibrary("bcrypt");
+                exe.linkSystemLibrary("bcrypt");
             }
         }
 
         if (lib_mir) |mir| {
             lib.linkLibrary(mir);
+            exe.linkLibrary(mir);
         }
 
         // So that JIT compiled function can reference buzz_api
@@ -473,15 +439,6 @@ pub fn build(b: *Build) !void {
             artifact.dest_dir = .{ .custom = "lib/buzz" };
 
             // No need to link anything when building for wasm since everything is static
-            for (includes.items) |include| {
-                std_lib.addIncludePath(b.path(include));
-            }
-            for (llibs.items) |llib| {
-                std_lib.addLibraryPath(b.path(llib));
-            }
-            for (sys_libs.items) |slib| {
-                std_lib.linkSystemLibrary(slib);
-            }
             if (build_options.needLibC()) {
                 std_lib.linkLibC();
             }
@@ -491,6 +448,7 @@ pub fn build(b: *Build) !void {
             }
 
             if (lib_mimalloc) |mimalloc| {
+                std_lib.addIncludePath(b.path("vendors/mimalloc/include"));
                 std_lib.linkLibrary(mimalloc);
                 if (std_lib.root_module.resolved_target.?.result.os.tag == .windows) {
                     std_lib.linkSystemLibrary("bcrypt");
@@ -515,15 +473,6 @@ pub fn build(b: *Build) !void {
         .target = target,
         .optimize = build_mode,
     });
-    for (includes.items) |include| {
-        tests.addIncludePath(b.path(include));
-    }
-    for (llibs.items) |llib| {
-        tests.addLibraryPath(b.path(llib));
-    }
-    for (sys_libs.items) |slib| {
-        tests.linkSystemLibrary(slib);
-    }
     if (build_options.needLibC()) {
         tests.linkLibC();
     }
@@ -531,6 +480,7 @@ pub fn build(b: *Build) !void {
         tests.linkLibrary(pcre);
     }
     if (lib_mimalloc) |mimalloc| {
+        tests.addIncludePath(b.path("vendors/mimalloc/include"));
         tests.linkLibrary(mimalloc);
         if (tests.root_module.resolved_target.?.result.os.tag == .windows) {
             tests.linkSystemLibrary("bcrypt");
@@ -544,7 +494,7 @@ pub fn build(b: *Build) !void {
     const test_step = b.step("test", "Run all the tests");
     const run_tests = b.addRunArtifact(tests);
     run_tests.cwd = b.path(".");
-    run_tests.setEnvironmentVariable("BUZZ_PATH", try getBuzzPrefix(b));
+    run_tests.setEnvironmentVariable("BUZZ_PATH", envMap.get("BUZZ_PATH") orelse std.fs.path.dirname(b.exe_dir).?);
     run_tests.step.dependOn(install_step); // wait for libraries to be installed
     test_step.dependOn(&run_tests.step);
 }
@@ -756,6 +706,11 @@ pub fn buildMir(b: *Build, target: Build.ResolvedTarget, optimize: std.builtin.O
             },
         },
     );
+
+    if (target.result.os.tag == .windows) {
+        lib.linkSystemLibrary("kernel32");
+        lib.linkSystemLibrary("psapi");
+    }
 
     return lib;
 }

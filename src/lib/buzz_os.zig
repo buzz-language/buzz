@@ -31,7 +31,12 @@ pub export fn env(ctx: *api.NativeCtx) c_int {
     defer api.VM.allocator.free(key_slice);
 
     // FIXME: don't use std.posix directly
-    if (std.posix.getenv(key_slice)) |value| {
+    if (std.process.getEnvVarOwned(api.VM.allocator, key_slice) catch |err| env: {
+        switch (err) {
+            error.EnvironmentVariableNotFound, error.InvalidWtf8 => break :env null,
+            else => @panic("Out of memory"),
+        }
+    }) |value| {
         ctx.vm.bz_push(
             api.VM.bz_stringToValue(
                 ctx.vm,
@@ -39,6 +44,8 @@ pub export fn env(ctx: *api.NativeCtx) c_int {
                 value.len,
             ),
         );
+
+        api.VM.allocator.free(value);
 
         return 1;
     }
@@ -121,7 +128,7 @@ pub export fn tmpFilename(ctx: *api.NativeCtx) c_int {
     return 1;
 }
 
-// If it was named `exit` it would be considered by zig as a callback when std.posix.exit is called
+// If it was named `exit` it would be considered by zig as a callback when std.process.exit is called
 pub export fn buzzExit(ctx: *api.NativeCtx) c_int {
     const exitCode: i32 = ctx.vm.bz_peek(0).integer();
 
@@ -347,7 +354,14 @@ pub export fn SocketConnect(ctx: *api.NativeCtx) c_int {
                 return -1;
             };
 
-            ctx.vm.bz_push(api.Value.fromInteger(@intCast(stream.handle)));
+            ctx.vm.bz_push(
+                api.Value.fromInteger(
+                    if (builtin.os.tag == .windows)
+                        @intCast(@intFromPtr(stream.handle))
+                    else
+                        @intCast(stream.handle),
+                ),
+            );
 
             return 1;
         },
@@ -358,6 +372,13 @@ pub export fn SocketConnect(ctx: *api.NativeCtx) c_int {
             return -1;
         },
         2 => {
+            // Unix socket not available on windows
+            if (builtin.os.tag == .windows) {
+                ctx.vm.pushError("errors.InvalidArgumentError", null);
+
+                return -1;
+            }
+
             const stream = std.net.connectUnixSocket(address) catch |err| {
                 handleConnectUnixError(ctx, err);
 
@@ -377,9 +398,12 @@ pub export fn SocketConnect(ctx: *api.NativeCtx) c_int {
 }
 
 pub export fn SocketClose(ctx: *api.NativeCtx) c_int {
-    const socket: std.posix.socket_t = @intCast(
-        ctx.vm.bz_peek(0).integer(),
-    );
+    const socket: std.posix.socket_t = if (builtin.os.tag == .windows)
+        @ptrFromInt(@as(usize, @intCast(ctx.vm.bz_peek(0).integer())))
+    else
+        @intCast(
+            ctx.vm.bz_peek(0).integer(),
+        );
 
     std.posix.shutdown(socket, .both) catch @panic("Could not stop socket");
 
@@ -421,9 +445,12 @@ pub export fn SocketRead(ctx: *api.NativeCtx) c_int {
         return -1;
     }
 
-    const handle: std.posix.socket_t = @intCast(
-        ctx.vm.bz_peek(1).integer(),
-    );
+    const handle: std.posix.socket_t = if (builtin.os.tag == .windows)
+        @ptrFromInt(@as(usize, @intCast(ctx.vm.bz_peek(1).integer())))
+    else
+        @intCast(
+            ctx.vm.bz_peek(1).integer(),
+        );
 
     const stream: std.net.Stream = .{ .handle = handle };
     const reader = stream.reader();
@@ -494,9 +521,12 @@ fn handleReadLineError(ctx: *api.NativeCtx, err: anytype) void {
 }
 
 pub export fn SocketReadLine(ctx: *api.NativeCtx) c_int {
-    const handle: std.posix.socket_t = @intCast(
-        ctx.vm.bz_peek(1).integer(),
-    );
+    const handle: std.posix.socket_t = if (builtin.os.tag == .windows)
+        @ptrFromInt(@as(usize, @intCast(ctx.vm.bz_peek(1).integer())))
+    else
+        @intCast(
+            ctx.vm.bz_peek(1).integer(),
+        );
     const max_size = ctx.vm.bz_peek(0);
 
     const stream: std.net.Stream = .{ .handle = handle };
@@ -537,9 +567,12 @@ pub export fn SocketReadLine(ctx: *api.NativeCtx) c_int {
 }
 
 pub export fn SocketReadAll(ctx: *api.NativeCtx) c_int {
-    const handle: std.posix.socket_t = @intCast(
-        ctx.vm.bz_peek(1).integer(),
-    );
+    const handle: std.posix.socket_t = if (builtin.os.tag == .windows)
+        @ptrFromInt(@as(usize, @intCast(ctx.vm.bz_peek(1).integer())))
+    else
+        @intCast(
+            ctx.vm.bz_peek(1).integer(),
+        );
     const max_size = ctx.vm.bz_peek(0);
 
     const stream: std.net.Stream = .{ .handle = handle };
@@ -581,9 +614,12 @@ pub export fn SocketReadAll(ctx: *api.NativeCtx) c_int {
 }
 
 pub export fn SocketWrite(ctx: *api.NativeCtx) c_int {
-    const handle: std.posix.socket_t = @intCast(
-        ctx.vm.bz_peek(1).integer(),
-    );
+    const handle: std.posix.socket_t = if (builtin.os.tag == .windows)
+        @ptrFromInt(@as(usize, @intCast(ctx.vm.bz_peek(1).integer())))
+    else
+        @intCast(
+            ctx.vm.bz_peek(1).integer(),
+        );
 
     const stream: std.net.Stream = .{ .handle = handle };
 
@@ -687,7 +723,14 @@ pub export fn SocketServerStart(ctx: *api.NativeCtx) c_int {
         return -1;
     };
 
-    ctx.vm.bz_push(api.Value.fromInteger(@intCast(server.stream.handle)));
+    ctx.vm.bz_push(
+        api.Value.fromInteger(
+            if (builtin.os.tag == .windows)
+                @intCast(@intFromPtr(server.stream.handle))
+            else
+                @intCast(server.stream.handle),
+        ),
+    );
 
     return 1;
 }
@@ -696,9 +739,12 @@ pub export fn SocketServerAccept(ctx: *api.NativeCtx) c_int {
     var server = std.net.Server{
         .listen_address = undefined, // FIXME: we lose this
         .stream = std.net.Stream{
-            .handle = @intCast(
-                ctx.vm.bz_peek(0).integer(),
-            ),
+            .handle = if (builtin.os.tag == .windows)
+                @ptrFromInt(@as(usize, @intCast(ctx.vm.bz_peek(0).integer())))
+            else
+                @intCast(
+                    ctx.vm.bz_peek(0).integer(),
+                ),
         },
     };
 
@@ -723,7 +769,14 @@ pub export fn SocketServerAccept(ctx: *api.NativeCtx) c_int {
         return -1;
     };
 
-    ctx.vm.bz_push(api.Value.fromInteger(@intCast(connection.stream.handle)));
+    ctx.vm.bz_push(
+        api.Value.fromInteger(
+            if (builtin.os.tag == .windows)
+                @intCast(@intFromPtr(connection.stream.handle))
+            else
+                @intCast(connection.stream.handle),
+        ),
+    );
 
     return 1;
 }
