@@ -1,5 +1,7 @@
 # Unreleased
 
+# 0.5.0
+
 ## Major syntax changes
 - Types are now specified *after* the identifier + `:` (https://github.com/buzz-language/buzz/issues/310). This includes:
     - Variable declarations
