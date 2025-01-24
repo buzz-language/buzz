@@ -33,6 +33,7 @@ const std_api = if (is_wasm) std.StaticStringMap(buzz_api.NativeFn).initComptime
         .{ "toDouble", &std_lib.toDouble },
         .{ "toInt", &std_lib.toInt },
         .{ "toUd", &std_lib.toUd },
+        .{ "args", &std_lib.args },
     },
 ) else void;
 
