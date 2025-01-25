@@ -1,7 +1,7 @@
 import "std";
 import "os";
 
-fun main(_: [str]) > void !> any {
+fun main() > void !> any {
     final socket = os\Socket.connect(
         address: "127.0.0.1",
         port: 8080,

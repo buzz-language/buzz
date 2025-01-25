@@ -66,7 +66,7 @@ fun generateVoronoi(renderer: Renderer, width: int, height: int, numCells: int) 
     }
 }
 
-fun main(_: [str]) > void !> SDLError {
+fun main() > void !> SDLError {
     final width = 400;
     final height = 400;
     final numCells = 50;

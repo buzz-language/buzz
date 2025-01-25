@@ -1,2 +1,2 @@
-// Expected `main` signature to be `fun main([str] args) > void|int` got fun main() > void
-fun main() > void {}
+// Expected `main` signature to be `fun main([ args: [int] ]) > void|int` got fun main(args: int) > void
+fun main(args: int) > void {}

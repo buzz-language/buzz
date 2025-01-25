@@ -1,7 +1,7 @@
 import "examples/sdl-wrapped" as _;
 
 // buzz -L/path/to/SDL2.dylib/so/dll examples/sdl.buzz
-fun main(_: [str]) > int !> SDLError {
+fun main() > int !> SDLError {
     final sdl = SDL.init([Subsystem.Video]);
 
     final window = Window.init(

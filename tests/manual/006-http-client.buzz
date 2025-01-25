@@ -3,7 +3,7 @@ import "debug";
 import "errors";
 import "serialize";
 
-fun main(_: [str]) > void !> any {
+fun main() > void !> any {
     final client = http\Client.init();
 
     final request = mut http\Request{

@@ -53,7 +53,7 @@ fun frequency(sequence: str, k: int) > void {
 }
 
 // buzz tests/bench/005-k-nucleoide.buzz < tests/bench/reference/knucleotide-input.txt
-fun main(_: [str]) > void {
+fun main() > void {
     final sequence = readSequence() catch "";
     frequency(sequence, k: 1);
     frequency(sequence, k: 2);

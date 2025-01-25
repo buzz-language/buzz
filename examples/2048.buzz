@@ -293,7 +293,7 @@ object Game {
     }
 }
 
-fun main(_: [str]) > void {
+fun main() > void {
     final game = Game.init();
 
     game.addNewTile();

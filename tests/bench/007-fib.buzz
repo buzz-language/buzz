@@ -8,6 +8,6 @@ fun fibonnacci(n: int) > int {
     return fibonnacci(n - 2) + fibonnacci(n - 1);
 }
 
-fun main(_: [str]) > void {
+fun main() > void {
     std\print("{fibonnacci(30)}");
 }

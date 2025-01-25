@@ -6417,9 +6417,9 @@ fn funDeclaration(self: *Self) Error!Ast.Node.Index {
     const fun_def = fun_typedef.resolved_type.?.Function;
     if (is_main) {
         var signature_valid = true;
-        if (fun_def.parameters.count() != 1 or (fun_def.return_type.def_type != .Integer and fun_def.return_type.def_type != .Void)) {
+        if (fun_def.parameters.count() > 1 or (fun_def.return_type.def_type != .Integer and fun_def.return_type.def_type != .Void)) {
             signature_valid = false;
-        } else {
+        } else if (fun_def.parameters.count() > 0) {
             const first_param = fun_def.parameters.get(fun_def.parameters.keys()[0]);
             if (first_param == null or
                 !(try self.parseTypeDefFrom("[str]")).eql(first_param.?))
@@ -6434,7 +6434,7 @@ fn funDeclaration(self: *Self) Error!Ast.Node.Index {
             self.reporter.reportErrorFmt(
                 .main_signature,
                 self.ast.tokens.get(self.ast.nodes.items(.location)[function_node]),
-                "Expected `main` signature to be `fun main([str] args) > void|int` got {s}",
+                "Expected `main` signature to be `fun main([ args: [str] ]) > void|int` got {s}",
                 .{
                     main_def_str,
                 },

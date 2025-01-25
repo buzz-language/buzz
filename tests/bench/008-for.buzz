@@ -1,6 +1,6 @@
 import "std";
 
-fun main(_: [str]) > void {
+fun main() > void {
     final list: mut [int] = mut [];
 
     foreach (i in 0..1_000_000) {
