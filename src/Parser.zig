@@ -3293,6 +3293,8 @@ fn parseObjType(self: *Self, generic_types: ?std.AutoArrayHashMap(*obj.ObjString
 
     object_type.optional = try self.match(.Question);
 
+    try object_type.resolved_type.?.Object.sortFieldIndexes(self.gc.allocator);
+
     return try self.ast.appendNode(
         .{
             .tag = .AnonymousObjectType,
