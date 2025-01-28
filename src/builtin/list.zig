@@ -423,12 +423,29 @@ pub fn map(ctx: *NativeCtx) c_int {
     const list = ObjList.cast(ctx.vm.peek(1).obj()).?;
     const closure = ctx.vm.peek(0);
 
-    const mapped_type = ObjClosure.cast(closure.obj()).?.function.type_def.resolved_type.?.Function.return_type;
+    const mapped_type = ObjClosure.cast(closure.obj()).?
+        .function
+        .type_def.resolved_type.?.Function
+        .return_type;
+
     var new_list: *ObjList = ctx.vm.gc.allocateObject(
         ObjList,
         ObjList.init(
             ctx.vm.gc.allocator,
-            mapped_type,
+            ctx.vm.gc.type_registry.getTypeDef(
+                .{
+                    .def_type = .List,
+                    .resolved_type = .{
+                        .List = ObjList.ListDef.init(
+                            mapped_type,
+                            false,
+                        ),
+                    },
+                },
+            ) catch {
+                ctx.vm.panic("Out of memory");
+                unreachable;
+            },
         ) catch {
             ctx.vm.panic("Out of memory");
             unreachable;
