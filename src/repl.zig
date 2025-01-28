@@ -211,7 +211,10 @@ pub fn repl(allocator: std.mem.Allocator) !void {
             );
             // Go up one line, erase it
             stdout.print(
-                "{s}",
+                if (builtin.os.tag == .windows)
+                    "{s}"
+                else
+                    "\x1b[1A\r\x1b[2K{s}",
                 .{
                     if (previous_input != null)
                         MULTILINE_PROMPT
