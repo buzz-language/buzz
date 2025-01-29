@@ -5309,7 +5309,6 @@ pub const ObjTypeDef = struct {
                 .ObjectInstance, .ProtocolInstance, .EnumInstance => instance: {
                     if (BuildOptions.debug) {
                         std.debug.print("toInstance invoked on instance type\n", .{});
-                        unreachable;
                     }
 
                     break :instance self.*;

@@ -75,7 +75,6 @@ pub fn getLines(self: Self, allocator: mem.Allocator, before: usize, after: usiz
 
 // WARNING: don't reorder without reordering `rules` in parser.zig
 pub const Type = enum {
-    Pipe, // |
     LeftBracket, // [
     RightBracket, // ]
     LeftParen, // (
@@ -120,7 +119,7 @@ pub const Type = enum {
     ShiftRight, // >>
     ShiftLeft, // <<
     Xor, // ^
-    Bor, // \
+    Bor, // |
     Bnot, // ~
 
     Or, // or
@@ -178,6 +177,17 @@ pub const Type = enum {
     Namespace, // namespace
     Range, // range
     Mut, // mut
+    PlusEqual, // +=
+    MinusEqual, // -=
+    StarEqual, // *=
+    SlashEqual, // /=
+    ShiftRightEqual, // >>=
+    ShiftLeftEqual, // <<=
+    XorEqual, // ^=
+    BorEqual, // |=
+    BnotEqual, // ~=
+    AmpersandEqual, // &=
+    PercentEqual, // %=
 };
 
 // FIXME if case had the same name as the actual token we could simply use @tagName

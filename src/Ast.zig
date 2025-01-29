@@ -92,7 +92,7 @@ pub const Slice = struct {
 
                 switch (components.Dot.member_kind) {
                     .Value => {
-                        if (try self.usesFiber(components.Dot.value_or_call_or_enum.Value, seen)) {
+                        if (try self.usesFiber(components.Dot.value_or_call_or_enum.Value.value, seen)) {
                             break :dot true;
                         }
                     },
@@ -976,7 +976,10 @@ pub const Dot = struct {
 
     pub const Member = union(MemberKind) {
         Ref: void,
-        Value: Node.Index,
+        Value: struct {
+            value: Node.Index,
+            assign_token: TokenIndex,
+        },
         Call: Node.Index,
         EnumCase: u32,
     };
@@ -1154,6 +1157,7 @@ pub const Slot = u32;
 pub const NamedVariable = struct {
     name: []const TokenIndex,
     value: ?Node.Index,
+    assign_token: ?TokenIndex,
     slot: Slot,
     slot_type: SlotType,
     slot_final: bool,

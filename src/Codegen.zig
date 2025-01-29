@@ -1420,6 +1420,7 @@ fn generateDot(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.
     const node_components = self.ast.nodes.items(.components);
     const type_defs = self.ast.nodes.items(.type_def);
     const locations = self.ast.nodes.items(.location);
+    const tags = self.ast.tokens.items(.tag);
 
     const components = node_components[node].Dot;
     const identifier_lexeme = self.ast.tokens.items(.lexeme)[components.identifier];
@@ -1514,7 +1515,8 @@ fn generateDot(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.
 
             switch (components.member_kind) {
                 .Value => {
-                    const value = components.value_or_call_or_enum.Value;
+                    const value = components.value_or_call_or_enum.Value.value;
+                    const assign_token = components.value_or_call_or_enum.Value.assign_token;
                     var value_type_def = type_defs[value].?;
                     if (value_type_def.def_type == .Placeholder) {
                         self.reporter.reportPlaceholder(self.ast, value_type_def.resolved_type.?.Placeholder);
@@ -1590,7 +1592,99 @@ fn generateDot(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.
                         else => unreachable,
                     }
 
+                    switch (tags[assign_token]) {
+                        .PlusEqual,
+                        .MinusEqual,
+                        .StarEqual,
+                        .SlashEqual,
+                        .ShiftRightEqual,
+                        .ShiftLeftEqual,
+                        .XorEqual,
+                        .BorEqual,
+                        .BnotEqual,
+                        .AmpersandEqual,
+                        .PercentEqual,
+                        => {
+                            // Copy because OP_GET_INSTANCE_... will consume the subject
+                            try self.OP_COPY(locations[node], 0);
+
+                            try self.emitCodeArg(
+                                locations[node],
+                                if (callee_type.def_type == .ObjectInstance and field.?.method)
+                                    .OP_GET_INSTANCE_METHOD
+                                else
+                                    get_code.?,
+                                @intCast(field_index),
+                            );
+                        },
+                        else => {},
+                    }
+
+                    // Type check that operator is allowed
+                    switch (tags[assign_token]) {
+                        .PlusEqual => switch (type_defs[value].?.def_type) {
+                            .Integer,
+                            .Double,
+                            .List,
+                            .Map,
+                            .String,
+                            => {},
+                            else => self.reporter.report(
+                                .arithmetic_operand_type,
+                                self.ast.tokens.get(assign_token),
+                                "Addition is only allowed for types `int`, `double`, list, map and `str`",
+                            ),
+                        },
+                        .MinusEqual,
+                        .StarEqual,
+                        .SlashEqual,
+                        .PercentEqual,
+                        => switch (type_defs[value].?.def_type) {
+                            .Integer, .Double => {},
+                            else => self.reporter.report(
+                                .arithmetic_operand_type,
+                                self.ast.tokens.get(assign_token),
+                                "Operator is only allowed for types `int`, `double`",
+                            ),
+                        },
+                        .ShiftRightEqual,
+                        .ShiftLeftEqual,
+                        .XorEqual,
+                        .BorEqual,
+                        .BnotEqual,
+                        .AmpersandEqual,
+                        => if (type_defs[value].?.def_type != .Integer) {
+                            self.reporter.report(
+                                .arithmetic_operand_type,
+                                self.ast.tokens.get(assign_token),
+                                "Operator is only allowed for `int`",
+                            );
+                        },
+                        else => {},
+                    }
+
                     _ = try self.generateNode(value, breaks);
+
+                    switch (tags[assign_token]) {
+                        .PlusEqual => switch (type_defs[node].?.def_type) {
+                            .Integer => try self.OP_ADD_I(locations[value]),
+                            .Double => try self.OP_ADD_F(locations[value]),
+                            .List => try self.OP_ADD_LIST(locations[value]),
+                            .Map => try self.OP_ADD_MAP(locations[value]),
+                            .String => try self.OP_ADD_STRING(locations[value]),
+                            else => {},
+                        },
+                        .MinusEqual => try self.OP_SUBTRACT(locations[value]),
+                        .StarEqual => try self.OP_MULTIPLY(locations[value]),
+                        .SlashEqual => try self.OP_DIVIDE(locations[value]),
+                        .ShiftRightEqual => try self.OP_SHR(locations[value]),
+                        .ShiftLeftEqual => try self.OP_SHL(locations[value]),
+                        .XorEqual => try self.OP_XOR(locations[value]),
+                        .BorEqual => try self.OP_BOR(locations[value]),
+                        .AmpersandEqual => try self.OP_BAND(locations[value]),
+                        .PercentEqual => try self.OP_MOD(locations[value]),
+                        else => {},
+                    }
 
                     try self.emitCodeArg(
                         locations[node],
@@ -2919,6 +3013,7 @@ fn generateNamedVariable(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Er
     const components = self.ast.nodes.items(.components)[node].NamedVariable;
     const locations = self.ast.nodes.items(.location);
     const type_defs = self.ast.nodes.items(.type_def);
+    const tags = self.ast.tokens.items(.tag);
 
     var get_op: Chunk.OpCode = undefined;
     var set_op: Chunk.OpCode = undefined;
@@ -2955,7 +3050,91 @@ fn generateNamedVariable(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Er
             );
         }
 
+        switch (tags[components.assign_token.?]) {
+            .PlusEqual,
+            .MinusEqual,
+            .StarEqual,
+            .SlashEqual,
+            .ShiftRightEqual,
+            .ShiftLeftEqual,
+            .XorEqual,
+            .BorEqual,
+            .BnotEqual,
+            .AmpersandEqual,
+            .PercentEqual,
+            => try self.emitCodeArg(
+                locations[node],
+                get_op,
+                @intCast(components.slot),
+            ),
+            else => {},
+        }
+
+        // Type check that operator is allowed
+        switch (tags[components.assign_token.?]) {
+            .PlusEqual => switch (type_defs[node].?.def_type) {
+                .Integer,
+                .Double,
+                .List,
+                .Map,
+                .String,
+                => {},
+                else => self.reporter.report(
+                    .arithmetic_operand_type,
+                    self.ast.tokens.get(components.assign_token.?),
+                    "Addition is only allowed for types `int`, `double`, list, map and `str`",
+                ),
+            },
+            .MinusEqual,
+            .StarEqual,
+            .SlashEqual,
+            .PercentEqual,
+            => switch (type_defs[node].?.def_type) {
+                .Integer, .Double => {},
+                else => self.reporter.report(
+                    .arithmetic_operand_type,
+                    self.ast.tokens.get(components.assign_token.?),
+                    "Operator is only allowed for types `int`, `double`",
+                ),
+            },
+            .ShiftRightEqual,
+            .ShiftLeftEqual,
+            .XorEqual,
+            .BorEqual,
+            .BnotEqual,
+            .AmpersandEqual,
+            => if (type_defs[node].?.def_type != .Integer) {
+                self.reporter.report(
+                    .arithmetic_operand_type,
+                    self.ast.tokens.get(components.assign_token.?),
+                    "Operator is only allowed for `int`",
+                );
+            },
+            else => {},
+        }
+
         _ = try self.generateNode(value, breaks);
+
+        switch (tags[components.assign_token.?]) {
+            .PlusEqual => switch (type_defs[node].?.def_type) {
+                .Integer => try self.OP_ADD_I(locations[value]),
+                .Double => try self.OP_ADD_F(locations[value]),
+                .List => try self.OP_ADD_LIST(locations[value]),
+                .Map => try self.OP_ADD_MAP(locations[value]),
+                .String => try self.OP_ADD_STRING(locations[value]),
+                else => {},
+            },
+            .MinusEqual => try self.OP_SUBTRACT(locations[value]),
+            .StarEqual => try self.OP_MULTIPLY(locations[value]),
+            .SlashEqual => try self.OP_DIVIDE(locations[value]),
+            .ShiftRightEqual => try self.OP_SHR(locations[value]),
+            .ShiftLeftEqual => try self.OP_SHL(locations[value]),
+            .XorEqual => try self.OP_XOR(locations[value]),
+            .BorEqual => try self.OP_BOR(locations[value]),
+            .AmpersandEqual => try self.OP_BAND(locations[value]),
+            .PercentEqual => try self.OP_MOD(locations[value]),
+            else => {},
+        }
 
         try self.emitCodeArg(
             locations[node],

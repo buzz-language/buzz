@@ -12,6 +12,7 @@ const ExternApi = @import("jit_extern_api.zig").ExternApi;
 const api = @import("lib/buzz_api.zig");
 const io = @import("io.zig");
 const Chunk = @import("Chunk.zig");
+const Token = @import("Token.zig");
 
 pub const Error = error{
     CantCompile,
@@ -1752,6 +1753,7 @@ fn generateString(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
 fn generateNamedVariable(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
     const components = self.state.?.ast.nodes.items(.components)[node].NamedVariable;
     const type_def = self.state.?.ast.nodes.items(.type_def)[node];
+    const tags = self.state.?.ast.tokens.items(.tag);
 
     const function_type = if (type_def.?.def_type == .Function)
         type_def.?.resolved_type.?.Function.function_type
@@ -1759,12 +1761,29 @@ fn generateNamedVariable(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
         null;
     const is_constant_fn = function_type != null and function_type.? != .Extern and function_type.? != .Anonymous;
 
+    const value = if (components.value) |v|
+        try self.generateNode(v)
+    else
+        null;
+
     switch (components.slot_type) {
         .Global => {
-            if (components.value) |value| {
+            if (value) |v| {
                 std.debug.assert(!is_constant_fn);
 
-                try self.buildSetGlobal(components.slot, (try self.generateNode(value)).?);
+                if (tags[components.assign_token.?] != .Equal) {
+                    // buildGetGlobal returns the actual address of the global so no need to buildSetGlobal after
+                    const global = try self.buildGetGlobal(components.slot);
+                    try self.buildBinary(
+                        tags[components.assign_token.?],
+                        type_def.?.def_type,
+                        global,
+                        v,
+                        global,
+                    );
+                } else {
+                    try self.buildSetGlobal(components.slot, v);
+                }
 
                 return null;
             } else if (is_constant_fn) {
@@ -1790,8 +1809,22 @@ fn generateNamedVariable(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
             }
         },
         .Local => {
-            if (components.value) |value| {
-                try self.buildSetLocal(components.slot, (try self.generateNode(value)).?);
+            if (value) |v| {
+                if (tags[components.assign_token.?] != .Equal) {
+                    const local = try self.buildGetLocal(components.slot);
+
+                    try self.buildBinary(
+                        tags[components.assign_token.?],
+                        type_def.?.def_type,
+                        local,
+                        v,
+                        local,
+                    );
+
+                    try self.buildSetLocal(components.slot, local);
+                } else {
+                    try self.buildSetLocal(components.slot, v);
+                }
 
                 return null;
             }
@@ -1799,16 +1832,40 @@ fn generateNamedVariable(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
             return try self.buildGetLocal(components.slot);
         },
         .UpValue => {
-            if (components.value) |value| {
-                try self.buildExternApiCall(
-                    .bz_setUpValue,
-                    null,
-                    &[_]m.MIR_op_t{
-                        m.MIR_new_reg_op(self.ctx, self.state.?.ctx_reg.?),
-                        m.MIR_new_uint_op(self.ctx, components.slot),
-                        (try self.generateNode(value)).?,
-                    },
-                );
+            if (value) |v| {
+                if (tags[components.assign_token.?] != .Equal) {
+                    const upvalue = m.MIR_new_reg_op(
+                        self.ctx,
+                        try self.REG("upvalue", m.MIR_T_I64),
+                    );
+
+                    try self.buildExternApiCall(
+                        .bz_getUpValue,
+                        upvalue,
+                        &[_]m.MIR_op_t{
+                            m.MIR_new_reg_op(self.ctx, self.state.?.ctx_reg.?),
+                            m.MIR_new_uint_op(self.ctx, components.slot),
+                        },
+                    );
+
+                    try self.buildBinary(
+                        tags[components.assign_token.?],
+                        type_def.?.def_type,
+                        upvalue,
+                        v,
+                        upvalue,
+                    );
+                } else {
+                    try self.buildExternApiCall(
+                        .bz_setUpValue,
+                        null,
+                        &[_]m.MIR_op_t{
+                            m.MIR_new_reg_op(self.ctx, self.state.?.ctx_reg.?),
+                            m.MIR_new_uint_op(self.ctx, components.slot),
+                            v,
+                        },
+                    );
+                }
 
                 return null;
             }
@@ -1817,6 +1874,7 @@ fn generateNamedVariable(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
                 self.ctx,
                 try self.REG("upvalue", m.MIR_T_I64),
             );
+
             try self.buildExternApiCall(
                 .bz_getUpValue,
                 upvalue,
@@ -2515,26 +2573,200 @@ fn generateTypeOfExpression(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t
     return result;
 }
 
+fn buildBinary(
+    self: *Self,
+    operator: Token.Type,
+    def_type: o.ObjTypeDef.Type,
+    left_value: m.MIR_op_t,
+    right_value: m.MIR_op_t,
+    dest: m.MIR_op_t,
+) Error!void {
+    const left = m.MIR_new_reg_op(
+        self.ctx,
+        try self.REG(
+            "left",
+            if (def_type == .Double) m.MIR_T_D else m.MIR_T_I64,
+        ),
+    );
+    const right = m.MIR_new_reg_op(
+        self.ctx,
+        try self.REG(
+            "right",
+            if (def_type == .Double) m.MIR_T_D else m.MIR_T_I64,
+        ),
+    );
+
+    if (def_type == .Integer) {
+        try self.unwrap(.Integer, left_value, left);
+        try self.unwrap(.Integer, right_value, right);
+    } else if (def_type == .Double) {
+        try self.unwrap(.Double, left_value, left);
+        try self.unwrap(.Double, right_value, right);
+    } else {
+        self.MOV(left, left_value);
+        self.MOV(right, right_value);
+    }
+
+    // Avoid collection
+    if (def_type != .Integer and def_type != .Double) {
+        try self.buildPush(left_value);
+        try self.buildPush(right_value);
+    }
+
+    switch (operator) {
+        .Plus, .PlusEqual => {
+            switch (def_type) {
+                .Integer => {
+                    self.ADDS(dest, left, right);
+                    try self.wrap(.Integer, dest, dest);
+                },
+                .Double => {
+                    self.DADD(left, left, right);
+                    try self.wrap(.Double, left, dest);
+                },
+                .String => {
+                    try self.buildExternApiCall(
+                        .bz_stringConcat,
+                        dest,
+                        &[_]m.MIR_op_t{
+                            left_value,
+                            right_value,
+                            m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
+                        },
+                    );
+                },
+                .List => {
+                    try self.buildExternApiCall(
+                        .bz_listConcat,
+                        dest,
+                        &[_]m.MIR_op_t{
+                            left_value,
+                            right_value,
+                            m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
+                        },
+                    );
+                },
+                .Map => {
+                    try self.buildExternApiCall(
+                        .bz_mapConcat,
+                        dest,
+                        &[_]m.MIR_op_t{
+                            left_value,
+                            right_value,
+                            m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
+                        },
+                    );
+                },
+                else => unreachable,
+            }
+        },
+        .Minus, .MinusEqual => {
+            switch (def_type) {
+                .Integer => {
+                    self.SUBS(dest, left, right);
+                    try self.wrap(.Integer, dest, dest);
+                },
+                .Double => {
+                    self.DSUB(left, left, right);
+                    try self.wrap(.Double, left, dest);
+                },
+                else => unreachable,
+            }
+        },
+        .Star, .StarEqual => {
+            switch (def_type) {
+                .Integer => {
+                    self.MULS(dest, left, right);
+                    try self.wrap(.Integer, dest, dest);
+                },
+                .Double => {
+                    self.DMUL(left, left, right);
+                    try self.wrap(.Double, left, dest);
+                },
+                else => unreachable,
+            }
+        },
+        .Slash, .SlashEqual => {
+            switch (def_type) {
+                .Integer => {
+                    self.DIVS(dest, left, right);
+                    try self.wrap(.Integer, dest, dest);
+                },
+                .Double => {
+                    self.DDIV(left, left, right);
+                    try self.wrap(.Double, left, dest);
+                },
+                else => unreachable,
+            }
+        },
+        .Percent, .PercentEqual => {
+            switch (def_type) {
+                .Integer => {
+                    self.MODS(dest, left, right);
+                    try self.wrap(.Integer, dest, dest);
+                },
+                .Double => {
+                    try self.buildExternApiCall(
+                        .fmod,
+                        dest,
+                        &[_]m.MIR_op_t{
+                            left,
+                            right,
+                        },
+                    );
+                },
+                else => unreachable,
+            }
+        },
+        .Ampersand, .AmpersandEqual => {
+            self.AND(dest, left, right);
+            try self.wrap(.Integer, dest, dest);
+        },
+        .Bor, .BorEqual => {
+            self.OR(dest, left, right);
+            try self.wrap(.Integer, dest, dest);
+        },
+        .Xor, .XorEqual => {
+            self.XOR(dest, left, right);
+            try self.wrap(.Integer, dest, dest);
+        },
+        .ShiftLeft, .ShiftLeftEqual => {
+            self.SHL(dest, left, right);
+            try self.wrap(.Integer, dest, dest);
+        },
+        .ShiftRight, .ShiftRightEqual => {
+            self.SHR(dest, left, right);
+            try self.wrap(.Integer, dest, dest);
+        },
+        else => unreachable,
+    }
+
+    if (def_type != .Integer and def_type != .Double) {
+        try self.buildPop(null);
+        try self.buildPop(null);
+    }
+}
+
 fn generateBinary(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
     const node_components = self.state.?.ast.nodes.items(.components);
     const components = node_components[node].Binary;
-    const type_defs = self.state.?.ast.nodes.items(.type_def);
-
-    const left_type_def = type_defs[components.left].?.def_type;
-    const right_type_def = type_defs[components.right].?.def_type;
 
     return switch (components.operator) {
-        .Ampersand,
-        .Bor,
-        .Xor,
-        .ShiftLeft,
-        .ShiftRight,
-        => try self.generateBitwise(components),
         .QuestionQuestion,
         .And,
         .Or,
         => try self.generateConditional(components),
-        else => {
+        .Less,
+        .Greater,
+        .GreaterEqual,
+        .LessEqual,
+        .EqualEqual,
+        .BangEqual,
+        => try self.generateComparison(components),
+        else => bin: {
+            const type_defs = self.state.?.ast.nodes.items(.type_def);
+            const type_def = type_defs[components.left].?.def_type;
+
             const left_value = (try self.generateNode(components.left)).?;
             const right_value = (try self.generateNode(components.right)).?;
 
@@ -2542,327 +2774,167 @@ fn generateBinary(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
                 self.ctx,
                 try self.REG("res", m.MIR_T_I64),
             );
-            var left = m.MIR_new_reg_op(
-                self.ctx,
-                try self.REG("left", if (left_type_def == .Double) m.MIR_T_D else m.MIR_T_I64),
+
+            try self.buildBinary(
+                components.operator,
+                type_def,
+                left_value,
+                right_value,
+                res,
             );
-            var right = m.MIR_new_reg_op(
-                self.ctx,
-                try self.REG("right", if (right_type_def == .Double) m.MIR_T_D else m.MIR_T_I64),
-            );
 
-            if (left_type_def == .Integer) {
-                try self.unwrap(.Integer, left_value, left);
-            } else if (left_type_def == .Double) {
-                try self.unwrap(.Double, left_value, left);
-            } else {
-                self.MOV(left, left_value);
-            }
-
-            if (right_type_def == .Integer) {
-                try self.unwrap(.Integer, right_value, right);
-            } else if (right_type_def == .Double) {
-                try self.unwrap(.Double, right_value, right);
-            } else {
-                self.MOV(right, right_value);
-            }
-
-            // Avoid collection
-            if (left_type_def != .Integer and left_type_def != .Double) {
-                try self.buildPush(left_value);
-            }
-
-            if (right_type_def != .Integer and right_type_def != .Double) {
-                try self.buildPush(right_value);
-            }
-
-            switch (components.operator) {
-                .EqualEqual => try self.buildExternApiCall(
-                    .bz_valueEqual,
-                    res,
-                    &[_]m.MIR_op_t{
-                        left_value,
-                        right_value,
-                    },
-                ),
-                .BangEqual => {
-                    try self.buildExternApiCall(
-                        .bz_valueEqual,
-                        res,
-                        &[_]m.MIR_op_t{
-                            left_value,
-                            right_value,
-                        },
-                    );
-
-                    try self.unwrap(.Bool, res, res);
-
-                    const true_label = m.MIR_new_label(self.ctx);
-                    const out_label = m.MIR_new_label(self.ctx);
-
-                    self.BEQ(
-                        m.MIR_new_label_op(self.ctx, true_label),
-                        res,
-                        m.MIR_new_uint_op(self.ctx, 1),
-                    );
-
-                    self.MOV(
-                        res,
-                        m.MIR_new_uint_op(self.ctx, Value.True.val),
-                    );
-
-                    self.JMP(out_label);
-
-                    self.append(true_label);
-
-                    self.MOV(
-                        res,
-                        m.MIR_new_uint_op(self.ctx, Value.False.val),
-                    );
-
-                    self.append(out_label);
-                },
-                .Greater, .Less, .GreaterEqual, .LessEqual => {
-                    if (left_type_def == .Double or right_type_def == .Double) {
-                        if (left_type_def == .Integer) {
-                            const left_f = m.MIR_new_reg_op(
-                                self.ctx,
-                                try self.REG("left_float", m.MIR_T_D),
-                            );
-                            self.I2D(left_f, left);
-                            left = left_f;
-                        }
-
-                        if (right_type_def == .Integer) {
-                            const right_f = m.MIR_new_reg_op(
-                                self.ctx,
-                                try self.REG("right_float", m.MIR_T_D),
-                            );
-                            self.I2D(right_f, right);
-                            right = right_f;
-                        }
-
-                        switch (components.operator) {
-                            .Greater => self.DGT(res, left, right),
-                            .Less => self.DLT(res, left, right),
-                            .GreaterEqual => self.DGE(res, left, right),
-                            .LessEqual => self.DLE(res, left, right),
-                            else => unreachable,
-                        }
-
-                        try self.wrap(.Bool, res, res);
-                    } else {
-                        switch (components.operator) {
-                            .Greater => self.GTS(res, left, right),
-                            .Less => self.LTS(res, left, right),
-                            .GreaterEqual => self.GES(res, left, right),
-                            .LessEqual => self.LES(res, left, right),
-                            else => unreachable,
-                        }
-
-                        try self.wrap(.Bool, res, res);
-                    }
-                },
-                .Plus => {
-                    switch (left_type_def) {
-                        .Integer, .Double => {
-                            if (left_type_def == .Double or right_type_def == .Double) {
-                                if (left_type_def == .Integer) {
-                                    const left_f = m.MIR_new_reg_op(
-                                        self.ctx,
-                                        try self.REG("left_float", m.MIR_T_D),
-                                    );
-                                    self.I2D(left_f, left);
-                                    left = left_f;
-                                }
-
-                                if (right_type_def == .Integer) {
-                                    const right_f = m.MIR_new_reg_op(
-                                        self.ctx,
-                                        try self.REG("right_float", m.MIR_T_D),
-                                    );
-                                    self.I2D(right_f, right);
-                                    right = right_f;
-                                }
-
-                                const f_res = m.MIR_new_reg_op(
-                                    self.ctx,
-                                    try self.REG("f_res", m.MIR_T_D),
-                                );
-                                self.DADD(f_res, left, right);
-
-                                try self.wrap(.Double, f_res, res);
-                            } else {
-                                self.ADDS(res, left, right);
-
-                                try self.wrap(.Integer, res, res);
-                            }
-                        },
-                        .String => {
-                            try self.buildExternApiCall(
-                                .bz_stringConcat,
-                                res,
-                                &[_]m.MIR_op_t{
-                                    left,
-                                    right,
-                                    m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
-                                },
-                            );
-                        },
-                        .List => {
-                            try self.buildExternApiCall(
-                                .bz_listConcat,
-                                res,
-                                &[_]m.MIR_op_t{
-                                    left,
-                                    right,
-                                    m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
-                                },
-                            );
-                        },
-                        .Map => {
-                            try self.buildExternApiCall(
-                                .bz_mapConcat,
-                                res,
-                                &[_]m.MIR_op_t{
-                                    left,
-                                    right,
-                                    m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
-                                },
-                            );
-                        },
-                        else => unreachable,
-                    }
-                },
-                .Minus => {
-                    if (left_type_def == .Double or right_type_def == .Double) {
-                        if (left_type_def == .Integer) {
-                            const left_f = m.MIR_new_reg_op(
-                                self.ctx,
-                                try self.REG("left_float", m.MIR_T_D),
-                            );
-                            self.I2D(left_f, left);
-                            left = left_f;
-                        }
-
-                        if (right_type_def == .Integer) {
-                            const right_f = m.MIR_new_reg_op(
-                                self.ctx,
-                                try self.REG("right_float", m.MIR_T_D),
-                            );
-                            self.I2D(right_f, right);
-                            right = right_f;
-                        }
-
-                        const f_res = m.MIR_new_reg_op(
-                            self.ctx,
-                            try self.REG("f_res", m.MIR_T_D),
-                        );
-                        self.DSUB(f_res, left, right);
-
-                        try self.wrap(.Double, f_res, res);
-                    } else {
-                        self.SUBS(res, left, right);
-
-                        try self.wrap(.Integer, res, res);
-                    }
-                },
-                .Star => {
-                    if (left_type_def == .Double or right_type_def == .Double) {
-                        if (left_type_def == .Integer) {
-                            const left_f = m.MIR_new_reg_op(
-                                self.ctx,
-                                try self.REG("left_float", m.MIR_T_D),
-                            );
-                            self.I2D(left_f, left);
-                            left = left_f;
-                        }
-
-                        if (right_type_def == .Integer) {
-                            const right_f = m.MIR_new_reg_op(
-                                self.ctx,
-                                try self.REG("right_float", m.MIR_T_D),
-                            );
-                            self.I2D(right_f, right);
-                            right = right_f;
-                        }
-
-                        const f_res = m.MIR_new_reg_op(
-                            self.ctx,
-                            try self.REG("f_res", m.MIR_T_D),
-                        );
-                        self.DMUL(f_res, left, right);
-
-                        try self.wrap(.Double, f_res, res);
-                    } else {
-                        self.MULS(res, left, right);
-
-                        try self.wrap(.Integer, res, res);
-                    }
-                },
-                .Slash => {
-                    if (left_type_def == .Double or right_type_def == .Double) {
-                        if (left_type_def == .Integer) {
-                            const left_f = m.MIR_new_reg_op(
-                                self.ctx,
-                                try self.REG("left_float", m.MIR_T_D),
-                            );
-                            self.I2D(left_f, left);
-                            left = left_f;
-                        }
-
-                        if (right_type_def == .Integer) {
-                            const right_f = m.MIR_new_reg_op(
-                                self.ctx,
-                                try self.REG("right_float", m.MIR_T_D),
-                            );
-                            self.I2D(right_f, right);
-                            right = right_f;
-                        }
-
-                        const f_res = m.MIR_new_reg_op(
-                            self.ctx,
-                            try self.REG("f_res", m.MIR_T_D),
-                        );
-                        self.DDIV(f_res, left, right);
-
-                        try self.wrap(.Double, f_res, res);
-                    } else {
-                        self.DIVS(res, left, right);
-
-                        try self.wrap(.Integer, res, res);
-                    }
-                },
-                .Percent => {
-                    if (left_type_def == .Double or right_type_def == .Double) {
-                        try self.buildExternApiCall(
-                            .fmod,
-                            res,
-                            &[_]m.MIR_op_t{
-                                left,
-                                right,
-                            },
-                        );
-                    } else {
-                        self.MODS(res, left, right);
-
-                        try self.wrap(.Integer, res, res);
-                    }
-                },
-                else => unreachable,
-            }
-
-            if (left_type_def != .Integer and left_type_def != .Double) {
-                try self.buildPop(null);
-            }
-
-            if (right_type_def != .Integer and right_type_def != .Double) {
-                try self.buildPop(null);
-            }
-
-            return res;
+            break :bin res;
         },
     };
+}
+
+fn generateComparison(self: *Self, components: Ast.Binary) Error!?m.MIR_op_t {
+    const type_defs = self.state.?.ast.nodes.items(.type_def);
+
+    const left_type_def = type_defs[components.left].?.def_type;
+    const right_type_def = type_defs[components.right].?.def_type;
+
+    const left_value = (try self.generateNode(components.left)).?;
+    const right_value = (try self.generateNode(components.right)).?;
+
+    const res = m.MIR_new_reg_op(
+        self.ctx,
+        try self.REG("res", m.MIR_T_I64),
+    );
+
+    var left = m.MIR_new_reg_op(
+        self.ctx,
+        try self.REG("left", if (left_type_def == .Double) m.MIR_T_D else m.MIR_T_I64),
+    );
+    var right = m.MIR_new_reg_op(
+        self.ctx,
+        try self.REG("right", if (right_type_def == .Double) m.MIR_T_D else m.MIR_T_I64),
+    );
+
+    if (left_type_def == .Integer) {
+        try self.unwrap(.Integer, left_value, left);
+    } else if (left_type_def == .Double) {
+        try self.unwrap(.Double, left_value, left);
+    } else {
+        self.MOV(left, left_value);
+    }
+
+    if (right_type_def == .Integer) {
+        try self.unwrap(.Integer, right_value, right);
+    } else if (right_type_def == .Double) {
+        try self.unwrap(.Double, right_value, right);
+    } else {
+        self.MOV(right, right_value);
+    }
+
+    // Avoid collection
+    if (left_type_def != .Integer and left_type_def != .Double) {
+        try self.buildPush(left_value);
+    }
+
+    if (right_type_def != .Integer and right_type_def != .Double) {
+        try self.buildPush(right_value);
+    }
+
+    switch (components.operator) {
+        .EqualEqual => try self.buildExternApiCall(
+            .bz_valueEqual,
+            res,
+            &[_]m.MIR_op_t{
+                left_value,
+                right_value,
+            },
+        ),
+        .BangEqual => {
+            try self.buildExternApiCall(
+                .bz_valueEqual,
+                res,
+                &[_]m.MIR_op_t{
+                    left_value,
+                    right_value,
+                },
+            );
+
+            try self.unwrap(.Bool, res, res);
+
+            const true_label = m.MIR_new_label(self.ctx);
+            const out_label = m.MIR_new_label(self.ctx);
+
+            self.BEQ(
+                m.MIR_new_label_op(self.ctx, true_label),
+                res,
+                m.MIR_new_uint_op(self.ctx, 1),
+            );
+
+            self.MOV(
+                res,
+                m.MIR_new_uint_op(self.ctx, Value.True.val),
+            );
+
+            self.JMP(out_label);
+
+            self.append(true_label);
+
+            self.MOV(
+                res,
+                m.MIR_new_uint_op(self.ctx, Value.False.val),
+            );
+
+            self.append(out_label);
+        },
+        .Greater, .Less, .GreaterEqual, .LessEqual => {
+            if (left_type_def == .Double or right_type_def == .Double) {
+                if (left_type_def == .Integer) {
+                    const left_f = m.MIR_new_reg_op(
+                        self.ctx,
+                        try self.REG("left_float", m.MIR_T_D),
+                    );
+                    self.I2D(left_f, left);
+                    left = left_f;
+                }
+
+                if (right_type_def == .Integer) {
+                    const right_f = m.MIR_new_reg_op(
+                        self.ctx,
+                        try self.REG("right_float", m.MIR_T_D),
+                    );
+                    self.I2D(right_f, right);
+                    right = right_f;
+                }
+
+                switch (components.operator) {
+                    .Greater => self.DGT(res, left, right),
+                    .Less => self.DLT(res, left, right),
+                    .GreaterEqual => self.DGE(res, left, right),
+                    .LessEqual => self.DLE(res, left, right),
+                    else => unreachable,
+                }
+
+                try self.wrap(.Bool, res, res);
+            } else {
+                switch (components.operator) {
+                    .Greater => self.GTS(res, left, right),
+                    .Less => self.LTS(res, left, right),
+                    .GreaterEqual => self.GES(res, left, right),
+                    .LessEqual => self.LES(res, left, right),
+                    else => unreachable,
+                }
+
+                try self.wrap(.Bool, res, res);
+            }
+        },
+        else => {},
+    }
+
+    if (left_type_def != .Integer and left_type_def != .Double) {
+        try self.buildPop(null);
+    }
+
+    if (right_type_def != .Integer and right_type_def != .Double) {
+        try self.buildPop(null);
+    }
+
+    return res;
 }
 
 fn generateConditional(self: *Self, binary: Ast.Binary) Error!?m.MIR_op_t {
@@ -3235,6 +3307,7 @@ fn generateMap(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
 fn generateDot(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
     const components = self.state.?.ast.nodes.items(.components)[node].Dot;
     const type_defs = self.state.?.ast.nodes.items(.type_def);
+    const tags = self.state.?.ast.tokens.items(.tag);
 
     const callee_type = type_defs[components.callee].?;
     const member_lexeme = self.state.?.ast.tokens.items(.lexeme)[components.identifier];
@@ -3356,7 +3429,45 @@ fn generateDot(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
                     const field = callee_type.resolved_type.?.Object.fields
                         .get(member_lexeme).?;
 
-                    const gen_value = (try self.generateNode(components.value_or_call_or_enum.Value)).?;
+                    const assign_token = tags[components.value_or_call_or_enum.Value.assign_token];
+                    const gen_value = (try self.generateNode(components.value_or_call_or_enum.Value.value)).?;
+
+                    if (assign_token == .Equal) {
+                        try self.buildExternApiCall(
+                            .bz_setObjectField,
+                            null,
+                            &[_]m.MIR_op_t{
+                                (try self.generateNode(components.callee)).?,
+                                m.MIR_new_uint_op(self.ctx, field.index),
+                                gen_value,
+                                m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
+                            },
+                        );
+
+                        return gen_value;
+                    }
+
+                    const res = m.MIR_new_reg_op(
+                        self.ctx,
+                        try self.REG("res", m.MIR_T_I64),
+                    );
+
+                    try self.buildExternApiCall(
+                        .bz_getObjectField,
+                        res,
+                        &[_]m.MIR_op_t{
+                            (try self.generateNode(components.callee)).?,
+                            m.MIR_new_uint_op(self.ctx, field.index),
+                        },
+                    );
+
+                    try self.buildBinary(
+                        assign_token,
+                        field.type_def.def_type,
+                        res,
+                        gen_value,
+                        res,
+                    );
 
                     try self.buildExternApiCall(
                         .bz_setObjectField,
@@ -3364,12 +3475,12 @@ fn generateDot(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
                         &[_]m.MIR_op_t{
                             (try self.generateNode(components.callee)).?,
                             m.MIR_new_uint_op(self.ctx, field.index),
-                            gen_value,
+                            res,
                             m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
                         },
                     );
 
-                    return gen_value;
+                    return res;
                 },
                 else => {
                     const field = callee_type.resolved_type.?.Object.fields
@@ -3398,8 +3509,52 @@ fn generateDot(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
                 .Call => return try self.generateCall(components.value_or_call_or_enum.Call),
                 .Value => {
                     std.debug.assert(callee_type.def_type == .ObjectInstance);
+                    const field = callee_type.resolved_type.?.ObjectInstance.of
+                        .resolved_type.?.Object.fields
+                        .get(member_lexeme).?;
 
-                    const gen_value = (try self.generateNode(components.value_or_call_or_enum.Value)).?;
+                    const assign_token = tags[components.value_or_call_or_enum.Value.assign_token];
+                    const gen_value = (try self.generateNode(components.value_or_call_or_enum.Value.value)).?;
+
+                    if (assign_token == .Equal) {
+                        try self.buildExternApiCall(
+                            .bz_setObjectInstanceProperty,
+                            null,
+                            &[_]m.MIR_op_t{
+                                (try self.generateNode(components.callee)).?,
+                                m.MIR_new_uint_op(
+                                    self.ctx,
+                                    field.index,
+                                ),
+                                gen_value,
+                                m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
+                            },
+                        );
+
+                        return gen_value;
+                    }
+
+                    const res = m.MIR_new_reg_op(
+                        self.ctx,
+                        try self.REG("res", m.MIR_T_I64),
+                    );
+
+                    try self.buildExternApiCall(
+                        .bz_getObjectInstanceProperty,
+                        res,
+                        &[_]m.MIR_op_t{
+                            (try self.generateNode(components.callee)).?,
+                            m.MIR_new_uint_op(self.ctx, field.index),
+                        },
+                    );
+
+                    try self.buildBinary(
+                        assign_token,
+                        field.type_def.def_type,
+                        res,
+                        gen_value,
+                        res,
+                    );
 
                     try self.buildExternApiCall(
                         .bz_setObjectInstanceProperty,
@@ -3408,16 +3563,14 @@ fn generateDot(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
                             (try self.generateNode(components.callee)).?,
                             m.MIR_new_uint_op(
                                 self.ctx,
-                                callee_type.resolved_type.?.ObjectInstance.of
-                                    .resolved_type.?.Object.fields
-                                    .get(member_lexeme).?.index,
+                                field.index,
                             ),
-                            gen_value,
+                            res,
                             m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
                         },
                     );
 
-                    return gen_value;
+                    return res;
                 },
                 else => {
                     const field = if (callee_type.def_type == .ObjectInstance)
@@ -3475,7 +3628,59 @@ fn generateDot(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
             switch (components.member_kind) {
                 .Call => return try self.generateCall(components.value_or_call_or_enum.Call),
                 .Value => {
-                    const gen_value = (try self.generateNode(components.value_or_call_or_enum.Value)).?;
+                    const field_type_def = callee_type.resolved_type.?.ForeignContainer
+                        .buzz_type
+                        .get(member_lexeme).?;
+                    const field_index = callee_type.resolved_type.?.ForeignContainer
+                        .fields
+                        .getIndex(member_lexeme).?;
+
+                    const assign_token = tags[components.value_or_call_or_enum.Value.assign_token];
+                    const gen_value = (try self.generateNode(components.value_or_call_or_enum.Value.value)).?;
+
+                    if (assign_token == .Equal) {
+                        try self.buildExternApiCall(
+                            .bz_foreignContainerSet,
+                            null,
+                            &[_]m.MIR_op_t{
+                                (try self.generateNode(components.callee)).?,
+                                m.MIR_new_uint_op(
+                                    self.ctx,
+                                    field_index,
+                                ),
+                                gen_value,
+                                m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
+                            },
+                        );
+
+                        return gen_value;
+                    }
+
+                    const res = m.MIR_new_reg_op(
+                        self.ctx,
+                        try self.REG("res", m.MIR_T_I64),
+                    );
+
+                    try self.buildExternApiCall(
+                        .bz_foreignContainerGet,
+                        res,
+                        &[_]m.MIR_op_t{
+                            (try self.generateNode(components.callee)).?,
+                            m.MIR_new_uint_op(
+                                self.ctx,
+                                field_index,
+                            ),
+                            m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
+                        },
+                    );
+
+                    try self.buildBinary(
+                        assign_token,
+                        field_type_def.def_type,
+                        res,
+                        gen_value,
+                        res,
+                    );
 
                     try self.buildExternApiCall(
                         .bz_foreignContainerSet,
@@ -3484,16 +3689,14 @@ fn generateDot(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
                             (try self.generateNode(components.callee)).?,
                             m.MIR_new_uint_op(
                                 self.ctx,
-                                callee_type.resolved_type.?.ForeignContainer
-                                    .fields
-                                    .getIndex(member_lexeme).?,
+                                field_index,
                             ),
-                            gen_value,
+                            res,
                             m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
                         },
                     );
 
-                    return gen_value;
+                    return res;
                 },
                 else => {
                     const res = m.MIR_new_reg_op(

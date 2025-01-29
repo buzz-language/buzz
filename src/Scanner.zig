@@ -79,32 +79,63 @@ pub fn scanToken(self: *Self) Allocator.Error!Token {
         else
             self.makeToken(.Dot, null, null, null),
         '>' => if (self.match('>'))
-            self.makeToken(.ShiftRight, null, null, null)
+            if (self.match('='))
+                self.makeToken(.ShiftRightEqual, null, null, null)
+            else
+                self.makeToken(.ShiftRight, null, null, null)
         else if (self.match('='))
             self.makeToken(.GreaterEqual, null, null, null)
         else
             self.makeToken(.Greater, null, null, null),
         '<' => if (self.match('<'))
-            self.makeToken(.ShiftLeft, null, null, null)
+            if (self.match('='))
+                self.makeToken(.ShiftLeftEqual, null, null, null)
+            else
+                self.makeToken(.ShiftLeft, null, null, null)
         else if (self.match('='))
             self.makeToken(.LessEqual, null, null, null)
         else
             self.makeToken(.Less, null, null, null),
-        '~' => self.makeToken(.Bnot, null, null, null),
-        '^' => self.makeToken(.Xor, null, null, null),
-        '|' => self.makeToken(.Bor, null, null, null),
-        '+' => self.makeToken(.Plus, null, null, null),
-        '-' => if (self.match('>'))
+        '~' => if (self.match('='))
+            self.makeToken(.BnotEqual, null, null, null)
+        else
+            self.makeToken(.Bnot, null, null, null),
+        '^' => if (self.match('='))
+            self.makeToken(.XorEqual, null, null, null)
+        else
+            self.makeToken(.Xor, null, null, null),
+        '|' => if (self.match('='))
+            self.makeToken(.BorEqual, null, null, null)
+        else
+            self.makeToken(.Bor, null, null, null),
+        '+' => if (self.match('='))
+            self.makeToken(.PlusEqual, null, null, null)
+        else
+            self.makeToken(.Plus, null, null, null),
+        '-' => if (self.match('='))
+            self.makeToken(.MinusEqual, null, null, null)
+        else if (self.match('>'))
             self.makeToken(.Arrow, null, null, null)
         else
             self.makeToken(.Minus, null, null, null),
-        '&' => self.makeToken(.Ampersand, null, null, null),
-        '*' => self.makeToken(.Star, null, null, null),
-        '/' => if (self.match('/'))
+        '&' => if (self.match('='))
+            self.makeToken(.AmpersandEqual, null, null, null)
+        else
+            self.makeToken(.Ampersand, null, null, null),
+        '*' => if (self.match('='))
+            self.makeToken(.StarEqual, null, null, null)
+        else
+            self.makeToken(.Star, null, null, null),
+        '/' => if (self.match('='))
+            self.makeToken(.SlashEqual, null, null, null)
+        else if (self.match('/'))
             try self.docblock()
         else
             self.makeToken(.Slash, null, null, null),
-        '%' => self.makeToken(.Percent, null, null, null),
+        '%' => if (self.match('='))
+            self.makeToken(.PercentEqual, null, null, null)
+        else
+            self.makeToken(.Percent, null, null, null),
         '?' => self.makeToken(if (self.match('?')) .QuestionQuestion else .Question, null, null, null),
         '!' => if (self.match('='))
             self.makeToken(.BangEqual, null, null, null)
@@ -625,7 +656,6 @@ pub fn highlight(self: *Self, out: anytype, true_color: bool) void {
             .{
                 switch (token.tag) {
                     // Operators
-                    .Pipe,
                     .Greater,
                     .Less,
                     .Plus,
@@ -702,6 +732,17 @@ pub fn highlight(self: *Self, out: anytype, true_color: bool) void {
                     .Namespace,
                     .Range,
                     .Mut,
+                    .PlusEqual,
+                    .MinusEqual,
+                    .StarEqual,
+                    .SlashEqual,
+                    .ShiftRightEqual,
+                    .ShiftLeftEqual,
+                    .XorEqual,
+                    .BorEqual,
+                    .BnotEqual,
+                    .PercentEqual,
+                    .AmpersandEqual,
                     => if (true_color) Color.keyword else Color.magenta,
                     // Punctuation
                     .LeftBracket,

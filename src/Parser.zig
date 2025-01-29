@@ -455,7 +455,6 @@ else
     };
 
 const rules = [_]ParseRule{
-    .{}, // Pipe
     .{ .prefix = list, .infix = subscript, .precedence = .Call }, // LeftBracket
     .{}, // RightBracket
     .{ .prefix = grouping, .infix = call, .precedence = .Call }, // LeftParen
@@ -556,6 +555,17 @@ const rules = [_]ParseRule{
     .{}, // namespace
     .{}, // rg
     .{ .prefix = mutableExpression }, // mut
+    .{}, // PlusEqual
+    .{}, // MinusEqual
+    .{}, // StarEqual
+    .{}, // SlashEqual
+    .{}, // ShiftRightEqual
+    .{}, // ShiftLeftEqual
+    .{}, // XorEqual
+    .{}, // BorEqual
+    .{}, // BnotEqual
+    .{}, // AmpersandEqual
+    .{}, // PercentEqual
 };
 
 ast: Ast,
@@ -800,6 +810,21 @@ fn match(self: *Self, tag: Token.Type) !bool {
     try self.advance();
 
     return true;
+}
+
+fn matchOpEqual(self: *Self) !bool {
+    return try self.match(.Equal) or
+        try self.match(.PlusEqual) or
+        try self.match(.MinusEqual) or
+        try self.match(.StarEqual) or
+        try self.match(.SlashEqual) or
+        try self.match(.ShiftRightEqual) or
+        try self.match(.ShiftLeftEqual) or
+        try self.match(.XorEqual) or
+        try self.match(.BorEqual) or
+        try self.match(.BnotEqual) or
+        try self.match(.AmpersandEqual) or
+        try self.match(.PercentEqual);
 }
 
 /// Insert token in ast and advance over it to avoid confusing the parser
@@ -4643,14 +4668,18 @@ fn dot(self: *Self, can_assign: bool, callee: Ast.Node.Index) Error!Ast.Node.Ind
 
                 // Do we assign it ?
                 var components = self.ast.nodes.items(.components);
-                if (can_assign and try self.match(.Equal)) {
+                if (can_assign and try self.matchOpEqual()) {
+                    const assign_token = self.current_token.? - 1;
                     components[dot_node].Dot.member_kind = .Value;
                     const value = try self.expression(false);
                     // For some reason we blow the comptime quota here
                     @setEvalBranchQuota(1000000);
                     components = self.ast.nodes.items(.components);
                     components[dot_node].Dot.value_or_call_or_enum = .{
-                        .Value = value,
+                        .Value = .{
+                            .value = value,
+                            .assign_token = assign_token,
+                        },
                     };
                     self.ast.nodes.items(.type_def)[dot_node] = property_type;
                 } else if (try self.match(.LeftParen)) { // Do we call it
@@ -4675,11 +4704,15 @@ fn dot(self: *Self, can_assign: bool, callee: Ast.Node.Index) Error!Ast.Node.Ind
                 const f_def = callee_type_def.?.resolved_type.?.ForeignContainer;
 
                 if (f_def.buzz_type.get(member_name)) |field| {
-                    if (can_assign and try self.match(.Equal)) {
+                    if (can_assign and try self.matchOpEqual()) {
+                        const assign_token = self.current_token.? - 1;
                         const components = self.ast.nodes.items(.components);
                         components[dot_node].Dot.member_kind = .Value;
                         components[dot_node].Dot.value_or_call_or_enum = .{
-                            .Value = try self.expression(false),
+                            .Value = .{
+                                .value = try self.expression(false),
+                                .assign_token = assign_token,
+                            },
                         };
                     } else {
                         self.ast.nodes.items(.components)[dot_node].Dot.member_kind = .Ref;
@@ -4762,12 +4795,16 @@ fn dot(self: *Self, can_assign: bool, callee: Ast.Node.Index) Error!Ast.Node.Ind
                 // If its a field or placeholder, we can assign to it
                 // TODO: here get info that field is final or not
                 var components = self.ast.nodes.items(.components);
-                if (can_assign and try self.match(.Equal)) {
+                if (can_assign and try self.matchOpEqual()) {
+                    const assign_token = self.current_token.? - 1;
                     components[dot_node].Dot.member_kind = .Value;
                     const expr = try self.expression(false);
                     components = self.ast.nodes.items(.components);
                     components[dot_node].Dot.value_or_call_or_enum = .{
-                        .Value = expr,
+                        .Value = .{
+                            .value = expr,
+                            .assign_token = assign_token,
+                        },
                     };
 
                     self.ast.nodes.items(.type_def)[dot_node] = property_type;
@@ -4993,12 +5030,16 @@ fn dot(self: *Self, can_assign: bool, callee: Ast.Node.Index) Error!Ast.Node.Ind
                 else
                     placeholder;
 
-                if (can_assign and try self.match(.Equal)) {
+                if (can_assign and try self.matchOpEqual()) {
+                    const assign_token = self.current_token.? - 1;
                     components[dot_node].Dot.member_kind = .Value;
                     const expr = try self.expression(false);
                     components = self.ast.nodes.items(.components); // ptr might have been invalidated
                     components[dot_node].Dot.value_or_call_or_enum = .{
-                        .Value = expr,
+                        .Value = .{
+                            .value = expr,
+                            .assign_token = assign_token,
+                        },
                     };
                 } else if (try self.match(.LeftParen)) {
                     // `call` will look to the parent node for the function definition
@@ -5398,7 +5439,12 @@ fn namedVariable(self: *Self, name: []const Ast.TokenIndex, can_assign: bool) Er
         }
     }
 
-    const value = if (can_assign and try self.match(.Equal))
+    const assign_token = if (can_assign and try self.matchOpEqual())
+        self.current_token.? - 1
+    else
+        null;
+
+    const value = if (assign_token != null)
         try self.expression(false)
     else
         null;
@@ -5423,6 +5469,7 @@ fn namedVariable(self: *Self, name: []const Ast.TokenIndex, can_assign: bool) Er
                 .NamedVariable = .{
                     .name = name,
                     .value = value,
+                    .assign_token = assign_token,
                     .slot = @intCast(slot),
                     .slot_type = slot_type,
                     .slot_final = slot_final,
