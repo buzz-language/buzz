@@ -6789,6 +6789,7 @@ fn objectDeclaration(self: *Self) Error!Ast.Node.Index {
             const method_token = self.current_token.?;
             const method_node = try self.method(
                 false,
+                static,
                 if (static)
                     object_placeholder
                 else
@@ -7034,12 +7035,17 @@ fn objectDeclaration(self: *Self) Error!Ast.Node.Index {
     return node;
 }
 
-fn method(self: *Self, abstract: bool, this: *obj.ObjTypeDef) Error!Ast.Node.Index {
+fn method(self: *Self, abstract: bool, static: bool, this: *obj.ObjTypeDef) Error!Ast.Node.Index {
     try self.consume(.Identifier, "Expected method name.");
 
     return try self.function(
         self.current_token.? - 1,
-        if (abstract) .Abstract else .Method,
+        if (abstract)
+            .Abstract
+        else if (static)
+            .Function
+        else
+            .Method,
         this,
     );
 }
@@ -7105,6 +7111,7 @@ fn protocolDeclaration(self: *Self) Error!Ast.Node.Index {
         const method_name_token = self.current_token.?;
         const method_node = try self.method(
             true,
+            false,
             try protocol_placeholder.toInstance(
                 &self.gc.type_registry,
                 mutable,
