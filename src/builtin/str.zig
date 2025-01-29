@@ -220,12 +220,9 @@ pub fn replace(ctx: *NativeCtx) c_int {
 
 pub fn sub(ctx: *NativeCtx) c_int {
     const self = ObjString.cast(ctx.vm.peek(2).obj()).?;
-    const start = @min(
-        @max(
-            0,
-            ctx.vm.peek(1).integer(),
-        ),
-        self.string.len - 1,
+    const start = @max(
+        0,
+        ctx.vm.peek(1).integer(),
     );
     const upto = if (ctx.vm.peek(0).integerOrNull()) |u|
         @max(0, u)
@@ -236,7 +233,11 @@ pub fn sub(ctx: *NativeCtx) c_int {
         @intCast(start + upto.?)
     else
         self.string.len;
-    const substr = self.string[@intCast(start)..limit];
+
+    const substr = if (start < self.string.len)
+        self.string[@intCast(start)..limit]
+    else
+        "";
 
     ctx.vm.push(
         (ctx.vm.gc.copyString(substr) catch {
