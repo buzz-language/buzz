@@ -3093,6 +3093,7 @@ pub const ObjRange = struct {
         buzz_builtin.range.subsetOf,
         buzz_builtin.range.toList,
         buzz_builtin.range.@"union",
+        buzz_builtin.range.contains,
     };
 
     const members_typedef = [_][]const u8{
@@ -3104,6 +3105,7 @@ pub const ObjRange = struct {
         "extern fun subsetOf(other: rg) > bool",
         "extern fun toList() > [int]",
         "extern fun union(other: rg) > rg",
+        "extern fun contains(value: int) > bool",
     };
 
     pub const members_name = std.StaticStringMap(usize).initComptime(
@@ -3116,6 +3118,7 @@ pub const ObjRange = struct {
             .{ "subsetOf", 5 },
             .{ "toList", 6 },
             .{ "union", 7 },
+            .{ "contains", 8 },
         },
     );
 

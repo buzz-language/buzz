@@ -173,3 +173,17 @@ pub fn low(ctx: *obj.NativeCtx) c_int {
 
     return 1;
 }
+
+pub fn contains(ctx: *obj.NativeCtx) c_int {
+    const range = ctx.vm.peek(1).obj().access(obj.ObjRange, .Range, ctx.vm.gc).?;
+    const value = ctx.vm.peek(0).integer();
+
+    ctx.vm.push(
+        Value.fromBoolean(
+            (range.high >= range.low and value >= range.low and value < range.high) or
+                (range.low >= range.high and value >= range.high and value < range.low),
+        ),
+    );
+
+    return 1;
+}
