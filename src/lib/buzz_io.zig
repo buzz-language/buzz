@@ -323,7 +323,7 @@ fn handleFileReadAllError(ctx: *api.NativeCtx, err: anytype) void {
 
 pub export fn FileRead(ctx: *api.NativeCtx) c_int {
     const n = ctx.vm.bz_peek(0).integer();
-    if (n < 0) {
+    if (n <= 0) {
         ctx.vm.pushError("errors.InvalidArgumentError", null);
 
         return -1;
@@ -337,18 +337,28 @@ pub export fn FileRead(ctx: *api.NativeCtx) c_int {
             ctx.vm.bz_peek(1).integer(),
         );
 
+    if (n <= 255) {
+        return fileSmallRead(ctx, handle, @intCast(n));
+    }
+
     const file: std.fs.File = std.fs.File{ .handle = handle };
     const reader = file.reader();
 
-    var buffer = api.VM.allocator.alloc(u8, @as(usize, @intCast(n))) catch {
-        ctx.vm.bz_panic("Out of memory", "Out of memory".len);
-        unreachable;
-    };
+    // Avoid heap allocation if we read less than 255 bytes
+    var buffer = if (n > 255)
+        api.VM.allocator.alloc(u8, @as(usize, @intCast(n))) catch {
+            ctx.vm.bz_panic("Out of memory", "Out of memory".len);
+            unreachable;
+        }
+    else
+        @constCast(&([_]u8{0} ** 255));
 
     // bz_stringToValue will copy it
     defer api.VM.allocator.free(buffer);
 
-    const read = reader.readAll(buffer) catch |err| {
+    const read = reader.readAll(
+        buffer[0..@intCast(@min(255, n))],
+    ) catch |err| {
         handleFileReadAllError(ctx, err);
 
         return -1;
@@ -360,7 +370,43 @@ pub export fn FileRead(ctx: *api.NativeCtx) c_int {
         ctx.vm.bz_push(
             api.VM.bz_stringToValue(
                 ctx.vm,
-                if (buffer[0..read].len > 0) @as([*]const u8, @ptrCast(buffer[0..read])) else null,
+                if (buffer[0..read].len > 0)
+                    @as([*]const u8, @ptrCast(buffer[0..read]))
+                else
+                    null,
+                read,
+            ),
+        );
+    }
+
+    return 1;
+}
+
+fn fileSmallRead(ctx: *api.NativeCtx, handle: std.fs.File.Handle, n: usize) c_int {
+    const file: std.fs.File = std.fs.File{ .handle = handle };
+    const reader = file.reader();
+
+    // Avoid heap allocation if we read less than 255 bytes
+    var buffer = [_]u8{0} ** 255;
+
+    const read = reader.readAll(
+        buffer[0..@intCast(@min(255, n))],
+    ) catch |err| {
+        handleFileReadAllError(ctx, err);
+
+        return -1;
+    };
+
+    if (read == 0) {
+        ctx.vm.bz_push(api.Value.Null);
+    } else {
+        ctx.vm.bz_push(
+            api.VM.bz_stringToValue(
+                ctx.vm,
+                if (buffer[0..read].len > 0)
+                    @as([*]const u8, @ptrCast(buffer[0..read]))
+                else
+                    null,
                 read,
             ),
         );
