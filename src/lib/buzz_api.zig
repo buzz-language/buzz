@@ -167,6 +167,7 @@ pub const NativeCtx = extern struct {
     vm: *VM,
     globals: [*]Value,
     upvalues: [*]*anyopaque,
+    base: [*]Value,
     // Pointer to the stack_top field of the current fiber
     // !! Needs to change when current fiber changes !!
     stack_top: *[*]Value,
