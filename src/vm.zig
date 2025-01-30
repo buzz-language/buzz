@@ -2734,7 +2734,7 @@ pub const VM = struct {
             ObjEnumInstance,
             ObjEnumInstance{
                 .enum_ref = enum_,
-                .case = @intCast(arg),
+                .case = arg,
             },
         ) catch {
             self.panic("Out of memory");

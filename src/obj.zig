@@ -4208,7 +4208,7 @@ pub const ObjEnumInstance = struct {
     obj: Obj = .{ .obj_type = .EnumInstance },
 
     enum_ref: *ObjEnum,
-    case: u8,
+    case: u24,
 
     pub fn mark(self: *Self, gc: *GarbageCollector) !void {
         try gc.markObj(self.enum_ref.toObj());

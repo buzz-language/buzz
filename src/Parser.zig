@@ -7306,7 +7306,7 @@ fn enumDeclaration(self: *Self) Error!Ast.Node.Index {
     var picked = std.ArrayList(bool).init(self.gc.allocator);
     var case_index: i32 = 0;
     while (!self.check(.RightBrace) and !self.check(.Eof)) : (case_index += 1) {
-        if (case_index > std.math.maxInt(u8)) {
+        if (case_index > std.math.maxInt(u24)) {
             self.reportError(.enum_cases_count, "Too many enum cases.");
         }
 
