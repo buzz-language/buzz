@@ -1666,7 +1666,7 @@ fn generateDot(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.
                     _ = try self.generateNode(value, breaks);
 
                     switch (tags[assign_token]) {
-                        .PlusEqual => switch (type_defs[node].?.def_type) {
+                        .PlusEqual => switch (type_defs[value].?.def_type) {
                             .Integer => try self.OP_ADD_I(locations[value]),
                             .Double => try self.OP_ADD_F(locations[value]),
                             .List => try self.OP_ADD_LIST(locations[value]),
@@ -3116,7 +3116,7 @@ fn generateNamedVariable(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Er
         _ = try self.generateNode(value, breaks);
 
         switch (tags[components.assign_token.?]) {
-            .PlusEqual => switch (type_defs[node].?.def_type) {
+            .PlusEqual => switch (type_defs[value].?.def_type) {
                 .Integer => try self.OP_ADD_I(locations[value]),
                 .Double => try self.OP_ADD_F(locations[value]),
                 .List => try self.OP_ADD_LIST(locations[value]),
