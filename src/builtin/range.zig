@@ -1,7 +1,7 @@
 const obj = @import("../obj.zig");
 const Value = @import("../value.zig").Value;
 
-pub fn toList(ctx: *obj.NativeCtx) c_int {
+pub fn toList(ctx: *obj.NativeCtx) callconv(.c) c_int {
     const range = ctx.vm.peek(0).obj().access(obj.ObjRange, .Range, ctx.vm.gc).?;
 
     var list: *obj.ObjList = ctx.vm.gc.allocateObject(
@@ -54,7 +54,7 @@ pub fn toList(ctx: *obj.NativeCtx) c_int {
     return 1;
 }
 
-pub fn len(ctx: *obj.NativeCtx) c_int {
+pub fn len(ctx: *obj.NativeCtx) callconv(.c) c_int {
     const range = ctx.vm.peek(0).obj().access(obj.ObjRange, .Range, ctx.vm.gc).?;
 
     ctx.vm.push(
@@ -69,7 +69,7 @@ pub fn len(ctx: *obj.NativeCtx) c_int {
     return 1;
 }
 
-pub fn invert(ctx: *obj.NativeCtx) c_int {
+pub fn invert(ctx: *obj.NativeCtx) callconv(.c) c_int {
     const range = ctx.vm.peek(0).obj().access(obj.ObjRange, .Range, ctx.vm.gc).?;
 
     ctx.vm.push(
@@ -88,7 +88,7 @@ pub fn invert(ctx: *obj.NativeCtx) c_int {
     return 1;
 }
 
-pub fn subsetOf(ctx: *obj.NativeCtx) c_int {
+pub fn subsetOf(ctx: *obj.NativeCtx) callconv(.c) c_int {
     const rangeA = ctx.vm.peek(1).obj().access(obj.ObjRange, .Range, ctx.vm.gc).?;
     const rangeB = ctx.vm.peek(0).obj().access(obj.ObjRange, .Range, ctx.vm.gc).?;
 
@@ -102,7 +102,7 @@ pub fn subsetOf(ctx: *obj.NativeCtx) c_int {
     return 1;
 }
 
-pub fn intersect(ctx: *obj.NativeCtx) c_int {
+pub fn intersect(ctx: *obj.NativeCtx) callconv(.c) c_int {
     const rangeA = ctx.vm.peek(1).obj().access(obj.ObjRange, .Range, ctx.vm.gc).?;
     const rangeB = ctx.vm.peek(0).obj().access(obj.ObjRange, .Range, ctx.vm.gc).?;
 
@@ -128,7 +128,7 @@ pub fn intersect(ctx: *obj.NativeCtx) c_int {
     return 1;
 }
 
-pub fn @"union"(ctx: *obj.NativeCtx) c_int {
+pub fn @"union"(ctx: *obj.NativeCtx) callconv(.c) c_int {
     const rangeA = ctx.vm.peek(1).obj().access(obj.ObjRange, .Range, ctx.vm.gc).?;
     const rangeB = ctx.vm.peek(0).obj().access(obj.ObjRange, .Range, ctx.vm.gc).?;
 
@@ -154,7 +154,7 @@ pub fn @"union"(ctx: *obj.NativeCtx) c_int {
     return 1;
 }
 
-pub fn high(ctx: *obj.NativeCtx) c_int {
+pub fn high(ctx: *obj.NativeCtx) callconv(.c) c_int {
     ctx.vm.push(
         Value.fromInteger(
             ctx.vm.peek(0).obj().access(obj.ObjRange, .Range, ctx.vm.gc).?.high,
@@ -164,7 +164,7 @@ pub fn high(ctx: *obj.NativeCtx) c_int {
     return 1;
 }
 
-pub fn low(ctx: *obj.NativeCtx) c_int {
+pub fn low(ctx: *obj.NativeCtx) callconv(.c) c_int {
     ctx.vm.push(
         Value.fromInteger(
             ctx.vm.peek(0).obj().access(obj.ObjRange, .Range, ctx.vm.gc).?.low,
@@ -174,7 +174,7 @@ pub fn low(ctx: *obj.NativeCtx) c_int {
     return 1;
 }
 
-pub fn contains(ctx: *obj.NativeCtx) c_int {
+pub fn contains(ctx: *obj.NativeCtx) callconv(.c) c_int {
     const range = ctx.vm.peek(1).obj().access(obj.ObjRange, .Range, ctx.vm.gc).?;
     const value = ctx.vm.peek(0).integer();
 

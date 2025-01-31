@@ -2,7 +2,7 @@ const std = @import("std");
 const api = @import("buzz_api.zig");
 const http = std.http;
 
-pub export fn HttpClientNew(ctx: *api.NativeCtx) c_int {
+pub export fn HttpClientNew(ctx: *api.NativeCtx) callconv(.c) c_int {
     const client = api.VM.allocator.create(http.Client) catch {
         ctx.vm.bz_panic("Out of memory", "Out of memory".len);
         unreachable;
@@ -27,7 +27,7 @@ pub export fn HttpClientNew(ctx: *api.NativeCtx) c_int {
     return 1;
 }
 
-pub export fn HttpClientDeinit(ctx: *api.NativeCtx) c_int {
+pub export fn HttpClientDeinit(ctx: *api.NativeCtx) callconv(.c) c_int {
     const userdata = ctx.vm.bz_peek(0).bz_getUserDataPtr();
     const client = @as(*http.Client, @ptrCast(@alignCast(@as(*anyopaque, @ptrFromInt(userdata)))));
 
@@ -37,7 +37,7 @@ pub export fn HttpClientDeinit(ctx: *api.NativeCtx) c_int {
     return 0;
 }
 
-pub export fn HttpClientSend(ctx: *api.NativeCtx) c_int {
+pub export fn HttpClientSend(ctx: *api.NativeCtx) callconv(.c) c_int {
     const userdata = ctx.vm.bz_peek(3).bz_getUserDataPtr();
     const client: *http.Client = @ptrCast(@alignCast(@as(*anyopaque, @ptrFromInt(userdata))));
 
@@ -120,7 +120,7 @@ pub export fn HttpClientSend(ctx: *api.NativeCtx) c_int {
     return 1;
 }
 
-pub export fn HttpRequestWait(ctx: *api.NativeCtx) c_int {
+pub export fn HttpRequestWait(ctx: *api.NativeCtx) callconv(.c) c_int {
     const userdata_value = ctx.vm.bz_peek(0);
     const userdata = userdata_value.bz_getUserDataPtr();
     const request = @as(
@@ -143,7 +143,7 @@ pub export fn HttpRequestWait(ctx: *api.NativeCtx) c_int {
     return 1;
 }
 
-pub export fn HttpRequestDeinit(ctx: *api.NativeCtx) c_int {
+pub export fn HttpRequestDeinit(ctx: *api.NativeCtx) callconv(.c) c_int {
     const userdata_value = ctx.vm.bz_peek(0);
     const userdata = userdata_value.bz_getUserDataPtr();
     const request = @as(
@@ -161,7 +161,7 @@ pub export fn HttpRequestDeinit(ctx: *api.NativeCtx) c_int {
     return 0;
 }
 
-pub export fn HttpRequestRead(ctx: *api.NativeCtx) c_int {
+pub export fn HttpRequestRead(ctx: *api.NativeCtx) callconv(.c) c_int {
     const userdata_value = ctx.vm.bz_peek(0);
     const userdata = userdata_value.bz_getUserDataPtr();
     const request = @as(

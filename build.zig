@@ -101,7 +101,7 @@ pub fn build(b: *Build) !void {
 
     // Check minimum zig version
     const current_zig = builtin.zig_version;
-    const min_zig = std.SemanticVersion.parse("0.14.0-dev.2851+b074fb7dd") catch return;
+    const min_zig = std.SemanticVersion.parse("0.14.0-dev.2989+bf6ee7cb3") catch return;
     if (current_zig.order(min_zig).compare(.lt)) {
         @panic(b.fmt("Your Zig version v{} does not meet the minimum build requirement of v{}", .{ current_zig, min_zig }));
     }

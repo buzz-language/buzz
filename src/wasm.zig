@@ -1,8 +1,8 @@
 const std = @import("std");
 
-extern fn writeToStderr(string_ptr: [*]const u8, string_length: usize) void;
-extern fn writeToStdout(string_ptr: [*]const u8, string_length: usize) void;
-extern fn readFromStdin(buffer_ptr: [*]const u8, buffer_length: usize) isize;
+extern fn writeToStderr(string_ptr: [*]const u8, string_length: usize) callconv(.c) void;
+extern fn writeToStdout(string_ptr: [*]const u8, string_length: usize) callconv(.c) void;
+extern fn readFromStdin(buffer_ptr: [*]const u8, buffer_length: usize) callconv(.c) isize;
 
 pub fn stdErrWrite(_: void, bytes: []const u8) std.posix.WriteError!usize {
     writeToStderr(bytes.ptr, bytes.len);

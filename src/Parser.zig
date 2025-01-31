@@ -139,7 +139,7 @@ else
 
 const Self = @This();
 
-extern fn dlerror() [*:0]u8;
+extern fn dlerror() callconv(.c) [*:0]u8;
 
 pub fn defaultBuzzPrefix() []const u8 {
     return ".";
@@ -8231,10 +8231,7 @@ fn importLibSymbol(self: *Self, full_file_name: []const u8, symbol: []const u8) 
 
     var lib: ?std.DynLib = null;
     for (paths.items) |path| {
-        lib = std.DynLib.open(path) catch |err| l: {
-            std.debug.print(">>> {s} => {}\n", .{ path, err });
-            break :l null;
-        };
+        lib = std.DynLib.open(path) catch null;
         if (lib != null) {
             break;
         }

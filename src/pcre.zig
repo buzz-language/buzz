@@ -4,7 +4,7 @@ pub const pcre2_code = opaque {
     extern fn pcre2_match_data_create_from_pattern_8(
         code: *const pcre2_code,
         gcontext: ?*pcre2_general_context,
-    ) ?*pcre2_match_data;
+    ) callconv(.C) ?*pcre2_match_data;
     pub const createMatchData = pcre2_match_data_create_from_pattern_8;
 
     extern fn pcre2_match_8(
@@ -15,10 +15,10 @@ pub const pcre2_code = opaque {
         options: u32,
         match_data: *pcre2_match_data,
         mcontext: ?*pcre2_match_context,
-    ) c_int;
+    ) callconv(.C) c_int;
     pub const match = pcre2_match_8;
 
-    extern fn pcre2_code_free_8(code: *pcre2_code) void;
+    extern fn pcre2_code_free_8(code: *pcre2_code) callconv(.C) void;
     pub const free = pcre2_code_free_8;
 };
 
@@ -27,13 +27,13 @@ pub const pcre2_compile_context = opaque {};
 pub const pcre2_match_context = opaque {};
 
 pub const pcre2_match_data = opaque {
-    extern fn pcre2_match_data_free_8(match_data: *pcre2_match_data) void;
+    extern fn pcre2_match_data_free_8(match_data: *pcre2_match_data) callconv(.C) void;
     pub const free = pcre2_match_data_free_8;
 
-    extern fn pcre2_get_ovector_pointer_8(match_data: *pcre2_match_data) [*]usize;
+    extern fn pcre2_get_ovector_pointer_8(match_data: *pcre2_match_data) callconv(.C) [*]usize;
     pub const getOVectorPointer = pcre2_get_ovector_pointer_8;
 
-    extern fn pcre2_get_ovector_count_8(match_data: *pcre2_match_data) u32;
+    extern fn pcre2_get_ovector_count_8(match_data: *pcre2_match_data) callconv(.C) u32;
     pub const getOVectorCount = pcre2_get_ovector_count_8;
 };
 
@@ -44,10 +44,10 @@ extern fn pcre2_compile_8(
     errorcode: *c_int,
     erroroffset: *usize,
     context: ?*pcre2_compile_context,
-) ?*pcre2_code;
+) callconv(.C) ?*pcre2_code;
 pub const compile = pcre2_compile_8;
 
-extern fn pcre2_get_error_message_8(errorcode: c_int, buffer: [*]u8, bufflen: usize) c_int;
+extern fn pcre2_get_error_message_8(errorcode: c_int, buffer: [*]u8, bufflen: usize) callconv(.C) c_int;
 pub const getErrorMessage = pcre2_get_error_message_8;
 
 pub const CompileError = enum(c_int) {

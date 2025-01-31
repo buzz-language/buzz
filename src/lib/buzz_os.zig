@@ -2,19 +2,19 @@ const std = @import("std");
 const api = @import("buzz_api.zig");
 const builtin = @import("builtin");
 
-pub export fn sleep(ctx: *api.NativeCtx) c_int {
+pub export fn sleep(ctx: *api.NativeCtx) callconv(.c) c_int {
     std.time.sleep(@as(u64, @intFromFloat(ctx.vm.bz_peek(0).double())) * 1_000_000);
 
     return 0;
 }
 
-pub export fn time(ctx: *api.NativeCtx) c_int {
+pub export fn time(ctx: *api.NativeCtx) callconv(.c) c_int {
     ctx.vm.bz_push(api.Value.fromFloat(@as(f64, @floatFromInt(std.time.milliTimestamp()))));
 
     return 1;
 }
 
-pub export fn env(ctx: *api.NativeCtx) c_int {
+pub export fn env(ctx: *api.NativeCtx) callconv(.c) c_int {
     var len: usize = 0;
     const key = ctx.vm.bz_peek(0).bz_valueToString(&len);
 
@@ -66,7 +66,7 @@ fn sysTempDir() []const u8 {
     };
 }
 
-pub export fn tmpDir(ctx: *api.NativeCtx) c_int {
+pub export fn tmpDir(ctx: *api.NativeCtx) callconv(.c) c_int {
     const tmp_dir: []const u8 = sysTempDir();
 
     ctx.vm.bz_push(
@@ -81,7 +81,7 @@ pub export fn tmpDir(ctx: *api.NativeCtx) c_int {
 }
 
 // TODO: what if file with same random name exists already?
-pub export fn tmpFilename(ctx: *api.NativeCtx) c_int {
+pub export fn tmpFilename(ctx: *api.NativeCtx) callconv(.c) c_int {
     var prefix_len: usize = 0;
     const prefix = ctx.vm.bz_peek(0).bz_valueToString(&prefix_len);
 
@@ -129,7 +129,7 @@ pub export fn tmpFilename(ctx: *api.NativeCtx) c_int {
 }
 
 // If it was named `exit` it would be considered by zig as a callback when std.process.exit is called
-pub export fn buzzExit(ctx: *api.NativeCtx) c_int {
+pub export fn buzzExit(ctx: *api.NativeCtx) callconv(.c) c_int {
     const exitCode: i32 = ctx.vm.bz_peek(0).integer();
 
     std.process.exit(@intCast(exitCode));
@@ -179,7 +179,7 @@ fn handleSpawnError(ctx: *api.NativeCtx, err: anytype) void {
     }
 }
 
-pub export fn execute(ctx: *api.NativeCtx) c_int {
+pub export fn execute(ctx: *api.NativeCtx) callconv(.c) c_int {
     var command = std.ArrayList([]const u8).init(api.VM.allocator);
     defer command.deinit();
 
@@ -260,6 +260,7 @@ fn handleConnectError(ctx: *api.NativeCtx, err: anytype) void {
         error.UnknownHostName,
         error.WouldBlock,
         error.Canceled,
+        error.OperationNotSupported,
         => ctx.vm.pushErrorEnum("errors.SocketError", @errorName(err)),
 
         error.BadPathName,
@@ -329,7 +330,7 @@ fn handleConnectUnixError(ctx: *api.NativeCtx, err: anytype) void {
     }
 }
 
-pub export fn SocketConnect(ctx: *api.NativeCtx) c_int {
+pub export fn SocketConnect(ctx: *api.NativeCtx) callconv(.c) c_int {
     var len: usize = 0;
     const address_value = api.Value.bz_valueToString(ctx.vm.bz_peek(2), &len);
     const address = if (len > 0) address_value.?[0..len] else "";
@@ -397,7 +398,7 @@ pub export fn SocketConnect(ctx: *api.NativeCtx) c_int {
     }
 }
 
-pub export fn SocketClose(ctx: *api.NativeCtx) c_int {
+pub export fn SocketClose(ctx: *api.NativeCtx) callconv(.c) c_int {
     const socket: std.posix.socket_t = if (builtin.os.tag == .windows)
         @ptrFromInt(@as(usize, @intCast(ctx.vm.bz_peek(0).integer())))
     else
@@ -437,7 +438,7 @@ fn handleReadAllError(ctx: *api.NativeCtx, err: anytype) void {
     }
 }
 
-pub export fn SocketRead(ctx: *api.NativeCtx) c_int {
+pub export fn SocketRead(ctx: *api.NativeCtx) callconv(.c) c_int {
     const n: i32 = ctx.vm.bz_peek(0).integer();
     if (n < 0) {
         ctx.vm.pushError("errors.InvalidArgumentError", null);
@@ -520,7 +521,7 @@ fn handleReadLineError(ctx: *api.NativeCtx, err: anytype) void {
     }
 }
 
-pub export fn SocketReadLine(ctx: *api.NativeCtx) c_int {
+pub export fn SocketReadLine(ctx: *api.NativeCtx) callconv(.c) c_int {
     const handle: std.posix.socket_t = if (builtin.os.tag == .windows)
         @ptrFromInt(@as(usize, @intCast(ctx.vm.bz_peek(1).integer())))
     else
@@ -566,7 +567,7 @@ pub export fn SocketReadLine(ctx: *api.NativeCtx) c_int {
     return 1;
 }
 
-pub export fn SocketReadAll(ctx: *api.NativeCtx) c_int {
+pub export fn SocketReadAll(ctx: *api.NativeCtx) callconv(.c) c_int {
     const handle: std.posix.socket_t = if (builtin.os.tag == .windows)
         @ptrFromInt(@as(usize, @intCast(ctx.vm.bz_peek(1).integer())))
     else
@@ -613,7 +614,7 @@ pub export fn SocketReadAll(ctx: *api.NativeCtx) c_int {
     return 1;
 }
 
-pub export fn SocketWrite(ctx: *api.NativeCtx) c_int {
+pub export fn SocketWrite(ctx: *api.NativeCtx) callconv(.c) c_int {
     const handle: std.posix.socket_t = if (builtin.os.tag == .windows)
         @ptrFromInt(@as(usize, @intCast(ctx.vm.bz_peek(1).integer())))
     else
@@ -660,7 +661,7 @@ pub export fn SocketWrite(ctx: *api.NativeCtx) c_int {
     return 0;
 }
 
-pub export fn SocketServerStart(ctx: *api.NativeCtx) c_int {
+pub export fn SocketServerStart(ctx: *api.NativeCtx) callconv(.c) c_int {
     var len: usize = 0;
     const address_value = api.Value.bz_valueToString(ctx.vm.bz_peek(3), &len);
     const address = if (len > 0) address_value.?[0..len] else "";
@@ -735,7 +736,7 @@ pub export fn SocketServerStart(ctx: *api.NativeCtx) c_int {
     return 1;
 }
 
-pub export fn SocketServerAccept(ctx: *api.NativeCtx) c_int {
+pub export fn SocketServerAccept(ctx: *api.NativeCtx) callconv(.c) c_int {
     var server = std.net.Server{
         .listen_address = undefined, // FIXME: we lose this
         .stream = std.net.Stream{

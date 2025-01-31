@@ -19,7 +19,7 @@ extern fn patternReplaceLength(
     replacement_len: isize,
     pattern_ptr: [*]const u8,
     pattern_len: isize,
-) isize;
+) callconv(.c) isize;
 
 extern fn patternReplace(
     string_ptr: [*]const u8,
@@ -30,7 +30,7 @@ extern fn patternReplace(
     pattern_len: isize,
     output_ptr: [*]const u8,
     output_len: isize,
-) void;
+) callconv(.c) void;
 
 extern fn patternReplaceAllLength(
     string_ptr: [*]const u8,
@@ -39,7 +39,7 @@ extern fn patternReplaceAllLength(
     replacement_len: isize,
     pattern_ptr: [*]const u8,
     pattern_len: isize,
-) isize;
+) callconv(.c) isize;
 
 extern fn patternReplaceAll(
     string_ptr: [*]const u8,
@@ -50,7 +50,7 @@ extern fn patternReplaceAll(
     pattern_len: isize,
     output_ptr: [*]const u8,
     output_len: isize,
-) void;
+) callconv(.c) void;
 
 pub const pcre = @import("../pcre.zig");
 
@@ -221,7 +221,7 @@ fn rawReplaceAll(self: *ObjPattern, vm: *VM, subject: *ObjString, replacement: *
     return current;
 }
 
-pub fn match(ctx: *NativeCtx) c_int {
+pub fn match(ctx: *NativeCtx) callconv(.c) c_int {
     const self = ObjPattern.cast(ctx.vm.peek(1).obj()).?;
     const subject = ObjString.cast(ctx.vm.peek(0).obj()).?;
 
@@ -243,7 +243,7 @@ pub fn match(ctx: *NativeCtx) c_int {
     return 1;
 }
 
-pub fn replace(ctx: *NativeCtx) c_int {
+pub fn replace(ctx: *NativeCtx) callconv(.c) c_int {
     const self = ObjPattern.cast(ctx.vm.peek(2).obj()).?;
     const subject = ObjString.cast(ctx.vm.peek(1).obj()).?;
     const replacement = ObjString.cast(ctx.vm.peek(0).obj()).?;
@@ -303,7 +303,7 @@ pub fn replace(ctx: *NativeCtx) c_int {
     return 1;
 }
 
-pub fn matchAll(ctx: *NativeCtx) c_int {
+pub fn matchAll(ctx: *NativeCtx) callconv(.c) c_int {
     const self = ObjPattern.cast(ctx.vm.peek(1).obj()).?;
     const subject = ObjString.cast(ctx.vm.peek(0).obj()).?;
 
@@ -323,7 +323,7 @@ pub fn matchAll(ctx: *NativeCtx) c_int {
     return 1;
 }
 
-pub fn replaceAll(ctx: *NativeCtx) c_int {
+pub fn replaceAll(ctx: *NativeCtx) callconv(.c) c_int {
     const self = ObjPattern.cast(ctx.vm.peek(2).obj()).?;
     const subject = ObjString.cast(ctx.vm.peek(1).obj()).?;
     const replacement = ObjString.cast(ctx.vm.peek(0).obj()).?;

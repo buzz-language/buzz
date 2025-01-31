@@ -10,7 +10,7 @@ pub const os = if (is_wasm)
 else
     std.os;
 
-pub export fn dump(ctx: *api.NativeCtx) c_int {
+pub export fn dump(ctx: *api.NativeCtx) callconv(.c) c_int {
     ctx.vm.bz_peek(0).bz_valueDump(ctx.vm);
 
     io.print("\n", .{});

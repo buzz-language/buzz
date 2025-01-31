@@ -6,7 +6,7 @@ const JIT = @import("Jit.zig");
 const jmp = @import("jmp.zig").jmp;
 const io = @import("io.zig");
 
-export fn bz_exit(code: c_int) noreturn {
+export fn bz_exit(code: c_int) callconv(.c) noreturn {
     std.process.exit(@truncate(@as(c_uint, @bitCast(code))));
 }
 

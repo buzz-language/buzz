@@ -1226,10 +1226,10 @@ pub const NativeCtx = extern struct {
 };
 
 // 1 = return value on stack, 0 = no return value, -1 = error
-pub const Native = fn (ctx: *NativeCtx) c_int;
+pub const Native = fn (ctx: *NativeCtx) callconv(.c) c_int;
 pub const NativeFn = *const Native;
 
-pub const Compiled = fn (ctx: *NativeCtx) Value;
+pub const Compiled = fn (ctx: *NativeCtx) callconv(.c) Value;
 pub const CompiledFn = *const Compiled;
 
 /// Native function
@@ -1551,8 +1551,8 @@ pub const ObjForeignContainer = struct {
     }
 
     pub const ContainerDef = struct {
-        pub const Getter = fn (vm: *VM, data: [*]u8) Value;
-        pub const Setter = fn (vm: *VM, data: [*]u8, value: Value) void;
+        pub const Getter = fn (vm: *VM, data: [*]u8) callconv(.c) Value;
+        pub const Setter = fn (vm: *VM, data: [*]u8, value: Value) callconv(.c) void;
 
         pub const Field = struct {
             offset: usize,

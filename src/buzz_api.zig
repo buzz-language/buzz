@@ -65,22 +65,22 @@ else if (!is_wasm)
 // Stack manipulation
 
 /// Push a Value to the stack
-export fn bz_push(vm: *VM, value: Value) void {
+export fn bz_push(vm: *VM, value: Value) callconv(.c) void {
     vm.push(value);
 }
 
 /// Pop a Value from the stack and returns it
-export fn bz_pop(vm: *VM) Value {
+export fn bz_pop(vm: *VM) callconv(.c) Value {
     return vm.pop();
 }
 
 /// Peeks at the stack at [distance] from the stack top
-export fn bz_peek(vm: *VM, dist: u32) Value {
+export fn bz_peek(vm: *VM, dist: u32) callconv(.c) Value {
     return vm.peek(dist);
 }
 
 /// Absolute access to the stack.
-export fn bz_at(vm: *VM, at: u32) Value {
+export fn bz_at(vm: *VM, at: u32) callconv(.c) Value {
     if (at < vm.current_fiber.stack.len) {
         return vm.current_fiber.stack[at];
     }
@@ -89,7 +89,7 @@ export fn bz_at(vm: *VM, at: u32) Value {
 }
 
 /// Converts a value to a string
-export fn bz_valueToString(value: Value, len: *usize) ?[*]const u8 {
+export fn bz_valueToString(value: Value, len: *usize) callconv(.c) ?[*]const u8 {
     if (!value.isObj() or value.obj().obj_type != .String) {
         return null;
     }
@@ -101,7 +101,7 @@ export fn bz_valueToString(value: Value, len: *usize) ?[*]const u8 {
     return if (string.len > 0) @as([*]const u8, @ptrCast(string)) else null;
 }
 
-export fn bz_valueToCString(value: Value) ?[*:0]const u8 {
+export fn bz_valueToCString(value: Value) callconv(.c) ?[*:0]const u8 {
     if (!value.isObj() or value.obj().obj_type != .String) {
         return null;
     }
@@ -360,19 +360,19 @@ fn valueDump(value: Value, vm: *VM, seen: *std.AutoHashMap(*_obj.Obj, void), dep
 }
 
 /// Dump value
-pub export fn bz_valueDump(value: Value, vm: *VM) void {
+pub export fn bz_valueDump(value: Value, vm: *VM) callconv(.c) void {
     var seen = std.AutoHashMap(*_obj.Obj, void).init(vm.gc.allocator);
     defer seen.deinit();
 
     valueDump(value, vm, &seen, 0);
 }
 
-export fn bz_valueToForeignContainerPtr(value: Value) [*]u8 {
+export fn bz_valueToForeignContainerPtr(value: Value) callconv(.c) [*]u8 {
     return ObjForeignContainer.cast(value.obj()).?.data.ptr;
 }
 
 /// Converts a c string to a *ObjString
-export fn bz_stringToValue(vm: *VM, string: ?[*]const u8, len: usize) Value {
+export fn bz_stringToValue(vm: *VM, string: ?[*]const u8, len: usize) callconv(.c) Value {
     return ((if (string != null and len > 0)
         vm.gc.copyString(string.?[0..len])
     else
@@ -382,7 +382,7 @@ export fn bz_stringToValue(vm: *VM, string: ?[*]const u8, len: usize) Value {
     }).toValue();
 }
 
-export fn bz_stringToValueZ(vm: *VM, string: [*:0]const u8) Value {
+export fn bz_stringToValueZ(vm: *VM, string: [*:0]const u8) callconv(.c) Value {
     // Keeping the sentinel
     return (vm.gc.copyString(string[0..(std.mem.len(string) + 1)]) catch {
         vm.panic("Out of memory");
@@ -390,14 +390,14 @@ export fn bz_stringToValueZ(vm: *VM, string: [*:0]const u8) Value {
     }).toValue();
 }
 
-export fn bz_stringConcat(obj_string: Value, other: Value, vm: *VM) Value {
+export fn bz_stringConcat(obj_string: Value, other: Value, vm: *VM) callconv(.c) Value {
     return (ObjString.cast(obj_string.obj()).?.concat(
         vm,
         ObjString.cast(other.obj()).?,
     ) catch @panic("Could not concat strings")).toValue();
 }
 
-export fn bz_stringSubscript(obj_string: Value, index_value: Value, checked: bool, vm: *VM) Value {
+export fn bz_stringSubscript(obj_string: Value, index_value: Value, checked: bool, vm: *VM) callconv(.c) Value {
     const str = ObjString.cast(obj_string.obj()).?;
     const index = index_value.integer();
 
@@ -432,7 +432,7 @@ export fn bz_stringSubscript(obj_string: Value, index_value: Value, checked: boo
     }
 }
 
-export fn bz_valueCastToString(value: Value, vm: *VM) Value {
+export fn bz_valueCastToString(value: Value, vm: *VM) callconv(.c) Value {
     const str = value.toStringAlloc(vm.gc.allocator) catch
         @panic("Out of memory");
     defer vm.gc.allocator.free(str);
@@ -445,11 +445,11 @@ export fn bz_valueCastToString(value: Value, vm: *VM) Value {
 // Type helpers
 
 /// Returns the [str] type
-export fn bz_stringType(vm: *VM) Value {
+export fn bz_stringType(vm: *VM) callconv(.c) Value {
     return vm.gc.type_registry.str_type.toValue();
 }
 
-export fn bz_listType(vm: *VM, item_type: Value, mutable: bool) Value {
+export fn bz_listType(vm: *VM, item_type: Value, mutable: bool) callconv(.c) Value {
     return (vm.gc.type_registry.getTypeDef(
         .{
             .def_type = .List,
@@ -467,7 +467,7 @@ export fn bz_listType(vm: *VM, item_type: Value, mutable: bool) Value {
     }).toValue();
 }
 
-export fn bz_mapType(vm: *VM, key_type: Value, value_type: Value, mutable: bool) Value {
+export fn bz_mapType(vm: *VM, key_type: Value, value_type: Value, mutable: bool) callconv(.c) Value {
     return (vm.gc.type_registry.getTypeDef(
         .{
             .def_type = .Map,
@@ -486,29 +486,29 @@ export fn bz_mapType(vm: *VM, key_type: Value, value_type: Value, mutable: bool)
     }).toValue();
 }
 
-export fn bz_containerTypeSize(type_def: Value) usize {
+export fn bz_containerTypeSize(type_def: Value) callconv(.c) usize {
     return ObjTypeDef.cast(type_def.obj()).?
         .resolved_type.?
         .ForeignContainer
         .zig_type.size();
 }
 
-export fn bz_containerTypeAlign(type_def: Value) usize {
+export fn bz_containerTypeAlign(type_def: Value) callconv(.c) usize {
     return ObjTypeDef.cast(type_def.obj()).?
         .resolved_type.?
         .ForeignContainer
         .zig_type.alignment();
 }
 
-export fn bz_allocated(self: *VM) usize {
+export fn bz_allocated(self: *VM) callconv(.c) usize {
     return self.gc.bytes_allocated;
 }
 
-export fn bz_collect(self: *VM) void {
+export fn bz_collect(self: *VM) callconv(.c) void {
     self.gc.collectGarbage() catch @panic("Could not collect");
 }
 
-export fn bz_newRange(vm: *VM, low: Integer, high: Integer) Value {
+export fn bz_newRange(vm: *VM, low: Integer, high: Integer) callconv(.c) Value {
     return Value.fromObj((vm.gc.allocateObject(
         ObjRange,
         ObjRange{
@@ -518,7 +518,7 @@ export fn bz_newRange(vm: *VM, low: Integer, high: Integer) Value {
     ) catch @panic("Could not create range")).toObj());
 }
 
-export fn bz_newList(vm: *VM, list_type: Value) Value {
+export fn bz_newList(vm: *VM, list_type: Value) callconv(.c) Value {
     return (vm.gc.allocateObject(
         ObjList,
         ObjList.init(
@@ -528,11 +528,11 @@ export fn bz_newList(vm: *VM, list_type: Value) Value {
     ) catch @panic("Could not create list")).toValue();
 }
 
-export fn bz_listAppend(list: Value, value: Value, vm: *VM) void {
+export fn bz_listAppend(list: Value, value: Value, vm: *VM) callconv(.c) void {
     ObjList.cast(list.obj()).?.rawAppend(vm.gc, value) catch @panic("Could not add element to list");
 }
 
-export fn bz_listGet(self: Value, index: i32, checked: bool) Value {
+export fn bz_listGet(self: Value, index: i32, checked: bool) callconv(.c) Value {
     const list = ObjList.cast(self.obj()).?;
 
     if (index < 0 or index >= list.items.items.len) {
@@ -546,7 +546,7 @@ export fn bz_listGet(self: Value, index: i32, checked: bool) Value {
     return list.items.items[@intCast(index)];
 }
 
-export fn bz_listSet(self: Value, index: usize, value: Value, vm: *VM) void {
+export fn bz_listSet(self: Value, index: usize, value: Value, vm: *VM) callconv(.c) void {
     ObjList.cast(self.obj()).?.set(
         vm.gc,
         index,
@@ -554,11 +554,11 @@ export fn bz_listSet(self: Value, index: usize, value: Value, vm: *VM) void {
     ) catch @panic("Could not set element in list");
 }
 
-export fn bz_listLen(self: Value) usize {
+export fn bz_listLen(self: Value) callconv(.c) usize {
     return ObjList.cast(self.obj()).?.items.items.len;
 }
 
-export fn bz_listConcat(list: Value, other_list: Value, vm: *VM) Value {
+export fn bz_listConcat(list: Value, other_list: Value, vm: *VM) callconv(.c) Value {
     const left: *ObjList = ObjList.cast(list.obj()).?;
     const right: *ObjList = ObjList.cast(other_list.obj()).?;
 
@@ -576,7 +576,7 @@ export fn bz_listConcat(list: Value, other_list: Value, vm: *VM) Value {
     ) catch @panic("Could not concatenate lists")).toValue();
 }
 
-export fn bz_mapConcat(map: Value, other_map: Value, vm: *VM) Value {
+export fn bz_mapConcat(map: Value, other_map: Value, vm: *VM) callconv(.c) Value {
     const left = ObjMap.cast(map.obj()).?;
     const right = ObjMap.cast(other_map.obj()).?;
 
@@ -597,7 +597,7 @@ export fn bz_mapConcat(map: Value, other_map: Value, vm: *VM) Value {
     }) catch @panic("Could not concatenate maps")).toValue();
 }
 
-export fn bz_newUserData(vm: *VM, userdata: u64) Value {
+export fn bz_newUserData(vm: *VM, userdata: u64) callconv(.c) Value {
     return (vm.gc.allocateObject(
         ObjUserData,
         ObjUserData{ .userdata = userdata },
@@ -607,7 +607,7 @@ export fn bz_newUserData(vm: *VM, userdata: u64) Value {
     }).toValue();
 }
 
-export fn bz_getUserDataPtr(userdata: Value) u64 {
+export fn bz_getUserDataPtr(userdata: Value) callconv(.c) u64 {
     return ObjUserData.cast(userdata.obj()).?.userdata;
 }
 
@@ -630,13 +630,13 @@ export fn bz_newVM() *VM {
     return vm;
 }
 
-export fn bz_deinitVM(self: *VM) void {
+export fn bz_deinitVM(self: *VM) callconv(.c) void {
     self.deinit();
     self.import_registry.deinit();
     self.gc.deinit();
 }
 
-export fn bz_panic(vm: *VM, msg: [*]const u8, len: usize) void {
+export fn bz_panic(vm: *VM, msg: [*]const u8, len: usize) callconv(.c) void {
     vm.panic(msg[0..len]);
 }
 
@@ -646,7 +646,7 @@ export fn bz_run(
     source_len: usize,
     file_name: ?[*]const u8,
     file_name_len: usize,
-) bool {
+) callconv(.c) bool {
     if (source == null or file_name_len == 0 or source_len == 0 or file_name_len == 0) {
         return false;
     }
@@ -715,7 +715,7 @@ pub export fn bz_invoke(
     arguments: ?[*]const *const Value,
     len: u8,
     catch_value: ?*Value,
-) void {
+) callconv(.c) void {
     self.push(instance);
     var i: usize = 0;
     while (i < len) : (i += 1) {
@@ -748,7 +748,7 @@ pub export fn bz_call(
     arguments: ?[*]const *const Value,
     len: u8,
     catch_value: ?*Value,
-) void {
+) callconv(.c) void {
     std.debug.assert(closure_value.obj().obj_type == .Closure);
 
     self.push(closure_value);
@@ -774,7 +774,7 @@ pub export fn bz_call(
     }
 }
 
-export fn bz_newQualifiedObjectInstance(self: *VM, qualified_name: [*]const u8, len: usize, mutable: bool) Value {
+export fn bz_newQualifiedObjectInstance(self: *VM, qualified_name: [*]const u8, len: usize, mutable: bool) callconv(.c) Value {
     const object = ObjObject.cast(bz_getQualified(self, qualified_name, len).obj()).?;
 
     const instance: *ObjObjectInstance = self.gc.allocateObject(
@@ -847,7 +847,7 @@ export fn bz_pushError(
     len: usize,
     message: ?[*]const u8,
     mlen: usize,
-) void {
+) callconv(.c) void {
     self.push(
         instanciateError(
             self,
@@ -859,7 +859,7 @@ export fn bz_pushError(
     );
 }
 
-export fn bz_pushErrorEnum(self: *VM, qualified_name: [*]const u8, name_len: usize, case_str: [*]const u8, case_len: usize) void {
+export fn bz_pushErrorEnum(self: *VM, qualified_name: [*]const u8, name_len: usize, case_str: [*]const u8, case_len: usize) callconv(.c) void {
     const case = self.gc.copyString(case_str[0..case_len]) catch @panic("Could not create error payload");
 
     self.push(
@@ -871,7 +871,7 @@ export fn bz_pushErrorEnum(self: *VM, qualified_name: [*]const u8, name_len: usi
     );
 }
 
-export fn bz_getQualified(self: *VM, qualified_name: [*]const u8, len: usize) Value {
+export fn bz_getQualified(self: *VM, qualified_name: [*]const u8, len: usize) callconv(.c) Value {
     for (self.globals.items) |global| {
         if (global.isObj()) {
             switch (global.obj().obj_type) {
@@ -897,7 +897,7 @@ export fn bz_getQualified(self: *VM, qualified_name: [*]const u8, len: usize) Va
     std.debug.panic("bz_getQualified no name: {s}", .{qualified_name[0..len]});
 }
 
-export fn bz_newObjectInstance(vm: *VM, object_value: Value, typedef_value: Value) Value {
+export fn bz_newObjectInstance(vm: *VM, object_value: Value, typedef_value: Value) callconv(.c) Value {
     const object = if (object_value.isObj()) ObjObject.cast(object_value.obj()).? else null;
     const typedef = ObjTypeDef.cast(typedef_value.obj()).?;
 
@@ -927,11 +927,11 @@ export fn bz_newObjectInstance(vm: *VM, object_value: Value, typedef_value: Valu
     return instance.toValue();
 }
 
-export fn bz_getObjectField(object_value: Value, field_idx: usize) Value {
+export fn bz_getObjectField(object_value: Value, field_idx: usize) callconv(.c) Value {
     return ObjObject.cast(object_value.obj()).?.fields[field_idx];
 }
 
-export fn bz_setObjectField(object_value: Value, field_idx: usize, value: Value, vm: *VM) void {
+export fn bz_setObjectField(object_value: Value, field_idx: usize, value: Value, vm: *VM) callconv(.c) void {
     ObjObject.cast(object_value.obj()).?.setField(
         vm.gc,
         field_idx,
@@ -939,7 +939,7 @@ export fn bz_setObjectField(object_value: Value, field_idx: usize, value: Value,
     ) catch @panic("Could not set static field");
 }
 
-export fn bz_setObjectInstanceProperty(instance_value: Value, field_idx: usize, value: Value, vm: *VM) void {
+export fn bz_setObjectInstanceProperty(instance_value: Value, field_idx: usize, value: Value, vm: *VM) callconv(.c) void {
     ObjObjectInstance.cast(instance_value.obj()).?.setField(
         vm.gc,
         field_idx,
@@ -947,12 +947,12 @@ export fn bz_setObjectInstanceProperty(instance_value: Value, field_idx: usize, 
     ) catch @panic("Could not set instance field");
 }
 
-export fn bz_getObjectInstanceProperty(instance_value: Value, property_idx: usize) Value {
+export fn bz_getObjectInstanceProperty(instance_value: Value, property_idx: usize) callconv(.c) Value {
     return ObjObjectInstance.cast(instance_value.obj()).?
         .fields[property_idx];
 }
 
-export fn bz_getObjectInstanceMethod(instance_value: Value, method_idx: usize, bind: bool, vm: *VM) Value {
+export fn bz_getObjectInstanceMethod(instance_value: Value, method_idx: usize, bind: bool, vm: *VM) callconv(.c) Value {
     const method = ObjObjectInstance.cast(instance_value.obj()).?
         .object.?
         .fields[method_idx];
@@ -968,7 +968,7 @@ export fn bz_getObjectInstanceMethod(instance_value: Value, method_idx: usize, b
         method;
 }
 
-export fn bz_getProtocolMethod(instance_value: Value, method_name: Value, vm: *VM) Value {
+export fn bz_getProtocolMethod(instance_value: Value, method_name: Value, vm: *VM) callconv(.c) Value {
     const instance = instance_value.obj().access(
         ObjObjectInstance,
         .ObjectInstance,
@@ -991,7 +991,7 @@ export fn bz_getProtocolMethod(instance_value: Value, method_name: Value, vm: *V
     );
 }
 
-export fn bz_bindMethod(vm: *VM, receiver: Value, method_value: Value, native_value: Value) Value {
+export fn bz_bindMethod(vm: *VM, receiver: Value, method_value: Value, native_value: Value) callconv(.c) Value {
     return (vm.gc.allocateObject(
         ObjBoundMethod,
         .{
@@ -1002,7 +1002,7 @@ export fn bz_bindMethod(vm: *VM, receiver: Value, method_value: Value, native_va
     ) catch @panic("Could not bind method")).toValue();
 }
 
-export fn bz_getEnumCase(enum_value: Value, case_name_value: Value, vm: *VM) Value {
+export fn bz_getEnumCase(enum_value: Value, case_name_value: Value, vm: *VM) callconv(.c) Value {
     const self = ObjEnum.cast(enum_value.obj()).?;
     const case = ObjString.cast(case_name_value.obj()).?.string;
     var case_index: usize = 0;
@@ -1023,13 +1023,13 @@ export fn bz_getEnumCase(enum_value: Value, case_name_value: Value, vm: *VM) Val
     ) catch @panic("Could not create enum case")).toValue();
 }
 
-export fn bz_getEnumInstanceValue(enum_instance_value: Value) Value {
+export fn bz_getEnumInstanceValue(enum_instance_value: Value) callconv(.c) Value {
     const instance = ObjEnumInstance.cast(enum_instance_value.obj()).?;
 
     return instance.enum_ref.cases[instance.case];
 }
 
-export fn bz_getEnumCaseFromValue(enum_value: Value, case_value: Value, vm: *VM) Value {
+export fn bz_getEnumCaseFromValue(enum_value: Value, case_value: Value, vm: *VM) callconv(.c) Value {
     const enum_ = ObjEnum.cast(enum_value.obj()).?;
 
     for (enum_.cases, 0..) |case, index| {
@@ -1046,18 +1046,18 @@ export fn bz_getEnumCaseFromValue(enum_value: Value, case_value: Value, vm: *VM)
     return Value.Null;
 }
 
-export fn bz_valueEqual(self: Value, other: Value) Value {
+export fn bz_valueEqual(self: Value, other: Value) callconv(.c) Value {
     return Value.fromBoolean(self.eql(other));
 }
 
-export fn bz_valueTypeOf(self: Value, vm: *VM) Value {
+export fn bz_valueTypeOf(self: Value, vm: *VM) callconv(.c) Value {
     return (self.typeOf(vm.gc) catch {
         vm.panic("Out of memory");
         unreachable;
     }).toValue();
 }
 
-export fn bz_newMap(vm: *VM, map_type: Value) Value {
+export fn bz_newMap(vm: *VM, map_type: Value) callconv(.c) Value {
     var map: *ObjMap = vm.gc.allocateObject(
         ObjMap,
         ObjMap.init(
@@ -1069,7 +1069,7 @@ export fn bz_newMap(vm: *VM, map_type: Value) Value {
     return Value.fromObj(map.toObj());
 }
 
-export fn bz_mapSet(map: Value, key: Value, value: Value, vm: *VM) void {
+export fn bz_mapSet(map: Value, key: Value, value: Value, vm: *VM) callconv(.c) void {
     ObjMap.cast(map.obj()).?.set(
         vm.gc,
         key,
@@ -1077,15 +1077,15 @@ export fn bz_mapSet(map: Value, key: Value, value: Value, vm: *VM) void {
     ) catch @panic("Could not set map element");
 }
 
-export fn bz_mapGet(map: Value, key: Value) Value {
+export fn bz_mapGet(map: Value, key: Value) callconv(.c) Value {
     return ObjMap.cast(map.obj()).?.map.get(key) orelse Value.Null;
 }
 
-export fn bz_valueIs(self: Value, type_def: Value) Value {
+export fn bz_valueIs(self: Value, type_def: Value) callconv(.c) Value {
     return Value.fromBoolean(type_def.is(self));
 }
 
-export fn bz_setTryCtx(self: *VM) *TryCtx {
+export fn bz_setTryCtx(self: *VM) callconv(.c) *TryCtx {
     if (is_wasm) {
         unreachable;
     }
@@ -1105,7 +1105,7 @@ export fn bz_setTryCtx(self: *VM) *TryCtx {
     return try_ctx;
 }
 
-export fn bz_popTryCtx(self: *VM) void {
+export fn bz_popTryCtx(self: *VM) callconv(.c) void {
     if (is_wasm) {
         unreachable;
     }
@@ -1118,7 +1118,7 @@ export fn bz_popTryCtx(self: *VM) void {
 }
 
 // Like bz_throw but assumes the error payload is already on the stack
-export fn bz_rethrow(vm: *VM) void {
+export fn bz_rethrow(vm: *VM) callconv(.c) void {
     if (is_wasm) {
         unreachable;
     }
@@ -1137,26 +1137,26 @@ export fn bz_rethrow(vm: *VM) void {
     }
 }
 
-export fn bz_throw(vm: *VM, value: Value) void {
+export fn bz_throw(vm: *VM, value: Value) callconv(.c) void {
     vm.push(value);
 
     bz_rethrow(vm);
 }
 
-export fn bz_closeUpValues(vm: *VM, last: *Value) void {
+export fn bz_closeUpValues(vm: *VM, last: *Value) callconv(.c) void {
     vm.closeUpValues(last);
     _ = vm.pop();
 }
 
-export fn bz_getUpValue(ctx: *NativeCtx, slot: usize) Value {
+export fn bz_getUpValue(ctx: *NativeCtx, slot: usize) callconv(.c) Value {
     return ctx.upvalues[slot].location.*;
 }
 
-export fn bz_setUpValue(ctx: *NativeCtx, slot: usize, value: Value) void {
+export fn bz_setUpValue(ctx: *NativeCtx, slot: usize, value: Value) callconv(.c) void {
     ctx.upvalues[slot].location.* = value;
 }
 
-export fn bz_context(ctx: *NativeCtx, closure_value: Value, new_ctx: *NativeCtx, arg_count: usize) *anyopaque {
+export fn bz_context(ctx: *NativeCtx, closure_value: Value, new_ctx: *NativeCtx, arg_count: usize) callconv(.c) *anyopaque {
     if (is_wasm) {
         unreachable;
     }
@@ -1226,7 +1226,7 @@ export fn bz_closure(
     function_node: Ast.Node.Index,
     native: *anyopaque,
     native_raw: *anyopaque,
-) Value {
+) callconv(.c) Value {
     if (is_wasm) {
         unreachable;
     }
@@ -1267,13 +1267,13 @@ export fn bz_closure(
     return ctx.vm.pop();
 }
 
-export fn bz_dumpStack(ctx: *NativeCtx, off: usize) void {
+export fn bz_dumpStack(ctx: *NativeCtx, off: usize) callconv(.c) void {
     io.print("base is {}, top is {}\n", .{ @intFromPtr(ctx.base), @intFromPtr(ctx.vm.current_fiber.stack_top) });
     io.print("#{}:\n", .{off});
     dumpStack(ctx.vm);
 }
 
-export fn bz_getStringProperty(vm: *VM, string_value: Value, property_idx: usize, bind: bool) Value {
+export fn bz_getStringProperty(vm: *VM, string_value: Value, property_idx: usize, bind: bool) callconv(.c) Value {
     const method = ObjString.member(vm, property_idx) catch @panic("Out of memory").?;
 
     return if (bind)
@@ -1287,7 +1287,7 @@ export fn bz_getStringProperty(vm: *VM, string_value: Value, property_idx: usize
         method;
 }
 
-export fn bz_getPatternProperty(vm: *VM, pattern_value: Value, property_idx: usize, bind: bool) Value {
+export fn bz_getPatternProperty(vm: *VM, pattern_value: Value, property_idx: usize, bind: bool) callconv(.c) Value {
     const method = ObjPattern.member(vm, property_idx) catch @panic("Could not get pattern method");
 
     return if (bind)
@@ -1301,7 +1301,7 @@ export fn bz_getPatternProperty(vm: *VM, pattern_value: Value, property_idx: usi
         method;
 }
 
-export fn bz_getFiberProperty(vm: *VM, fiber_value: Value, property_idx: usize, bind: bool) Value {
+export fn bz_getFiberProperty(vm: *VM, fiber_value: Value, property_idx: usize, bind: bool) callconv(.c) Value {
     const method = ObjFiber.member(vm, property_idx) catch @panic("Could not get fiber method");
 
     return if (bind)
@@ -1315,7 +1315,7 @@ export fn bz_getFiberProperty(vm: *VM, fiber_value: Value, property_idx: usize, 
         method;
 }
 
-export fn bz_getListProperty(vm: *VM, list_value: Value, property_idx: usize, bind: bool) Value {
+export fn bz_getListProperty(vm: *VM, list_value: Value, property_idx: usize, bind: bool) callconv(.c) Value {
     const method = ObjList.cast(list_value.obj()).?
         .member(vm, property_idx) catch @panic("Could not get list method");
 
@@ -1330,7 +1330,7 @@ export fn bz_getListProperty(vm: *VM, list_value: Value, property_idx: usize, bi
         method;
 }
 
-export fn bz_getRangeProperty(vm: *VM, range_value: Value, property_idx: usize, bind: bool) Value {
+export fn bz_getRangeProperty(vm: *VM, range_value: Value, property_idx: usize, bind: bool) callconv(.c) Value {
     const method = ObjRange.member(vm, property_idx) catch @panic("Out of memory");
 
     return if (bind)
@@ -1344,7 +1344,7 @@ export fn bz_getRangeProperty(vm: *VM, range_value: Value, property_idx: usize, 
         method;
 }
 
-export fn bz_getMapProperty(vm: *VM, map_value: Value, property_idx: usize, bind: bool) Value {
+export fn bz_getMapProperty(vm: *VM, map_value: Value, property_idx: usize, bind: bool) callconv(.c) Value {
     const method = ObjMap.cast(map_value.obj()).?
         .member(vm, property_idx) catch @panic("Could not get map method");
 
@@ -1359,7 +1359,7 @@ export fn bz_getMapProperty(vm: *VM, map_value: Value, property_idx: usize, bind
         method;
 }
 
-export fn bz_stringNext(string_value: Value, index: *Value, vm: *VM) Value {
+export fn bz_stringNext(string_value: Value, index: *Value, vm: *VM) callconv(.c) Value {
     const string = ObjString.cast(string_value.obj()).?;
 
     if (string.next(
@@ -1375,7 +1375,7 @@ export fn bz_stringNext(string_value: Value, index: *Value, vm: *VM) Value {
     return Value.Null;
 }
 
-export fn bz_listNext(list_value: Value, index: *Value, vm: *VM) Value {
+export fn bz_listNext(list_value: Value, index: *Value, vm: *VM) callconv(.c) Value {
     const list = ObjList.cast(list_value.obj()).?;
 
     if (list.rawNext(
@@ -1390,7 +1390,7 @@ export fn bz_listNext(list_value: Value, index: *Value, vm: *VM) Value {
     return Value.Null;
 }
 
-export fn bz_rangeNext(range_value: Value, index_slot: Value) Value {
+export fn bz_rangeNext(range_value: Value, index_slot: Value) callconv(.c) Value {
     const range = ObjRange.cast(range_value.obj()).?;
 
     if (index_slot.integerOrNull()) |index| {
@@ -1410,7 +1410,7 @@ export fn bz_rangeNext(range_value: Value, index_slot: Value) Value {
     return Value.fromInteger(range.low);
 }
 
-export fn bz_mapNext(map_value: Value, key: *Value) Value {
+export fn bz_mapNext(map_value: Value, key: *Value) callconv(.c) Value {
     const map = ObjMap.cast(map_value.obj()).?;
 
     if (map.rawNext(if (key.isNull()) null else key.*)) |new_key| {
@@ -1423,7 +1423,7 @@ export fn bz_mapNext(map_value: Value, key: *Value) Value {
     return Value.Null;
 }
 
-export fn bz_enumNext(enum_value: Value, case: Value, vm: *VM) Value {
+export fn bz_enumNext(enum_value: Value, case: Value, vm: *VM) callconv(.c) Value {
     const enum_ = ObjEnum.cast(enum_value.obj()).?;
 
     if (enum_.rawNext(
@@ -1436,11 +1436,11 @@ export fn bz_enumNext(enum_value: Value, case: Value, vm: *VM) Value {
     return Value.Null;
 }
 
-export fn bz_clone(vm: *VM, value: Value) Value {
+export fn bz_clone(vm: *VM, value: Value) callconv(.c) Value {
     return vm.cloneValue(value) catch @panic("Could not clone value");
 }
 
-export fn bz_zigType(vm: *VM, ztype: [*]const u8, len: usize, expected_type: *Value) ?*const ZigType {
+export fn bz_zigType(vm: *VM, ztype: [*]const u8, len: usize, expected_type: *Value) callconv(.c) ?*const ZigType {
     if (is_wasm) {
         return null;
     }
@@ -1456,7 +1456,7 @@ export fn bz_zigType(vm: *VM, ztype: [*]const u8, len: usize, expected_type: *Va
     return null;
 }
 
-export fn bz_foreignContainerGet(value: Value, field_idx: usize, vm: *VM) Value {
+export fn bz_foreignContainerGet(value: Value, field_idx: usize, vm: *VM) callconv(.c) Value {
     const container = ObjForeignContainer.cast(value.obj()).?;
 
     return container.type_def.resolved_type.?
@@ -1468,7 +1468,7 @@ export fn bz_foreignContainerGet(value: Value, field_idx: usize, vm: *VM) Value 
     );
 }
 
-export fn bz_foreignContainerSet(value: Value, field_idx: usize, new_value: Value, vm: *VM) void {
+export fn bz_foreignContainerSet(value: Value, field_idx: usize, new_value: Value, vm: *VM) callconv(.c) void {
     const container = ObjForeignContainer.cast(value.obj()).?;
     // Oh right that's beautiful enough...
     return container.type_def.resolved_type.?.ForeignContainer
@@ -1480,7 +1480,7 @@ export fn bz_foreignContainerSet(value: Value, field_idx: usize, new_value: Valu
     );
 }
 
-export fn bz_newForeignContainerInstance(vm: *VM, typedef_value: Value) Value {
+export fn bz_newForeignContainerInstance(vm: *VM, typedef_value: Value) callconv(.c) Value {
     return (vm.gc.allocateObject(
         ObjForeignContainer,
         ObjForeignContainer.init(
@@ -1496,7 +1496,7 @@ export fn bz_newForeignContainerInstance(vm: *VM, typedef_value: Value) Value {
     }).toValue();
 }
 
-export fn bz_foreignContainerSlice(container_value: Value, len: *usize) [*]u8 {
+export fn bz_foreignContainerSlice(container_value: Value, len: *usize) callconv(.c) [*]u8 {
     const container = ObjForeignContainer.cast(container_value.obj()).?;
 
     len.* = container.data.len;
@@ -1504,11 +1504,11 @@ export fn bz_foreignContainerSlice(container_value: Value, len: *usize) [*]u8 {
     return container.data.ptr;
 }
 
-export fn bz_valueIsForeignContainer(value: Value) bool {
+export fn bz_valueIsForeignContainer(value: Value) callconv(.c) bool {
     return value.isObj() and value.obj().obj_type == .ForeignContainer;
 }
 
-export fn bz_newForeignContainerFromSlice(vm: *VM, type_def: Value, ptr: [*]u8, len: usize) Value {
+export fn bz_newForeignContainerFromSlice(vm: *VM, type_def: Value, ptr: [*]u8, len: usize) callconv(.c) Value {
     var container = (vm.gc.allocateObject(
         ObjForeignContainer,
         .{
@@ -1523,15 +1523,15 @@ export fn bz_newForeignContainerFromSlice(vm: *VM, type_def: Value, ptr: [*]u8, 
     return container.toValue();
 }
 
-export fn bz_zigTypeSize(self: *ZigType) usize {
+export fn bz_zigTypeSize(self: *ZigType) callconv(.c) usize {
     return self.size();
 }
 
-export fn bz_zigTypeAlignment(self: *ZigType) u16 {
+export fn bz_zigTypeAlignment(self: *ZigType) callconv(.c) u16 {
     return self.alignment();
 }
 
-export fn bz_zigTypeToCString(self: *ZigType, vm: *VM) [*:0]const u8 {
+export fn bz_zigTypeToCString(self: *ZigType, vm: *VM) callconv(.c) [*:0]const u8 {
     var out = std.ArrayList(u8).init(vm.gc.allocator);
 
     out.writer().print("{}\x00", .{self.*}) catch {
@@ -1542,7 +1542,7 @@ export fn bz_zigTypeToCString(self: *ZigType, vm: *VM) [*:0]const u8 {
     return @ptrCast(out.items.ptr);
 }
 
-export fn bz_serialize(vm: *VM, value: Value, error_value: *Value) Value {
+export fn bz_serialize(vm: *VM, value: Value, error_value: *Value) callconv(.c) Value {
     var seen = std.AutoHashMap(*Obj, void).init(vm.gc.allocator);
     defer seen.deinit();
 
@@ -1577,7 +1577,7 @@ export fn bz_serialize(vm: *VM, value: Value, error_value: *Value) Value {
     };
 }
 
-export fn bz_currentFiber(vm: *VM) Value {
+export fn bz_currentFiber(vm: *VM) callconv(.c) Value {
     return (vm.gc.allocateObject(
         ObjFiber,
         .{
@@ -1589,7 +1589,7 @@ export fn bz_currentFiber(vm: *VM) Value {
     }).toValue();
 }
 
-export fn bz_memcpy(dest: [*]u8, dest_len: usize, source: [*]u8, source_len: usize) void {
+export fn bz_memcpy(dest: [*]u8, dest_len: usize, source: [*]u8, source_len: usize) callconv(.c) void {
     @memcpy(dest[0..dest_len], source[0..source_len]);
 }
 
@@ -1599,7 +1599,7 @@ export fn bz_readZigValueFromBuffer(
     at: usize,
     buf: [*]u8,
     len: usize,
-) Value {
+) callconv(.c) Value {
     var buffer = std.ArrayList(u8).fromOwnedSlice(vm.gc.allocator, buf[0..len]);
     buffer.capacity = len;
 
@@ -1752,7 +1752,7 @@ export fn bz_writeZigValueToBuffer(
     at: usize,
     buf: [*]u8,
     capacity: usize,
-) void {
+) callconv(.c) void {
     var buffer = std.ArrayList(u8).fromOwnedSlice(vm.gc.allocator, buf[0..capacity]);
     buffer.capacity = capacity;
 

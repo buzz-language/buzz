@@ -43,19 +43,19 @@ fn cloneRaw(ctx: *NativeCtx, mutable: bool) void {
     ctx.vm.push(new_map.toValue());
 }
 
-pub fn cloneMutable(ctx: *NativeCtx) c_int {
+pub fn cloneMutable(ctx: *NativeCtx) callconv(.c) c_int {
     cloneRaw(ctx, true);
 
     return 1;
 }
 
-pub fn cloneImmutable(ctx: *NativeCtx) c_int {
+pub fn cloneImmutable(ctx: *NativeCtx) callconv(.c) c_int {
     cloneRaw(ctx, false);
 
     return 1;
 }
 
-pub fn reduce(ctx: *NativeCtx) c_int {
+pub fn reduce(ctx: *NativeCtx) callconv(.c) c_int {
     const self = ObjMap.cast(ctx.vm.peek(2).obj()).?;
     const closure = ctx.vm.peek(1);
     var accumulator = ctx.vm.peek(0);
@@ -80,7 +80,7 @@ pub fn reduce(ctx: *NativeCtx) c_int {
     return 1;
 }
 
-pub fn filter(ctx: *NativeCtx) c_int {
+pub fn filter(ctx: *NativeCtx) callconv(.c) c_int {
     const self = ObjMap.cast(ctx.vm.peek(1).obj()).?;
     const closure = ctx.vm.peek(0);
 
@@ -123,7 +123,7 @@ pub fn filter(ctx: *NativeCtx) c_int {
     return 1;
 }
 
-pub fn forEach(ctx: *NativeCtx) c_int {
+pub fn forEach(ctx: *NativeCtx) callconv(.c) c_int {
     const self = ObjMap.cast(ctx.vm.peek(1).obj()).?;
     const closure = ctx.vm.peek(0);
 
@@ -143,7 +143,7 @@ pub fn forEach(ctx: *NativeCtx) c_int {
     return 0;
 }
 
-pub fn map(ctx: *NativeCtx) c_int {
+pub fn map(ctx: *NativeCtx) callconv(.c) c_int {
     const self = ObjMap.cast(ctx.vm.peek(1).obj()).?;
     const closure = ctx.vm.peek(0);
 
@@ -235,7 +235,7 @@ const SortContext = struct {
     }
 };
 
-pub fn sort(ctx: *NativeCtx) c_int {
+pub fn sort(ctx: *NativeCtx) callconv(.c) c_int {
     const self: *ObjMap = ObjMap.cast(ctx.vm.peek(1).obj()).?;
     const sort_closure = ctx.vm.peek(0);
 
@@ -253,7 +253,7 @@ pub fn sort(ctx: *NativeCtx) c_int {
     return 1;
 }
 
-pub fn diff(ctx: *NativeCtx) c_int {
+pub fn diff(ctx: *NativeCtx) callconv(.c) c_int {
     const lhs: *ObjMap = ObjMap.cast(ctx.vm.peek(1).obj()).?;
     const rhs: *ObjMap = ObjMap.cast(ctx.vm.peek(0).obj()).?;
 
@@ -291,7 +291,7 @@ pub fn diff(ctx: *NativeCtx) c_int {
     return 1;
 }
 
-pub fn intersect(ctx: *NativeCtx) c_int {
+pub fn intersect(ctx: *NativeCtx) callconv(.c) c_int {
     const lhs: *ObjMap = ObjMap.cast(ctx.vm.peek(1).obj()).?;
     const rhs: *ObjMap = ObjMap.cast(ctx.vm.peek(0).obj()).?;
 
@@ -329,7 +329,7 @@ pub fn intersect(ctx: *NativeCtx) c_int {
     return 1;
 }
 
-pub fn size(ctx: *NativeCtx) c_int {
+pub fn size(ctx: *NativeCtx) callconv(.c) c_int {
     const self: *ObjMap = ObjMap.cast(ctx.vm.peek(0).obj()).?;
 
     ctx.vm.push(Value.fromInteger(@intCast(self.map.count())));
@@ -337,7 +337,7 @@ pub fn size(ctx: *NativeCtx) c_int {
     return 1;
 }
 
-pub fn remove(ctx: *NativeCtx) c_int {
+pub fn remove(ctx: *NativeCtx) callconv(.c) c_int {
     const self: *ObjMap = ObjMap.cast(ctx.vm.peek(1).obj()).?;
     const map_key = ctx.vm.peek(0);
 
@@ -350,7 +350,7 @@ pub fn remove(ctx: *NativeCtx) c_int {
     return 1;
 }
 
-pub fn keys(ctx: *NativeCtx) c_int {
+pub fn keys(ctx: *NativeCtx) callconv(.c) c_int {
     const self: *ObjMap = ObjMap.cast(ctx.vm.peek(0).obj()).?;
 
     const map_keys = self.map.keys();
@@ -401,7 +401,7 @@ pub fn keys(ctx: *NativeCtx) c_int {
     return 1;
 }
 
-pub fn values(ctx: *NativeCtx) c_int {
+pub fn values(ctx: *NativeCtx) callconv(.c) c_int {
     const self: *ObjMap = ObjMap.cast(ctx.vm.peek(0).obj()).?;
 
     const map_values: []Value = self.map.values();

@@ -10,7 +10,7 @@ const VM = @import("../vm.zig").VM;
 const Value = @import("../value.zig").Value;
 const buzz_api = @import("../buzz_api.zig");
 
-pub fn append(ctx: *NativeCtx) c_int {
+pub fn append(ctx: *NativeCtx) callconv(.c) c_int {
     const list_value: Value = ctx.vm.peek(1);
     const list: *ObjList = ObjList.cast(list_value.obj()).?;
     const value: Value = ctx.vm.peek(0);
@@ -26,7 +26,7 @@ pub fn append(ctx: *NativeCtx) c_int {
     return 0;
 }
 
-pub fn insert(ctx: *NativeCtx) c_int {
+pub fn insert(ctx: *NativeCtx) callconv(.c) c_int {
     const list_value: Value = ctx.vm.peek(2);
     const list: *ObjList = ObjList.cast(list_value.obj()).?;
     var index = ctx.vm.peek(1).integer();
@@ -52,7 +52,7 @@ pub fn insert(ctx: *NativeCtx) c_int {
     return 1;
 }
 
-pub fn len(ctx: *NativeCtx) c_int {
+pub fn len(ctx: *NativeCtx) callconv(.c) c_int {
     const list: *ObjList = ObjList.cast(ctx.vm.peek(0).obj()).?;
 
     ctx.vm.push(Value.fromInteger(@as(i32, @intCast(list.items.items.len))));
@@ -60,7 +60,7 @@ pub fn len(ctx: *NativeCtx) c_int {
     return 1;
 }
 
-pub fn reverse(ctx: *NativeCtx) c_int {
+pub fn reverse(ctx: *NativeCtx) callconv(.c) c_int {
     const list: *ObjList = ObjList.cast(ctx.vm.peek(0).obj()).?;
 
     var new_list = ctx.vm.gc.allocateObject(
@@ -85,7 +85,7 @@ pub fn reverse(ctx: *NativeCtx) c_int {
     return 1;
 }
 
-pub fn pop(ctx: *NativeCtx) c_int {
+pub fn pop(ctx: *NativeCtx) callconv(.c) c_int {
     const list: *ObjList = ObjList.cast(ctx.vm.peek(0).obj()).?;
 
     if (list.items.items.len > 0) {
@@ -97,7 +97,7 @@ pub fn pop(ctx: *NativeCtx) c_int {
     return 1;
 }
 
-pub fn remove(ctx: *NativeCtx) c_int {
+pub fn remove(ctx: *NativeCtx) callconv(.c) c_int {
     const list: *ObjList = ObjList.cast(ctx.vm.peek(1).obj()).?;
     const list_index = ctx.vm.peek(0).integer();
 
@@ -135,7 +135,7 @@ fn lessThan(context: SortContext, lhs: Value, rhs: Value) bool {
     return context.ctx.vm.pop().boolean();
 }
 
-pub fn sort(ctx: *NativeCtx) c_int {
+pub fn sort(ctx: *NativeCtx) callconv(.c) c_int {
     var self = ObjList.cast(ctx.vm.peek(1).obj()).?;
     // fun compare(T lhs, T rhs) > bool
     const sort_closure = ctx.vm.peek(0);
@@ -156,7 +156,7 @@ pub fn sort(ctx: *NativeCtx) c_int {
     return 1;
 }
 
-pub fn indexOf(ctx: *NativeCtx) c_int {
+pub fn indexOf(ctx: *NativeCtx) callconv(.c) c_int {
     const self: *ObjList = ObjList.cast(ctx.vm.peek(1).obj()).?;
     const needle: Value = ctx.vm.peek(0);
 
@@ -207,19 +207,19 @@ fn cloneRaw(ctx: *NativeCtx, mutable: bool) void {
     ctx.vm.push(new_list.toValue());
 }
 
-pub fn cloneImmutable(ctx: *NativeCtx) c_int {
+pub fn cloneImmutable(ctx: *NativeCtx) callconv(.c) c_int {
     cloneRaw(ctx, false);
 
     return 1;
 }
 
-pub fn cloneMutable(ctx: *NativeCtx) c_int {
+pub fn cloneMutable(ctx: *NativeCtx) callconv(.c) c_int {
     cloneRaw(ctx, true);
 
     return 1;
 }
 
-pub fn join(ctx: *NativeCtx) c_int {
+pub fn join(ctx: *NativeCtx) callconv(.c) c_int {
     const self = ObjList.cast(ctx.vm.peek(1).obj()).?;
     const separator = ObjString.cast(ctx.vm.peek(0).obj()).?;
 
@@ -250,7 +250,7 @@ pub fn join(ctx: *NativeCtx) c_int {
     return 1;
 }
 
-pub fn sub(ctx: *NativeCtx) c_int {
+pub fn sub(ctx: *NativeCtx) callconv(.c) c_int {
     const self: *ObjList = ObjList.cast(ctx.vm.peek(2).obj()).?;
     const start = @min(
         @max(
@@ -302,7 +302,7 @@ pub fn sub(ctx: *NativeCtx) c_int {
     return 1;
 }
 
-pub fn next(ctx: *NativeCtx) c_int {
+pub fn next(ctx: *NativeCtx) callconv(.c) c_int {
     const list_value: Value = ctx.vm.peek(1);
     const list: *ObjList = ObjList.cast(list_value.obj()).?;
     const list_index: Value = ctx.vm.peek(0);
@@ -325,7 +325,7 @@ pub fn next(ctx: *NativeCtx) c_int {
     return 1;
 }
 
-pub fn forEach(ctx: *NativeCtx) c_int {
+pub fn forEach(ctx: *NativeCtx) callconv(.c) c_int {
     const list = ObjList.cast(ctx.vm.peek(1).obj()).?;
     const closure = ctx.vm.peek(0);
 
@@ -346,7 +346,7 @@ pub fn forEach(ctx: *NativeCtx) c_int {
     return 0;
 }
 
-pub fn reduce(ctx: *NativeCtx) c_int {
+pub fn reduce(ctx: *NativeCtx) callconv(.c) c_int {
     const list = ObjList.cast(ctx.vm.peek(2).obj()).?;
     const closure = ctx.vm.peek(1);
     var accumulator = ctx.vm.peek(0);
@@ -376,7 +376,7 @@ pub fn reduce(ctx: *NativeCtx) c_int {
     return 1;
 }
 
-pub fn filter(ctx: *NativeCtx) c_int {
+pub fn filter(ctx: *NativeCtx) callconv(.c) c_int {
     const list = ObjList.cast(ctx.vm.peek(1).obj()).?;
     const closure = ctx.vm.peek(0);
 
@@ -419,7 +419,7 @@ pub fn filter(ctx: *NativeCtx) c_int {
     return 1;
 }
 
-pub fn map(ctx: *NativeCtx) c_int {
+pub fn map(ctx: *NativeCtx) callconv(.c) c_int {
     const list = ObjList.cast(ctx.vm.peek(1).obj()).?;
     const closure = ctx.vm.peek(0);
 
@@ -478,7 +478,7 @@ pub fn map(ctx: *NativeCtx) c_int {
     return 1;
 }
 
-pub fn fill(ctx: *NativeCtx) c_int {
+pub fn fill(ctx: *NativeCtx) callconv(.c) c_int {
     const self: *ObjList = ObjList.cast(ctx.vm.peek(3).obj()).?;
     const value = ctx.vm.peek(2);
     const start: usize = @intCast(

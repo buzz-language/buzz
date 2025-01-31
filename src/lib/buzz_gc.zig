@@ -9,13 +9,13 @@ pub const os = if (is_wasm)
 else
     std.os;
 
-pub export fn allocated(ctx: *api.NativeCtx) c_int {
+pub export fn allocated(ctx: *api.NativeCtx) callconv(.c) c_int {
     ctx.vm.bz_push(api.Value.fromInteger(@intCast(ctx.vm.bz_allocated())));
 
     return 1;
 }
 
-pub export fn collect(ctx: *api.NativeCtx) c_int {
+pub export fn collect(ctx: *api.NativeCtx) callconv(.c) c_int {
     ctx.vm.bz_collect();
 
     return 0;

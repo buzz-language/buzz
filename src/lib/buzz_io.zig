@@ -3,7 +3,7 @@ const api = @import("buzz_api.zig");
 const io = @import("io.zig");
 const builtin = @import("builtin");
 
-pub export fn getStdIn(ctx: *api.NativeCtx) c_int {
+pub export fn getStdIn(ctx: *api.NativeCtx) callconv(.c) c_int {
     ctx.vm.bz_push(
         api.Value.fromInteger(
             if (builtin.os.tag == .windows)
@@ -16,7 +16,7 @@ pub export fn getStdIn(ctx: *api.NativeCtx) c_int {
     return 1;
 }
 
-pub export fn getStdOut(ctx: *api.NativeCtx) c_int {
+pub export fn getStdOut(ctx: *api.NativeCtx) callconv(.c) c_int {
     ctx.vm.bz_push(
         api.Value.fromInteger(
             if (builtin.os.tag == .windows)
@@ -29,7 +29,7 @@ pub export fn getStdOut(ctx: *api.NativeCtx) c_int {
     return 1;
 }
 
-pub export fn getStdErr(ctx: *api.NativeCtx) c_int {
+pub export fn getStdErr(ctx: *api.NativeCtx) callconv(.c) c_int {
     ctx.vm.bz_push(
         api.Value.fromInteger(
             if (builtin.os.tag == .windows)
@@ -42,7 +42,7 @@ pub export fn getStdErr(ctx: *api.NativeCtx) c_int {
     return 1;
 }
 
-pub export fn FileIsTTY(ctx: api.NativeCtx) c_int {
+pub export fn FileIsTTY(ctx: api.NativeCtx) callconv(.c) c_int {
     const handle: std.fs.File.Handle =
         if (builtin.os.tag == .windows)
         @ptrFromInt(@as(usize, @intCast(ctx.vm.bz_peek(0).integer())))
@@ -88,7 +88,7 @@ fn handleFileOpenError(ctx: *api.NativeCtx, err: anytype) void {
     }
 }
 
-pub export fn FileOpen(ctx: *api.NativeCtx) c_int {
+pub export fn FileOpen(ctx: *api.NativeCtx) callconv(.c) c_int {
     const mode: u8 = @intCast(ctx.vm.bz_peek(0).integer());
     var len: usize = 0;
     const filename = ctx.vm.bz_peek(1).bz_valueToString(&len);
@@ -132,7 +132,7 @@ pub export fn FileOpen(ctx: *api.NativeCtx) c_int {
     return 1;
 }
 
-pub export fn FileClose(ctx: *api.NativeCtx) c_int {
+pub export fn FileClose(ctx: *api.NativeCtx) callconv(.c) c_int {
     const handle: std.fs.File.Handle =
         if (builtin.os.tag == .windows)
         @ptrFromInt(@as(usize, @intCast(ctx.vm.bz_peek(0).integer())))
@@ -180,7 +180,7 @@ fn handleFileReadWriteError(ctx: *api.NativeCtx, err: anytype) void {
     }
 }
 
-pub export fn FileReadAll(ctx: *api.NativeCtx) c_int {
+pub export fn FileReadAll(ctx: *api.NativeCtx) callconv(.c) c_int {
     const handle: std.fs.File.Handle =
         if (builtin.os.tag == .windows)
         @ptrFromInt(@as(usize, @intCast(ctx.vm.bz_peek(1).integer())))
@@ -252,7 +252,7 @@ fn handleFileReadLineError(ctx: *api.NativeCtx, err: anytype) void {
     }
 }
 
-pub export fn FileReadLine(ctx: *api.NativeCtx) c_int {
+pub export fn FileReadLine(ctx: *api.NativeCtx) callconv(.c) c_int {
     const handle: std.fs.File.Handle =
         if (builtin.os.tag == .windows)
         @ptrFromInt(@as(usize, @intCast(ctx.vm.bz_peek(1).integer())))
@@ -321,7 +321,7 @@ fn handleFileReadAllError(ctx: *api.NativeCtx, err: anytype) void {
     }
 }
 
-pub export fn FileRead(ctx: *api.NativeCtx) c_int {
+pub export fn FileRead(ctx: *api.NativeCtx) callconv(.c) c_int {
     const n = ctx.vm.bz_peek(0).integer();
     if (n <= 0) {
         ctx.vm.pushError("errors.InvalidArgumentError", null);
@@ -416,7 +416,7 @@ fn fileSmallRead(ctx: *api.NativeCtx, handle: std.fs.File.Handle, n: usize) c_in
 }
 
 // extern fun File_write(int fd, [int] bytes) > void;
-pub export fn FileWrite(ctx: *api.NativeCtx) c_int {
+pub export fn FileWrite(ctx: *api.NativeCtx) callconv(.c) c_int {
     const handle: std.fs.File.Handle =
         if (builtin.os.tag == .windows)
         @ptrFromInt(@as(usize, @intCast(ctx.vm.bz_peek(1).integer())))
@@ -467,7 +467,7 @@ pub export fn FileWrite(ctx: *api.NativeCtx) c_int {
     return 0;
 }
 
-pub export fn runFile(ctx: *api.NativeCtx) c_int {
+pub export fn runFile(ctx: *api.NativeCtx) callconv(.c) c_int {
     // Read file
     var len: usize = 0;
     const filename_string = ctx.vm.bz_peek(0).bz_valueToString(&len);

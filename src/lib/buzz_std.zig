@@ -9,13 +9,13 @@ pub const os = if (is_wasm)
 else
     std.os;
 
-pub export fn args(ctx: *api.NativeCtx) c_int {
+pub export fn args(ctx: *api.NativeCtx) callconv(.c) c_int {
     ctx.vm.bz_push(ctx.vm.bz_at(1));
 
     return 1;
 }
 
-pub export fn random(ctx: *api.NativeCtx) c_int {
+pub export fn random(ctx: *api.NativeCtx) callconv(.c) c_int {
     if (is_wasm) {
         unreachable;
     }
@@ -42,7 +42,7 @@ pub export fn random(ctx: *api.NativeCtx) c_int {
     return 1;
 }
 
-pub export fn print(ctx: *api.NativeCtx) c_int {
+pub export fn print(ctx: *api.NativeCtx) callconv(.c) c_int {
     var len: usize = 0;
     const string = ctx.vm.bz_peek(0).bz_valueToString(&len);
 
@@ -56,7 +56,7 @@ pub export fn print(ctx: *api.NativeCtx) c_int {
     return 0;
 }
 
-pub export fn toInt(ctx: *api.NativeCtx) c_int {
+pub export fn toInt(ctx: *api.NativeCtx) callconv(.c) c_int {
     const value = ctx.vm.bz_peek(0);
 
     ctx.vm.bz_push(
@@ -66,7 +66,7 @@ pub export fn toInt(ctx: *api.NativeCtx) c_int {
     return 1;
 }
 
-pub export fn toDouble(ctx: *api.NativeCtx) c_int {
+pub export fn toDouble(ctx: *api.NativeCtx) callconv(.c) c_int {
     const value = ctx.vm.bz_peek(0);
 
     ctx.vm.bz_push(
@@ -76,7 +76,7 @@ pub export fn toDouble(ctx: *api.NativeCtx) c_int {
     return 1;
 }
 
-pub export fn toUd(ctx: *api.NativeCtx) c_int {
+pub export fn toUd(ctx: *api.NativeCtx) callconv(.c) c_int {
     const value = ctx.vm.bz_peek(0);
 
     ctx.vm.bz_push(
@@ -91,7 +91,7 @@ pub export fn toUd(ctx: *api.NativeCtx) c_int {
     return 1;
 }
 
-pub export fn parseInt(ctx: *api.NativeCtx) c_int {
+pub export fn parseInt(ctx: *api.NativeCtx) callconv(.c) c_int {
     const string_value = ctx.vm.bz_peek(0);
 
     var len: usize = 0;
@@ -116,7 +116,7 @@ pub export fn parseInt(ctx: *api.NativeCtx) c_int {
     return 1;
 }
 
-pub export fn parseUd(ctx: *api.NativeCtx) c_int {
+pub export fn parseUd(ctx: *api.NativeCtx) callconv(.c) c_int {
     const string_value = ctx.vm.bz_peek(0);
 
     var len: usize = 0;
@@ -146,7 +146,7 @@ pub export fn parseUd(ctx: *api.NativeCtx) c_int {
     return 1;
 }
 
-pub export fn parseDouble(ctx: *api.NativeCtx) c_int {
+pub export fn parseDouble(ctx: *api.NativeCtx) callconv(.c) c_int {
     const string_value = ctx.vm.bz_peek(0);
 
     var len: usize = 0;
@@ -171,7 +171,7 @@ pub export fn parseDouble(ctx: *api.NativeCtx) c_int {
     return 1;
 }
 
-pub export fn char(ctx: *api.NativeCtx) c_int {
+pub export fn char(ctx: *api.NativeCtx) callconv(.c) c_int {
     const byte_value = ctx.vm.bz_peek(0);
 
     var byte = byte_value.integer();
@@ -191,7 +191,7 @@ pub export fn char(ctx: *api.NativeCtx) c_int {
     return 1;
 }
 
-pub export fn assert(ctx: *api.NativeCtx) c_int {
+pub export fn assert(ctx: *api.NativeCtx) callconv(.c) c_int {
     const condition_value = ctx.vm.bz_peek(1);
     const message_value = ctx.vm.bz_peek(0);
 
@@ -217,13 +217,13 @@ pub export fn assert(ctx: *api.NativeCtx) c_int {
     return 0;
 }
 
-pub export fn currentFiber(ctx: *api.NativeCtx) c_int {
+pub export fn currentFiber(ctx: *api.NativeCtx) callconv(.c) c_int {
     ctx.vm.bz_push(ctx.vm.bz_currentFiber());
 
     return 1;
 }
 
-pub export fn buzzPanic(ctx: *api.NativeCtx) c_int {
+pub export fn buzzPanic(ctx: *api.NativeCtx) callconv(.c) c_int {
     var len: usize = 0;
     const message = api.Value.bz_valueToString(ctx.vm.bz_peek(0), &len).?;
 
