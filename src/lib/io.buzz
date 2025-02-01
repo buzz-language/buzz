@@ -22,6 +22,12 @@ extern fun getStdOut() > int;
 extern fun getStdErr() > int;
 /// @private
 extern fun FileIsTTY(fd: int) > bool;
+/// @private
+extern fun FileGetPoller(fd: int) > ud !> errors\FileSystemError, errors\ReadWriteError, errors\SocketError, errors\ExecError, error\UnexpectedError;
+/// @private
+extern fun PollerPoll(poller: ud, timeout: int?) > str? !> errors\ReadWriteError;
+/// @private
+extern fun PollerDeinit(poller: ud) > void;
 
 /// File mode with which you can open a file
 export enum FileMode {
@@ -83,6 +89,33 @@ export object File {
     fun isTTY() > bool {
         return FileIsTTY(this.fd);
     }
+
+    /// @return FilePoller that can be used to poll incoming data on that file
+    fun getPoller() > FilePoller !> errors\FileSystemError, errors\ReadWriteError, errors\SocketError, errors\ExecError, error\UnexpectedError {
+        return FilePoller{
+            poller = FileGetPoller(this.fd),
+        };
+    }
+}
+
+export object FilePoller {
+    /// Underlying zig poller
+    poller: ud,
+
+    // Poll file, blocking for at most `timeout` before returning
+    // @returns The string read if any, `null` otherwise
+    fun poll(timeout: int?) > str? !> errors\ReadWriteError {
+        return PollerPoll(this.poller, timeout);
+    }
+
+    fun collect() > void {
+        this.deinit();
+    }
+
+    fun deinit() > void {
+        PollerDeinit(this.poller);
+    }
+    
 }
 
 /// stdin

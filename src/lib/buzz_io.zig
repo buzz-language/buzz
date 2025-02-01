@@ -345,20 +345,15 @@ pub export fn FileRead(ctx: *api.NativeCtx) callconv(.c) c_int {
     const reader = file.reader();
 
     // Avoid heap allocation if we read less than 255 bytes
-    var buffer = if (n > 255)
-        api.VM.allocator.alloc(u8, @as(usize, @intCast(n))) catch {
-            ctx.vm.bz_panic("Out of memory", "Out of memory".len);
-            unreachable;
-        }
-    else
-        @constCast(&([_]u8{0} ** 255));
+    var buffer = api.VM.allocator.alloc(u8, @as(usize, @intCast(n))) catch {
+        ctx.vm.bz_panic("Out of memory", "Out of memory".len);
+        unreachable;
+    };
 
     // bz_stringToValue will copy it
     defer api.VM.allocator.free(buffer);
 
-    const read = reader.readAll(
-        buffer[0..@intCast(@min(255, n))],
-    ) catch |err| {
+    const read = reader.readAll(buffer[0..@intCast(n)]) catch |err| {
         handleFileReadAllError(ctx, err);
 
         return -1;
@@ -415,7 +410,6 @@ fn fileSmallRead(ctx: *api.NativeCtx, handle: std.fs.File.Handle, n: usize) c_in
     return 1;
 }
 
-// extern fun File_write(int fd, [int] bytes) > void;
 pub export fn FileWrite(ctx: *api.NativeCtx) callconv(.c) c_int {
     const handle: std.fs.File.Handle =
         if (builtin.os.tag == .windows)
@@ -465,6 +459,123 @@ pub export fn FileWrite(ctx: *api.NativeCtx) callconv(.c) c_int {
     };
 
     return 0;
+}
+
+const FileEnum = enum {
+    file,
+};
+
+pub export fn FileGetPoller(ctx: *api.NativeCtx) callconv(.c) c_int {
+    const handle: std.fs.File.Handle = if (builtin.os.tag == .windows)
+        @ptrFromInt(@as(usize, @intCast(ctx.vm.bz_peek(0).integer())))
+    else
+        @intCast(
+            ctx.vm.bz_peek(0).integer(),
+        );
+    const file = std.fs.File{ .handle = handle };
+
+    const poller = api.VM.allocator.create(std.io.Poller(FileEnum)) catch {
+        ctx.vm.bz_panic("Out of memory", "Out of memory".len);
+        unreachable;
+    };
+
+    poller.* = std.io.poll(
+        api.VM.allocator,
+        FileEnum,
+        .{ .file = file },
+    );
+
+    ctx.vm.bz_push(
+        ctx.vm.bz_newUserData(@intFromPtr(poller)),
+    );
+
+    return 1;
+}
+
+fn pollerFromUserData(userdata: u64) *std.io.Poller(FileEnum) {
+    return @ptrCast(@alignCast(@as(*anyopaque, @ptrFromInt(@as(usize, @truncate(userdata))))));
+}
+
+pub export fn PollerPoll(ctx: *api.NativeCtx) callconv(.c) c_int {
+    const poller = pollerFromUserData(
+        ctx.vm.bz_peek(1).bz_getUserDataPtr(),
+    );
+    const timeout_value = ctx.vm.bz_peek(0);
+    const timeout: u64 = @as(
+        u64,
+        @intCast(
+            if (timeout_value.isInteger())
+                timeout_value.integer()
+            else
+                0,
+        ),
+    ) * 1_000_000;
+
+    const got_something = poller.pollTimeout(timeout) catch |err| {
+        handlePollError(ctx, err);
+
+        return -1;
+    };
+
+    if (got_something) {
+        const fifo = poller.fifo(.file);
+        const len = fifo.readableLength();
+
+        if (len > 0) {
+            const read = fifo.readableSliceOfLen(len);
+
+            ctx.vm.bz_push(
+                ctx.vm.bz_stringToValue(read.ptr, len),
+            );
+
+            fifo.discard(len);
+        } else {
+            ctx.vm.bz_push(api.Value.Null);
+        }
+    } else {
+        ctx.vm.bz_push(api.Value.Null);
+    }
+
+    return 1;
+}
+
+pub export fn PollerDeinit(ctx: *api.NativeCtx) callconv(.c) c_int {
+    const poller = pollerFromUserData(
+        ctx.vm.bz_peek(0).bz_getUserDataPtr(),
+    );
+
+    poller.deinit();
+    api.VM.allocator.destroy(poller);
+
+    return 0;
+}
+
+fn handlePollError(ctx: *api.NativeCtx, err: anytype) void {
+    switch (err) {
+        error.InputOutput,
+        error.AccessDenied,
+        error.SystemResources,
+        error.WouldBlock,
+        error.IsDir,
+        => ctx.vm.pushErrorEnum("errors.FileSystemError", @errorName(err)),
+        error.OperationAborted,
+        error.LockViolation,
+        error.NotOpenForReading,
+        => ctx.vm.pushErrorEnum("errors.ReadWriteError", @errorName(err)),
+        error.ConnectionResetByPeer,
+        error.ConnectionTimedOut,
+        error.SocketNotConnected,
+        error.Canceled,
+        error.NetworkSubsystemFailed,
+        => ctx.vm.pushErrorEnum("errors.SocketError", @errorName(err)),
+        error.ProcessNotFound,
+        => ctx.vm.pushErrorEnum("errors.ExecError", @errorName(err)),
+        error.Unexpected => ctx.vm.pushError("errors.UnexpectedError", null),
+        error.OutOfMemory => {
+            ctx.vm.bz_panic("Out of memory", "Out of memory".len);
+            unreachable;
+        },
+    }
 }
 
 pub export fn runFile(ctx: *api.NativeCtx) callconv(.c) c_int {

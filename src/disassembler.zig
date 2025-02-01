@@ -548,7 +548,7 @@ pub const DumpState = struct {
                     defer state.vm.gc.allocator.free(enum_value_type_def);
 
                     out.print(
-                        "enum({s}) {s} {{\n",
+                        "enum<{s}> {s} {{\n",
                         .{
                             enum_value_type_def,
                             enum_type_def.name.string,

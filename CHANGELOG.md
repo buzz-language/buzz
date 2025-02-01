@@ -1,6 +1,17 @@
 # Unreleased
 
-# 0.5.0
+# Added
+
+- File polling API: `File.getPoller`, `FilePoller` (see example https://github.com/buzz-language/buzz/blob/main/tests/manual/007-fd-poller.buzz)
+- _Shortcut_ operators: `+=`, `-=`, `*=`, etc. (https://github.com/buzz-language/buzz/issues/78)
+- `rg.contains`
+
+# Changed
+
+- `main` signature can omit `args` argument
+- Maximum number of enum cases is now 16 777 215 instead of 255
+
+# 0.5.0 (01-24-2025)
 
 ## Major syntax changes
 - Types are now specified *after* the identifier + `:` (https://github.com/buzz-language/buzz/issues/310). This includes:

@@ -1,0 +1,18 @@
+import "std";
+import "io";
+
+fun main(_: [str]) > void !> any {
+    final poller = io\stdin.getPoller();
+
+    while (true) {
+        if (poller.poll(100) -> polled) {
+            std\print("> {polled}");
+
+            if (polled == "q") {
+                break;
+            }
+        } else {
+            std\print("nothing...");
+        }
+    }
+}

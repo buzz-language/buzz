@@ -31,7 +31,7 @@ else
 
 fn printBanner(out: anytype, full: bool) void {
     out.print(
-        "\n👨‍🚀 buzz {}-{s} Copyright (C) 2021-present Benoit Giannangeli\n",
+        "👨‍🚀 buzz {}-{s} Copyright (C) 2021-present Benoit Giannangeli\n",
         .{
             BuildOptions.version,
             BuildOptions.sha,
