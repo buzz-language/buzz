@@ -512,7 +512,10 @@ pub export fn PollerPoll(ctx: *api.NativeCtx) callconv(.c) c_int {
     ) * 1_000_000;
 
     const got_something = poller.pollTimeout(timeout) catch |err| {
-        handlePollError(ctx, err);
+        if (builtin.os.tag != .windows)
+            handlePollError(ctx, err)
+        else
+            handleWindowsPollError(ctx, err);
 
         return -1;
     };
@@ -570,6 +573,16 @@ fn handlePollError(ctx: *api.NativeCtx, err: anytype) void {
         => ctx.vm.pushErrorEnum("errors.SocketError", @errorName(err)),
         error.ProcessNotFound,
         => ctx.vm.pushErrorEnum("errors.ExecError", @errorName(err)),
+        error.Unexpected => ctx.vm.pushError("errors.UnexpectedError", null),
+        error.OutOfMemory => {
+            ctx.vm.bz_panic("Out of memory", "Out of memory".len);
+            unreachable;
+        },
+    }
+}
+
+fn handleWindowsPollError(ctx: *api.NativeCtx, err: anytype) void {
+    switch (err) {
         error.Unexpected => ctx.vm.pushError("errors.UnexpectedError", null),
         error.OutOfMemory => {
             ctx.vm.bz_panic("Out of memory", "Out of memory".len);
