@@ -2490,13 +2490,22 @@ fn generateFunction(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?
                         components.entry.?.main_location.?,
                         @intCast(main_slot),
                     );
-                    try self.OP_GET_LOCAL(
-                        components.entry.?.main_location.?,
-                        0, // cli args are always local 0
-                    );
+
+                    const has_cli_arg = node_type_def.resolved_type.?.Function.parameters.count() > 0;
+
+                    if (has_cli_arg) {
+                        try self.OP_GET_LOCAL(
+                            components.entry.?.main_location.?,
+                            0, // cli args are always local 0
+                        );
+                    }
+
                     try self.OP_CALL(
                         components.entry.?.main_location.?,
-                        1,
+                        if (has_cli_arg)
+                            1
+                        else
+                            0,
                         false,
                     );
                 }

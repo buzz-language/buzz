@@ -1,7 +1,7 @@
 import "std";
 import "io";
 
-fun main(_: [str]) > void !> any {
+fun main() > void !> any {
     final poller = io\stdin.getPoller();
 
     while (true) {
