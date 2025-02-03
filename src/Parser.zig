@@ -290,14 +290,12 @@ pub const Frame = struct {
     function_node: Ast.Node.Index,
     function: ?*obj.ObjFunction = null,
     generics: ?*std.AutoArrayHashMap(*obj.ObjString, *obj.ObjTypeDef) = null,
-    constants: std.ArrayList(Value),
 
     in_try: bool = false,
     in_block_expression: ?u32 = null,
 
     pub fn deinit(self: *Frame) void {
         self.scopes.deinit();
-        self.constants.deinit();
         // self.generics ends up in AST node so we don't deinit it
     }
 
@@ -1070,7 +1068,6 @@ fn beginFrame(self: *Self, function_type: obj.ObjFunction.FunctionType, function
         .upvalues = [_]UpValue{undefined} ** 255,
         .enclosing = enclosing,
         .function_node = function_node,
-        .constants = .init(self.gc.allocator),
         .scopes = .init(self.gc.allocator),
     };
 

@@ -32,8 +32,17 @@ pub const Frame = struct {
     function: ?*obj.ObjFunction = null,
     return_counts: bool = false,
     return_emitted: bool = false,
+    // Keep track of constants to avoid adding the same more than once to the chunk
+    constants: std.AutoHashMapUnmanaged(Value, u24),
 
-    try_should_handle: ?std.AutoHashMap(*obj.ObjTypeDef, Ast.TokenIndex) = null,
+    try_should_handle: ?std.AutoHashMapUnmanaged(*obj.ObjTypeDef, Ast.TokenIndex) = null,
+
+    pub fn deinit(self: *Frame, allocator: std.mem.Allocator) void {
+        self.constants.deinit(allocator);
+        if (self.try_should_handle) |*handle| {
+            handle.deinit(allocator);
+        }
+    }
 };
 
 const NodeGen = *const fn (
@@ -289,7 +298,12 @@ pub fn emitConstant(self: *Self, location: Ast.TokenIndex, value: Value) !void {
 }
 
 pub fn makeConstant(self: *Self, value: Value) !u24 {
+    if (self.current.?.constants.get(value)) |idx| {
+        return idx;
+    }
+
     const constant = try self.current.?.function.?.chunk.addConstant(null, value);
+    try self.current.?.constants.put(self.gc.allocator, value, constant);
     if (constant > Chunk.max_constants) {
         self.reportError("Too many constants in one chunk.");
         return 0;
@@ -1290,7 +1304,11 @@ fn generateCall(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj
 
                 if (!handled) {
                     if (self.current.?.try_should_handle != null) {
-                        try self.current.?.try_should_handle.?.put(error_type, locations[components.callee]);
+                        try self.current.?.try_should_handle.?.put(
+                            self.gc.allocator,
+                            error_type,
+                            locations[components.callee],
+                        );
                     } else {
                         try not_handled.append(error_type);
                     }
@@ -2398,6 +2416,7 @@ fn generateFunction(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?
     self.current.?.* = .{
         .enclosing = enclosing,
         .function_node = node,
+        .constants = .{},
     };
 
     var function = try obj.ObjFunction.init(
@@ -2569,7 +2588,7 @@ fn generateFunction(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?
         }
     }
 
-    const frame = self.current.?;
+    var frame = self.current.?;
     const current_function = frame.function.?;
     current_function.upvalue_count = @intCast(components.upvalue_binding.count());
 
@@ -2579,6 +2598,10 @@ fn generateFunction(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?
     }
 
     self.current = frame.enclosing;
+
+    // We don't need this frame anymore
+    frame.deinit(self.gc.allocator);
+    self.gc.allocator.destroy(frame);
 
     if (function_type != .ScriptEntryPoint and function_type != .Repl) {
         // `extern` functions don't have upvalues
@@ -3906,9 +3929,9 @@ fn generateTry(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.
     const locations = self.ast.nodes.items(.location);
     const location = locations[node];
 
-    self.current.?.try_should_handle = .init(self.gc.allocator);
+    self.current.?.try_should_handle = .{};
     defer {
-        self.current.?.try_should_handle.?.deinit();
+        self.current.?.try_should_handle.?.deinit(self.gc.allocator);
         self.current.?.try_should_handle = null;
     }
 
@@ -4045,7 +4068,11 @@ fn generateThrow(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*ob
         if (!found_match) {
             if (self.current.?.try_should_handle != null) {
                 // In a try catch remember to check that we handle that error when finishing parsing the try-catch
-                try self.current.?.try_should_handle.?.put(expression_type_def, location);
+                try self.current.?.try_should_handle.?.put(
+                    self.gc.allocator,
+                    expression_type_def,
+                    location,
+                );
             } else {
                 // Not in a try-catch and function signature does not expect this error type
                 const error_str = try type_defs[components.expression].?.toStringAlloc(self.gc.allocator);
