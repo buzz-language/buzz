@@ -108,7 +108,7 @@ pub fn repl(allocator: std.mem.Allocator) !void {
         null;
     defer {
         if (vm.jit != null) {
-            vm.jit.?.deinit();
+            vm.jit.?.deinit(vm.gc.allocator);
             vm.jit = null;
         }
     }

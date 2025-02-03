@@ -4357,7 +4357,7 @@ pub const VM = struct {
                 };
             } else {
                 // Blacklist the node
-                self.jit.?.blacklisted_nodes.put(node, {}) catch {
+                self.jit.?.blacklisted_nodes.put(self.gc.allocator, node, {}) catch {
                     self.panic("Out of memory");
                     unreachable;
                 };

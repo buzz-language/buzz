@@ -29,25 +29,26 @@ pub const Slice = struct {
     nodes: NodeList.Slice,
     root: ?Node.Index,
 
-    pub fn usesFiber(self: Self.Slice, node: Node.Index, seen: *std.AutoHashMap(Node.Index, void)) !bool {
+    pub fn usesFiber(self: Self.Slice, allocator: std.mem.Allocator, node: Node.Index, seen: *std.AutoHashMapUnmanaged(Node.Index, void)) !bool {
         if (seen.get(node) != null) {
             return false;
         }
 
-        try seen.put(node, {});
+        try seen.put(allocator, node, {});
 
         const components = self.nodes.items(.components)[node];
         return switch (self.nodes.items(.tag)[node]) {
-            .As => try self.usesFiber(components.As.left, seen),
+            .As => try self.usesFiber(allocator, components.As.left, seen),
             .AsyncCall,
             .Resolve,
             .Resume,
             .Yield,
             => true,
-            .Binary => try self.usesFiber(components.Binary.left, seen) or try self.usesFiber(components.Binary.right, seen),
+            .Binary => try self.usesFiber(allocator, components.Binary.left, seen) or
+                try self.usesFiber(allocator, components.Binary.right, seen),
             .Block => blk: {
                 for (components.Block) |stmt| {
-                    if (try self.usesFiber(stmt, seen)) {
+                    if (try self.usesFiber(allocator, stmt, seen)) {
                         break :blk true;
                     }
                 }
@@ -56,7 +57,7 @@ pub const Slice = struct {
             },
             .BlockExpression => blk: {
                 for (components.BlockExpression) |stmt| {
-                    if (try self.usesFiber(stmt, seen)) {
+                    if (try self.usesFiber(allocator, stmt, seen)) {
                         break :blk true;
                     }
                 }
@@ -65,7 +66,7 @@ pub const Slice = struct {
             },
             .String => blk: {
                 for (components.String) |stmt| {
-                    if (try self.usesFiber(stmt, seen)) {
+                    if (try self.usesFiber(allocator, stmt, seen)) {
                         break :blk true;
                     }
                 }
@@ -73,12 +74,14 @@ pub const Slice = struct {
                 break :blk false;
             },
             .Call => call: {
-                if (try self.usesFiber(components.Call.callee, seen) or (components.Call.catch_default != null and try self.usesFiber(components.Call.catch_default.?, seen))) {
+                if (try self.usesFiber(allocator, components.Call.callee, seen) or
+                    (components.Call.catch_default != null and try self.usesFiber(allocator, components.Call.catch_default.?, seen)))
+                {
                     break :call true;
                 }
 
                 for (components.Call.arguments) |argument| {
-                    if (try self.usesFiber(argument.value, seen)) {
+                    if (try self.usesFiber(allocator, argument.value, seen)) {
                         break :call true;
                     }
                 }
@@ -86,18 +89,18 @@ pub const Slice = struct {
                 break :call false;
             },
             .Dot => dot: {
-                if (try self.usesFiber(components.Dot.callee, seen)) {
+                if (try self.usesFiber(allocator, components.Dot.callee, seen)) {
                     break :dot true;
                 }
 
                 switch (components.Dot.member_kind) {
                     .Value => {
-                        if (try self.usesFiber(components.Dot.value_or_call_or_enum.Value.value, seen)) {
+                        if (try self.usesFiber(allocator, components.Dot.value_or_call_or_enum.Value.value, seen)) {
                             break :dot true;
                         }
                     },
                     .Call => {
-                        if (try self.usesFiber(components.Dot.value_or_call_or_enum.Call, seen)) {
+                        if (try self.usesFiber(allocator, components.Dot.value_or_call_or_enum.Call, seen)) {
                             break :dot true;
                         }
                     },
@@ -106,36 +109,36 @@ pub const Slice = struct {
 
                 break :dot false;
             },
-            .DoUntil => try self.usesFiber(components.DoUntil.condition, seen) or try self.usesFiber(components.DoUntil.body, seen),
-            .Expression => try self.usesFiber(components.Expression, seen),
+            .DoUntil => try self.usesFiber(allocator, components.DoUntil.condition, seen) or try self.usesFiber(allocator, components.DoUntil.body, seen),
+            .Expression => try self.usesFiber(allocator, components.Expression, seen),
             .For => for_loop: {
-                if (try self.usesFiber(components.For.condition, seen) or try self.usesFiber(components.For.body, seen)) {
+                if (try self.usesFiber(allocator, components.For.condition, seen) or try self.usesFiber(allocator, components.For.body, seen)) {
                     break :for_loop true;
                 }
 
                 for (components.For.init_declarations) |decl| {
-                    if (try self.usesFiber(decl, seen)) {
+                    if (try self.usesFiber(allocator, decl, seen)) {
                         break :for_loop true;
                     }
                 }
 
                 for (components.For.post_loop) |decl| {
-                    if (try self.usesFiber(decl, seen)) {
+                    if (try self.usesFiber(allocator, decl, seen)) {
                         break :for_loop true;
                     }
                 }
 
                 break :for_loop false;
             },
-            .ForceUnwrap => try self.usesFiber(components.ForceUnwrap.unwrapped, seen),
-            .ForEach => try self.usesFiber(components.ForEach.iterable, seen) or try self.usesFiber(components.ForEach.key, seen) or try self.usesFiber(components.ForEach.value, seen) or try self.usesFiber(components.ForEach.body, seen),
-            .Function => components.Function.body != null and try self.usesFiber(components.Function.body.?, seen),
-            .Grouping => try self.usesFiber(components.Grouping, seen),
-            .If => try self.usesFiber(components.If.condition, seen) or try self.usesFiber(components.If.body, seen) or (components.If.else_branch != null and try self.usesFiber(components.If.else_branch.?, seen)),
-            .Is => try self.usesFiber(components.Is.left, seen),
+            .ForceUnwrap => try self.usesFiber(allocator, components.ForceUnwrap.unwrapped, seen),
+            .ForEach => try self.usesFiber(allocator, components.ForEach.iterable, seen) or try self.usesFiber(allocator, components.ForEach.key, seen) or try self.usesFiber(allocator, components.ForEach.value, seen) or try self.usesFiber(allocator, components.ForEach.body, seen),
+            .Function => components.Function.body != null and try self.usesFiber(allocator, components.Function.body.?, seen),
+            .Grouping => try self.usesFiber(allocator, components.Grouping, seen),
+            .If => try self.usesFiber(allocator, components.If.condition, seen) or try self.usesFiber(allocator, components.If.body, seen) or (components.If.else_branch != null and try self.usesFiber(allocator, components.If.else_branch.?, seen)),
+            .Is => try self.usesFiber(allocator, components.Is.left, seen),
             .List => list: {
                 for (components.List.items) |item| {
-                    if (try self.usesFiber(item, seen)) {
+                    if (try self.usesFiber(allocator, item, seen)) {
                         break :list true;
                     }
                 }
@@ -144,46 +147,46 @@ pub const Slice = struct {
             },
             .Map => map: {
                 for (components.Map.entries) |entry| {
-                    if (try self.usesFiber(entry.key, seen) or try self.usesFiber(entry.value, seen)) {
+                    if (try self.usesFiber(allocator, entry.key, seen) or try self.usesFiber(allocator, entry.value, seen)) {
                         break :map true;
                     }
                 }
 
                 break :map false;
             },
-            .NamedVariable => components.NamedVariable.value != null and try self.usesFiber(components.NamedVariable.value.?, seen),
+            .NamedVariable => components.NamedVariable.value != null and try self.usesFiber(allocator, components.NamedVariable.value.?, seen),
             .ObjectInit => obj_init: {
                 for (components.ObjectInit.properties) |property| {
-                    if (try self.usesFiber(property.value, seen)) {
+                    if (try self.usesFiber(allocator, property.value, seen)) {
                         break :obj_init true;
                     }
                 }
 
                 break :obj_init false;
             },
-            .Out => try self.usesFiber(components.Out, seen),
-            .Range => try self.usesFiber(components.Range.low, seen) or try self.usesFiber(components.Range.high, seen),
-            .Return => components.Return.value != null and try self.usesFiber(components.Return.value.?, seen),
-            .Subscript => try self.usesFiber(components.Subscript.subscripted, seen) or try self.usesFiber(components.Subscript.index, seen) or (components.Subscript.value != null and try self.usesFiber(components.Subscript.value.?, seen)),
-            .Throw => try self.usesFiber(components.Throw.expression, seen),
+            .Out => try self.usesFiber(allocator, components.Out, seen),
+            .Range => try self.usesFiber(allocator, components.Range.low, seen) or try self.usesFiber(allocator, components.Range.high, seen),
+            .Return => components.Return.value != null and try self.usesFiber(allocator, components.Return.value.?, seen),
+            .Subscript => try self.usesFiber(allocator, components.Subscript.subscripted, seen) or try self.usesFiber(allocator, components.Subscript.index, seen) or (components.Subscript.value != null and try self.usesFiber(allocator, components.Subscript.value.?, seen)),
+            .Throw => try self.usesFiber(allocator, components.Throw.expression, seen),
             .Try => @"try": {
-                if (try self.usesFiber(components.Try.body, seen) or (components.Try.unconditional_clause != null and try self.usesFiber(components.Try.unconditional_clause.?, seen))) {
+                if (try self.usesFiber(allocator, components.Try.body, seen) or (components.Try.unconditional_clause != null and try self.usesFiber(allocator, components.Try.unconditional_clause.?, seen))) {
                     break :@"try" true;
                 }
 
                 for (components.Try.clauses) |clause| {
-                    if (try self.usesFiber(clause.body, seen)) {
+                    if (try self.usesFiber(allocator, clause.body, seen)) {
                         break :@"try" true;
                     }
                 }
 
                 break :@"try" false;
             },
-            .TypeOfExpression => try self.usesFiber(components.TypeOfExpression, seen),
-            .Unary => try self.usesFiber(components.Unary.expression, seen),
-            .Unwrap => try self.usesFiber(components.Unwrap.unwrapped, seen),
-            .VarDeclaration => components.VarDeclaration.value != null and try self.usesFiber(components.VarDeclaration.value.?, seen),
-            .While => try self.usesFiber(components.While.condition, seen) or try self.usesFiber(components.While.body, seen),
+            .TypeOfExpression => try self.usesFiber(allocator, components.TypeOfExpression, seen),
+            .Unary => try self.usesFiber(allocator, components.Unary.expression, seen),
+            .Unwrap => try self.usesFiber(allocator, components.Unwrap.unwrapped, seen),
+            .VarDeclaration => components.VarDeclaration.value != null and try self.usesFiber(allocator, components.VarDeclaration.value.?, seen),
+            .While => try self.usesFiber(allocator, components.While.condition, seen) or try self.usesFiber(allocator, components.While.body, seen),
             else => false,
         };
     }

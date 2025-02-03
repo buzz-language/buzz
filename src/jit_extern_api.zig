@@ -86,8 +86,9 @@ pub const ExternApi = enum {
     pub fn declare(self: ExternApi, jit: *JIT) !m.MIR_item_t {
         const prototype = jit.state.?.prototypes.get(self) orelse self.proto(jit.ctx);
 
-        try jit.required_ext_api.put(self, {});
+        try jit.required_ext_api.put(jit.vm.gc.allocator, self, {});
         try jit.state.?.prototypes.put(
+            jit.vm.gc.allocator,
             self,
             prototype,
         );

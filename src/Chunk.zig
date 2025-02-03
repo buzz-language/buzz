@@ -155,7 +155,7 @@ const RegistryContext = struct {
 };
 
 pub fn HashMap(V: type) type {
-    return std.HashMap(
+    return std.HashMapUnmanaged(
         Self,
         V,
         RegistryContext,
@@ -178,9 +178,9 @@ pub fn init(allocator: std.mem.Allocator, ast: Ast.Slice) Self {
     return Self{
         .allocator = allocator,
         .ast = ast,
-        .code = std.ArrayListUnmanaged(u32){},
-        .constants = std.ArrayListUnmanaged(Value){},
-        .lines = std.ArrayListUnmanaged(Ast.TokenIndex){},
+        .code = .{},
+        .constants = .{},
+        .lines = .{},
     };
 }
 

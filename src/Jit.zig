@@ -22,11 +22,11 @@ pub const Error = error{
 } || std.mem.Allocator.Error || std.fmt.BufPrintError;
 
 const OptJump = struct {
-    current_insn: std.ArrayList(m.MIR_insn_t),
+    current_insn: std.ArrayListUnmanaged(m.MIR_insn_t),
     alloca: m.MIR_reg_t,
 
-    pub fn deinit(self: OptJump) void {
-        self.current_insn.deinit();
+    pub fn deinit(self: *OptJump, allocator: std.mem.Allocator) void {
+        self.current_insn.deinit(allocator);
     }
 };
 
@@ -36,11 +36,11 @@ const Break = struct {
     node: Ast.Node.Index,
 };
 
-const Breaks = std.ArrayList(Break);
+const Breaks = std.ArrayListUnmanaged(Break);
 
 const GenState = struct {
     module: m.MIR_module_t,
-    prototypes: std.AutoHashMap(ExternApi, m.MIR_item_t),
+    prototypes: std.AutoHashMapUnmanaged(ExternApi, m.MIR_item_t),
 
     /// Root closure (not necessarily the one being compiled)
     closure: *o.ObjClosure,
@@ -52,7 +52,7 @@ const GenState = struct {
     return_counts: bool = false,
     return_emitted: bool = false,
 
-    try_should_handle: ?std.AutoHashMap(*o.ObjTypeDef, void) = null,
+    try_should_handle: ?std.AutoHashMapUnmanaged(*o.ObjTypeDef, void) = null,
 
     function: ?m.MIR_item_t = null,
     function_native: ?m.MIR_item_t = null,
@@ -63,7 +63,7 @@ const GenState = struct {
     vm_reg: ?m.MIR_reg_t = null,
 
     /// Avoid register name collisions
-    registers: std.AutoHashMap([*:0]const u8, usize),
+    registers: std.AutoHashMapUnmanaged([*:0]const u8, usize),
 
     /// Label to jump to when breaking a loop without a label
     break_label: m.MIR_insn_t = null,
@@ -72,13 +72,13 @@ const GenState = struct {
 
     breaks_label: Breaks,
 
-    pub fn deinit(self: *GenState) void {
-        self.prototypes.deinit();
-        self.registers.deinit();
+    pub fn deinit(self: *GenState, allocator: std.mem.Allocator) void {
+        self.prototypes.deinit(allocator);
+        self.registers.deinit(allocator);
         if (self.try_should_handle) |*try_should_handle| {
-            try_should_handle.deinit();
+            try_should_handle.deinit(allocator);
         }
-        self.breaks_label.deinit();
+        self.breaks_label.deinit(allocator);
     }
 };
 
@@ -93,18 +93,18 @@ vm: *VM,
 ctx: m.MIR_context_t,
 state: ?GenState = null,
 /// Set of closures or hotspots being or already compiled
-compiled_nodes: std.AutoHashMap(Ast.Node.Index, void),
+compiled_nodes: std.AutoHashMapUnmanaged(Ast.Node.Index, void),
 /// Closures or hotspots we can't compile (containing async call, or yield)
-blacklisted_nodes: std.AutoHashMap(Ast.Node.Index, void),
+blacklisted_nodes: std.AutoHashMapUnmanaged(Ast.Node.Index, void),
 /// MIR doesn't allow generating multiple functions at once, so we keep a set of function to compile
 /// Once compiled, the value is set to an array of the native and raw native func_items
-functions_queue: std.AutoHashMap(Ast.Node.Index, ?[2]?m.MIR_item_t),
+functions_queue: std.AutoHashMapUnmanaged(Ast.Node.Index, ?[2]?m.MIR_item_t),
 /// ObjClosures for which we later compiled the function and need to set it's native and native_raw fields
-objclosures_queue: std.AutoHashMap(*o.ObjClosure, void),
+objclosures_queue: std.AutoHashMapUnmanaged(*o.ObjClosure, void),
 /// External api to link
-required_ext_api: std.AutoHashMap(ExternApi, void),
+required_ext_api: std.AutoHashMapUnmanaged(ExternApi, void),
 /// Modules to load when linking/generating
-modules: std.ArrayList(m.MIR_module_t),
+modules: std.ArrayListUnmanaged(m.MIR_module_t),
 /// Call count of all functions
 call_count: u128 = 0,
 /// Keeps track of time spent in the JIT
@@ -118,37 +118,37 @@ pub fn init(vm: *VM) Self {
     return .{
         .vm = vm,
         .ctx = m.MIR_init(),
-        .compiled_nodes = .init(vm.gc.allocator),
-        .blacklisted_nodes = .init(vm.gc.allocator),
-        .functions_queue = .init(vm.gc.allocator),
-        .objclosures_queue = .init(vm.gc.allocator),
-        .required_ext_api = .init(vm.gc.allocator),
-        .modules = .init(vm.gc.allocator),
-        .compiled_functions_bodies = .init(vm.gc.allocator),
+        .compiled_nodes = .{},
+        .blacklisted_nodes = .{},
+        .functions_queue = .{},
+        .objclosures_queue = .{},
+        .required_ext_api = .{},
+        .modules = .{},
+        .compiled_functions_bodies = .{},
     };
 }
 
-pub fn deinit(self: *Self) void {
-    self.compiled_nodes.deinit();
-    self.blacklisted_nodes.deinit();
+pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
+    self.compiled_nodes.deinit(allocator);
+    self.blacklisted_nodes.deinit(allocator);
     // std.debug.assert(self.functions_queue.count() == 0);
-    self.functions_queue.deinit();
+    self.functions_queue.deinit(allocator);
     // std.debug.assert(self.objclosures_queue.count() == 0);
-    self.objclosures_queue.deinit();
-    self.modules.deinit();
-    self.required_ext_api.deinit();
-    self.compiled_functions_bodies.deinit();
+    self.objclosures_queue.deinit(allocator);
+    self.modules.deinit(allocator);
+    self.required_ext_api.deinit(allocator);
+    self.compiled_functions_bodies.deinit(allocator);
     m.MIR_finish(self.ctx);
 }
 
 // Ensure queues are empty for future use
-fn reset(self: *Self) void {
-    self.functions_queue.clearAndFree();
-    self.objclosures_queue.clearAndFree();
-    self.required_ext_api.clearAndFree();
-    self.modules.clearAndFree();
+fn reset(self: *Self, allocator: std.mem.Allocator) void {
+    self.functions_queue.clearAndFree(allocator);
+    self.objclosures_queue.clearAndFree(allocator);
+    self.required_ext_api.clearAndFree(allocator);
+    self.modules.clearAndFree(allocator);
 
-    self.state.?.deinit();
+    self.state.?.deinit(allocator);
     self.state = null;
 }
 
@@ -169,9 +169,10 @@ pub fn compileFunction(self: *Self, ast: Ast.Slice, closure: *o.ObjClosure) Erro
 
     const ast_node = function.node;
 
-    var seen = std.AutoHashMap(Ast.Node.Index, void).init(self.vm.gc.allocator);
-    defer seen.deinit();
+    var seen: std.AutoHashMapUnmanaged(Ast.Node.Index, void) = .{};
+    defer seen.deinit(self.vm.gc.allocator);
     if (try ast.usesFiber(
+        self.vm.gc.allocator,
         ast_node,
         &seen,
     )) {
@@ -186,13 +187,13 @@ pub fn compileFunction(self: *Self, ast: Ast.Slice, closure: *o.ObjClosure) Erro
         }
         _ = self.functions_queue.remove(ast_node);
         _ = self.objclosures_queue.remove(closure);
-        try self.blacklisted_nodes.put(closure.function.node, {});
+        try self.blacklisted_nodes.put(self.vm.gc.allocator, closure.function.node, {});
 
         return error.CantCompile;
     }
 
     // Remember we need to set this functions fields
-    try self.objclosures_queue.put(closure, {});
+    try self.objclosures_queue.put(self.vm.gc.allocator, closure, {});
 
     // Build the function
     try self.buildFunction(ast, closure, ast_node);
@@ -242,6 +243,7 @@ pub fn compileFunction(self: *Self, ast: Ast.Slice, closure: *o.ObjClosure) Erro
                 kv2.key_ptr.*.function.native_raw = native_raw;
 
                 try self.compiled_functions_bodies.put(
+                    self.vm.gc.allocator,
                     kv2.key_ptr.*.function.chunk,
                     .{
                         .native = native.?,
@@ -253,13 +255,14 @@ pub fn compileFunction(self: *Self, ast: Ast.Slice, closure: *o.ObjClosure) Erro
         }
     }
 
-    self.reset();
+    self.reset(self.vm.gc.allocator);
 }
 
 pub fn compileHotSpot(self: *Self, ast: Ast.Slice, closure: *o.ObjClosure, hotspot_node: Ast.Node.Index) Error!*anyopaque {
-    var seen = std.AutoHashMap(Ast.Node.Index, void).init(self.vm.gc.allocator);
-    defer seen.deinit();
+    var seen: std.AutoHashMapUnmanaged(Ast.Node.Index, void) = .{};
+    defer seen.deinit(self.vm.gc.allocator);
     if (try ast.usesFiber(
+        self.vm.gc.allocator,
         hotspot_node,
         &seen,
     )) {
@@ -273,7 +276,7 @@ pub fn compileHotSpot(self: *Self, ast: Ast.Slice, closure: *o.ObjClosure, hotsp
             );
         }
 
-        try self.blacklisted_nodes.put(hotspot_node, {});
+        try self.blacklisted_nodes.put(self.vm.gc.allocator, hotspot_node, {});
 
         return error.CantCompile;
     }
@@ -339,7 +342,7 @@ pub fn compileHotSpot(self: *Self, ast: Ast.Slice, closure: *o.ObjClosure, hotsp
         }
     }
 
-    self.reset();
+    self.reset(self.vm.gc.allocator);
 
     return hotspot_native orelse Error.CantCompile;
 }
@@ -371,11 +374,11 @@ fn buildFunction(self: *Self, ast: Ast.Slice, closure: ?*o.ObjClosure, ast_node:
     self.state = .{
         .ast = ast,
         .module = undefined,
-        .prototypes = .init(self.vm.gc.allocator),
+        .prototypes = .{},
         .ast_node = ast_node,
-        .registers = .init(self.vm.gc.allocator),
+        .registers = .{},
         .closure = closure orelse self.state.?.closure,
-        .breaks_label = .init(self.vm.gc.allocator),
+        .breaks_label = .{},
     };
 
     const tag = self.state.?.ast.nodes.items(.tag)[ast_node];
@@ -393,12 +396,12 @@ fn buildFunction(self: *Self, ast: Ast.Slice, closure: ?*o.ObjClosure, ast_node:
     const module = m.MIR_new_module(self.ctx, @ptrCast(qualified_name.items.ptr));
     defer m.MIR_finish_module(self.ctx);
 
-    try self.modules.append(module);
+    try self.modules.append(self.vm.gc.allocator, module);
 
     self.state.?.module = module;
 
     if (closure) |uclosure| {
-        try self.compiled_nodes.put(uclosure.function.node, {});
+        try self.compiled_nodes.put(self.vm.gc.allocator, uclosure.function.node, {});
 
         if (BuildOptions.jit_debug) {
             io.print(
@@ -411,7 +414,7 @@ fn buildFunction(self: *Self, ast: Ast.Slice, closure: ?*o.ObjClosure, ast_node:
             );
         }
     } else {
-        try self.compiled_nodes.put(ast_node, {});
+        try self.compiled_nodes.put(self.vm.gc.allocator, ast_node, {});
 
         if (BuildOptions.jit_debug) {
             if (tag.isHotspot()) {
@@ -447,7 +450,7 @@ fn buildFunction(self: *Self, ast: Ast.Slice, closure: ?*o.ObjClosure, ast_node:
             _ = self.functions_queue.remove(ast_node);
             if (closure) |uclosure| {
                 _ = self.objclosures_queue.remove(uclosure);
-                try self.blacklisted_nodes.put(uclosure.function.node, {});
+                try self.blacklisted_nodes.put(self.vm.gc.allocator, uclosure.function.node, {});
             }
         }
 
@@ -593,7 +596,7 @@ fn generateNode(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
 
             value = m.MIR_new_reg_op(self.ctx, self.state.?.opt_jump.?.alloca);
 
-            self.state.?.opt_jump.?.deinit();
+            self.state.?.opt_jump.?.deinit(self.vm.gc.allocator);
             self.state.?.opt_jump = null;
         }
         // Close scope if needed
@@ -1797,10 +1800,10 @@ fn generateNamedVariable(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
                     }
 
                     // Remember we need to set native fields of this ObjFunction later
-                    try self.objclosures_queue.put(closure, {});
+                    try self.objclosures_queue.put(self.vm.gc.allocator, closure, {});
 
                     // Remember that we need to compile this function later
-                    try self.functions_queue.put(closure.function.node, null);
+                    try self.functions_queue.put(self.vm.gc.allocator, closure.function.node, null);
                 }
 
                 return m.MIR_new_uint_op(self.ctx, closure.toValue().val);
@@ -3031,6 +3034,7 @@ fn generateWhile(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
 
     if (components.label != null) {
         try self.state.?.breaks_label.append(
+            self.vm.gc.allocator,
             .{
                 .node = node,
                 .break_label = out_label,
@@ -3076,6 +3080,7 @@ fn generateDoUntil(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
 
     if (components.label != null) {
         try self.state.?.breaks_label.append(
+            self.vm.gc.allocator,
             .{
                 .node = node,
                 .break_label = out_label,
@@ -3123,6 +3128,7 @@ fn generateFor(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
 
     if (components.label != null) {
         try self.state.?.breaks_label.append(
+            self.vm.gc.allocator,
             .{
                 .node = node,
                 .break_label = out_label,
@@ -4258,7 +4264,7 @@ fn generateUnwrap(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
         self.state.?.opt_jump = .{
             // Store the value on the stack, that spot will be overwritten with the final value of the optional chain
             .alloca = try self.REG("opt", m.MIR_T_I64),
-            .current_insn = .init(self.vm.gc.allocator),
+            .current_insn = .{},
         };
     }
 
@@ -4276,7 +4282,7 @@ fn generateUnwrap(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
         current_insn,
     );
 
-    try self.state.?.opt_jump.?.current_insn.append(current_insn);
+    try self.state.?.opt_jump.?.current_insn.append(self.vm.gc.allocator, current_insn);
 
     return value;
 }
@@ -4539,6 +4545,7 @@ fn generateForEach(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
 
     if (components.label != null) {
         try self.state.?.breaks_label.append(
+            self.vm.gc.allocator,
             .{
                 .node = node,
                 .break_label = out_label,
@@ -4703,7 +4710,7 @@ fn generateFunction(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
         defer nativefn_qualified_name.deinit();
 
         // Remember that we need to compile this function later
-        try self.functions_queue.put(node, null);
+        try self.functions_queue.put(self.vm.gc.allocator, node, null);
 
         // For now declare it
         const native_raw = m.MIR_new_import(self.ctx, @ptrCast(qualified_name.items.ptr));
@@ -4798,6 +4805,7 @@ fn generateFunction(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
     const native_fn = try self.generateNativeFn(node, function);
 
     try self.functions_queue.put(
+        self.vm.gc.allocator,
         node,
         [_]m.MIR_item_t{
             native_fn,
@@ -4873,7 +4881,7 @@ fn generateHotspotFunction(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t 
 
             m.MIR_finish_func(self.ctx);
 
-            try self.blacklisted_nodes.put(self.state.?.ast_node, {});
+            try self.blacklisted_nodes.put(self.vm.gc.allocator, self.state.?.ast_node, {});
         }
 
         return err;
@@ -4885,6 +4893,7 @@ fn generateHotspotFunction(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t 
     m.MIR_finish_func(self.ctx);
 
     try self.functions_queue.put(
+        self.vm.gc.allocator,
         node,
         [_]?m.MIR_item_t{
             null,
@@ -5162,20 +5171,20 @@ pub fn compileZdefContainer(self: *Self, ast: Ast.Slice, zdef_element: Ast.Zdef.
     self.state = .{
         .ast = ast,
         .module = module,
-        .prototypes = .init(self.vm.gc.allocator),
+        .prototypes = .{},
         .ast_node = undefined,
-        .registers = .init(self.vm.gc.allocator),
+        .registers = .{},
         .closure = undefined,
-        .breaks_label = .init(self.vm.gc.allocator),
+        .breaks_label = .{},
     };
-    defer self.reset();
+    defer self.reset(self.vm.gc.allocator);
 
     const foreign_def = zdef_element.zdef.type_def.resolved_type.?.ForeignContainer;
 
-    var getters = std.ArrayList(m.MIR_item_t).init(self.vm.gc.allocator);
-    defer getters.deinit();
-    var setters = std.ArrayList(m.MIR_item_t).init(self.vm.gc.allocator);
-    defer setters.deinit();
+    var getters: std.ArrayListUnmanaged(m.MIR_item_t) = .{};
+    defer getters.deinit(self.vm.gc.allocator);
+    var setters: std.ArrayListUnmanaged(m.MIR_item_t) = .{};
+    defer setters.deinit(self.vm.gc.allocator);
 
     switch (foreign_def.zig_type) {
         .Struct => {
@@ -5183,6 +5192,7 @@ pub fn compileZdefContainer(self: *Self, ast: Ast.Slice, zdef_element: Ast.Zdef.
                 const container_field = foreign_def.fields.getEntry(field.name).?;
 
                 try getters.append(
+                    self.vm.gc.allocator,
                     try self.buildZdefContainerGetter(
                         container_field.value_ptr.*.offset,
                         foreign_def.name.string,
@@ -5193,6 +5203,7 @@ pub fn compileZdefContainer(self: *Self, ast: Ast.Slice, zdef_element: Ast.Zdef.
                 );
 
                 try setters.append(
+                    self.vm.gc.allocator,
                     try self.buildZdefContainerSetter(
                         container_field.value_ptr.*.offset,
                         foreign_def.name.string,
@@ -5210,6 +5221,7 @@ pub fn compileZdefContainer(self: *Self, ast: Ast.Slice, zdef_element: Ast.Zdef.
                 _ = container_field;
 
                 try getters.append(
+                    self.vm.gc.allocator,
                     try self.buildZdefUnionGetter(
                         foreign_def.name.string,
                         field.name,
@@ -5219,6 +5231,7 @@ pub fn compileZdefContainer(self: *Self, ast: Ast.Slice, zdef_element: Ast.Zdef.
                 );
 
                 try setters.append(
+                    self.vm.gc.allocator,
                     try self.buildZdefUnionSetter(
                         foreign_def.name.string,
                         field.name,
@@ -5443,13 +5456,13 @@ pub fn compileZdef(self: *Self, buzz_ast: Ast.Slice, zdef: Ast.Zdef.ZdefElement)
     self.state = .{
         .ast = buzz_ast,
         .module = module,
-        .prototypes = .init(self.vm.gc.allocator),
+        .prototypes = .{},
         .ast_node = undefined,
-        .registers = .init(self.vm.gc.allocator),
+        .registers = .{},
         .closure = undefined,
-        .breaks_label = .init(self.vm.gc.allocator),
+        .breaks_label = .{},
     };
-    defer self.reset();
+    defer self.reset(self.vm.gc.allocator);
 
     // Build wrapper
     const wrapper_item = try self.buildZdefWrapper(zdef);
@@ -7039,7 +7052,11 @@ fn REG(self: *Self, name: [*:0]const u8, reg_type: m.MIR_type_t) !m.MIR_reg_t {
         @ptrCast(actual_name.items.ptr),
     );
 
-    try self.state.?.registers.put(name, count + 1);
+    try self.state.?.registers.put(
+        self.vm.gc.allocator,
+        name,
+        count + 1,
+    );
 
     return reg;
 }

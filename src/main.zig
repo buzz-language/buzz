@@ -79,7 +79,7 @@ fn runFile(allocator: Allocator, file_name: []const u8, args: []const []const u8
         null;
     defer {
         if (!is_wasm and vm.jit != null) {
-            vm.jit.?.deinit();
+            vm.jit.?.deinit(vm.gc.allocator);
             vm.jit = null;
         }
     }
