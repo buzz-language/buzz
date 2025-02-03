@@ -3371,7 +3371,7 @@ fn parseUserType(self: *Self, instance: bool, mutable: bool) Error!Ast.Node.Inde
             },
         );
 
-        std.debug.assert(user_type_name.len == 1);
+        std.debug.assert(user_type_name.len > 0);
         global_slot = try self.declarePlaceholder(user_type_name[user_type_name.len - 1], var_type.?);
     }
 
