@@ -343,11 +343,11 @@ pub export fn exists(ctx: *api.NativeCtx) callconv(.c) c_int {
     var accessed = true;
 
     if (std.fs.path.isAbsolute(filename_slice)) {
-        std.fs.accessAbsolute(filename_slice, .{ .mode = .read_write }) catch {
+        std.fs.accessAbsolute(filename_slice, .{ .mode = .read_only }) catch {
             accessed = false;
         };
     } else {
-        std.fs.cwd().access(filename_slice, .{ .mode = .read_write }) catch {
+        std.fs.cwd().access(filename_slice, .{ .mode = .read_only }) catch {
             accessed = false;
         };
     }

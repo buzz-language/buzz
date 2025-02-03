@@ -32,6 +32,8 @@ test "ls" {
     foreach (el in fs\list("/doesnotexist") catch ["wentwrong"]) {
         std\assert(el == "wentwrong", message: "Trying to list a non existent directory raised an error");
     }
+
+    std\assert(fs\exists("README.md"), message: "fs\\exists");
 }
 
 test "move" {
