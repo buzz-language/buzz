@@ -699,7 +699,7 @@ pub const GarbageCollector = struct {
             },
             .Closure => {
                 var obj_closure = ObjClosure.cast(obj).?;
-                obj_closure.deinit();
+                obj_closure.deinit(self.allocator);
 
                 free(self, ObjClosure, obj_closure);
             },

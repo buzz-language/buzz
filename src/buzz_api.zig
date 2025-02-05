@@ -1203,7 +1203,7 @@ export fn bz_context(ctx: *NativeCtx, closure_value: Value, new_ctx: *NativeCtx,
     new_ctx.* = NativeCtx{
         .vm = ctx.vm,
         .globals = if (closure) |cls| cls.globals.items.ptr else ctx.globals,
-        .upvalues = if (closure) |cls| cls.upvalues.items.ptr else ctx.upvalues,
+        .upvalues = if (closure) |cls| cls.upvalues.ptr else ctx.upvalues,
         .base = ctx.vm.current_fiber.stack_top - arg_count - 1,
         .stack_top = &ctx.vm.current_fiber.stack_top,
     };
@@ -1251,16 +1251,15 @@ export fn bz_closure(
     // ctx.vm.jit.?.compiled_functions.put(closure, {}) catch @panic("Could not get closure");
 
     var it = ctx.vm.current_ast.nodes.items(.components)[function_node].Function.upvalue_binding.iterator();
-    while (it.next()) |kv| {
+    var i: usize = 0;
+    while (it.next()) |kv| : (i += 1) {
         const is_local = kv.value_ptr.*;
         const index = kv.key_ptr.*;
 
         if (is_local) {
-            closure.upvalues.append(
-                ctx.vm.captureUpvalue(&(ctx.base[index])) catch @panic("Could not instanciate closure"),
-            ) catch @panic("Could not instanciate closure");
+            closure.upvalues[i] = ctx.vm.captureUpvalue(&(ctx.base[index])) catch @panic("Could not instanciate closure");
         } else {
-            closure.upvalues.append(ctx.upvalues[index]) catch @panic("Could not instanciate closure");
+            closure.upvalues[i] = ctx.upvalues[index];
         }
     }
 

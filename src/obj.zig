@@ -1174,22 +1174,21 @@ pub const ObjClosure = struct {
     // Buzz function
     function: *ObjFunction,
 
-    upvalues: std.ArrayList(*ObjUpValue),
+    upvalues: []*ObjUpValue,
     // Pointer to the global with which the function was declared
     globals: *std.ArrayList(Value),
 
     pub fn init(allocator: Allocator, vm: *VM, function: *ObjFunction) !Self {
         return Self{
-            // TODO: copy?
             .globals = &vm.globals,
             .function = function,
-            .upvalues = try std.ArrayList(*ObjUpValue).initCapacity(allocator, function.upvalue_count),
+            .upvalues = try allocator.alloc(*ObjUpValue, function.upvalue_count),
         };
     }
 
     pub fn mark(self: *Self, gc: *GarbageCollector) !void {
         try gc.markObj(self.function.toObj());
-        for (self.upvalues.items) |upvalue| {
+        for (self.upvalues) |upvalue| {
             try gc.markObj(upvalue.toObj());
         }
         for (self.globals.items) |global| {
@@ -1197,8 +1196,8 @@ pub const ObjClosure = struct {
         }
     }
 
-    pub fn deinit(self: *Self) void {
-        self.upvalues.deinit();
+    pub fn deinit(self: *Self, allocator: Allocator) void {
+        allocator.free(self.upvalues);
     }
 
     pub inline fn toObj(self: *Self) *Obj {

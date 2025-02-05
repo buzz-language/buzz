@@ -1127,7 +1127,7 @@ pub const VM = struct {
     }
 
     fn OP_GET_UPVALUE(self: *Self, current_frame: *CallFrame, _: u32, _: OpCode, arg: u24) void {
-        self.push(current_frame.closure.upvalues.items[arg].location.*);
+        self.push(current_frame.closure.upvalues[arg].location.*);
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
@@ -1144,7 +1144,7 @@ pub const VM = struct {
     }
 
     fn OP_SET_UPVALUE(self: *Self, current_frame: *CallFrame, _: u32, _: OpCode, arg: u24) void {
-        current_frame.closure.upvalues.items[arg].location.* = self.peek(0);
+        current_frame.closure.upvalues[arg].location.* = self.peek(0);
 
         const next_full_instruction: u32 = self.readInstruction();
         @call(
@@ -1250,18 +1250,12 @@ pub const VM = struct {
             const index: u8 = self.readByte();
 
             if (is_local) {
-                closure.upvalues.append(self.captureUpvalue(&(current_frame.slots[index])) catch {
-                    self.panic("Out of memory");
-                    unreachable;
-                }) catch {
+                closure.upvalues[i] = self.captureUpvalue(&(current_frame.slots[index])) catch {
                     self.panic("Out of memory");
                     unreachable;
                 };
             } else {
-                closure.upvalues.append(current_frame.closure.upvalues.items[index]) catch {
-                    self.panic("Out of memory");
-                    unreachable;
-                };
+                closure.upvalues[i] = current_frame.closure.upvalues[index];
             }
         }
 
@@ -4809,7 +4803,7 @@ pub const VM = struct {
         var ctx = NativeCtx{
             .vm = self,
             .globals = self.currentFrame().?.closure.globals.items.ptr,
-            .upvalues = self.currentFrame().?.closure.upvalues.items.ptr,
+            .upvalues = self.currentFrame().?.closure.upvalues.ptr,
             .base = self.currentFrame().?.slots,
             .stack_top = &self.current_fiber.stack_top,
         };
@@ -4882,7 +4876,7 @@ pub const VM = struct {
         var ctx = NativeCtx{
             .vm = self,
             .globals = closure.globals.items.ptr,
-            .upvalues = closure.upvalues.items.ptr,
+            .upvalues = closure.upvalues.ptr,
             .base = self.current_fiber.stack_top - arg_count - 1,
             .stack_top = &self.current_fiber.stack_top,
         };
