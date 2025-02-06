@@ -537,7 +537,10 @@ fn generateBinary(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*o
         .EqualEqual,
         => {
             // We allow comparison between double and int so raise error if type != and one operand is not a number
-            if (!left_type.eql(right_type) and ((left_type.def_type != .Integer and left_type.def_type != .Double) or (right_type.def_type != .Integer and right_type.def_type != .Double))) {
+            if (!left_type.eql(right_type) and
+                !right_type.eql(left_type) and
+                ((left_type.def_type != .Integer and left_type.def_type != .Double) or (right_type.def_type != .Integer and right_type.def_type != .Double)))
+            {
                 self.reporter.reportTypeCheck(
                     .comparison_operand_type,
                     self.ast.tokens.get(locations[components.left]),
