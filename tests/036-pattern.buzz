@@ -6,8 +6,8 @@ test "pattern.match" {
     final results = pattern.match("All i want to say is hello joe! hello mundo!");
 
     std\assert(results?.len() == 2, message: "1 match and 1 capture");
-    std\assert(results![0] == "hello joe", message: "first is match");
-    std\assert(results![1] == "joe", message: "second is capture");
+    std\assert(results?[0].capture == "hello joe", message: "first is match");
+    std\assert(results?[1].capture == "joe", message: "second is capture");
 }
 
 test "pattern.matchAll" {
@@ -17,7 +17,7 @@ test "pattern.matchAll" {
 
     std\assert(results?.len() == 3, message: "found 3 matches");
     std\assert(results![2].len() == 2, message: "1 match and 1 capture");
-    std\assert(results![2][1] == "neighbor", message: "capture is correct");
+    std\assert(results![2][1].capture == "neighbor", message: "capture is correct");
 }
 
 test "Escaped pattern delimiter" {

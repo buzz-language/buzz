@@ -3212,10 +3212,12 @@ fn parseObjType(self: *Self, generic_types: ?std.AutoArrayHashMap(*obj.ObjString
         try self.gc.copyString(qualified_name.items),
         true,
     );
-    const resolved_type = obj.ObjTypeDef.TypeUnion{ .Object = object_def };
+
     var object_type = obj.ObjTypeDef{
         .def_type = .Object,
-        .resolved_type = resolved_type,
+        .resolved_type = .{
+            .Object = object_def,
+        },
     };
 
     // Anonymous object can only have properties without default values (no methods, no static fields)
