@@ -10,6 +10,7 @@
 
 - `main` signature can omit `args` argument
 - Maximum number of enum cases is now 16 777 215 instead of 255
+- `pattern.match` returns now a list of `obj{ start: int, end: int, capture: str }` and `matchAll` a list of those lists
 
 # 0.5.0 (01-24-2025)
 

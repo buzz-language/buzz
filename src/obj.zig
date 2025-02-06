@@ -862,8 +862,8 @@ pub const ObjPattern = struct {
 
     const members_typedef = if (!is_wasm)
         [_][]const u8{
-            "extern fun match(subject: str) > [str]?",
-            "extern fun matchAll(subject: str) > [[str]]?",
+            "extern fun match(subject: str) > [obj{ capture: str, start: int, end: int }]?",
+            "extern fun matchAll(subject: str) > [[obj{ capture: str, start: int, end: int }]]?",
             "extern fun replace(subject: str, with: str) > str",
             "extern fun replaceAll(subject: str, with: str) > str",
         }

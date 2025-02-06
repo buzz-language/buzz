@@ -10,6 +10,7 @@ const _value = @import("../value.zig");
 const Value = _value.Value;
 const builtin = @import("builtin");
 const is_wasm = builtin.cpu.arch.isWasm();
+const Token = @import("../Token.zig");
 
 // In a wasm build, the host is providing the pattern matching (JS regexes)
 extern fn patternReplaceLength(
@@ -53,6 +54,90 @@ extern fn patternReplaceAll(
 ) callconv(.c) void;
 
 pub const pcre = @import("../pcre.zig");
+
+const fake_token: Token = .{
+    .lexeme = "",
+    .source = "builtin",
+    .script_name = "builtin",
+    .tag = .Obj,
+    .line = 0,
+    .column = 0,
+    .offset = 0,
+};
+
+// Return match anonymous object type: obj{ start: int, end: int, capture: str }
+fn matchType(vm: *VM) !*ObjTypeDef {
+    if (vm.gc.type_registry.registry.get(".{ capture: str, start: int, end: int }")) |type_def| {
+        return type_def;
+    }
+
+    var object_def = _obj.ObjObject.ObjectDef.init(
+        fake_token,
+        try vm.gc.copyString("match"),
+        try vm.gc.copyString("builtin.match"),
+        true,
+    );
+
+    try object_def.fields.put(
+        vm.gc.allocator,
+        "capture",
+        .{
+            .name = "capture",
+            .index = 0,
+            .location = fake_token,
+            .type_def = vm.gc.type_registry.str_type,
+            .final = true,
+            .method = false,
+            .static = false,
+            .has_default = false,
+            .mutable = false,
+        },
+    );
+
+    try object_def.fields.put(
+        vm.gc.allocator,
+        "start",
+        .{
+            .name = "start",
+            .index = 2, // because fields will be sorted
+            .location = fake_token,
+            .type_def = vm.gc.type_registry.int_type,
+            .final = true,
+            .method = false,
+            .static = false,
+            .has_default = false,
+            .mutable = false,
+        },
+    );
+
+    try object_def.fields.put(
+        vm.gc.allocator,
+        "end",
+        .{
+            .name = "end",
+            .index = 1,
+            .location = fake_token,
+            .type_def = vm.gc.type_registry.int_type,
+            .final = true,
+            .method = false,
+            .static = false,
+            .has_default = false,
+            .mutable = false,
+        },
+    );
+
+    return (try vm.gc.type_registry.getTypeDef(
+        .{
+            .def_type = .Object,
+            .resolved_type = .{
+                .Object = object_def,
+            },
+        },
+    )).toInstance(
+        &vm.gc.type_registry,
+        false,
+    );
+}
 
 fn rawMatch(self: *ObjPattern, vm: *VM, subject: *ObjString, offset: *usize) !?*ObjList {
     if (subject.string.len == 0) {
@@ -109,13 +194,32 @@ fn rawMatch(self: *ObjPattern, vm: *VM, subject: *ObjString, offset: *usize) !?*
             // Prevent gc collection
             vm.push(results.?.toValue());
 
+            const match_type = try matchType(vm);
+
             var i: usize = 0;
             while (i < rc) : (i += 1) {
+                const match_instance = try vm.gc.allocateObject(
+                    _obj.ObjObjectInstance,
+                    try _obj.ObjObjectInstance.init(
+                        vm,
+                        null,
+                        match_type,
+                        vm.gc,
+                    ),
+                );
+
+                // start
+                match_instance.fields[2] = Value.fromInteger(@intCast(output_vector[2 * i]));
+                // end
+                match_instance.fields[1] = Value.fromInteger(@intCast(output_vector[2 * i + 1]));
+                // capture
+                match_instance.fields[0] = (try vm.gc.copyString(
+                    subject.string[@intCast(output_vector[2 * i])..@intCast(output_vector[2 * i + 1])],
+                )).toValue();
+
                 try results.?.items.append(
                     vm.gc.allocator,
-                    (try vm.gc.copyString(
-                        subject.string[@intCast(output_vector[2 * i])..@intCast(output_vector[2 * i + 1])],
-                    )).toValue(),
+                    match_instance.toValue(),
                 );
             }
 
@@ -138,7 +242,21 @@ fn rawMatchAll(self: *ObjPattern, vm: *VM, subject: *ObjString) !?*ObjList {
             const was_null = results == null;
             results = results orelse try vm.gc.allocateObject(
                 ObjList,
-                try ObjList.init(vm.gc.allocator, matches.type_def),
+                try ObjList.init(
+                    vm.gc.allocator,
+                    try vm.gc.type_registry.getTypeDef(
+                        .{
+                            .def_type = .List,
+                            .optional = false,
+                            .resolved_type = .{
+                                .List = ObjList.ListDef.init(
+                                    matches.type_def,
+                                    false,
+                                ),
+                            },
+                        },
+                    ),
+                ),
             );
 
             if (was_null) {

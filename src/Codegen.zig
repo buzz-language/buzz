@@ -1226,7 +1226,7 @@ fn generateCall(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj
                     args.keys()[0].string
                 else
                     arg_key;
-                const correct_index = args.getIndex(try self.gc.copyString(actual_arg_key)).?;
+                const correct_index = args.getIndex(try self.gc.copyString(actual_arg_key)) orelse 0;
 
                 if (correct_index != index) {
                     ordered = false;

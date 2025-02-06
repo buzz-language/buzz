@@ -308,23 +308,19 @@ fn valueDump(value: Value, vm: *VM, seen: *std.AutoHashMap(*_obj.Obj, void), dep
                             ".",
                     },
                 );
-                for (object_instance.fields, 0..) |field, i| {
-                    var it = object_def.fields.iterator();
-                    const field_def: ObjObject.ObjectDef.Field = field_def: {
-                        while (it.next()) |kv| {
-                            const f = kv.value_ptr.*;
-                            if (f.index == i and !f.static and !f.method) {
-                                break :field_def f;
-                            }
-                        }
 
-                        unreachable;
-                    };
-
-                    io.print("{s} = ", .{field_def.name});
-                    valueDump(field, vm, seen, depth + 1);
+                var it = object_def.fields.iterator();
+                while (it.next()) |field| {
+                    io.print("{s} = ", .{field.value_ptr.name});
+                    valueDump(
+                        object_instance.fields[field.value_ptr.index],
+                        vm,
+                        seen,
+                        depth + 1,
+                    );
                     io.print(", ", .{});
                 }
+
                 io.print("}}", .{});
             },
 
