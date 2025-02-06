@@ -56,14 +56,14 @@ const Break = struct {
     label_node: ?Ast.Node.Index = null,
 };
 
-const Breaks = std.ArrayList(Break);
+const Breaks = std.ArrayListUnmanaged(Break);
 
 current: ?*Frame = null,
 ast: Ast.Slice = undefined,
 gc: *GarbageCollector,
 flavor: RunFlavor,
 /// Jump to patch at end of current expression with a optional unwrapping in the middle of it
-opt_jumps: ?std.ArrayList(usize) = null,
+opt_jumps: std.ArrayListUnmanaged(std.ArrayListUnmanaged(usize)) = .{},
 /// Used to generate error messages
 parser: *Parser,
 jit: ?*JIT,
@@ -246,7 +246,7 @@ fn patchBreaks(self: *Self, breaks: *Breaks, previous_breaks: ?*Breaks, loop_nod
         if (brk.label_node == null or brk.label_node.? == loop_node) {
             try self.patchJumpOrLoop(brk.ip, loop_start);
         } else if (previous_breaks) |brks| { // The break/continue if for an upper scope
-            try brks.append(brk);
+            try brks.append(self.gc.allocator, brk);
         } else {
             unreachable; // Should not happen: we search for the scope during parsing
         }
@@ -375,12 +375,12 @@ fn patchOptJumps(self: *Self, node: Ast.Node.Index) !void {
     const location = self.ast.nodes.items(.location)[node];
 
     if (self.ast.nodes.items(.patch_opt_jumps)[node]) {
-        std.debug.assert(self.opt_jumps != null);
+        std.debug.assert(self.opt_jumps.items.len > 0);
 
         // Hope over OP_POP if actual value
         const njump: usize = try self.emitJump(location, .OP_JUMP);
 
-        for (self.opt_jumps.?.items) |jump| {
+        for (self.opt_jumps.items[self.opt_jumps.items.len - 1].items) |jump| {
             self.patchJump(jump);
         }
         // If aborted by a null optional, will result in null on the stack
@@ -388,8 +388,8 @@ fn patchOptJumps(self: *Self, node: Ast.Node.Index) !void {
 
         self.patchJump(njump);
 
-        self.opt_jumps.?.deinit();
-        self.opt_jumps = null;
+        var popped = self.opt_jumps.pop();
+        popped.deinit(self.gc.allocator);
     }
 }
 
@@ -923,6 +923,7 @@ fn generateBreak(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*ob
     // Close scope(s), then jump
     try self.endScope(node);
     try breaks.?.append(
+        self.gc.allocator,
         .{
             .ip = try self.OP_JUMP(self.ast.nodes.items(.location)[node]),
             .label_node = self.ast.nodes.items(.components)[node].Break,
@@ -938,6 +939,7 @@ fn generateContinue(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?
     // Close scope(s), then jump
     try self.endScope(node);
     try breaks.?.append(
+        self.gc.allocator,
         .{
             .ip = try self.emitJump(
                 self.ast.nodes.items(.location)[node],
@@ -1859,8 +1861,8 @@ fn generateDoUntil(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*
 
     const loop_start = self.currentCode();
 
-    var lbreaks = Breaks.init(self.gc.allocator);
-    defer lbreaks.deinit();
+    var lbreaks = Breaks{};
+    defer lbreaks.deinit(self.gc.allocator);
 
     _ = try self.generateNode(components.body, &lbreaks);
 
@@ -2093,8 +2095,8 @@ fn generateFor(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.
 
     self.patchJump(body_jump);
 
-    var lbreaks = Breaks.init(self.gc.allocator);
-    defer lbreaks.deinit();
+    var lbreaks = Breaks{};
+    defer lbreaks.deinit(self.gc.allocator);
 
     _ = try self.generateNode(components.body, &lbreaks);
 
@@ -2364,8 +2366,8 @@ fn generateForEach(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*
     const exit_jump: usize = try self.OP_JUMP_IF_FALSE(locations[node]);
     try self.OP_POP(locations[node]); // Pop condition result
 
-    var lbreaks = Breaks.init(self.gc.allocator);
-    defer lbreaks.deinit();
+    var lbreaks = Breaks{};
+    defer lbreaks.deinit(self.gc.allocator);
 
     _ = try self.generateNode(components.body, &lbreaks);
 
@@ -4221,10 +4223,13 @@ fn generateUnwrap(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*o
 
     const jump = try self.OP_JUMP_IF_FALSE(location);
 
-    if (self.opt_jumps == null) {
-        self.opt_jumps = .init(self.gc.allocator);
+    if (self.opt_jumps.items.len == 0 or components.start_opt_jumps) {
+        try self.opt_jumps.append(self.gc.allocator, .{});
+    } else if (self.opt_jumps.items.len == 0) {
+        @panic("Unwrap node not marked as starting opt_jumps but not ongoing opt_jumps");
     }
-    try self.opt_jumps.?.append(jump);
+
+    try self.opt_jumps.items[self.opt_jumps.items.len - 1].append(self.gc.allocator, jump);
 
     try self.OP_POP(location); // Pop test result
 
@@ -4324,8 +4329,8 @@ fn generateWhile(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*ob
     const exit_jump = try self.OP_JUMP_IF_FALSE(location);
     try self.OP_POP(location);
 
-    var while_breaks = Breaks.init(self.gc.allocator);
-    defer while_breaks.deinit();
+    var while_breaks = Breaks{};
+    defer while_breaks.deinit(self.gc.allocator);
 
     _ = try self.generateNode(components.body, &while_breaks);
 

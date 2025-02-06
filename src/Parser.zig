@@ -1254,16 +1254,15 @@ fn parsePrecedence(self: *Self, precedence: Precedence, hanging: bool) Error!Ast
         return CompileError.Unrecoverable;
     }
 
-    const canAssign: bool = @intFromEnum(precedence) <= @intFromEnum(Precedence.Assignment);
+    const canAssign = @intFromEnum(precedence) <= @intFromEnum(Precedence.Assignment);
     var node = try prefixRule.?(self, canAssign);
 
     while (@intFromEnum(getRule(self.ast.tokens.items(.tag)[self.current_token.?]).precedence) >= @intFromEnum(precedence)) {
         // Patch optional jumps
         if (self.opt_jumps) |jumps| {
             std.debug.assert(jumps.items.len > 0);
-            const first_jump: Precedence = jumps.items[0];
-
-            if (@intFromEnum(getRule(self.ast.tokens.items(.tag)[self.current_token.?]).precedence) < @intFromEnum(first_jump)) {
+            // If precedence is less than the precedence that started the nullable chain, stop the chain there
+            if (@intFromEnum(getRule(self.ast.tokens.items(.tag)[self.current_token.?]).precedence) < @intFromEnum(jumps.items[0])) {
                 jumps.deinit();
                 self.opt_jumps = null;
 
@@ -1278,10 +1277,11 @@ fn parsePrecedence(self: *Self, precedence: Precedence, hanging: bool) Error!Ast
 
         _ = try self.advance();
 
-        const infixRule: InfixParseFn = getRule(self.ast.tokens.items(.tag)[self.current_token.? - 1]).infix.?;
+        const infixRule = getRule(self.ast.tokens.items(.tag)[self.current_token.? - 1]).infix.?;
         node = try infixRule(self, canAssign, node);
     }
 
+    // If nullable chain still there, stop it now at the end of the expression
     if (self.opt_jumps) |jumps| {
         jumps.deinit();
         self.opt_jumps = null;
@@ -5095,6 +5095,7 @@ fn unwrap(self: *Self, force: bool, unwrapped: Ast.Node.Index) Error!Ast.Node.In
             .components = if (force)
                 .{
                     .ForceUnwrap = .{
+                        .start_opt_jumps = false,
                         .unwrapped = unwrapped,
                         .original_type = unwrapped_type_def,
                     },
@@ -5102,6 +5103,7 @@ fn unwrap(self: *Self, force: bool, unwrapped: Ast.Node.Index) Error!Ast.Node.In
             else
                 .{
                     .Unwrap = .{
+                        .start_opt_jumps = self.opt_jumps == null,
                         .unwrapped = unwrapped,
                         .original_type = unwrapped_type_def,
                     },
@@ -5110,7 +5112,7 @@ fn unwrap(self: *Self, force: bool, unwrapped: Ast.Node.Index) Error!Ast.Node.In
     );
 
     if (!force) {
-        self.opt_jumps = .init(self.gc.allocator);
+        self.opt_jumps = self.opt_jumps orelse .init(self.gc.allocator);
 
         try self.opt_jumps.?.append(
             getRule(

@@ -44,7 +44,7 @@ const GenState = struct {
 
     /// Root closure (not necessarily the one being compiled)
     closure: *o.ObjClosure,
-    opt_jump: ?OptJump = null,
+    opt_jumps: std.ArrayListUnmanaged(OptJump) = .{},
 
     // Frame related stuff, since we compile one function at a time, we don't stack frames while compiling
     ast: Ast.Slice,
@@ -79,6 +79,10 @@ const GenState = struct {
             try_should_handle.deinit(allocator);
         }
         self.breaks_label.deinit(allocator);
+        for (self.opt_jumps.items) |*opt_jump| {
+            opt_jump.deinit(allocator);
+        }
+        self.opt_jumps.deinit(allocator);
     }
 };
 
@@ -561,20 +565,21 @@ fn generateNode(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
     if (tag != .Break and tag != .Continue) {
         // Patch opt jumps if needed
         if (self.state.?.ast.nodes.items(.patch_opt_jumps)[node]) {
-            std.debug.assert(self.state.?.opt_jump != null);
+            std.debug.assert(self.state.?.opt_jumps.items.len > 0);
 
+            var opt_jump = self.state.?.opt_jumps.pop();
             const out_label = m.MIR_new_label(self.ctx);
 
             // We reached here, means nothing was null, set the alloca with the value and use it has the node return value
             self.MOV(
-                m.MIR_new_reg_op(self.ctx, self.state.?.opt_jump.?.alloca),
+                m.MIR_new_reg_op(self.ctx, opt_jump.alloca),
                 value.?,
             );
 
             self.JMP(out_label);
 
             // Patch opt blocks with the branching
-            for (self.state.?.opt_jump.?.current_insn.items) |current_insn| {
+            for (opt_jump.current_insn.items) |current_insn| {
                 m.MIR_insert_insn_after(
                     self.ctx,
                     self.state.?.function.?,
@@ -585,7 +590,7 @@ fn generateNode(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
                         3,
                         &[_]m.MIR_op_t{
                             m.MIR_new_label_op(self.ctx, out_label),
-                            m.MIR_new_reg_op(self.ctx, self.state.?.opt_jump.?.alloca),
+                            m.MIR_new_reg_op(self.ctx, opt_jump.alloca),
                             m.MIR_new_uint_op(self.ctx, Value.Null.val),
                         },
                     ),
@@ -594,10 +599,9 @@ fn generateNode(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
 
             self.append(out_label);
 
-            value = m.MIR_new_reg_op(self.ctx, self.state.?.opt_jump.?.alloca);
+            value = m.MIR_new_reg_op(self.ctx, opt_jump.alloca);
 
-            self.state.?.opt_jump.?.deinit(self.vm.gc.allocator);
-            self.state.?.opt_jump = null;
+            opt_jump.deinit(self.vm.gc.allocator);
         }
         // Close scope if needed
         if (constant == null or tag != .Range) { // Range creates locals for its limits, but we don't push anything if its constant
@@ -4260,12 +4264,17 @@ fn generateUnwrap(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
     const value = (try self.generateNode(components.unwrapped)).?;
 
     // Remember that we need to had a terminator to this block that will jump at the end of the optionals chain
-    if (self.state.?.opt_jump == null) {
-        self.state.?.opt_jump = .{
-            // Store the value on the stack, that spot will be overwritten with the final value of the optional chain
-            .alloca = try self.REG("opt", m.MIR_T_I64),
-            .current_insn = .{},
-        };
+    if (self.state.?.opt_jumps.items.len == 0 or components.start_opt_jumps) {
+        try self.state.?.opt_jumps.append(
+            self.vm.gc.allocator,
+            .{
+                // Store the value on the stack, that spot will be overwritten with the final value of the optional chain
+                .alloca = try self.REG("opt", m.MIR_T_I64),
+                .current_insn = .{},
+            },
+        );
+    } else if (self.state.?.opt_jumps.items.len == 0) {
+        @panic("Unwrap node not marked as starting opt_jumps but not ongoing opt_jumps");
     }
 
     const current_insn = m.MIR_new_insn_arr(
@@ -4273,7 +4282,10 @@ fn generateUnwrap(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
         @intFromEnum(m.MIR_Instruction.MOV),
         2,
         &[_]m.MIR_op_t{
-            m.MIR_new_reg_op(self.ctx, self.state.?.opt_jump.?.alloca),
+            m.MIR_new_reg_op(
+                self.ctx,
+                self.state.?.opt_jumps.items[@intCast(self.state.?.opt_jumps.items.len - 1)].alloca,
+            ),
             value,
         },
     );
@@ -4282,7 +4294,9 @@ fn generateUnwrap(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
         current_insn,
     );
 
-    try self.state.?.opt_jump.?.current_insn.append(self.vm.gc.allocator, current_insn);
+    try self.state.?.opt_jumps.items[@intCast(self.state.?.opt_jumps.items.len - 1)]
+        .current_insn
+        .append(self.vm.gc.allocator, current_insn);
 
     return value;
 }

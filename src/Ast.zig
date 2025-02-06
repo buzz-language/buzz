@@ -1248,6 +1248,7 @@ pub const Unary = struct {
 pub const Unwrap = struct {
     unwrapped: Node.Index,
     original_type: *obj.ObjTypeDef,
+    start_opt_jumps: bool,
 };
 
 pub const UserType = struct {

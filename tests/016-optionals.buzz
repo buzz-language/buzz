@@ -73,3 +73,19 @@ test "Check ahead" {
 
     _ = A.instance?.hello();
 }
+
+object AA {
+    data: int,
+
+    fun eql(other: AA?) > bool {
+        return this.data == other?.data;
+    }
+}
+
+object BB {
+    data: AA?,
+
+    fun eql(other: BB?) > bool? {
+        return this.data?.eql(other?.data);
+    }
+}
