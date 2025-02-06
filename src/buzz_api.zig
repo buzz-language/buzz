@@ -449,6 +449,10 @@ export fn bz_stringType(vm: *VM) callconv(.c) Value {
     return vm.gc.type_registry.str_type.toValue();
 }
 
+export fn bz_intType(vm: *VM) callconv(.c) Value {
+    return vm.gc.type_registry.int_type.toValue();
+}
+
 export fn bz_listType(vm: *VM, item_type: Value, mutable: bool) callconv(.c) Value {
     return (vm.gc.type_registry.getTypeDef(
         .{

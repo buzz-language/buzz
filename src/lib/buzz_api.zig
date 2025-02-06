@@ -245,6 +245,7 @@ pub const VM = opaque {
     pub extern fn bz_dumpStack(vm: *VM) callconv(.c) void;
     pub extern fn bz_zigType(vm: *VM, ztype: [*]const u8, len: usize, expected_type: *Value) callconv(.c) ?*ZigType;
     pub extern fn bz_stringType(vm: *VM) callconv(.c) Value;
+    pub extern fn bz_intType(vm: *VM) callconv(.c) Value;
     pub extern fn bz_mapType(vm: *VM, key_type: Value, value_type: Value, mutable: bool) callconv(.c) Value;
     pub extern fn bz_listType(vm: *VM, item_type: Value, mutable: bool) callconv(.c) Value;
     pub extern fn bz_getStringProperty(vm: *VM, string: Value, method_idx: usize) callconv(.c) Value;

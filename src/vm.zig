@@ -5157,18 +5157,16 @@ pub const VM = struct {
             else => {},
         }
 
-        // zig fmt: off
         if (
-            // Marked as compilable
-            self.current_ast.nodes.items(.compilable)[closure.function.node] and
+        // Marked as compilable
+        self.current_ast.nodes.items(.compilable)[closure.function.node] and
             self.jit != null and
             (
-                // Always on
-                BuildOptions.jit_always_on or
-                // Threshold reached
-                (closure.function.call_count > 10 and (@as(f128, @floatFromInt(closure.function.call_count)) / @as(f128, @floatFromInt(self.jit.?.call_count))) > BuildOptions.jit_prof_threshold)
-            )
-        ) {
+        // Always on
+            BuildOptions.jit_always_on or
+            // Threshold reached
+            (closure.function.call_count > 10 and (@as(f128, @floatFromInt(closure.function.call_count)) / @as(f128, @floatFromInt(self.jit.?.call_count))) > BuildOptions.jit_prof_threshold)))
+        {
             // Not blacklisted or already compiled
             self.current_ast.nodes.items(.compilable)[closure.function.node] =
                 self.jit.?.compiled_nodes.get(closure.function.node) == null and
@@ -5176,7 +5174,6 @@ pub const VM = struct {
 
             return self.current_ast.nodes.items(.compilable)[closure.function.node];
         }
-        // zig fmt: on
 
         return false;
     }
@@ -5184,26 +5181,23 @@ pub const VM = struct {
     fn shouldCompileHotspot(self: *Self, node: Ast.Node.Index) bool {
         const count = self.current_ast.nodes.items(.count)[node];
 
-        // zig fmt: off
         if (
-            // Marked as compilable
-            self.current_ast.nodes.items(.compilable)[node] and
+        // Marked as compilable
+        self.current_ast.nodes.items(.compilable)[node] and
             self.jit != null and
             BuildOptions.jit_hotspot_on and
             // JIT compile all the thing?
             (
-                // Always compile
-                BuildOptions.jit_always_on or BuildOptions.jit_hotspot_always_on or
-                // Threshold reached
-                (count > 10 and (@as(f128, @floatFromInt(count)) / @as(f128, @floatFromInt(self.hotspots_count))) > BuildOptions.jit_prof_threshold)
-            )
-        ) {
+        // Always compile
+            BuildOptions.jit_always_on or BuildOptions.jit_hotspot_always_on or
+            // Threshold reached
+            (count > 10 and (@as(f128, @floatFromInt(count)) / @as(f128, @floatFromInt(self.hotspots_count))) > BuildOptions.jit_prof_threshold)))
+        {
             // It's not already done or blacklisted
             self.current_ast.nodes.items(.compilable)[node] = (self.jit.?.compiled_nodes.get(node) == null and self.jit.?.blacklisted_nodes.get(node) == null);
 
             return self.current_ast.nodes.items(.compilable)[node];
         }
-        // zig fmt: on
 
         return false;
     }
