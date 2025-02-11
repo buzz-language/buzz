@@ -288,6 +288,45 @@ pub fn build(b: *Build) !void {
     });
     b.installArtifact(exe);
 
+    const clap = b.dependency(
+        "clap",
+        .{
+            .target = target,
+            .optimize = build_mode,
+        },
+    );
+
+    exe.root_module.addImport(
+        "clap",
+        clap.module("clap"),
+    );
+
+    var lsp_exe = b.addExecutable(.{
+        .name = "buzz_lsp",
+        .root_source_file = b.path("src/lsp.zig"),
+        .target = target,
+        .optimize = build_mode,
+    });
+    b.installArtifact(lsp_exe);
+
+    lsp_exe.root_module.addImport(
+        "clap",
+        clap.module("clap"),
+    );
+
+    const lsp = b.dependency(
+        "zig-lsp-kit",
+        .{
+            .target = target,
+            .optimize = build_mode,
+        },
+    );
+
+    lsp_exe.root_module.addImport(
+        "lsp",
+        lsp.module("lsp"),
+    );
+
     var exe_check = b.addExecutable(
         .{
             .name = "buzz",
