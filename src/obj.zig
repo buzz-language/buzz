@@ -4434,6 +4434,7 @@ pub const ObjTypeDef = struct {
                 var placeholder_resolved_type: ObjTypeDef.TypeUnion = .{
                     .Placeholder = PlaceholderDef.init(
                         where,
+                        where,
                         self.resolved_type.?.Placeholder.mutable,
                     ),
                 };
@@ -5241,6 +5242,7 @@ pub const ObjTypeDef = struct {
                     .resolved_type = .{
                         .Placeholder = PlaceholderDef.init(
                             self.resolved_type.?.Placeholder.where,
+                            self.resolved_type.?.Placeholder.where_end,
                             self.resolved_type.?.Placeholder.mutable,
                         ),
                     },
@@ -5300,6 +5302,7 @@ pub const ObjTypeDef = struct {
                         .resolved_type = .{
                             .Placeholder = PlaceholderDef.init(
                                 self.resolved_type.?.Placeholder.where,
+                                self.resolved_type.?.Placeholder.where_end,
                                 mutable,
                             ),
                         },
@@ -5577,6 +5580,7 @@ pub const PlaceholderDef = struct {
     };
 
     where: Ast.TokenIndex, // Where the placeholder was created
+    where_end: Ast.TokenIndex,
     // When accessing/calling/subscrit/assign a placeholder we produce another. We keep them linked so we
     // can trace back the root of the unknown type.
     parent: ?*ObjTypeDef = null,
@@ -5589,9 +5593,10 @@ pub const PlaceholderDef = struct {
     // If the placeholder is a function return, we need to remember eventual generic types defined in that call
     resolved_generics: ?[]*ObjTypeDef = null,
 
-    pub fn init(where: Ast.TokenIndex, mutable: ?bool) Self {
+    pub fn init(where: Ast.TokenIndex, where_end: Ast.TokenIndex, mutable: ?bool) Self {
         return Self{
             .where = where,
+            .where_end = where_end,
             .children = std.ArrayListUnmanaged(*ObjTypeDef){},
             .mutable = mutable,
         };

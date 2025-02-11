@@ -328,6 +328,7 @@ pub const ScriptImport = struct {
 const LocalScriptImport = struct {
     referenced: bool = false,
     location: Ast.TokenIndex,
+    end_location: Ast.TokenIndex,
 };
 
 pub var user_library_paths: ?[][]const u8 = null;
@@ -397,6 +398,7 @@ const search_paths = if (builtin.os.tag == .windows)
         "./?/main.!",
         "./?/src/main.!",
         "./?/src/?.!",
+        "./src/?.!",
         // TODO: what would be common windows paths for this?
     }
 else
@@ -409,6 +411,7 @@ else
         "./?/main.!",
         "./?/src/main.!",
         "./?/src/?.!",
+        "./src/?.!",
         "/usr/share/buzz/?.!",
         "/usr/share/buzz/?/main.!",
         "/usr/share/buzz/?/src/main.!",
@@ -425,6 +428,7 @@ const lib_search_paths = if (builtin.os.tag == .windows)
         "$/?/src/?.!",
         "./?.!",
         "./?/src/?.!",
+        "./src/?.!",
     }
 else
     [_][]const u8{
@@ -432,6 +436,7 @@ else
         "$/?/src/lib?.!",
         "./lib?.!",
         "./?/src/lib?.!",
+        "./src/lib?.!",
         "/usr/share/buzz/lib?.!",
         "/usr/share/buzz/?/src/lib?.!",
         "/usr/share/local/buzz/lib?.!",
@@ -576,14 +581,14 @@ imported: bool = false,
 /// True when parsing a declaration inside an export statement
 exporting: bool = false,
 /// Cached imported functions (shared across instances of Parser)
-imports: *std.StringHashMap(ScriptImport),
+imports: *std.StringHashMapUnmanaged(ScriptImport),
 /// Keep track of things imported by the current script
-script_imports: std.StringHashMap(LocalScriptImport),
+script_imports: std.StringHashMapUnmanaged(LocalScriptImport),
 test_count: u64 = 0,
 // FIXME: use SinglyLinkedList instead of heap allocated ptrs
 current: ?*Frame = null,
 current_object: ?ObjectFrame = null,
-globals: std.ArrayList(Global),
+globals: std.ArrayListUnmanaged(Global),
 namespace: ?[]const Ast.TokenIndex = null,
 flavor: RunFlavor,
 ffi: FFI,
@@ -594,20 +599,21 @@ opt_jumps: ?std.ArrayList(Precedence) = null,
 
 pub fn init(
     gc: *GarbageCollector,
-    imports: *std.StringHashMap(ScriptImport),
+    imports: *std.StringHashMapUnmanaged(ScriptImport),
     imported: bool,
     flavor: RunFlavor,
 ) Self {
     return .{
         .gc = gc,
         .imports = imports,
-        .script_imports = .init(gc.allocator),
+        .script_imports = .{},
         .imported = imported,
-        .globals = .init(gc.allocator),
+        .globals = .{},
         .flavor = flavor,
         .reporter = Reporter{
             .allocator = gc.allocator,
             .error_prefix = "Syntax",
+            .collect = flavor == .Ast,
         },
         .ffi = FFI.init(gc),
         .ast = Ast.init(gc.allocator),
@@ -618,37 +624,20 @@ pub fn deinit(self: *Self) void {
     // for (self.globals.items) |global| {
     //     self.gc.allocator.free(global.name);
     // }
-    self.globals.deinit();
-    self.script_imports.deinit();
+    self.globals.deinit(self.gc.allocator);
+    self.script_imports.deinit(self.gc.allocator);
     if (self.opt_jumps) |jumps| {
         jumps.deinit();
     }
     self.ffi.deinit();
+    self.reporter.deinit();
 }
 
-fn reportErrorAtCurrent(self: *Self, error_type: Reporter.Error, message: []const u8) void {
-    @branchHint(.cold);
-    self.reporter.reportErrorAt(
-        error_type,
-        self.ast.tokens.get(self.current_token.?),
-        message,
-    );
-}
-
-pub fn reportError(self: *Self, error_type: Reporter.Error, message: []const u8) void {
-    @branchHint(.cold);
-    self.reporter.reportErrorAt(
-        error_type,
-        self.ast.tokens.get(if (self.current_token.? > 0) self.current_token.? - 1 else 0),
-        message,
-    );
-}
-
-fn reportErrorFmt(self: *Self, error_type: Reporter.Error, comptime fmt: []const u8, args: anytype) void {
-    @branchHint(.cold);
+pub fn reportErrorAtNode(self: *Self, error_type: Reporter.Error, node: Ast.Node.Index, comptime fmt: []const u8, args: anytype) void {
     self.reporter.reportErrorFmt(
         error_type,
-        self.ast.tokens.get(if (self.current_token.? > 0) self.current_token.? - 1 else 0),
+        self.ast.tokens.get(self.ast.nodes.items(.location)[node]),
+        self.ast.tokens.get(self.ast.nodes.items(.end_location)[node]),
         fmt,
         args,
     );
@@ -667,9 +656,14 @@ pub fn advance(self: *Self) !void {
 
             if (new_token.tag == .Error) {
                 self.current_token = if (self.current_token) |ct| ct - 1 else 0;
-                self.reportErrorAtCurrent(
+                self.reporter.reportErrorFmt(
                     .unknown,
-                    new_token.literal_string orelse "Unknown error.",
+                    self.ast.tokens.get(self.current_token.? - 1),
+                    self.ast.tokens.get(self.current_token.? - 1),
+                    "{s}",
+                    .{
+                        new_token.literal_string orelse "Unknown Error",
+                    },
                 );
             }
 
@@ -692,9 +686,14 @@ fn advancePastEof(self: *Self) !void {
 
             if (new_token.tag == .Error) {
                 self.current_token = if (self.current_token) |ct| ct - 1 else 0;
-                self.reportErrorAtCurrent(
+                self.reporter.reportErrorFmt(
                     .unknown,
-                    new_token.literal_string orelse "Unknown error.",
+                    self.ast.tokens.get(self.current_token.? - 1),
+                    self.ast.tokens.get(self.current_token.? - 1),
+                    "{s}",
+                    .{
+                        new_token.literal_string orelse "Unknown error.",
+                    },
                 );
             }
 
@@ -707,7 +706,7 @@ fn advancePastEof(self: *Self) !void {
     }
 }
 
-pub fn consume(self: *Self, tag: Token.Type, message: []const u8) !void {
+pub fn consume(self: *Self, tag: Token.Type, comptime message: []const u8) !void {
     if (self.ast.tokens.items(.tag)[self.current_token.?] == tag) {
         try self.advance();
         return;
@@ -723,10 +722,26 @@ pub fn consume(self: *Self, tag: Token.Type, message: []const u8) !void {
                 self.reporter.panic_mode = true;
                 self.reporter.last_error = .unclosed;
             } else {
-                self.reportErrorAtCurrent(.unclosed, message);
+                self.reporter.reportErrorFmt(
+                    .unclosed,
+                    self.ast.tokens.get(self.current_token.? - 1),
+                    self.ast.tokens.get(self.current_token.? - 1),
+                    "{s}",
+                    .{
+                        message,
+                    },
+                );
             }
         },
-        else => self.reportErrorAtCurrent(.syntax, message),
+        else => self.reporter.reportErrorFmt(
+            .syntax,
+            self.ast.tokens.get(self.current_token.? - 1),
+            self.ast.tokens.get(self.current_token.? - 1),
+            "{s}",
+            .{
+                message,
+            },
+        ),
     }
 }
 
@@ -752,7 +767,15 @@ fn checkAhead(self: *Self, tag: Token.Type, n: usize) !bool {
             }
 
             // If error, report it and keep checking ahead
-            self.reportErrorAtCurrent(.syntax, token.literal_string orelse "Unknown error.");
+            self.reporter.reportErrorFmt(
+                .syntax,
+                self.ast.tokens.get(self.current_token.? - 1),
+                self.ast.tokens.get(self.current_token.? - 1),
+                "{s}",
+                .{
+                    token.literal_string orelse "Unknown error.",
+                },
+            );
         }
     }
 
@@ -910,7 +933,7 @@ pub fn parse(self: *Self, source: []const u8, file_name: []const u8) !?Ast {
         .{
             .tag = .Block,
             .location = 0,
-            .end_location = undefined,
+            .end_location = 0,
             .components = .{
                 .Block = try self.gc.allocator.alloc(Ast.Node.Index, 0),
             },
@@ -944,7 +967,7 @@ pub fn parse(self: *Self, source: []const u8, file_name: []const u8) !?Ast {
                 .Function = .{
                     .function_signature = null,
                     .id = Ast.Function.nextId(),
-                    .upvalue_binding = .init(self.gc.allocator),
+                    .upvalue_binding = .{},
                     .body = body_node,
                 },
             },
@@ -971,9 +994,9 @@ pub fn parse(self: *Self, source: []const u8, file_name: []const u8) !?Ast {
                 return err;
             }
 
-            if (BuildOptions.debug) {
-                io.print("Parsing failed with error {}\n", .{err});
-            }
+            // if (BuildOptions.debug) {
+            io.print("Parsing of `{s}` failed with error {} (collected {} errors)\n", .{ function_name, err, self.reporter.reports.items.len });
+            // }
             return null;
         }) |decl| {
             var statements = std.ArrayList(Ast.Node.Index).fromOwnedSlice(
@@ -986,7 +1009,12 @@ pub fn parse(self: *Self, source: []const u8, file_name: []const u8) !?Ast {
 
             self.ast.nodes.items(.components)[body_node].Block = statements.items;
         } else {
-            self.reportError(.syntax, "Expected statement");
+            self.reporter.reportErrorAt(
+                .syntax,
+                self.ast.tokens.get(self.current_token.? - 1),
+                self.ast.tokens.get(self.current_token.? - 1),
+                "Expected statement",
+            );
             break;
         }
     }
@@ -1040,11 +1068,10 @@ pub fn parse(self: *Self, source: []const u8, file_name: []const u8) !?Ast {
         var it = self.script_imports.iterator();
         while (it.next()) |kv| {
             if (!kv.value_ptr.*.referenced) {
-                const location = self.ast.tokens.get(kv.value_ptr.*.location);
-
                 self.reporter.warnFmt(
                     .unused_import,
-                    location,
+                    self.ast.tokens.get(kv.value_ptr.*.location),
+                    self.ast.tokens.get(kv.value_ptr.*.end_location),
                     "Unused import",
                     .{},
                 );
@@ -1133,9 +1160,11 @@ fn endFrame(self: *Self) Ast.Node.Index {
         if (self.flavor != .Repl) {
             // Check discarded locals
             if (!local.isReferenced(self.ast)) {
+                const location = self.ast.tokens.get(local.name);
                 self.reporter.warnFmt(
                     .unused_argument,
-                    self.ast.tokens.get(local.name),
+                    location,
+                    location,
                     "Local `{s}` is never referenced",
                     .{
                         self.ast.tokens.items(.lexeme)[local.name],
@@ -1145,9 +1174,11 @@ fn endFrame(self: *Self) Ast.Node.Index {
 
             // Check var local never assigned
             if (!local.isAssigned(self.ast)) {
+                const location = self.ast.tokens.get(local.name);
                 self.reporter.warnFmt(
                     .unassigned_final_local,
-                    self.ast.tokens.get(local.name),
+                    location,
+                    location,
                     "Local `{s}` is declared `var` but is never assigned",
                     .{
                         self.ast.tokens.items(.lexeme)[local.name],
@@ -1165,9 +1196,12 @@ fn endFrame(self: *Self) Ast.Node.Index {
                 const type_def_str = global.type_def.toStringAlloc(self.gc.allocator) catch unreachable;
                 defer self.gc.allocator.free(type_def_str);
 
+                const location = self.ast.tokens.get(global.name[0]);
+
                 self.reporter.warnFmt(
                     .unused_argument,
-                    self.ast.tokens.get(global.name[0]),
+                    location,
+                    location,
                     "Unused global of type `{s}`",
                     .{
                         type_def_str,
@@ -1193,22 +1227,22 @@ fn beginScope(self: *Self, at: ?Ast.Node.Index) !void {
 fn endScope(self: *Self) ![]Chunk.OpCode {
     const current = self.current.?;
     _ = current.scopes.pop();
-    var closing = std.ArrayList(Chunk.OpCode).init(self.gc.allocator);
+    var closing = std.ArrayListUnmanaged(Chunk.OpCode){};
     current.scope_depth -= 1;
 
     while (current.local_count > 0 and current.locals[current.local_count - 1].depth > current.scope_depth) {
         const local = current.locals[current.local_count - 1];
 
         if (local.captured) {
-            try closing.append(.OP_CLOSE_UPVALUE);
+            try closing.append(self.gc.allocator, .OP_CLOSE_UPVALUE);
         } else {
-            try closing.append(.OP_POP);
+            try closing.append(self.gc.allocator, .OP_POP);
         }
 
         current.local_count -= 1;
     }
 
-    closing.shrinkAndFree(closing.items.len);
+    closing.shrinkAndFree(self.gc.allocator, closing.items.len);
     return closing.items;
 }
 
@@ -1248,7 +1282,13 @@ fn parsePrecedence(self: *Self, precedence: Precedence, hanging: bool) Error!Ast
 
     const prefixRule: ?ParseFn = getRule(self.ast.tokens.items(.tag)[self.current_token.? - 1]).prefix;
     if (prefixRule == null) {
-        self.reportError(.syntax, "Expected expression.");
+        const location = self.ast.tokens.get(self.current_token.? - 1);
+        self.reporter.reportErrorAt(
+            .syntax,
+            location,
+            location,
+            "Expected expression.",
+        );
 
         // TODO: find a way to continue or catch that error
         return CompileError.Unrecoverable;
@@ -1295,7 +1335,12 @@ fn parsePrecedence(self: *Self, precedence: Precedence, hanging: bool) Error!Ast
     }
 
     if (canAssign and (try self.match(.Equal))) {
-        self.reportError(.assignable, "Invalid assignment target.");
+        self.reporter.reportErrorAt(
+            .assignable,
+            self.ast.tokens.get(self.ast.nodes.items(.location)[node]),
+            self.ast.tokens.get(self.ast.nodes.items(.end_location)[node]),
+            "Invalid assignment target.",
+        );
     }
 
     self.opt_jumps = previous_opt_jumps;
@@ -1560,7 +1605,13 @@ fn statement(self: *Self, hanging: bool, loop_scope: ?LoopScope) !?Ast.Node.Inde
 
 fn addLocal(self: *Self, name: Ast.TokenIndex, local_type: *obj.ObjTypeDef, final: bool, mutable: bool) Error!usize {
     if (self.current.?.local_count == std.math.maxInt(u8)) {
-        self.reportError(.locals_count, "Too many local variables in scope.");
+        const location = self.ast.tokens.get(name);
+        self.reporter.reportErrorAt(
+            .locals_count,
+            location,
+            location,
+            "Too many local variables in scope.",
+        );
         return 0;
     }
 
@@ -1600,7 +1651,14 @@ fn addGlobal(self: *Self, name: Ast.TokenIndex, global_type: *obj.ObjTypeDef, fi
     }
 
     if (self.globals.items.len == std.math.maxInt(u24)) {
-        self.reportError(.globals_count, "Too many global variables.");
+        const location = self.ast.tokens.get(name);
+
+        self.reporter.reportErrorAt(
+            .globals_count,
+            location,
+            location,
+            "Too many global variables.",
+        );
         return 0;
     }
 
@@ -1612,6 +1670,7 @@ fn addGlobal(self: *Self, name: Ast.TokenIndex, global_type: *obj.ObjTypeDef, fi
     qualified_name.shrinkAndFree(qualified_name.items.len);
 
     try self.globals.append(
+        self.gc.allocator,
         .{
             .name = qualified_name.items,
             .type_def = global_type,
@@ -1648,10 +1707,16 @@ fn resolveLocal(self: *Self, frame: *Frame, name: Ast.TokenIndex) !?usize {
         var local = &frame.locals[i];
         if (std.mem.eql(u8, lexeme, lexemes[local.name])) {
             if (local.depth == -1) {
-                self.reportErrorFmt(
+                const location = self.ast.tokens.get(local.name);
+
+                self.reporter.reportErrorFmt(
                     .local_initializer,
+                    location,
+                    location,
                     "Can't read local variable `{s}` in its own initializer.",
-                    .{lexeme},
+                    .{
+                        lexeme,
+                    },
                 );
             }
 
@@ -1691,8 +1756,15 @@ pub fn resolveGlobal(self: *Self, name: []const Ast.TokenIndex) Error!?usize {
             !global.hidden)
         {
             if (!global.initialized) {
-                self.reportErrorFmt(
+                const location = self.ast.tokens.get(global.name[0]);
+
+                self.reporter.reportErrorFmt(
                     .global_initializer,
+                    location,
+                    if (global.name.len > 1)
+                        self.ast.tokens.get(global.name[global.name.len - 1])
+                    else
+                        location,
                     "Can't read global `{s}` variable in its own initializer.",
                     .{
                         lexemes[global.name[global.name.len - 1]],
@@ -1789,6 +1861,7 @@ fn resolvePlaceholderWithRelation(
                 self.reporter.reportErrorFmt(
                     .callable,
                     self.ast.tokens.get(child_placeholder.where),
+                    self.ast.tokens.get(child_placeholder.where_end),
                     "`{s}` can't be called",
                     .{
                         try resolved_type.toStringAlloc(self.gc.allocator),
@@ -1809,6 +1882,7 @@ fn resolvePlaceholderWithRelation(
                 self.reporter.reportErrorFmt(
                     .callable,
                     self.ast.tokens.get(child_placeholder.where),
+                    self.ast.tokens.get(child_placeholder.where_end),
                     "`{s}` can't be called",
                     .{
                         try resolved_type.toStringAlloc(self.gc.allocator),
@@ -1846,6 +1920,7 @@ fn resolvePlaceholderWithRelation(
                 self.reporter.reportErrorFmt(
                     .map_key_type,
                     self.ast.tokens.get(child_placeholder.where),
+                    self.ast.tokens.get(child_placeholder.where_end),
                     "`{s}` can't be subscripted",
                     .{
                         try resolved_type.toStringAlloc(self.gc.allocator),
@@ -1877,6 +1952,7 @@ fn resolvePlaceholderWithRelation(
                 self.reporter.reportErrorFmt(
                     .map_key_type,
                     self.ast.tokens.get(child_placeholder.where),
+                    self.ast.tokens.get(child_placeholder.where_end),
                     "`{s}` can't be subscripted",
                     .{
                         try resolved_type.toStringAlloc(self.gc.allocator),
@@ -1902,6 +1978,7 @@ fn resolvePlaceholderWithRelation(
                 self.reporter.reportErrorFmt(
                     .map_key_type,
                     self.ast.tokens.get(child_placeholder.where),
+                    self.ast.tokens.get(child_placeholder.where_end),
                     "Bad key type for `{s}`",
                     .{
                         try resolved_type.toStringAlloc(self.gc.allocator),
@@ -1967,8 +2044,10 @@ fn resolvePlaceholderWithRelation(
                             field.final,
                         );
                     } else {
-                        self.reportErrorFmt(
+                        self.reporter.reportErrorFmt(
                             .property_does_not_exists,
+                            self.ast.tokens.get(child.resolved_type.?.Placeholder.where),
+                            self.ast.tokens.get(child.resolved_type.?.Placeholder.where_end),
                             "`{s}` has no static field `{s}`",
                             .{
                                 object_def.name.string,
@@ -1989,8 +2068,10 @@ fn resolvePlaceholderWithRelation(
                             field.final,
                         );
                     } else {
-                        self.reportErrorFmt(
+                        self.reporter.reportErrorFmt(
                             .property_does_not_exists,
+                            self.ast.tokens.get(child.resolved_type.?.Placeholder.where),
+                            self.ast.tokens.get(child.resolved_type.?.Placeholder.where_end),
                             "`{s}` has no field `{s}`",
                             .{
                                 object_def.name.string,
@@ -2007,8 +2088,10 @@ fn resolvePlaceholderWithRelation(
                     if (f_def.buzz_type.get(child_placeholder_name)) |field| {
                         try self.resolvePlaceholder(child, field, false);
                     } else {
-                        self.reportErrorFmt(
+                        self.reporter.reportErrorFmt(
                             .property_does_not_exists,
+                            self.ast.tokens.get(child.resolved_type.?.Placeholder.where),
+                            self.ast.tokens.get(child.resolved_type.?.Placeholder.where_end),
                             "`{s}` has no field `{s}`",
                             .{
                                 f_def.name.string,
@@ -2025,8 +2108,10 @@ fn resolvePlaceholderWithRelation(
                     if (protocol_def.methods.get(child_placeholder_name)) |method_def| {
                         try self.resolvePlaceholder(child, method_def.type_def, true);
                     } else {
-                        self.reportErrorFmt(
+                        self.reporter.reportErrorFmt(
                             .property_does_not_exists,
+                            self.ast.tokens.get(child.resolved_type.?.Placeholder.where),
+                            self.ast.tokens.get(child.resolved_type.?.Placeholder.where_end),
                             "`{s}` has no method `{s}`",
                             .{
                                 protocol_def.name.string,
@@ -2071,7 +2156,8 @@ fn resolvePlaceholderWithRelation(
                     } else {
                         self.reporter.reportErrorAt(
                             .property_does_not_exists,
-                            self.ast.tokens.get(child_placeholder.where),
+                            self.ast.tokens.get(child.resolved_type.?.Placeholder.where),
+                            self.ast.tokens.get(child.resolved_type.?.Placeholder.where_end),
                             "Enum instance only has field `value`",
                         );
                         return;
@@ -2081,6 +2167,7 @@ fn resolvePlaceholderWithRelation(
                     self.reporter.reportErrorFmt(
                         .field_access,
                         self.ast.tokens.get(child_placeholder.where),
+                        self.ast.tokens.get(child_placeholder.where_end),
                         "`{s}` can't be field accessed",
                         .{
                             try resolved_type.toStringAlloc(self.gc.allocator),
@@ -2095,6 +2182,7 @@ fn resolvePlaceholderWithRelation(
                 self.reporter.reportErrorAt(
                     .final,
                     self.ast.tokens.get(child_placeholder.where),
+                    self.ast.tokens.get(child_placeholder.where_end),
                     "Is final.",
                 );
                 return;
@@ -2224,7 +2312,14 @@ fn addUpvalue(self: *Self, frame: *Frame, index: usize, is_local: bool) Error!us
     }
 
     if (upvalue_count == std.math.maxInt(u8)) {
-        self.reportError(.closures_count, "Too many closure variables in function.");
+        const location = self.ast.tokens.get(self.current_token.? - 1);
+
+        self.reporter.reportErrorAt(
+            .closures_count,
+            location,
+            location,
+            "Too many closure variables in function.",
+        );
         return 0;
     }
 
@@ -2280,10 +2375,15 @@ fn declareVariable(
                     !std.mem.startsWith(u8, name_lexeme, "$") and
                     std.mem.eql(u8, name_lexeme, lexemes[local.name]))
                 {
+                    const location = self.ast.tokens.get(name);
+                    const decl_location = self.ast.tokens.get(local.name);
+
                     self.reporter.reportWithOrigin(
                         .variable_already_exists,
-                        self.ast.tokens.get(name),
-                        self.ast.tokens.get(local.name),
+                        location,
+                        location,
+                        decl_location,
+                        decl_location,
                         "A variable named `{s}` already exists",
                         .{name_lexeme},
                         null,
@@ -2336,7 +2436,24 @@ fn declareVariable(
 
                         return index;
                     } else {
-                        self.reportError(.variable_already_exists, "A global with the same name already exists.");
+                        const location = self.ast.tokens.get(name);
+                        const decl_location = self.ast.tokens.get(global.name[0]);
+
+                        self.reporter.reportWithOrigin(
+                            .variable_already_exists,
+                            location,
+                            location,
+                            decl_location,
+                            if (global.name.len > 1)
+                                self.ast.tokens.get(global.name[global.name.len - 1])
+                            else
+                                decl_location,
+                            "A global named `{s}` already exists",
+                            .{
+                                location.lexeme,
+                            },
+                            null,
+                        );
                     }
                 }
             }
@@ -2357,7 +2474,7 @@ fn parseVariable(
     variable_type: *obj.ObjTypeDef,
     final: bool,
     mutable: bool,
-    error_message: []const u8,
+    comptime error_message: []const u8,
 ) !usize {
     if (identifier == null) {
         try self.consume(.Identifier, error_message);
@@ -2392,6 +2509,7 @@ fn declarePlaceholder(self: *Self, name: Ast.TokenIndex, placeholder: ?*obj.ObjT
                 .def_type = .Placeholder,
                 .resolved_type = .{
                     .Placeholder = obj.PlaceholderDef.init(
+                        name,
                         name,
                         null,
                     ),
@@ -2467,6 +2585,7 @@ fn parseTypeDef(
             self.reporter.report(
                 .mutable_forbidden,
                 self.ast.tokens.get(mutable_token),
+                self.ast.tokens.get(self.current_token.? - 1),
                 "`str` can't be mutable",
             );
         }
@@ -2494,6 +2613,7 @@ fn parseTypeDef(
             self.reporter.report(
                 .mutable_forbidden,
                 self.ast.tokens.get(mutable_token),
+                self.ast.tokens.get(self.current_token.? - 1),
                 "`pat` can't be mutable",
             );
         }
@@ -2521,6 +2641,7 @@ fn parseTypeDef(
             self.reporter.report(
                 .mutable_forbidden,
                 self.ast.tokens.get(mutable_token),
+                self.ast.tokens.get(self.current_token.? - 1),
                 "`ud` can't be mutable",
             );
         }
@@ -2548,6 +2669,7 @@ fn parseTypeDef(
             self.reporter.report(
                 .mutable_forbidden,
                 self.ast.tokens.get(mutable_token),
+                self.ast.tokens.get(self.current_token.? - 1),
                 "`type` can't be mutable",
             );
         }
@@ -2573,6 +2695,7 @@ fn parseTypeDef(
             self.reporter.report(
                 .mutable_forbidden,
                 self.ast.tokens.get(mutable_token),
+                self.ast.tokens.get(self.current_token.? - 1),
                 "`void` can't be mutable",
             );
         }
@@ -2595,6 +2718,7 @@ fn parseTypeDef(
             self.reporter.report(
                 .mutable_forbidden,
                 self.ast.tokens.get(mutable_token),
+                self.ast.tokens.get(self.current_token.? - 1),
                 "`int` can't be mutable",
             );
         }
@@ -2622,6 +2746,7 @@ fn parseTypeDef(
             self.reporter.report(
                 .mutable_forbidden,
                 self.ast.tokens.get(mutable_token),
+                self.ast.tokens.get(self.current_token.? - 1),
                 "`double` can't be mutable",
             );
         }
@@ -2649,6 +2774,7 @@ fn parseTypeDef(
             self.reporter.report(
                 .mutable_forbidden,
                 self.ast.tokens.get(mutable_token),
+                self.ast.tokens.get(self.current_token.? - 1),
                 "`bool` can't be mutable",
             );
         }
@@ -2676,6 +2802,7 @@ fn parseTypeDef(
             self.reporter.report(
                 .mutable_forbidden,
                 self.ast.tokens.get(mutable_token),
+                self.ast.tokens.get(self.current_token.? - 1),
                 "`rg` can't be mutable",
             );
         }
@@ -2797,13 +2924,19 @@ fn parseTypeDef(
             },
         );
     } else {
-        self.reportErrorAtCurrent(.syntax, "Expected type definition.");
+        const location = self.ast.tokens.get(self.current_token.? - 1);
+        self.reporter.reportErrorAt(
+            .syntax,
+            location,
+            location,
+            "Expected type definition.",
+        );
 
         return self.ast.appendNode(
             .{
                 .tag = .SimpleType,
-                .location = undefined,
-                .end_location = undefined,
+                .location = self.current_token.? - 1,
+                .end_location = self.current_token.? - 1,
                 .type_def = try self.gc.type_registry.getTypeDef(
                     .{
                         .optional = try self.match(.Question),
@@ -2828,7 +2961,12 @@ fn parseFiberType(self: *Self, generic_types: ?std.AutoArrayHashMap(*obj.ObjStri
 
     const yield_type_def = self.ast.nodes.items(.type_def)[yield_type].?;
     if (!yield_type_def.optional and yield_type_def.def_type != .Void) {
-        self.reportError(.yield_type, "Expected optional type or void");
+        self.reportErrorAtNode(
+            .yield_type,
+            yield_type,
+            "Expected optional type or void",
+            .{},
+        );
     }
 
     try self.consume(.Greater, "Expected `>` after fiber yield type");
@@ -2886,9 +3024,7 @@ fn parseListType(self: *Self, generic_types: ?std.AutoArrayHashMap(*obj.ObjStrin
             .end_location = self.current_token.? - 1,
             .type_def = list_type_def,
             .components = .{
-                .ListType = .{
-                    .item_type = item_type,
-                },
+                .ListType = item_type,
             },
         },
     );
@@ -3013,10 +3149,16 @@ fn parseFunctionType(self: *Self, parent_generic_types: ?std.AutoArrayHashMap(*o
                     ),
                 );
             } else {
-                self.reportErrorFmt(
+                const location = self.ast.tokens.get(generic_identifier);
+
+                self.reporter.reportErrorFmt(
                     .generic_type,
+                    location,
+                    location,
                     "Generic type `{s}` already defined",
-                    .{self.ast.tokens.items(.lexeme)[self.current_token.? - 1]},
+                    .{
+                        self.ast.tokens.items(.lexeme)[self.current_token.? - 1],
+                    },
                 );
             }
 
@@ -3026,7 +3168,12 @@ fn parseFunctionType(self: *Self, parent_generic_types: ?std.AutoArrayHashMap(*o
         }
 
         if (generic_types.count() == 0) {
-            self.reportError(.generic_type, "Expected at least one generic type");
+            self.reporter.reportErrorAt(
+                .generic_type,
+                self.ast.tokens.get(start_location),
+                self.ast.tokens.get(self.current_token.? - 1),
+                "Expected at least one generic type",
+            );
         }
 
         try self.consume(.Greater, "Expected `>` after generic types list");
@@ -3043,7 +3190,12 @@ fn parseFunctionType(self: *Self, parent_generic_types: ?std.AutoArrayHashMap(*o
         while (true) {
             arity += 1;
             if (arity > std.math.maxInt(u8)) {
-                self.reportErrorAtCurrent(.arguments_count, "Can't have more than 255 arguments.");
+                self.reporter.reportErrorAt(
+                    .arguments_count,
+                    self.ast.tokens.get(start_location),
+                    self.ast.tokens.get(self.current_token.? - 1),
+                    "Can't have more than 255 arguments.",
+                );
             }
 
             try self.consume(.Identifier, "Expected argument name");
@@ -3074,9 +3226,11 @@ fn parseFunctionType(self: *Self, parent_generic_types: ?std.AutoArrayHashMap(*o
                 }
 
                 if (!self.ast.slice().isConstant(expr)) {
-                    self.reportError(
+                    self.reportErrorAtNode(
                         .constant_default,
+                        expr,
                         "Default parameters must be constant values.",
+                        .{},
                     );
                 }
 
@@ -3135,7 +3289,12 @@ fn parseFunctionType(self: *Self, parent_generic_types: ?std.AutoArrayHashMap(*o
             try error_types.append(error_type_def);
 
             if (error_type_def.optional) {
-                self.reportError(.error_type, "Error type can't be optional");
+                self.reportErrorAtNode(
+                    .error_type,
+                    error_type,
+                    "Error type can't be optional",
+                    .{},
+                );
             }
 
             if (!expects_multiple_error_types or !(try self.match(.Comma))) {
@@ -3257,16 +3416,20 @@ fn parseObjType(self: *Self, generic_types: ?std.AutoArrayHashMap(*obj.ObjString
             obj_is_tuple = true;
 
             if (obj_is_not_tuple) {
-                self.reportErrorAtCurrent(
+                self.reportErrorAtNode(
                     .mix_tuple,
+                    property_type,
                     "Can't mix tuple notation and regular properties in anonymous object initialization",
+                    .{},
                 );
             }
 
             if (tuple_index >= 4) {
-                self.reportErrorAtCurrent(
+                self.reportErrorAtNode(
                     .tuple_limit,
+                    property_type,
                     "Tuples can't have more than 4 elements",
+                    .{},
                 );
             }
 
@@ -3275,15 +3438,24 @@ fn parseObjType(self: *Self, generic_types: ?std.AutoArrayHashMap(*obj.ObjString
             obj_is_not_tuple = true;
 
             if (obj_is_tuple) {
-                self.reportErrorAtCurrent(
+                self.reportErrorAtNode(
                     .mix_tuple,
+                    property_type,
                     "Can't mix tuple notation and regular properties in anonymous object initialization",
+                    .{},
                 );
             }
         }
 
         if (!is_tuple and field_names.get(property_name_lexeme) != null) {
-            self.reportError(.property_already_exists, "A property with that name already exists.");
+            const location = self.ast.tokens.get(property_name);
+
+            self.reporter.reportErrorAt(
+                .property_already_exists,
+                location,
+                location,
+                "A property with that name already exists.",
+            );
         }
 
         if (!self.check(.RightBrace) or self.check(.Comma)) {
@@ -3350,9 +3522,11 @@ fn parseUserType(self: *Self, instance: bool, mutable: bool) Error!Ast.Node.Inde
             const imported_from = global.imported_from.?;
 
             try self.script_imports.put(
+                self.gc.allocator,
                 imported_from,
                 .{
                     .location = self.script_imports.get(imported_from).?.location,
+                    .end_location = self.script_imports.get(imported_from).?.end_location,
                     .referenced = true,
                 },
             );
@@ -3366,6 +3540,7 @@ fn parseUserType(self: *Self, instance: bool, mutable: bool) Error!Ast.Node.Inde
                 .def_type = .Placeholder,
                 .resolved_type = .{
                     .Placeholder = obj.PlaceholderDef.init(
+                        user_type_name[user_type_name.len - 1],
                         user_type_name[user_type_name.len - 1],
                         null,
                     ),
@@ -3411,7 +3586,13 @@ fn parseUserType(self: *Self, instance: bool, mutable: bool) Error!Ast.Node.Inde
         try self.consume(.Greater, "Expected `>` after generic types list");
 
         if (resolved_generics.items.len == 0) {
-            self.reportErrorAtCurrent(.generic_type, "Expected at least one type");
+            const location = self.ast.tokens.get(self.current_token.? - 1);
+            self.reporter.reportErrorAt(
+                .generic_type,
+                location,
+                location,
+                "Expected at least one type",
+            );
         }
 
         var_type = try var_type.?.populateGenerics(
@@ -3428,9 +3609,7 @@ fn parseUserType(self: *Self, instance: bool, mutable: bool) Error!Ast.Node.Inde
                 .end_location = self.current_token.? - 1,
                 .type_def = var_type,
                 .components = .{
-                    .GenericResolveType = .{
-                        .resolved_types = generic_nodes.items,
-                    },
+                    .GenericResolveType = generic_nodes.items,
                 },
             },
         );
@@ -3472,7 +3651,12 @@ fn parseGenericResolve(self: *Self, callee_type_def: *obj.ObjTypeDef, expr: ?Ast
         const resolved_generic = try self.parseTypeDef(null, true);
 
         if (callee_type_def.def_type == .Any) {
-            self.reportError(.any_generic, "`any` not allowed as generic type");
+            self.reportErrorAtNode(
+                .any_generic,
+                resolved_generic,
+                "`any` not allowed as generic type",
+                .{},
+            );
         }
 
         try resolved_generics.append(resolved_generic);
@@ -3508,9 +3692,7 @@ fn parseGenericResolve(self: *Self, callee_type_def: *obj.ObjTypeDef, expr: ?Ast
             .components = if (expr) |e| .{
                 .GenericResolve = e,
             } else .{
-                .GenericResolveType = .{
-                    .resolved_types = resolved_generics.items,
-                },
+                .GenericResolveType = resolved_generics.items,
             },
         },
     );
@@ -3545,6 +3727,7 @@ fn subscript(self: *Self, can_assign: bool, subscripted: Ast.Node.Index) Error!A
                             .def_type = .Placeholder,
                             .resolved_type = .{
                                 .Placeholder = obj.PlaceholderDef.init(
+                                    start_location,
                                     self.current_token.? - 1,
                                     null,
                                 ),
@@ -3564,8 +3747,9 @@ fn subscript(self: *Self, can_assign: bool, subscripted: Ast.Node.Index) Error!A
                 .String => subscripted_type_def = type_def,
                 .List => subscripted_type_def = type_def.resolved_type.?.List.item_type,
                 .Map => subscripted_type_def = try type_def.resolved_type.?.Map.value_type.cloneOptional(&self.gc.type_registry),
-                else => self.reportErrorFmt(
+                else => self.reportErrorAtNode(
                     .subscriptable,
+                    subscripted,
                     "Type `{s}` is not subscriptable",
                     .{
                         try type_def.toStringAlloc(self.gc.allocator),
@@ -3573,7 +3757,12 @@ fn subscript(self: *Self, can_assign: bool, subscripted: Ast.Node.Index) Error!A
                 ),
             }
         } else {
-            self.reportError(.subscriptable, "Optional type is not subscriptable");
+            self.reportErrorAtNode(
+                .subscriptable,
+                subscripted,
+                "Optional type is not subscriptable",
+                .{},
+            );
         }
     }
 
@@ -3702,7 +3891,13 @@ fn list(self: *Self, _: bool) Error!Ast.Node.Index {
         }
 
         if (items.items.len > std.math.maxInt(u24)) {
-            self.reportErrorAtCurrent(.syntax, "Too many elements in list initialization");
+            const location = self.ast.tokens.get(self.current_token.? - 1);
+            self.reporter.reportErrorAt(
+                .syntax,
+                location,
+                location,
+                "Too many elements in list initialization",
+            );
         }
 
         if (self.ast.tokens.items(.tag)[self.current_token.? - 1] != .RightBracket) {
@@ -3710,7 +3905,13 @@ fn list(self: *Self, _: bool) Error!Ast.Node.Index {
                 self.reporter.panic_mode = true;
                 self.reporter.last_error = .unclosed;
             } else {
-                self.reportErrorAtCurrent(.unclosed, "Expected `]`");
+                const location = self.ast.tokens.get(self.current_token.? - 1);
+                self.reporter.reportErrorAt(
+                    .unclosed,
+                    location,
+                    location,
+                    "Expected `]`",
+                );
             }
         }
 
@@ -3819,6 +4020,8 @@ fn argumentList(self: *Self) ![]Ast.Call.Argument {
     var arguments = std.ArrayList(Ast.Call.Argument).init(self.gc.allocator);
     defer arguments.shrinkAndFree(arguments.items.len);
 
+    const start_location = self.current_token.? - 1;
+
     var arg_count: u8 = 0;
     while (!(try self.match(.RightParen)) and !(try self.match(.Eof))) {
         var hanging = false;
@@ -3835,7 +4038,13 @@ fn argumentList(self: *Self) ![]Ast.Call.Argument {
                 try self.consume(.Colon, "Expected `:` after argument name.");
             }
         } else if (arg_count != 0 and arg_name == null) {
-            self.reportError(.syntax, "Expected argument name.");
+            const location = self.ast.tokens.get(self.current_token.? - 1);
+            self.reporter.reportErrorAt(
+                .syntax,
+                location,
+                location,
+                "Expected argument name.",
+            );
             break;
         }
 
@@ -3852,7 +4061,12 @@ fn argumentList(self: *Self) ![]Ast.Call.Argument {
         );
 
         if (arg_count == std.math.maxInt(u8)) {
-            self.reportError(.arguments_count, "Can't have more than 255 arguments.");
+            self.reporter.reportErrorAt(
+                .arguments_count,
+                self.ast.tokens.get(start_location),
+                self.ast.tokens.get(self.current_token.? - 1),
+                "Can't have more than 255 arguments.",
+            );
 
             return arguments.items;
         }
@@ -3889,10 +4103,11 @@ fn call(self: *Self, _: bool, callee: Ast.Node.Index) Error!Ast.Node.Index {
     // If null, create placeholder
     if (type_def == null) {
         if (callee_type_def == null or callee_type_def.?.def_type != .Placeholder) {
-            self.reporter.reportErrorAt(
+            self.reportErrorAtNode(
                 .callable,
-                self.ast.tokens.get(self.ast.nodes.items(.location)[callee]),
+                callee,
                 "Can't be called",
+                .{},
             );
 
             type_def = self.gc.type_registry.void_type;
@@ -3903,6 +4118,7 @@ fn call(self: *Self, _: bool, callee: Ast.Node.Index) Error!Ast.Node.Index {
                     .resolved_type = .{
                         .Placeholder = obj.PlaceholderDef.init(
                             start_location,
+                            self.current_token.? - 1,
                             null,
                         ),
                     },
@@ -4070,7 +4286,13 @@ fn map(self: *Self, _: bool) Error!Ast.Node.Index {
         }
 
         if (entries.items.len > std.math.maxInt(u24)) {
-            self.reportErrorAtCurrent(.syntax, "Too many entries in map initialization");
+            const location = self.ast.tokens.get(self.current_token.? - 1);
+            self.reporter.reportErrorAt(
+                .syntax,
+                location,
+                location,
+                "Too many entries in map initialization",
+            );
         }
 
         key_type_def = key_type_def orelse common_key_type;
@@ -4122,10 +4344,14 @@ fn objectInit(self: *Self, _: bool, object: Ast.Node.Index) Error!Ast.Node.Index
         const property_name = self.current_token.? - 1;
         const property_name_lexeme = self.ast.tokens.items(.lexeme)[property_name];
         if (property_names.get(property_name_lexeme)) |previous_decl| {
+            const location = self.ast.tokens.get(property_name);
+            const decl_location = self.ast.tokens.get(previous_decl);
             self.reporter.reportWithOrigin(
                 .property_already_exists,
-                self.ast.tokens.get(property_name),
-                self.ast.tokens.get(previous_decl),
+                location,
+                location,
+                decl_location,
+                decl_location,
                 "Property `{s}` was already defined",
                 .{property_name_lexeme},
                 "Defined here",
@@ -4143,6 +4369,7 @@ fn objectInit(self: *Self, _: bool, object: Ast.Node.Index) Error!Ast.Node.Index
                     .def_type = .Placeholder,
                     .resolved_type = .{
                         .Placeholder = obj.PlaceholderDef.init(
+                            property_name,
                             property_name,
                             null,
                         ),
@@ -4256,17 +4483,21 @@ fn anonymousObjectInit(self: *Self, _: bool) Error!Ast.Node.Index {
                 obj_is_tuple = true;
 
                 if (obj_is_not_tuple) {
-                    self.reportErrorAtCurrent(
+                    self.reportErrorAtNode(
                         .mix_tuple,
+                        expr,
                         "Can't mix tuple notation and regular properties in anonymous object initialization",
+                        .{},
                     );
                 }
             }
 
             if (is_tuple and tuple_index >= 4) {
-                self.reportErrorAtCurrent(
+                self.reportErrorAtNode(
                     .tuple_limit,
+                    expr,
                     "Tuples can't have more than 4 elements",
+                    .{},
                 );
             }
 
@@ -4324,20 +4555,29 @@ fn anonymousObjectInit(self: *Self, _: bool) Error!Ast.Node.Index {
 
             obj_is_not_tuple = true;
 
+            const property_name = self.current_token.? - 1;
+
             if (obj_is_tuple) {
-                self.reportErrorAtCurrent(
+                const location = self.ast.tokens.get(property_name);
+                self.reporter.reportErrorAt(
                     .mix_tuple,
+                    location,
+                    location,
                     "Can't mix tuple notation and regular properties in anonymous object initialization",
                 );
             }
 
-            const property_name = self.current_token.? - 1;
             const property_name_lexeme = self.ast.tokens.items(.lexeme)[property_name];
             if (property_names.get(property_name_lexeme)) |previous_decl| {
+                const location = self.ast.tokens.get(property_name);
+                const decl_location = self.ast.tokens.get(previous_decl);
+
                 self.reporter.reportWithOrigin(
                     .property_already_exists,
-                    self.ast.tokens.get(property_name),
-                    self.ast.tokens.get(previous_decl),
+                    location,
+                    location,
+                    decl_location,
+                    decl_location,
                     "Property `{s}` was already defined",
                     .{property_name_lexeme},
                     "Defined here",
@@ -4469,7 +4709,13 @@ fn dot(self: *Self, can_assign: bool, callee: Ast.Node.Index) Error!Ast.Node.Ind
                         self.ast.nodes.items(.type_def)[dot_node] = member;
                     }
                 } else {
-                    self.reportError(.property_does_not_exists, "String property doesn't exist.");
+                    const location = self.ast.tokens.get(member_name_token);
+                    self.reporter.reportErrorAt(
+                        .property_does_not_exists,
+                        location,
+                        location,
+                        "String property doesn't exist.",
+                    );
                 }
             },
             .Range => {
@@ -4509,7 +4755,13 @@ fn dot(self: *Self, can_assign: bool, callee: Ast.Node.Index) Error!Ast.Node.Ind
                         self.ast.nodes.items(.type_def)[dot_node] = member;
                     }
                 } else {
-                    self.reportError(.property_does_not_exists, "Range property doesn't exist.");
+                    const location = self.ast.tokens.get(member_name_token);
+                    self.reporter.reportErrorAt(
+                        .property_does_not_exists,
+                        location,
+                        location,
+                        "Range property doesn't exist.",
+                    );
                 }
             },
             .Pattern => {
@@ -4549,7 +4801,13 @@ fn dot(self: *Self, can_assign: bool, callee: Ast.Node.Index) Error!Ast.Node.Ind
                         self.ast.nodes.items(.type_def)[dot_node] = member;
                     }
                 } else {
-                    self.reportError(.property_does_not_exists, "Pattern property doesn't exist.");
+                    const location = self.ast.tokens.get(member_name_token);
+                    self.reporter.reportErrorAt(
+                        .property_does_not_exists,
+                        location,
+                        location,
+                        "Pattern property doesn't exist.",
+                    );
                 }
             },
             .Fiber => {
@@ -4589,7 +4847,13 @@ fn dot(self: *Self, can_assign: bool, callee: Ast.Node.Index) Error!Ast.Node.Ind
                         self.ast.nodes.items(.type_def)[dot_node] = member;
                     }
                 } else {
-                    self.reportError(.property_does_not_exists, "Fiber property doesn't exist.");
+                    const location = self.ast.tokens.get(member_name_token);
+                    self.reporter.reportErrorAt(
+                        .property_does_not_exists,
+                        location,
+                        location,
+                        "Fiber property doesn't exist.",
+                    );
                 }
             },
             .Object => {
@@ -4598,8 +4862,11 @@ fn dot(self: *Self, can_assign: bool, callee: Ast.Node.Index) Error!Ast.Node.Ind
                 var property_type = if (property_field) |field| field.type_def else null;
 
                 if (property_field != null and !property_field.?.static) {
-                    self.reportErrorFmt(
+                    const location = self.ast.tokens.get(member_name_token);
+                    self.reporter.reportErrorFmt(
                         .undefined,
+                        location,
+                        location,
                         "Static property `{s}` is not defined",
                         .{
                             self.ast.tokens.items(.lexeme)[member_name_token],
@@ -4619,6 +4886,7 @@ fn dot(self: *Self, can_assign: bool, callee: Ast.Node.Index) Error!Ast.Node.Ind
                             .def_type = .Placeholder,
                             .resolved_type = .{
                                 .Placeholder = obj.PlaceholderDef.init(
+                                    member_name_token,
                                     member_name_token,
                                     null,
                                 ),
@@ -4643,8 +4911,11 @@ fn dot(self: *Self, can_assign: bool, callee: Ast.Node.Index) Error!Ast.Node.Ind
 
                     property_type = placeholder;
                 } else if (property_type == null) {
-                    self.reportErrorFmt(
+                    const location = self.ast.tokens.get(member_name_token);
+                    self.reporter.reportErrorFmt(
                         .property_does_not_exists,
+                        location,
+                        location,
                         "Static property `{s}` does not exists in {s}",
                         .{
                             member_name,
@@ -4719,8 +4990,11 @@ fn dot(self: *Self, can_assign: bool, callee: Ast.Node.Index) Error!Ast.Node.Ind
 
                     self.ast.nodes.items(.type_def)[dot_node] = field;
                 } else {
-                    self.reportErrorFmt(
+                    const location = self.ast.tokens.get(member_name_token);
+                    self.reporter.reportErrorFmt(
                         .property_does_not_exists,
+                        location,
+                        location,
                         "Property `{s}` does not exists in object `{s}`",
                         .{
                             member_name,
@@ -4748,6 +5022,7 @@ fn dot(self: *Self, can_assign: bool, callee: Ast.Node.Index) Error!Ast.Node.Ind
                             .resolved_type = .{
                                 .Placeholder = obj.PlaceholderDef.init(
                                     member_name_token,
+                                    member_name_token,
                                     null,
                                 ),
                             },
@@ -4772,8 +5047,11 @@ fn dot(self: *Self, can_assign: bool, callee: Ast.Node.Index) Error!Ast.Node.Ind
 
                     property_type = placeholder;
                 } else if (property_type == null) {
-                    self.reportErrorFmt(
+                    const location = self.ast.tokens.get(member_name_token);
+                    self.reporter.reportErrorFmt(
                         .property_does_not_exists,
+                        location,
+                        location,
                         "Property `{s}` does not exists in object `{s}`",
                         .{ member_name, obj_def.name.string },
                     );
@@ -4833,8 +5111,11 @@ fn dot(self: *Self, can_assign: bool, callee: Ast.Node.Index) Error!Ast.Node.Ind
 
                 // Else create placeholder
                 if (method_type == null) {
-                    self.reportErrorFmt(
+                    const location = self.ast.tokens.get(member_name_token);
+                    self.reporter.reportErrorFmt(
                         .property_does_not_exists,
+                        location,
+                        location,
                         "Method `{s}` does not exists in protocol `{s}`",
                         .{
                             member_name,
@@ -4902,9 +5183,11 @@ fn dot(self: *Self, can_assign: bool, callee: Ast.Node.Index) Error!Ast.Node.Ind
                 }
 
                 if (self.ast.nodes.items(.type_def)[dot_node] == null) {
-                    // TODO: reportWithOrigin
-                    self.reportErrorFmt(
+                    const location = self.ast.tokens.get(member_name_token);
+                    self.reporter.reportErrorFmt(
                         .enum_case,
+                        location,
+                        location,
                         "Enum case `{s}` does not exists.",
                         .{
                             member_name,
@@ -4915,7 +5198,13 @@ fn dot(self: *Self, can_assign: bool, callee: Ast.Node.Index) Error!Ast.Node.Ind
             .EnumInstance => {
                 // Only available field is `.value` to get associated value
                 if (!std.mem.eql(u8, member_name, "value")) {
-                    self.reportError(.property_does_not_exists, "Enum provides only field `value`.");
+                    const location = self.ast.tokens.get(member_name_token);
+                    self.reporter.reportErrorAt(
+                        .property_does_not_exists,
+                        location,
+                        location,
+                        "Enum provides only field `value`.",
+                    );
                 }
 
                 self.ast.nodes.items(.components)[dot_node].Dot.member_kind = .Ref;
@@ -4956,7 +5245,13 @@ fn dot(self: *Self, can_assign: bool, callee: Ast.Node.Index) Error!Ast.Node.Ind
                         self.ast.nodes.items(.type_def)[dot_node] = member;
                     }
                 } else {
-                    self.reportError(.property_does_not_exists, "List property doesn't exist.");
+                    const location = self.ast.tokens.get(member_name_token);
+                    self.reporter.reportErrorAt(
+                        .property_does_not_exists,
+                        location,
+                        location,
+                        "List property doesn't exist.",
+                    );
                 }
             },
             .Map => {
@@ -4992,7 +5287,13 @@ fn dot(self: *Self, can_assign: bool, callee: Ast.Node.Index) Error!Ast.Node.Ind
                         self.ast.nodes.items(.type_def)[dot_node] = member;
                     }
                 } else {
-                    self.reportError(.property_does_not_exists, "Map property doesn't exist.");
+                    const location = self.ast.tokens.get(member_name_token);
+                    self.reporter.reportErrorAt(
+                        .property_does_not_exists,
+                        location,
+                        location,
+                        "Map property doesn't exist.",
+                    );
                 }
             },
             .Placeholder => {
@@ -5002,6 +5303,7 @@ fn dot(self: *Self, can_assign: bool, callee: Ast.Node.Index) Error!Ast.Node.Ind
                         .def_type = .Placeholder,
                         .resolved_type = .{
                             .Placeholder = obj.PlaceholderDef.init(
+                                member_name_token,
                                 member_name_token,
                                 null,
                             ),
@@ -5060,9 +5362,9 @@ fn dot(self: *Self, can_assign: bool, callee: Ast.Node.Index) Error!Ast.Node.Ind
                 }
             },
             else => {
-                self.reporter.reportErrorFmt(
+                self.reportErrorAtNode(
                     .field_access,
-                    self.ast.tokens.get(self.ast.nodes.items(.location)[callee]),
+                    callee,
                     "`{s}` is not field accessible",
                     .{
                         try callee_type_def.?.toStringAlloc(self.gc.allocator),
@@ -5416,9 +5718,11 @@ fn namedVariable(self: *Self, name: []const Ast.TokenIndex, can_assign: bool) Er
                 const imported_from = global.imported_from.?;
 
                 try self.script_imports.put(
+                    self.gc.allocator,
                     imported_from,
                     .{
                         .location = self.script_imports.get(imported_from).?.location,
+                        .end_location = self.script_imports.get(imported_from).?.end_location,
                         .referenced = true,
                     },
                 );
@@ -5429,8 +5733,10 @@ fn namedVariable(self: *Self, name: []const Ast.TokenIndex, can_assign: bool) Er
             slot_type = .Global;
 
             if (name.len > 1) {
-                self.reportErrorFmt(
+                self.reporter.reportErrorFmt(
                     .syntax,
+                    self.ast.tokens.get(name[0]),
+                    self.ast.tokens.get(name[name.len - 1]),
                     "`{s}` does not exists in that namespace or namespace does not exists",
                     .{
                         self.ast.tokens.items(.lexeme)[name[0]],
@@ -5452,7 +5758,12 @@ fn namedVariable(self: *Self, name: []const Ast.TokenIndex, can_assign: bool) Er
 
     if (value != null) {
         if (slot_final) {
-            self.reportError(.final, "Can't assign to final variable");
+            self.reporter.reportErrorAt(
+                .final,
+                self.ast.tokens.get(start_location),
+                self.ast.tokens.get(self.ast.nodes.items(.end_location)[value.?]),
+                "Can't assign to final variable",
+            );
         } else if (slot_type == .Local) {
             self.current.?.locals[slot].assigned = true;
         } else if (slot_type == .UpValue) {
@@ -5550,7 +5861,7 @@ fn function(
             .components = .{
                 .Function = .{
                     .id = Ast.Function.nextId(),
-                    .upvalue_binding = .init(self.gc.allocator),
+                    .upvalue_binding = .{},
                     .function_signature = function_signature,
                 },
             },
@@ -5628,11 +5939,14 @@ fn function(
 
                     try generic_types.append(generic_identifier_token);
                 } else {
-                    self.reportErrorFmt(
+                    const location = self.ast.tokens.get(self.current_token.? - 1);
+                    self.reporter.reportErrorFmt(
                         .generic_type,
+                        location,
+                        location,
                         "Generic type `{s}` already defined",
                         .{
-                            self.ast.tokens.items(.lexeme)[self.current_token.? - 1],
+                            location.lexeme,
                         },
                     );
                 }
@@ -5643,8 +5957,11 @@ fn function(
             }
 
             if (function_typedef.resolved_type.?.Function.generic_types.count() == 0) {
-                self.reportError(
+                const location = self.ast.tokens.get(self.current_token.? - 1);
+                self.reporter.reportErrorAt(
                     .generic_type,
+                    location,
+                    location,
                     "Expected at least one generic type",
                 );
             }
@@ -5662,8 +5979,11 @@ fn function(
             while (true) {
                 arity += 1;
                 if (arity > std.math.maxInt(u8)) {
-                    self.reportErrorAtCurrent(
+                    const location = self.ast.tokens.get(self.current_token.? - 1);
+                    self.reporter.reportErrorAt(
                         .arguments_count,
+                        location,
+                        location,
                         "Can't have more than 255 arguments.",
                     );
                 }
@@ -5779,7 +6099,12 @@ fn function(
         const yield_type = self.ast.nodes.items(.type_def)[yield_type_node].?;
 
         if (!yield_type.optional and yield_type.def_type != .Void) {
-            self.reportError(.yield_type, "Expected optional type or void");
+            self.reportErrorAtNode(
+                .yield_type,
+                yield_type_node,
+                "Expected optional type or void",
+                .{},
+            );
         }
 
         function_typedef.resolved_type.?.Function.yield_type = yield_type;
@@ -5815,7 +6140,12 @@ fn function(
             try error_typedefs.append(error_type);
 
             if (error_type.optional) {
-                self.reportError(.error_type, "Error type can't be optional");
+                self.reportErrorAtNode(
+                    .error_type,
+                    error_type_node,
+                    "Error type can't be optional",
+                    .{},
+                );
             }
 
             if (!self.check(end_token) and !self.check(.DoubleArrow)) {
@@ -5829,6 +6159,7 @@ fn function(
     }
 
     self.ast.nodes.items(.components)[function_signature].FunctionType.error_types = error_types.items;
+    self.ast.nodes.items(.end_location)[function_signature] = self.current_token.? - 1;
 
     // Parse body
     if (try self.match(.DoubleArrow)) {
@@ -5843,7 +6174,13 @@ fn function(
         }
     } else if (!function_type.canOmitBody()) {
         if (return_type_node != null and !function_type.canOmitReturn()) {
-            self.reportError(.syntax, "Expected `>` after function argument list.");
+            const location = self.ast.tokens.get(self.current_token.? - 1);
+            self.reporter.reportErrorAt(
+                .syntax,
+                location,
+                location,
+                "Expected `>` after function argument list.",
+            );
         }
 
         try self.consume(.LeftBrace, "Expected `{` before function body.");
@@ -5859,6 +6196,8 @@ fn function(
         if (self.flavor.resolveImports()) {
             const native_opt = if (!is_wasm)
                 try self.importLibSymbol(
+                    self.ast.nodes.items(.location)[function_node],
+                    self.current_token.? - 1,
                     self.script_name,
                     function_typedef.resolved_type.?.Function.name.string,
                 )
@@ -5880,6 +6219,7 @@ fn function(
         var i: usize = 0;
         while (i < self.current.?.upvalue_count) : (i += 1) {
             try self.ast.nodes.items(.components)[function_node].Function.upvalue_binding.put(
+                self.gc.allocator,
                 self.current.?.upvalues[i].index,
                 if (self.current.?.upvalues[i].is_local) true else false,
             );
@@ -5887,6 +6227,7 @@ fn function(
     }
 
     self.ast.nodes.items(.type_def)[function_node] = try self.gc.type_registry.getTypeDef(function_typedef);
+    self.ast.nodes.items(.end_location)[function_node] = self.current_token.? - 1;
 
     return self.endFrame();
 }
@@ -5931,6 +6272,7 @@ fn pattern(self: *Self, _: bool) Error!Ast.Node.Index {
 
         self.reporter.reportErrorFmt(
             .pattern,
+            location,
             location,
             "Could not compile pattern, error at {}: {s}",
             .{
@@ -5981,10 +6323,11 @@ fn asyncCall(self: *Self, _: bool) Error!Ast.Node.Index {
 
     // Expression after `&` must either be a call or a dot call
     if (callable.tag != .Call and (callable.tag != .Dot or callable.components.Dot.member_kind != .Call)) {
-        self.reporter.reportErrorAt(
+        self.reportErrorAtNode(
             .syntax,
-            self.ast.tokens.get(callable.location),
+            callable_node,
             "Expected function call after `async`",
+            .{},
         );
 
         return node;
@@ -6010,6 +6353,7 @@ fn asyncCall(self: *Self, _: bool) Error!Ast.Node.Index {
                 .resolved_type = .{
                     .Placeholder = obj.PlaceholderDef.init(
                         self.current_token.? - 1,
+                        self.current_token.? - 1,
                         null,
                     ),
                 },
@@ -6028,6 +6372,7 @@ fn asyncCall(self: *Self, _: bool) Error!Ast.Node.Index {
                 .def_type = .Placeholder,
                 .resolved_type = .{
                     .Placeholder = obj.PlaceholderDef.init(
+                        self.current_token.? - 1,
                         self.current_token.? - 1,
                         null,
                     ),
@@ -6065,12 +6410,11 @@ fn asyncCall(self: *Self, _: bool) Error!Ast.Node.Index {
                     self.ast.nodes.items(.tag)[call_node],
                 },
             );
-            self.reporter.reportErrorAt(
+            self.reportErrorAtNode(
                 .callable,
-                self.ast.tokens.get(
-                    self.ast.nodes.items(.location)[self.ast.nodes.items(.components)[call_node].Call.callee],
-                ),
+                self.ast.nodes.items(.components)[call_node].Call.callee,
                 "Can't be called",
+                .{},
             );
         } else {
             const return_type = function_type.resolved_type.?.Function.return_type;
@@ -6104,7 +6448,13 @@ fn resumeFiber(self: *Self, _: bool) Error!Ast.Node.Index {
     const start_location = self.current_token.? - 1;
 
     if (self.current.?.scope_depth == 0) {
-        self.reportError(.syntax, "`resume` not allowed in global scope");
+        const location = self.ast.tokens.get(self.current_token.? - 1);
+        self.reporter.reportErrorAt(
+            .syntax,
+            location,
+            location,
+            "`resume` not allowed in global scope",
+        );
     }
 
     const fiber_node = try self.parsePrecedence(.Primary, false);
@@ -6131,6 +6481,7 @@ fn resumeFiber(self: *Self, _: bool) Error!Ast.Node.Index {
                 .resolved_type = .{
                     .Placeholder = obj.PlaceholderDef.init(
                         self.current_token.? - 1,
+                        self.current_token.? - 1,
                         null,
                     ),
                 },
@@ -6147,10 +6498,11 @@ fn resumeFiber(self: *Self, _: bool) Error!Ast.Node.Index {
         self.ast.nodes.items(.type_def)[node] = yield_placeholder;
     } else {
         if (fiber_type.?.def_type != .Fiber) {
-            self.reporter.reportErrorAt(
+            self.reportErrorAtNode(
                 .resumable,
-                self.ast.tokens.get(self.ast.nodes.items(.location)[fiber_node]),
+                fiber_node,
                 "Can't be resumed",
+                .{},
             );
         } else {
             const fiber = fiber_type.?.resolved_type.?.Fiber;
@@ -6169,7 +6521,13 @@ fn resolveFiber(self: *Self, _: bool) Error!Ast.Node.Index {
     const start_location = self.current_token.? - 1;
 
     if (self.current.?.scope_depth == 0) {
-        self.reportError(.syntax, "`resolve` not allowed in global scope");
+        const location = self.ast.tokens.get(self.current_token.? - 1);
+        self.reporter.reportErrorAt(
+            .syntax,
+            location,
+            location,
+            "`resolve` not allowed in global scope",
+        );
     }
 
     const fiber = try self.parsePrecedence(.Primary, false);
@@ -6195,6 +6553,7 @@ fn resolveFiber(self: *Self, _: bool) Error!Ast.Node.Index {
                 .resolved_type = .{
                     .Placeholder = obj.PlaceholderDef.init(
                         self.current_token.? - 1,
+                        self.current_token.? - 1,
                         null,
                     ),
                 },
@@ -6211,10 +6570,11 @@ fn resolveFiber(self: *Self, _: bool) Error!Ast.Node.Index {
         self.ast.nodes.items(.type_def)[node] = return_placeholder;
     } else {
         if (fiber_type.?.def_type != .Fiber) {
-            self.reporter.reportErrorAt(
+            self.reportErrorAtNode(
                 .resolvable,
-                self.ast.tokens.get(self.ast.nodes.items(.location)[fiber]),
+                fiber,
                 "Can't be resolveed",
+                .{},
             );
         } else {
             const fiber_def = fiber_type.?.resolved_type.?.Fiber;
@@ -6232,7 +6592,13 @@ fn yield(self: *Self, _: bool) Error!Ast.Node.Index {
     const start_location = self.current_token.? - 1;
 
     if (self.current.?.scope_depth == 0) {
-        self.reportError(.syntax, "`yield` not allowed in global scope");
+        const location = self.ast.tokens.get(self.current_token.? - 1);
+        self.reporter.reportErrorAt(
+            .syntax,
+            location,
+            location,
+            "`yield` not allowed in global scope",
+        );
     }
 
     const expr = try self.parsePrecedence(.Primary, false);
@@ -6299,16 +6665,16 @@ fn typeOfExpression(self: *Self, _: bool) Error!Ast.Node.Index {
 }
 
 fn mutableExpression(self: *Self, _: bool) Error!Ast.Node.Index {
-    const mut_token = self.current_token.?;
     const expr = try self.parsePrecedence(.Unary, false);
     self.ast.nodes.items(.type_def)[expr] = try self.ast.nodes.items(.type_def)[expr].?.cloneMutable(&self.gc.type_registry, true);
 
     switch (self.ast.nodes.items(.tag)[expr]) {
         .List, .Map, .ObjectInit => {},
-        else => self.reporter.report(
+        else => self.reportErrorAtNode(
             .not_mutable,
-            self.ast.tokens.get(mut_token),
+            expr,
             "Can't be mutable",
+            .{},
         ),
     }
 
@@ -6332,9 +6698,11 @@ fn blockExpression(self: *Self, _: bool) Error!Ast.Node.Index {
 
             if (self.ast.nodes.items(.tag)[stmt] == .Out) {
                 if (out != null) {
-                    self.reportError(
+                    self.reportErrorAtNode(
                         .syntax,
+                        stmt,
                         "Only one `out` statement is allowed in block expression",
+                        .{},
                     );
                 }
 
@@ -6344,10 +6712,22 @@ fn blockExpression(self: *Self, _: bool) Error!Ast.Node.Index {
     }
 
     if (out != null and statements.getLastOrNull() != out) {
-        self.reportError(
-            .syntax,
-            "Last block expression statement must be `out`",
-        );
+        if (statements.getLastOrNull()) |stmt| {
+            self.reportErrorAtNode(
+                .syntax,
+                stmt,
+                "Last block expression statement must be `out`",
+                .{},
+            );
+        } else {
+            const location = self.ast.tokens.get(self.current_token.? - 1);
+            self.reporter.reportErrorAt(
+                .syntax,
+                location,
+                location,
+                "Last block expression statement must be `out`",
+            );
+        }
     }
 
     try self.consume(.RightBrace, "Expected `}` at end of block expression");
@@ -6477,7 +6857,12 @@ fn funDeclaration(self: *Self) Error!Ast.Node.Index {
 
     if (is_main) {
         if (function_type == .Extern) {
-            self.reportError(.extern_main, "`main` can't be `extern`.");
+            self.reporter.reportErrorAt(
+                .extern_main,
+                self.ast.tokens.get(start_location),
+                self.ast.tokens.get(name_token),
+                "`main` can't be `extern`.",
+            );
         }
 
         function_type = .EntryPoint;
@@ -6515,6 +6900,7 @@ fn funDeclaration(self: *Self) Error!Ast.Node.Index {
             self.reporter.reportErrorFmt(
                 .main_signature,
                 self.ast.tokens.get(self.ast.nodes.items(.location)[function_node]),
+                self.ast.tokens.get(self.ast.nodes.items(.end_location)[function_node]),
                 "Expected `main` signature to be `fun main([ args: [str] ]) > void|int` got {s}",
                 .{
                     main_def_str,
@@ -6554,7 +6940,13 @@ fn exportStatement(self: *Self) Error!Ast.Node.Index {
     const start_location = self.current_token.? - 1;
 
     if (self.namespace == null) {
-        self.reportError(.syntax, "A exporting script must provide a namespace");
+        const location = self.ast.tokens.get(self.current_token.? - 1);
+        self.reporter.reportErrorAt(
+            .syntax,
+            location,
+            location,
+            "A exporting script must provide a namespace",
+        );
     }
 
     if (self.check(.Identifier) and
@@ -6573,9 +6965,11 @@ fn exportStatement(self: *Self) Error!Ast.Node.Index {
                 const imported_from = global.imported_from.?;
 
                 try self.script_imports.put(
+                    self.gc.allocator,
                     imported_from,
                     .{
                         .location = self.script_imports.get(imported_from).?.location,
+                        .end_location = self.script_imports.get(imported_from).?.end_location,
                         .referenced = true,
                     },
                 );
@@ -6642,7 +7036,12 @@ fn exportStatement(self: *Self) Error!Ast.Node.Index {
         self.exporting = false;
     }
 
-    self.reportError(.syntax, "Expected identifier or declaration.");
+    self.reporter.reportErrorAt(
+        .syntax,
+        self.ast.tokens.get(start_location),
+        self.ast.tokens.get(self.current_token.? - 1),
+        "Expected identifier or declaration.",
+    );
 
     return try self.ast.appendNode(
         .{
@@ -6663,7 +7062,13 @@ fn exportStatement(self: *Self) Error!Ast.Node.Index {
 
 fn objectDeclaration(self: *Self) Error!Ast.Node.Index {
     if (self.current.?.scope_depth > 0) {
-        self.reportError(.syntax, "Object must be defined at top-level.");
+        const location = self.ast.tokens.get(self.current_token.? - 1);
+        self.reporter.reportErrorAt(
+            .syntax,
+            location,
+            location,
+            "Object must be defined at top-level.",
+        );
     }
 
     const start_location = self.current_token.? - 1;
@@ -6676,7 +7081,13 @@ fn objectDeclaration(self: *Self) Error!Ast.Node.Index {
     if (try self.match(.Less)) {
         while (!self.check(.Greater) and !self.check(.Eof)) : (protocol_count += 1) {
             if (protocol_count > std.math.maxInt(u8)) {
-                self.reportError(.protocols_count, "Can't conform to more than 255 protocols");
+                const location = self.ast.tokens.get(self.current_token.? - 1);
+                self.reporter.reportErrorAt(
+                    .protocols_count,
+                    location,
+                    location,
+                    "Can't conform to more than 255 protocols",
+                );
             }
 
             try self.consume(.Identifier, "Expected protocol identifier");
@@ -6685,12 +7096,19 @@ fn objectDeclaration(self: *Self) Error!Ast.Node.Index {
             const protocol = self.ast.nodes.items(.type_def)[protocol_node].?;
 
             if (protocols.get(protocol) != null) {
-                self.reportErrorFmt(
+                const locations = self.ast.nodes.items(.location);
+                const end_locations = self.ast.nodes.items(.end_location);
+                self.reporter.reportWithOrigin(
                     .already_conforming_protocol,
+                    self.ast.tokens.get(locations[protocol_node]),
+                    self.ast.tokens.get(end_locations[protocol_node]),
+                    protocol.resolved_type.?.Protocol.location,
+                    protocol.resolved_type.?.Protocol.location,
                     "Already conforming to `{s}`.",
                     .{
                         protocol.resolved_type.?.Protocol.name.string,
                     },
+                    null,
                 );
             }
 
@@ -6781,11 +7199,14 @@ fn objectDeclaration(self: *Self) Error!Ast.Node.Index {
 
                 try generics.append(generic_identifier_token);
             } else {
-                self.reportErrorFmt(
+                const location = self.ast.tokens.get(self.current_token.? - 1);
+                self.reporter.reportErrorFmt(
                     .generic_type,
+                    location,
+                    location,
                     "Generic type `{s}` already defined",
                     .{
-                        self.ast.tokens.items(.lexeme)[self.current_token.? - 1],
+                        location.lexeme,
                     },
                 );
             }
@@ -6796,8 +7217,11 @@ fn objectDeclaration(self: *Self) Error!Ast.Node.Index {
         }
 
         if (object_type.resolved_type.?.Object.generic_types.count() == 0) {
-            self.reportError(
+            const location = self.ast.tokens.get(self.current_token.? - 1);
+            self.reporter.reportErrorAt(
                 .generic_type,
+                location,
+                location,
                 "Expected at least one generic type",
             );
         }
@@ -6851,7 +7275,13 @@ fn objectDeclaration(self: *Self) Error!Ast.Node.Index {
             const method_name = method_type_def.?.resolved_type.?.Function.name.string;
 
             if (fields.get(method_name) != null) {
-                self.reportError(.property_already_exists, "A member with that name already exists.");
+                const location = self.ast.tokens.get(method_token);
+                self.reporter.reportErrorAt(
+                    .property_already_exists,
+                    location,
+                    location,
+                    "A member with that name already exists.",
+                );
             }
 
             // Does a placeholder exists for this name ?
@@ -6927,7 +7357,12 @@ fn objectDeclaration(self: *Self) Error!Ast.Node.Index {
             const property_type_def = self.ast.nodes.items(.type_def)[property_type];
 
             if (fields.get(property_name.lexeme) != null) {
-                self.reportError(.property_already_exists, "A member with that name already exists.");
+                self.reporter.reportErrorAt(
+                    .property_already_exists,
+                    property_name,
+                    property_name,
+                    "A member with that name already exists.",
+                );
             }
 
             // Does a placeholder exists for this name ?
@@ -6981,10 +7416,11 @@ fn objectDeclaration(self: *Self) Error!Ast.Node.Index {
                 null;
 
             if (default != null and !self.ast.slice().isConstant(default.?)) {
-                self.reporter.reportErrorAt(
+                self.reportErrorAtNode(
                     .constant_default,
-                    self.ast.tokens.get(self.ast.nodes.items(.location)[default.?]),
+                    default.?,
                     "Default value must be constant",
+                    .{},
                 );
             }
 
@@ -7100,7 +7536,13 @@ fn method(self: *Self, abstract: bool, static: bool, this: *obj.ObjTypeDef) Erro
 
 fn protocolDeclaration(self: *Self) Error!Ast.Node.Index {
     if (self.current.?.scope_depth > 0) {
-        self.reportError(.syntax, "Protocol must be defined at top-level.");
+        const location = self.ast.tokens.get(self.current_token.? - 1);
+        self.reporter.reportErrorAt(
+            .syntax,
+            location,
+            location,
+            "Protocol must be defined at top-level.",
+        );
     }
 
     const start_location = self.current_token.? - 1;
@@ -7172,7 +7614,13 @@ fn protocolDeclaration(self: *Self) Error!Ast.Node.Index {
         const method_name = method_type_def.?.resolved_type.?.Function.name.string;
 
         if (fields.get(method_name) != null) {
-            self.reportError(.property_already_exists, "A method with that name already exists.");
+            const location = self.ast.tokens.get(method_name_token);
+            self.reporter.reportErrorAt(
+                .property_already_exists,
+                location,
+                location,
+                "A method with that name already exists.",
+            );
         }
 
         try protocol_type.resolved_type.?.Protocol.methods.put(
@@ -7238,7 +7686,13 @@ fn enumDeclaration(self: *Self) Error!Ast.Node.Index {
     const start_location = self.current_token.? - 1;
 
     if (self.current.?.scope_depth > 0) {
-        self.reportError(.syntax, "Enum must be defined at top-level.");
+        const location = self.ast.tokens.get(self.current_token.? - 1);
+        self.reporter.reportErrorAt(
+            .syntax,
+            location,
+            location,
+            "Enum must be defined at top-level.",
+        );
     }
 
     const enum_case_type_node =
@@ -7308,7 +7762,13 @@ fn enumDeclaration(self: *Self) Error!Ast.Node.Index {
     var case_index: i32 = 0;
     while (!self.check(.RightBrace) and !self.check(.Eof)) : (case_index += 1) {
         if (case_index > std.math.maxInt(u24)) {
-            self.reportError(.enum_cases_count, "Too many enum cases.");
+            const location = self.ast.tokens.get(self.current_token.? - 1);
+            self.reporter.reportErrorAt(
+                .enum_cases_count,
+                location,
+                location,
+                "Too many enum cases.",
+            );
         }
 
         const docblock = if (try self.match(.Docblock))
@@ -7385,7 +7845,12 @@ fn enumDeclaration(self: *Self) Error!Ast.Node.Index {
     try self.consume(.RightBrace, "Expected `}` after enum body.");
 
     if (case_index == 0) {
-        self.reportError(.enum_cases_count, "Enum must have at least one case.");
+        self.reporter.reportErrorAt(
+            .enum_cases_count,
+            self.ast.tokens.get(start_location),
+            self.ast.tokens.get(self.current_token.? - 1),
+            "Enum must have at least one case.",
+        );
     }
 
     const node = try self.ast.appendNode(
@@ -7415,10 +7880,11 @@ fn enumDeclaration(self: *Self) Error!Ast.Node.Index {
     defer obj_cases.shrinkAndFree(obj_cases.items.len);
     for (cases.items, 0..) |case, idx| {
         if (case.value != null and !self.ast.slice().isConstant(case.value.?)) {
-            self.reporter.reportErrorAt(
+            self.reportErrorAtNode(
                 .enum_case,
-                self.ast.tokens.get(self.ast.nodes.items(.location)[case.value.?]),
+                case.value.?,
                 "Case value must be constant",
+                .{},
             );
 
             continue;
@@ -7461,6 +7927,8 @@ fn varDeclaration(
     else
         self.gc.type_registry.any_type; // When var type omitted, will be replaced by the value type bellow
 
+    const start_location = self.current_token.? - 1;
+
     const slot: usize = try self.parseVariable(
         identifier,
         var_type,
@@ -7469,8 +7937,7 @@ fn varDeclaration(
         "Expected variable name.",
     );
 
-    const name = self.current_token.? - 1;
-    const start_location = name;
+    const name = identifier orelse start_location;
 
     const value = if (should_assign and try self.match(.Equal))
         try self.expression(false)
@@ -7482,9 +7949,11 @@ fn varDeclaration(
         null;
 
     if (should_assign and value == null and (parsed_type == null or !self.ast.nodes.items(.type_def)[parsed_type.?].?.optional)) {
+        const location = self.ast.tokens.get(self.current_token.? - 1);
         self.reporter.reportErrorAt(
             .syntax,
-            self.ast.tokens.get(self.current_token.? - 1),
+            location,
+            location,
             "Expected variable initial value",
         );
     }
@@ -7510,6 +7979,7 @@ fn varDeclaration(
         self.reporter.reportErrorAt(
             .inferred_type,
             self.ast.tokens.get(start_location),
+            self.ast.tokens.get(self.current_token.? - 1),
             "Could not infer variable type.",
         );
     }
@@ -8006,8 +8476,11 @@ fn readScript(self: *Self, file_name: []const u8) !?[2][]const u8 {
             try writer.print("    no file `{s}`\n", .{path});
         }
 
-        self.reportErrorFmt(
+        const location = self.ast.tokens.get(self.current_token.? - 1);
+        self.reporter.reportErrorFmt(
             .script_not_found,
+            location,
+            location,
             "buzz script `{s}` not found:\n{s}",
             .{
                 file_name,
@@ -8111,11 +8584,17 @@ fn importScript(
                 try import.?.globals.append(global.*);
             }
 
-            try self.imports.put(file_name, import.?);
+            try self.imports.put(
+                self.gc.allocator,
+                file_name,
+                import.?,
+            );
             try self.script_imports.put(
+                self.gc.allocator,
                 file_name,
                 .{
                     .location = path_token,
+                    .end_location = path_token,
                 },
             );
 
@@ -8130,6 +8609,8 @@ fn importScript(
             self.ast.nodes.shrinkRetainingCapacity(previous_node_len);
             self.ast.tokens.shrinkRetainingCapacity(previous_tokens_len);
             self.current_token = @intCast(previous_tokens_len);
+
+            self.reporter.last_error = parser.reporter.last_error;
         }
     }
 
@@ -8165,7 +8646,7 @@ fn importScript(
 
             // TODO: we're forced to import all and hide some because globals are indexed and not looked up by name at runtime
             //       Only way to avoid this is to go back to named globals at runtime. Then again, is it worth it?
-            try self.globals.append(global);
+            try self.globals.append(self.gc.allocator, global);
         }
     } else {
         // FIXME: here we must have messed up the token list because this crashes
@@ -8213,7 +8694,7 @@ fn importStaticLibSymbol(self: *Self, file_name: []const u8, symbol: []const u8)
 }
 
 // TODO: when to close the lib?
-fn importLibSymbol(self: *Self, full_file_name: []const u8, symbol: []const u8) !?*obj.ObjNative {
+fn importLibSymbol(self: *Self, location: Ast.TokenIndex, end_location: Ast.TokenIndex, full_file_name: []const u8, symbol: []const u8) !?*obj.ObjNative {
     // Remove .buzz extension, this occurs if this is the script being run or if the script was imported like so `import lib/std.buzz`
     // We consider that any other extension is silly from the part of the user
     const file_name = if (std.mem.endsWith(u8, full_file_name, ".buzz"))
@@ -8247,8 +8728,10 @@ fn importLibSymbol(self: *Self, full_file_name: []const u8, symbol: []const u8) 
         const opaque_symbol_method = dlib.lookup(*anyopaque, ssymbol);
 
         if (opaque_symbol_method == null) {
-            self.reportErrorFmt(
+            self.reporter.reportErrorFmt(
                 .symbol_not_found,
+                self.ast.tokens.get(location),
+                self.ast.tokens.get(end_location),
                 "Could not find symbol `{s}` in lib `{s}`",
                 .{
                     symbol,
@@ -8275,8 +8758,10 @@ fn importLibSymbol(self: *Self, full_file_name: []const u8, symbol: []const u8) 
         try writer.print("    no file `{s}`\n", .{path});
     }
 
-    self.reportErrorFmt(
+    self.reporter.reportErrorFmt(
         .library_not_found,
+        self.ast.tokens.get(location),
+        self.ast.tokens.get(end_location),
         "External library `{s}` not found: {s}{s}\n",
         .{
             file_basename,
@@ -8304,7 +8789,9 @@ fn importStatement(self: *Self) Error!Ast.Node.Index {
         if (imported_symbols.get(symbol)) |loc| {
             self.reporter.reportWithOrigin(
                 .import_already_exists,
+                self.ast.tokens.get(start_location),
                 self.ast.tokens.get(self.current_token.? - 1),
+                self.ast.tokens.get(loc),
                 self.ast.tokens.get(loc),
                 "Import symbol `{s}` already imported",
                 .{symbol},
@@ -8332,12 +8819,14 @@ fn importStatement(self: *Self) Error!Ast.Node.Index {
         self.reporter.reportErrorAt(
             .empty_import,
             path,
+            path,
             "Import path can't be empty",
         );
     }
     const file_name: []const u8 = if (path.lexeme.len <= 1 or path.literal_string.?.len <= 0) invalid: {
         self.reporter.reportErrorAt(
             .empty_import,
+            path,
             path,
             "Import path can't be empty",
         );
@@ -8365,7 +8854,14 @@ fn importStatement(self: *Self) Error!Ast.Node.Index {
     if (imported_symbols.count() > 0) {
         var it = imported_symbols.iterator();
         while (it.next()) |kv| {
-            self.reportErrorFmt(.unknown_import, "Unknown import `{s}`.", .{kv.key_ptr.*});
+            const location = self.ast.tokens.get(kv.value_ptr.*);
+            self.reporter.reportErrorFmt(
+                .unknown_import,
+                location,
+                location,
+                "Unknown import `{s}`.",
+                .{kv.key_ptr.*},
+            );
         }
     }
 
@@ -8466,8 +8962,11 @@ fn zdefStatement(self: *Self) Error!Ast.Node.Index {
                     const opaque_symbol_method = dlib.lookup(*anyopaque, symbol);
 
                     if (opaque_symbol_method == null) {
-                        self.reportErrorFmt(
+                        const location = self.ast.tokens.get(lib_name);
+                        self.reporter.reportErrorFmt(
                             .symbol_not_found,
+                            location,
+                            location,
                             "Could not find symbol `{s}` in lib `{s}`",
                             .{
                                 symbol,
@@ -8486,8 +8985,11 @@ fn zdefStatement(self: *Self) Error!Ast.Node.Index {
                         try writer.print("    no file `{s}`\n", .{path});
                     }
 
-                    self.reportErrorFmt(
+                    const location = self.ast.tokens.get(lib_name);
+                    self.reporter.reportErrorFmt(
                         .library_not_found,
+                        location,
+                        location,
                         "External library `{s}` not found: {s}{s}\n",
                         .{
                             lib_name_str,
@@ -8562,9 +9064,11 @@ fn userVarDeclaration(self: *Self, identifier: Ast.TokenIndex, final: bool, muta
                 const imported_from = global.imported_from.?;
 
                 try self.script_imports.put(
+                    self.gc.allocator,
                     imported_from,
                     .{
                         .location = self.script_imports.get(imported_from).?.location,
+                        .end_location = self.script_imports.get(imported_from).?.end_location,
                         .referenced = true,
                     },
                 );
@@ -8580,6 +9084,7 @@ fn userVarDeclaration(self: *Self, identifier: Ast.TokenIndex, final: bool, muta
                 .resolved_type = .{
                     // TODO: token is wrong but what else can we put here?
                     .Placeholder = obj.PlaceholderDef.init(
+                        user_type_name[0],
                         user_type_name[user_type_name.len - 1],
                         mutable,
                     ),
@@ -8627,7 +9132,12 @@ fn userVarDeclaration(self: *Self, identifier: Ast.TokenIndex, final: bool, muta
         try self.consume(.Greater, "Expected `>` after generic types list");
 
         if (resolved_generics.items.len == 0) {
-            self.reportErrorAtCurrent(.generic_type, "Expected at least one type");
+            self.reporter.reportErrorAt(
+                .generic_type,
+                self.ast.tokens.get(generic_start),
+                self.ast.tokens.get(self.current_token.? - 1),
+                "Expected at least one type",
+            );
         }
 
         // Shouldn't we populate only in codegen?
@@ -8646,9 +9156,7 @@ fn userVarDeclaration(self: *Self, identifier: Ast.TokenIndex, final: bool, muta
                 .end_location = self.current_token.? - 1,
                 .type_def = var_type,
                 .components = .{
-                    .GenericResolveType = .{
-                        .resolved_types = generic_nodes.items,
-                    },
+                    .GenericResolveType = generic_nodes.items,
                 },
             },
         );
@@ -8869,6 +9377,7 @@ fn forEachStatement(self: *Self) Error!Ast.Node.Index {
                     .resolved_type = .{
                         .Placeholder = obj.PlaceholderDef.init(
                             self.ast.nodes.items(.location)[if (key_omitted) iterable else key],
+                            self.ast.nodes.items(.end_location)[if (key_omitted) iterable else key],
                             null,
                         ),
                     },
@@ -8906,6 +9415,7 @@ fn forEachStatement(self: *Self) Error!Ast.Node.Index {
                     .resolved_type = .{
                         .Placeholder = obj.PlaceholderDef.init(
                             self.ast.nodes.items(.location)[value.?],
+                            self.ast.nodes.items(.end_location)[value.?],
                             null,
                         ),
                     },
@@ -9079,7 +9589,13 @@ fn returnStatement(self: *Self) Error!Ast.Node.Index {
     const start_location = self.current_token.? - 1;
 
     if (self.current.?.scope_depth == 0) {
-        self.reportError(.syntax, "Can't use `return` at top-level.");
+        const location = self.ast.tokens.get(self.current_token.? - 1);
+        self.reporter.reportErrorAt(
+            .syntax,
+            location,
+            location,
+            "Can't use `return` at top-level.",
+        );
     }
 
     const value = if (!try self.match(.Semicolon))
@@ -9116,13 +9632,19 @@ fn outStatement(self: *Self) Error!Ast.Node.Index {
     const start_location = self.current_token.? - 1;
 
     if (self.current.?.in_block_expression == null) {
-        self.reportError(
+        const location = self.ast.tokens.get(start_location);
+        self.reporter.reportErrorAt(
             .syntax,
+            location,
+            location,
             "`out` statement is only allowed inside a block expression",
         );
     } else if (self.current.?.scope_depth != self.current.?.in_block_expression.?) {
-        self.reportError(
+        const location = self.ast.tokens.get(start_location);
+        self.reporter.reportErrorAt(
             .syntax,
+            location,
+            location,
             "`out` statement must be the last statement of a block expression",
         );
     }
@@ -9173,7 +9695,12 @@ fn namespaceStatement(self: *Self) Error!Ast.Node.Index {
     const components = self.ast.nodes.items(.components);
     const current_body = components[self.current.?.function_node].Function.body;
     if (current_body == null or components[current_body.?].Block.len > 0) {
-        self.reportError(.syntax, "`namespace` should be the first statement");
+        self.reporter.reportErrorAt(
+            .syntax,
+            self.ast.tokens.get(if (current_body) |body| self.ast.nodes.items(.location)[body] else start_location),
+            self.ast.tokens.get(if (current_body) |body| self.ast.nodes.items(.end_location)[body] else start_location),
+            "`namespace` should be the first statement",
+        );
     }
 
     var namespace = std.ArrayList(Ast.TokenIndex).init(self.gc.allocator);
@@ -9208,7 +9735,13 @@ fn tryStatement(self: *Self) Error!Ast.Node.Index {
     const start_location = self.current_token.? - 1;
 
     if (self.current.?.in_try) {
-        self.reportError(.nested_try, "Nested `try` statement are not allowed");
+        const location = self.ast.tokens.get(self.current_token.? - 1);
+        self.reporter.reportErrorAt(
+            .nested_try,
+            location,
+            location,
+            "Nested `try` statement are not allowed",
+        );
     }
 
     self.current.?.in_try = true;
@@ -9226,7 +9759,13 @@ fn tryStatement(self: *Self) Error!Ast.Node.Index {
     while (try self.match(.Catch)) {
         if (try self.match(.LeftParen)) {
             if (unconditional_clause != null) {
-                self.reportError(.syntax, "Catch clause not allowed after unconditional catch");
+                const location = self.ast.tokens.get(self.current_token.? - 1);
+                self.reporter.reportErrorAt(
+                    .syntax,
+                    location,
+                    location,
+                    "Catch clause not allowed after unconditional catch",
+                );
             }
 
             try self.beginScope(null);
@@ -9266,7 +9805,13 @@ fn tryStatement(self: *Self) Error!Ast.Node.Index {
             unconditional_clause = try self.block(null);
             self.ast.nodes.items(.ends_scope)[unconditional_clause.?] = try self.endScope();
         } else {
-            self.reportError(.syntax, "Expected `(` after `catch`");
+            const location = self.ast.tokens.get(self.current_token.? - 1);
+            self.reporter.reportErrorAt(
+                .syntax,
+                location,
+                location,
+                "Expected `(` after `catch`",
+            );
         }
     }
 
@@ -9364,17 +9909,26 @@ fn breakContinueStatement(self: *Self, @"break": bool, loop_scope: ?LoopScope) E
         null;
 
     if (label != null and label_scope == null) {
-        self.reportErrorFmt(
+        const location = self.ast.tokens.get(label.?);
+        self.reporter.reportErrorFmt(
             .label_does_not_exists,
+            location,
+            location,
             "Label `{s}` does not exists.",
             .{
-                self.ast.tokens.items(.lexeme)[label.?],
+                location.lexeme,
             },
         );
     }
 
     if (label == null and loop_scope == null) {
-        self.reportError(.syntax, "break is not allowed here.");
+        const location = self.ast.tokens.get(start_location);
+        self.reporter.reportErrorAt(
+            .syntax,
+            location,
+            location,
+            "break is not allowed here.",
+        );
     }
 
     try self.consume(.Semicolon, "Expected `;` after statement.");

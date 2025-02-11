@@ -71,7 +71,7 @@ fn runFile(allocator: Allocator, file_name: []const u8, args: []const []const u8
     var import_registry = ImportRegistry.init(allocator);
     var gc = try GarbageCollector.init(allocator);
     gc.type_registry = try TypeRegistry.init(&gc);
-    var imports = std.StringHashMap(Parser.ScriptImport).init(allocator);
+    var imports = std.StringHashMapUnmanaged(Parser.ScriptImport){};
     var vm = try VM.init(&gc, &import_registry, flavor);
     vm.jit = if (BuildOptions.jit and BuildOptions.cycle_limit == null)
         JIT.init(&vm)
@@ -104,7 +104,7 @@ fn runFile(allocator: Allocator, file_name: []const u8, args: []const []const u8
         while (it.next()) |kv| {
             kv.value_ptr.*.globals.deinit();
         }
-        imports.deinit();
+        imports.deinit(allocator);
         // TODO: free type_registry and its keys which are on the heap
     }
 
@@ -426,5 +426,5 @@ test "Testing behavior" {
         fail_count,
     });
 
-    std.process.exit(if (fail_count == 0) 0 else 1);
+    std.testing.expectEqual(fail_count, 0);
 }

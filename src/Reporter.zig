@@ -18,6 +18,16 @@ panic_mode: bool = false,
 last_error: ?Error = null,
 error_prefix: ?[]const u8 = null,
 
+// When running LSP, we want to keep all emitted Reports to forward them to LSP client
+collect: bool = false,
+reports: std.ArrayListUnmanaged(Report) = .{},
+
+// Make sense only in LSP
+pub fn deinit(self: *Self) void {
+    // not freeing individual reports as they will be deinit by LSP
+    self.reports.deinit(self.allocator);
+}
+
 // Do not reorder without updating documentation, values are explicit so they can be retrieved easily
 pub const Error = enum(u8) {
     already_conforming_protocol = 0,
@@ -172,14 +182,20 @@ pub const Note = struct {
 
 pub const ReportItem = struct {
     location: Token,
+    end_location: Token,
     kind: ReportKind = .@"error",
     message: []const u8,
+
+    // Makes sense only in LSP
+    pub fn deinit(self: *ReportItem, allocator: std.mem.Allocator) void {
+        allocator.free(self.message);
+    }
 
     pub const SortContext = struct {};
 
     pub fn lessThan(_: SortContext, lhs: ReportItem, rhs: ReportItem) bool {
-        return lhs.location.line < rhs.location.line or
-            (lhs.location.line == rhs.location.line and lhs.location.column < rhs.location.column);
+        return lhs.end_location.line < rhs.end_location.line or
+            (lhs.end_location.line == rhs.end_location.line and lhs.end_location.column < rhs.end_location.column);
     }
 };
 
@@ -197,11 +213,24 @@ pub const Report = struct {
         .color = builtin.os.tag != .windows,
     },
 
-    pub inline fn reportStderr(self: *Report, reporter: *Self) !void {
-        return self.report(reporter, io.stdErrWriter);
+    // Makes sense only in LSP
+    pub fn deinit(self: *Report, allocator: std.mem.Allocator) void {
+        for (self.items) |*item| {
+            @constCast(item).deinit(allocator);
+        }
+        allocator.free(self.items);
+        allocator.free(self.notes);
     }
 
-    pub fn report(self: *Report, reporter: *Self, out: anytype) !void {
+    pub inline fn reportStderr(self: Report, reporter: *Self) !void {
+        if (reporter.collect) {
+            return reporter.reports.append(reporter.allocator, self);
+        }
+
+        try self.report(reporter, io.stdErrWriter);
+    }
+
+    pub fn report(self: Report, reporter: *Self, out: anytype) !void {
         assert(self.items.len > 0);
         var env_map = try std.process.getEnvMap(reporter.allocator);
         defer env_map.deinit();
@@ -219,9 +248,9 @@ pub const Report = struct {
             try out.print(
                 "\n{s}:{}:{}: \x1b[{d}m[{s}{d}] {s}{s}:\x1b[0m {s}\n",
                 .{
-                    main_item.location.script_name,
-                    main_item.location.line + 1,
-                    main_item.location.column,
+                    main_item.end_location.script_name,
+                    main_item.end_location.line + 1,
+                    main_item.end_location.column,
                     main_item.kind.color(),
                     main_item.kind.prefix(),
                     @intFromEnum(self.error_type),
@@ -240,9 +269,9 @@ pub const Report = struct {
             try out.print(
                 "\n{s}:{}:{}: [{s}{d}] {s}{s}: {s}\n",
                 .{
-                    main_item.location.script_name,
-                    main_item.location.line + 1,
-                    main_item.location.column,
+                    main_item.end_location.script_name,
+                    main_item.end_location.line + 1,
+                    main_item.end_location.column,
                     main_item.kind.prefix(),
                     @intFromEnum(self.error_type),
                     if (reporter.error_prefix) |prefix|
@@ -271,14 +300,14 @@ pub const Report = struct {
         }
 
         for (self.items) |item| {
-            if (reported_files.get(item.location.script_name) == null) {
+            if (reported_files.get(item.end_location.script_name) == null) {
                 try reported_files.put(
-                    item.location.script_name,
+                    item.end_location.script_name,
                     std.ArrayList(ReportItem).init(reporter.allocator),
                 );
             }
 
-            try reported_files.getEntry(item.location.script_name).?.value_ptr.append(item);
+            try reported_files.getEntry(item.end_location.script_name).?.value_ptr.append(item);
         }
 
         var file_it = reported_files.iterator();
@@ -309,14 +338,14 @@ pub const Report = struct {
             }
 
             for (file_entry.value_ptr.items) |item| {
-                if (reported_lines.get(item.location.line) == null) {
+                if (reported_lines.get(item.end_location.line) == null) {
                     try reported_lines.put(
-                        item.location.line,
+                        item.end_location.line,
                         std.ArrayList(ReportItem).init(reporter.allocator),
                     );
                 }
 
-                try reported_lines.getEntry(item.location.line).?.value_ptr.append(item);
+                try reported_lines.getEntry(item.end_location.line).?.value_ptr.append(item);
             }
 
             var previous_line: ?usize = null;
@@ -355,7 +384,7 @@ pub const Report = struct {
                 else
                     self.options.surrounding_lines;
 
-                const lines = try report_items.items[0].location.getLines(
+                const lines = try report_items.items[0].end_location.getLines(
                     reporter.allocator,
                     @intCast(before),
                     after,
@@ -413,8 +442,8 @@ pub const Report = struct {
                         }
                         var column: usize = 0;
                         for (report_items.items) |item| {
-                            const indent = if (item.location.column > 0)
-                                item.location.column - 1 - @min(column, item.location.column - 1)
+                            const indent = if (item.end_location.column > 0)
+                                item.end_location.column - 1 - @min(column, item.end_location.column - 1)
                             else
                                 0;
                             try out.writeByteNTimes(' ', indent);
@@ -426,16 +455,16 @@ pub const Report = struct {
                             try out.print(
                                 "{s}",
                                 .{
-                                    if (item.location.lexeme.len > 1)
+                                    if (item.end_location.lexeme.len > 1)
                                         "╭"
                                     else
                                         "┬",
                                 },
                             );
 
-                            if (item.location.lexeme.len > 1) {
+                            if (item.end_location.lexeme.len > 1) {
                                 var i: usize = 0;
-                                while (i < item.location.lexeme.len - 1) : (i += 1) {
+                                while (i < item.end_location.lexeme.len - 1) : (i += 1) {
                                     try out.print("─", .{});
                                 }
                             } else {
@@ -446,7 +475,7 @@ pub const Report = struct {
                                 try out.print("\x1b[0m", .{});
                             }
 
-                            column += indent + item.location.lexeme.len;
+                            column += indent + item.end_location.lexeme.len;
                         }
 
                         _ = try out.write("\n");
@@ -458,8 +487,8 @@ pub const Report = struct {
                             } else {
                                 try out.print("       ┆  ", .{});
                             }
-                            try out.writeByteNTimes(' ', if (item.location.column > 0)
-                                item.location.column - 1
+                            try out.writeByteNTimes(' ', if (item.end_location.column > 0)
+                                item.end_location.column - 1
                             else
                                 0);
                             if (self.options.color) {
@@ -514,16 +543,30 @@ pub const Report = struct {
     }
 };
 
-pub fn warn(self: *Self, error_type: Error, token: Token, message: []const u8) void {
+pub fn warn(self: *Self, error_type: Error, location: Token, end_location: Token, message: []const u8) void {
+    const items = [_]ReportItem{
+        .{
+            .kind = .warning,
+            .location = location,
+            .end_location = end_location,
+            .message = message,
+        },
+    };
+
     var error_report = Report{
         .message = message,
         .error_type = error_type,
-        .items = &[_]ReportItem{
-            ReportItem{
-                .kind = .warning,
-                .location = token,
-                .message = message,
-            },
+        // When collecting errors for LSP, those can't live on the stack
+        .items = items: {
+            if (!self.collect) {
+                break :items &items;
+            }
+
+            var list = std.ArrayListUnmanaged(ReportItem)
+                .initCapacity(self.allocator, items.len) catch @panic("Could not report error");
+            list.appendSlice(self.allocator, &items) catch @panic("Could not report error");
+
+            break :items list.items;
         },
         .notes = &[_]Note{},
     };
@@ -531,86 +574,154 @@ pub fn warn(self: *Self, error_type: Error, token: Token, message: []const u8) v
     error_report.reportStderr(self) catch @panic("Unable to report error");
 }
 
-pub fn report(self: *Self, error_type: Error, token: Token, message: []const u8) void {
+pub fn report(self: *Self, error_type: Error, location: Token, end_location: Token, message: []const u8) void {
     self.panic_mode = true;
     self.last_error = error_type;
 
+    const items = [_]ReportItem{
+        .{
+            .location = location,
+            .end_location = end_location,
+            .message = message,
+        },
+    };
+
     var error_report = Report{
         .message = message,
         .error_type = error_type,
-        .items = &[_]ReportItem{
-            ReportItem{
-                .location = token,
-                .message = message,
-            },
-        },
+        // When collecting errors for LSP, those can't live on the stack
+        .items = if (!self.collect)
+            &items
+        else
+            self.allocator.dupe(ReportItem, &items) catch @panic("Could not report error"),
         .notes = &[_]Note{},
     };
 
     error_report.reportStderr(self) catch @panic("Unable to report error");
 }
 
-pub fn reportErrorAt(self: *Self, error_type: Error, token: Token, message: []const u8) void {
+pub fn reportErrorAt(self: *Self, error_type: Error, location: Token, end_location: Token, comptime message: []const u8) void {
     if (self.panic_mode) {
         return;
     }
 
-    self.report(error_type, token, message);
+    self.report(
+        error_type,
+        location,
+        end_location,
+        if (!self.collect)
+            message
+        else
+            self.allocator.dupe(u8, message) catch @panic("Could not report error"),
+    );
 }
 
-pub fn warnAt(self: *Self, error_type: Error, token: Token, message: []const u8) void {
-    self.warn(error_type, token, message);
+pub fn warnAt(self: *Self, error_type: Error, location: Token, end_location: Token, comptime message: []const u8) void {
+    self.warn(
+        error_type,
+        location,
+        end_location,
+        if (!self.collect)
+            message
+        else
+            self.allocator.dupe(u8, message) catch @panic("Could not report error"),
+    );
 }
 
-pub fn reportErrorFmt(self: *Self, error_type: Error, token: Token, comptime fmt: []const u8, args: anytype) void {
+pub fn reportErrorFmt(self: *Self, error_type: Error, location: Token, end_location: Token, comptime fmt: []const u8, args: anytype) void {
     var message = std.ArrayList(u8).init(self.allocator);
-    defer message.deinit();
+    defer {
+        if (!self.collect) {
+            message.deinit();
+        }
+    }
 
     var writer = message.writer();
     writer.print(fmt, args) catch @panic("Unable to report error");
+    message.shrinkAndFree(message.items.len);
 
-    self.reportErrorAt(error_type, token, message.items);
+    if (self.panic_mode) {
+        return;
+    }
+
+    self.report(
+        error_type,
+        location,
+        end_location,
+        message.items,
+    );
 }
 
-pub fn warnFmt(self: *Self, error_type: Error, token: Token, comptime fmt: []const u8, args: anytype) void {
+pub fn warnFmt(self: *Self, error_type: Error, location: Token, end_location: Token, comptime fmt: []const u8, args: anytype) void {
     var message = std.ArrayList(u8).init(self.allocator);
-    defer message.deinit();
+    defer {
+        if (!self.collect) {
+            message.deinit();
+        }
+    }
 
     var writer = message.writer();
     writer.print(fmt, args) catch @panic("Unable to report error");
+    message.shrinkAndFree(message.items.len);
 
-    self.warnAt(error_type, token, message.items);
+    self.warn(
+        error_type,
+        location,
+        end_location,
+        message.items,
+    );
 }
 
 pub fn reportWithOrigin(
     self: *Self,
     error_type: Error,
-    at: Token,
+    location: Token,
+    end_location: Token,
     decl_location: Token,
+    decl_end_location: Token,
     comptime fmt: []const u8,
     args: anytype,
     declared_message: ?[]const u8,
 ) void {
     var message = std.ArrayList(u8).init(self.allocator);
-    defer message.deinit();
+    defer {
+        if (!self.collect) {
+            message.deinit();
+        }
+    }
 
     var writer = message.writer();
     writer.print(fmt, args) catch @panic("Unable to report error");
 
+    const items = [_]ReportItem{
+        .{
+            .location = location,
+            .end_location = end_location,
+            .kind = .@"error",
+            .message = message.items,
+        },
+        .{
+            .location = decl_location,
+            .end_location = decl_end_location,
+            .kind = .hint,
+            .message = declared_message orelse "declared here",
+        },
+    };
+
     var decl_report = Report{
         .message = message.items,
         .error_type = error_type,
-        .items = &[_]ReportItem{
-            .{
-                .location = at,
-                .kind = .@"error",
-                .message = message.items,
-            },
-            .{
-                .location = decl_location,
-                .kind = .hint,
-                .message = declared_message orelse "declared here",
-            },
+        // When collecting errors for LSP, those can't live on the stack
+        .items = items: {
+            if (!self.collect) {
+                break :items &items;
+            }
+
+            var list = std.ArrayListUnmanaged(ReportItem)
+                .initCapacity(self.allocator, items.len) catch @panic("Could not report error");
+            list.appendSlice(self.allocator, &items) catch @panic("Could not report error");
+
+            break :items list.items;
         },
     };
 
@@ -624,13 +735,22 @@ pub fn reportTypeCheck(
     self: *Self,
     error_type: Error,
     expected_location: ?Token,
+    expected_end_location: ?Token,
     expected_type: *ObjTypeDef,
     actual_location: Token,
+    actual_end_location: Token,
     actual_type: *ObjTypeDef,
     message: []const u8,
 ) void {
     var actual_message = std.ArrayList(u8).init(self.allocator);
-    defer actual_message.deinit();
+    defer {
+        if (!self.collect) {
+            actual_message.deinit();
+        } else {
+            actual_message.shrinkAndFree(actual_message.items.len);
+        }
+    }
+
     var writer = &actual_message.writer();
 
     writer.print("{s}: got type `", .{message}) catch @panic("Unable to report error");
@@ -638,7 +758,13 @@ pub fn reportTypeCheck(
     writer.writeAll("`") catch @panic("Unable to report error");
 
     var expected_message = std.ArrayList(u8).init(self.allocator);
-    defer expected_message.deinit();
+    defer {
+        if (!self.collect) {
+            expected_message.deinit();
+        } else {
+            expected_message.shrinkAndFree(expected_message.items.len);
+        }
+    }
 
     if (expected_location != null) {
         writer = &expected_message.writer();
@@ -651,7 +777,7 @@ pub fn reportTypeCheck(
 
     var full_message = if (expected_location == null) actual_message else std.ArrayList(u8).init(self.allocator);
     defer {
-        if (expected_location != null) {
+        if (!self.collect and expected_location != null) {
             full_message.deinit();
         }
     }
@@ -659,35 +785,67 @@ pub fn reportTypeCheck(
         full_message.writer().print("{s}, {s}", .{ actual_message.items, expected_message.items }) catch @panic("Unable to report error");
     }
 
-    var check_report = if (expected_location) |location|
-        Report{
-            .message = full_message.items,
-            .error_type = error_type,
-            .items = &[_]ReportItem{
+    var check_report = rpt: {
+        if (expected_location) |location| {
+            const items = [_]ReportItem{
                 .{
                     .location = actual_location,
+                    .end_location = actual_end_location,
                     .kind = .@"error",
                     .message = actual_message.items,
                 },
                 .{
                     .location = location,
+                    .end_location = expected_end_location.?,
                     .kind = .hint,
                     .message = expected_message.items,
                 },
-            },
-        }
-    else
-        Report{
-            .message = full_message.items,
-            .error_type = error_type,
-            .items = &[_]ReportItem{
+            };
+
+            break :rpt Report{
+                .message = full_message.items,
+                .error_type = error_type,
+                // When collecting errors for LSP, those can't live on the stack
+                .items = items: {
+                    if (!self.collect) {
+                        break :items &items;
+                    }
+
+                    var list = std.ArrayListUnmanaged(ReportItem)
+                        .initCapacity(self.allocator, items.len) catch @panic("Could not report error");
+                    list.appendSlice(self.allocator, &items) catch @panic("Could not report error");
+
+                    break :items list.items;
+                },
+            };
+        } else {
+            const items = [_]ReportItem{
                 .{
                     .location = actual_location,
+                    .end_location = actual_end_location,
                     .kind = .hint,
                     .message = actual_message.items,
                 },
-            },
-        };
+            };
+
+            break :rpt Report{
+                .message = full_message.items,
+                .error_type = error_type,
+                // When collecting errors for LSP, those can't live on the stack
+                .items = items: {
+                    if (!self.collect) {
+                        break :items &items;
+                    }
+
+                    var list = std.ArrayListUnmanaged(ReportItem)
+                        .initCapacity(self.allocator, items.len) catch @panic("Could not report error");
+                    list.appendSlice(self.allocator, &items) catch @panic("Could not report error");
+
+                    break :items list.items;
+                },
+            };
+        }
+    };
 
     self.panic_mode = true;
     self.last_error = error_type;
@@ -718,95 +876,9 @@ pub fn reportPlaceholder(self: *Self, ast: Ast.Slice, placeholder: PlaceholderDe
         self.reportErrorFmt(
             .undefined,
             ast.tokens.get(placeholder.where),
+            ast.tokens.get(placeholder.where_end),
             "`{s}` is not defined",
             .{ast.tokens.items(.lexeme)[placeholder.where]},
         );
     }
-}
-
-test "multiple error on one line" {
-    var gpa = std.heap.GeneralPurposeAllocator(.{ .safety = true }){};
-
-    var reporter = Self{
-        .allocator = gpa.allocator(),
-    };
-
-    const source =
-        \\| Say hello
-        \\fun hello() > void {
-        \\    callSomething(true, complex: 12);
-        \\    return null;
-        \\}
-        \\
-        \\fun something() > int {
-        \\    foreach (int i, str char in "hello") {
-        \\        if (i % 2 == 0) {
-        \\            print("yes");
-        \\            return i;
-        \\        }
-        \\    }
-        \\
-        \\    return -1;
-        \\}
-    ;
-
-    var bad = Report{
-        .message = "This could have been avoided if you were not a moron",
-        .error_type = .runtime,
-        .notes = &[_]Note{
-            .{ .message = "This could have been avoided if you were not a moron" },
-        },
-        .items = &[_]ReportItem{
-            .{
-                .location = Token{
-                    .source = source,
-                    .script_name = "test",
-                    .tag = .Identifier,
-                    .lexeme = "callSomething",
-                    .line = 2,
-                    .column = 5,
-                },
-                .kind = .@"error",
-                .message = "This is so wrong",
-            },
-            .{
-                .location = Token{
-                    .source = source,
-                    .script_name = "test",
-                    .tag = .Identifier,
-                    .lexeme = "true",
-                    .line = 2,
-                    .column = 19,
-                },
-                .kind = .hint,
-                .message = "This is also wrong",
-            },
-            .{
-                .location = Token{
-                    .source = source,
-                    .script_name = "test",
-                    .tag = .Identifier,
-                    .lexeme = "complex",
-                    .line = 2,
-                    .column = 25,
-                },
-                .kind = .warning,
-                .message = "This is terribly wrong",
-            },
-            .{
-                .location = Token{
-                    .source = source,
-                    .script_name = "test",
-                    .tag = .Identifier,
-                    .lexeme = "print",
-                    .line = 9,
-                    .column = 13,
-                },
-                .kind = .hint,
-                .message = "This was correct here",
-            },
-        },
-    };
-
-    try bad.reportStderr(&reporter);
 }

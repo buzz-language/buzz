@@ -149,12 +149,15 @@ pub fn init(
         .reporter = Reporter{
             .allocator = gc.allocator,
             .error_prefix = "Compile",
+            .collect = flavor == .Ast,
         },
         .jit = jit,
     };
 }
 
-pub fn deinit(_: *Self) void {}
+pub fn deinit(self: *Self) void {
+    self.reporter.deinit();
+}
 
 pub inline fn currentCode(self: *Self) usize {
     return self.current.?.function.?.chunk.code.items.len;
@@ -319,7 +322,7 @@ pub fn identifierConstant(self: *Self, name: []const u8) !u24 {
 }
 
 // Unlocated error, should not be used
-fn reportError(self: *Self, error_type: Reporter.Error, message: []const u8) void {
+fn reportError(self: *Self, error_type: Reporter.Error, comptime message: []const u8) void {
     @branchHint(.cold);
 
     if (self.reporter.panic_mode) {
@@ -328,6 +331,14 @@ fn reportError(self: *Self, error_type: Reporter.Error, message: []const u8) voi
 
     self.reporter.report(
         error_type,
+        Token{
+            .tag = .Error,
+            .source = "",
+            .script_name = "",
+            .lexeme = "",
+            .line = 0,
+            .column = 0,
+        },
         Token{
             .tag = .Error,
             .source = "",
@@ -490,6 +501,7 @@ fn generateBinary(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*o
     const components = self.ast.nodes.items(.components)[node].Binary;
 
     const locations = self.ast.nodes.items(.location);
+    const end_locations = self.ast.nodes.items(.end_location);
     const type_defs = self.ast.nodes.items(.type_def);
     const left_type = type_defs[components.left].?;
     const right_type = type_defs[components.right].?;
@@ -521,8 +533,10 @@ fn generateBinary(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*o
                 self.reporter.reportTypeCheck(
                     .binary_operand_type,
                     self.ast.tokens.get(locations[components.left]),
+                    self.ast.tokens.get(end_locations[components.left]),
                     left_type,
                     self.ast.tokens.get(locations[components.right]),
+                    self.ast.tokens.get(end_locations[components.right]),
                     right_type,
                     "Type mismatch",
                 );
@@ -544,8 +558,10 @@ fn generateBinary(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*o
                 self.reporter.reportTypeCheck(
                     .comparison_operand_type,
                     self.ast.tokens.get(locations[components.left]),
+                    self.ast.tokens.get(end_locations[components.left]),
                     left_type,
                     self.ast.tokens.get(locations[components.right]),
+                    self.ast.tokens.get(end_locations[components.right]),
                     right_type,
                     "Type mismatch",
                 );
@@ -560,6 +576,7 @@ fn generateBinary(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*o
             self.reporter.reportErrorAt(
                 .binary_operand_type,
                 self.ast.tokens.get(locations[components.left]),
+                self.ast.tokens.get(end_locations[components.left]),
                 "Binary operand can't be optional",
             );
         }
@@ -568,6 +585,7 @@ fn generateBinary(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*o
             self.reporter.reportErrorAt(
                 .binary_operand_type,
                 self.ast.tokens.get(locations[components.right]),
+                self.ast.tokens.get(end_locations[components.right]),
                 "Binary operand can't be optional",
             );
         }
@@ -579,6 +597,7 @@ fn generateBinary(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*o
                 self.reporter.reportErrorAt(
                     .optional,
                     self.ast.tokens.get(locations[components.left]),
+                    self.ast.tokens.get(end_locations[components.left]),
                     "Not an optional",
                 );
             }
@@ -598,6 +617,7 @@ fn generateBinary(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*o
                 self.reporter.reportErrorAt(
                     .bitwise_operand_type,
                     self.ast.tokens.get(locations[components.left]),
+                    self.ast.tokens.get(end_locations[components.left]),
                     "Expected `int`.",
                 );
             }
@@ -612,6 +632,7 @@ fn generateBinary(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*o
                 self.reporter.reportErrorAt(
                     .bitwise_operand_type,
                     self.ast.tokens.get(locations[components.left]),
+                    self.ast.tokens.get(end_locations[components.left]),
                     "Expected `int`.",
                 );
             }
@@ -626,6 +647,7 @@ fn generateBinary(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*o
                 self.reporter.reportErrorAt(
                     .bitwise_operand_type,
                     self.ast.tokens.get(locations[components.left]),
+                    self.ast.tokens.get(end_locations[components.left]),
                     "Expected `int`.",
                 );
             }
@@ -640,6 +662,7 @@ fn generateBinary(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*o
                 self.reporter.reportErrorAt(
                     .bitwise_operand_type,
                     self.ast.tokens.get(locations[components.left]),
+                    self.ast.tokens.get(end_locations[components.left]),
                     "Expected `int`.",
                 );
             }
@@ -654,6 +677,7 @@ fn generateBinary(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*o
                 self.reporter.reportErrorAt(
                     .bitwise_operand_type,
                     self.ast.tokens.get(locations[components.left]),
+                    self.ast.tokens.get(end_locations[components.left]),
                     "Expected `int`.",
                 );
             }
@@ -668,6 +692,7 @@ fn generateBinary(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*o
                 self.reporter.reportErrorAt(
                     .comparison_operand_type,
                     self.ast.tokens.get(locations[components.left]),
+                    self.ast.tokens.get(end_locations[components.left]),
                     "Expected `int` or `double`.",
                 );
             }
@@ -681,6 +706,7 @@ fn generateBinary(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*o
                 self.reporter.reportErrorAt(
                     .comparison_operand_type,
                     self.ast.tokens.get(locations[components.left]),
+                    self.ast.tokens.get(end_locations[components.left]),
                     "Expected `int` or `double`.",
                 );
             }
@@ -694,6 +720,7 @@ fn generateBinary(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*o
                 self.reporter.reportErrorAt(
                     .comparison_operand_type,
                     self.ast.tokens.get(locations[components.left]),
+                    self.ast.tokens.get(end_locations[components.left]),
                     "Expected `int` or `double`.",
                 );
             }
@@ -708,6 +735,7 @@ fn generateBinary(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*o
                 self.reporter.reportErrorAt(
                     .comparison_operand_type,
                     self.ast.tokens.get(locations[components.left]),
+                    self.ast.tokens.get(end_locations[components.left]),
                     "Expected `int` or `double`.",
                 );
             }
@@ -738,6 +766,7 @@ fn generateBinary(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*o
                 self.reporter.reportErrorAt(
                     .arithmetic_operand_type,
                     self.ast.tokens.get(locations[components.left]),
+                    self.ast.tokens.get(end_locations[components.left]),
                     "Expected a `int`, `double`, `str`, list or map.",
                 );
             }
@@ -762,6 +791,7 @@ fn generateBinary(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*o
                 self.reporter.reportErrorAt(
                     .arithmetic_operand_type,
                     self.ast.tokens.get(locations[components.left]),
+                    self.ast.tokens.get(end_locations[components.left]),
                     "Expected `int` or `double`.",
                 );
             }
@@ -775,6 +805,7 @@ fn generateBinary(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*o
                 self.reporter.reportErrorAt(
                     .arithmetic_operand_type,
                     self.ast.tokens.get(locations[components.left]),
+                    self.ast.tokens.get(end_locations[components.left]),
                     "Expected `int` or `double`.",
                 );
             }
@@ -788,6 +819,7 @@ fn generateBinary(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*o
                 self.reporter.reportErrorAt(
                     .arithmetic_operand_type,
                     self.ast.tokens.get(locations[components.left]),
+                    self.ast.tokens.get(end_locations[components.left]),
                     "Expected `int` or `double`.",
                 );
             }
@@ -801,6 +833,7 @@ fn generateBinary(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*o
                 self.reporter.reportErrorAt(
                     .arithmetic_operand_type,
                     self.ast.tokens.get(locations[components.left]),
+                    self.ast.tokens.get(end_locations[components.left]),
                     "Expected `int` or `double`.",
                 );
             }
@@ -814,6 +847,7 @@ fn generateBinary(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*o
                 self.reporter.reportErrorAt(
                     .logical_operand_type,
                     self.ast.tokens.get(locations[node]),
+                    self.ast.tokens.get(end_locations[node]),
                     "`and` expects operands to be `bool`",
                 );
             }
@@ -832,6 +866,7 @@ fn generateBinary(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*o
                 self.reporter.reportErrorAt(
                     .logical_operand_type,
                     self.ast.tokens.get(locations[node]),
+                    self.ast.tokens.get(end_locations[node]),
                     "`and` expects operands to be `bool`",
                 );
             }
@@ -867,6 +902,9 @@ fn generateBlock(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*ob
                 .code_after_return,
                 self.ast.tokens.get(
                     self.ast.nodes.items(.location)[statement],
+                ),
+                self.ast.tokens.get(
+                    self.ast.nodes.items(.end_location)[statement],
                 ),
                 "Code after return statement will never be reached",
                 .{},
@@ -957,6 +995,7 @@ fn generateContinue(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?
 fn generateCall(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.ObjFunction {
     const type_defs = self.ast.nodes.items(.type_def);
     const locations = self.ast.nodes.items(.location);
+    const end_locations = self.ast.nodes.items(.end_location);
     const node_components = self.ast.nodes.items(.components);
     const lexemes = self.ast.tokens.items(.lexeme);
 
@@ -973,6 +1012,7 @@ fn generateCall(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj
             self.reporter.reportErrorAt(
                 .fiber_call_not_allowed,
                 self.ast.tokens.get(locations[components.callee]),
+                self.ast.tokens.get(end_locations[components.callee]),
                 "Can't be wrapped in a fiber",
             );
         }
@@ -981,6 +1021,7 @@ fn generateCall(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj
             self.reporter.reportErrorAt(
                 .no_error,
                 self.ast.tokens.get(locations[components.callee]),
+                self.ast.tokens.get(end_locations[components.callee]),
                 "Doesn't raise any error",
             );
         }
@@ -989,6 +1030,7 @@ fn generateCall(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj
             self.reporter.reportErrorAt(
                 .enum_argument,
                 self.ast.tokens.get(locations[components.callee]),
+                self.ast.tokens.get(end_locations[components.callee]),
                 "Enum instanciation requires only value argument",
             );
         }
@@ -1038,6 +1080,7 @@ fn generateCall(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj
         self.reporter.reportErrorAt(
             .undefined,
             self.ast.tokens.get(locations[components.callee]),
+            self.ast.tokens.get(end_locations[components.callee]),
             "Callee is not defined",
         );
     } else if (callee_type.?.def_type == .Placeholder) {
@@ -1049,6 +1092,7 @@ fn generateCall(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj
         self.reporter.reportErrorAt(
             .callable,
             self.ast.tokens.get(locations[node]),
+            self.ast.tokens.get(end_locations[node]),
             "Can't be called",
         );
 
@@ -1057,6 +1101,7 @@ fn generateCall(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj
         self.reporter.reportErrorAt(
             .callable,
             self.ast.tokens.get(locations[node]),
+            self.ast.tokens.get(end_locations[node]),
             "Function maybe null and can't be called",
         );
     }
@@ -1075,8 +1120,10 @@ fn generateCall(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj
                     self.reporter.reportTypeCheck(
                         .yield_type,
                         self.ast.tokens.get(locations[self.current.?.function_node]),
+                        self.ast.tokens.get(end_locations[self.current.?.function_node]),
                         current_function_yield_type,
                         self.ast.tokens.get(locations[node]),
+                        self.ast.tokens.get(end_locations[node]),
                         yield_type,
                         "Bad function yield type",
                     );
@@ -1102,6 +1149,7 @@ fn generateCall(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj
         self.reporter.reportErrorAt(
             .call_arguments,
             self.ast.tokens.get(locations[node]),
+            self.ast.tokens.get(end_locations[node]),
             "Too many arguments.",
         );
     }
@@ -1136,8 +1184,10 @@ fn generateCall(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj
                 self.reporter.reportTypeCheck(
                     .call_argument_type,
                     self.ast.tokens.get(locations[components.callee]),
+                    self.ast.tokens.get(end_locations[components.callee]),
                     arg_type,
                     self.ast.tokens.get(locations[argument.value]),
+                    self.ast.tokens.get(end_locations[argument.value]),
                     argument_type_def,
                     "Bad argument type",
                 );
@@ -1148,6 +1198,7 @@ fn generateCall(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj
             self.reporter.reportErrorFmt(
                 .call_arguments,
                 self.ast.tokens.get(locations[argument.value]),
+                self.ast.tokens.get(end_locations[argument.value]),
                 "Argument `{s}` does not exists.",
                 .{if (arg_key) |key| key.string else "unknown"},
             );
@@ -1205,6 +1256,7 @@ fn generateCall(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj
         self.reporter.reportErrorFmt(
             .call_arguments,
             self.ast.tokens.get(locations[node]),
+            self.ast.tokens.get(end_locations[node]),
             "Missing argument{s}: {s}",
             .{
                 if (missing_arguments.count() > 1)
@@ -1259,6 +1311,7 @@ fn generateCall(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj
             self.reporter.reportErrorAt(
                 .no_error,
                 self.ast.tokens.get(locations[node]),
+                self.ast.tokens.get(end_locations[node]),
                 "Function doesn't raise any error",
             );
         } else if (error_types != null) {
@@ -1271,8 +1324,10 @@ fn generateCall(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj
                     self.reporter.reportTypeCheck(
                         .inline_catch_type,
                         self.ast.tokens.get(locations[components.callee]),
+                        self.ast.tokens.get(end_locations[components.callee]),
                         node_type_def,
                         self.ast.tokens.get(locations[catch_default]),
+                        self.ast.tokens.get(end_locations[catch_default]),
                         catch_default_type_def,
                         "Bad inline catch value type",
                     );
@@ -1332,6 +1387,7 @@ fn generateCall(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj
                 self.reporter.reportErrorFmt(
                     .error_not_handled,
                     self.ast.tokens.get(locations[node]),
+                    self.ast.tokens.get(end_locations[node]),
                     "Error `{s}` is not handled",
                     .{
                         error_str,
@@ -1443,6 +1499,7 @@ fn generateDot(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.
     const node_components = self.ast.nodes.items(.components);
     const type_defs = self.ast.nodes.items(.type_def);
     const locations = self.ast.nodes.items(.location);
+    const end_locations = self.ast.nodes.items(.end_location);
     const tags = self.ast.tokens.items(.tag);
 
     const components = node_components[node].Dot;
@@ -1473,6 +1530,7 @@ fn generateDot(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.
         else => self.reporter.reportErrorAt(
             .field_access,
             self.ast.tokens.get(locations[node]),
+            self.ast.tokens.get(end_locations[node]),
             "Doesn't have field access",
         ),
     }
@@ -1481,6 +1539,7 @@ fn generateDot(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.
         self.reporter.reportErrorAt(
             .field_access,
             self.ast.tokens.get(locations[node]),
+            self.ast.tokens.get(end_locations[node]),
             "Optional doesn't have field access",
         );
     }
@@ -1554,8 +1613,10 @@ fn generateDot(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.
                                 self.reporter.reportTypeCheck(
                                     .assignment_value_type,
                                     callee_type.resolved_type.?.ForeignContainer.location,
+                                    callee_type.resolved_type.?.ForeignContainer.location,
                                     field_type,
                                     self.ast.tokens.get(locations[value]),
+                                    self.ast.tokens.get(end_locations[value]),
                                     value_type_def,
                                     "Bad property type",
                                 );
@@ -1569,6 +1630,7 @@ fn generateDot(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.
                                 self.reporter.reportErrorFmt(
                                     .assignable,
                                     self.ast.tokens.get(locations[components.callee]),
+                                    self.ast.tokens.get(end_locations[components.callee]),
                                     "`{s}` is not assignable",
                                     .{
                                         field_name,
@@ -1578,6 +1640,7 @@ fn generateDot(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.
                                 self.reporter.reportErrorFmt(
                                     .constant_property,
                                     self.ast.tokens.get(locations[components.callee]),
+                                    self.ast.tokens.get(end_locations[components.callee]),
                                     "`{s}` is final",
                                     .{
                                         field_name,
@@ -1587,6 +1650,9 @@ fn generateDot(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.
                                 self.reporter.reportWithOrigin(
                                     .not_mutable,
                                     self.ast.tokens.get(locations[components.callee]),
+                                    self.ast.tokens.get(end_locations[components.callee]),
+                                    callee_type.resolved_type.?.ObjectInstance.of
+                                        .resolved_type.?.Object.location,
                                     callee_type.resolved_type.?.ObjectInstance.of
                                         .resolved_type.?.Object.location,
                                     "Instance of `{s}` is not mutable",
@@ -1605,8 +1671,10 @@ fn generateDot(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.
                                 self.reporter.reportTypeCheck(
                                     .assignment_value_type,
                                     field.?.location,
+                                    field.?.location,
                                     field.?.type_def,
                                     self.ast.tokens.get(locations[value]),
+                                    self.ast.tokens.get(end_locations[value]),
                                     value_type_def,
                                     "Bad property type",
                                 );
@@ -1655,6 +1723,7 @@ fn generateDot(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.
                             else => self.reporter.report(
                                 .arithmetic_operand_type,
                                 self.ast.tokens.get(assign_token),
+                                self.ast.tokens.get(assign_token),
                                 "Addition is only allowed for types `int`, `double`, list, map and `str`",
                             ),
                         },
@@ -1666,6 +1735,7 @@ fn generateDot(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.
                             .Integer, .Double => {},
                             else => self.reporter.report(
                                 .arithmetic_operand_type,
+                                self.ast.tokens.get(assign_token),
                                 self.ast.tokens.get(assign_token),
                                 "Operator is only allowed for types `int`, `double`",
                             ),
@@ -1679,6 +1749,7 @@ fn generateDot(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.
                         => if (type_defs[value].?.def_type != .Integer) {
                             self.reporter.report(
                                 .arithmetic_operand_type,
+                                self.ast.tokens.get(assign_token),
                                 self.ast.tokens.get(assign_token),
                                 "Operator is only allowed for `int`",
                             );
@@ -1725,6 +1796,7 @@ fn generateDot(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.
                         self.reporter.reportErrorAt(
                             .callable,
                             self.ast.tokens.get(locations[components.callee]),
+                            self.ast.tokens.get(end_locations[components.callee]),
                             "Not callable",
                         );
                     }
@@ -1739,6 +1811,7 @@ fn generateDot(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.
                     } else if (field.?.mutable and !callee_type.resolved_type.?.ObjectInstance.mutable) {
                         self.reporter.report(
                             .not_mutable,
+                            self.ast.tokens.get(components.identifier),
                             self.ast.tokens.get(components.identifier),
                             "Method requires mutable instance",
                         );
@@ -1768,6 +1841,7 @@ fn generateDot(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.
                 if (field.?.mutable and !callee_type.resolved_type.?.ProtocolInstance.mutable) {
                     self.reporter.report(
                         .not_mutable,
+                        self.ast.tokens.get(components.identifier),
                         self.ast.tokens.get(components.identifier),
                         "Method requires mutable instance",
                     );
@@ -1807,6 +1881,7 @@ fn generateDot(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.
                         self.reporter.reportErrorFmt(
                             .not_mutable,
                             self.ast.tokens.get(components.identifier),
+                            self.ast.tokens.get(components.identifier),
                             "Method `{s}` requires mutable list",
                             .{
                                 identifier,
@@ -1818,6 +1893,7 @@ fn generateDot(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.
                     {
                         self.reporter.reportErrorFmt(
                             .not_mutable,
+                            self.ast.tokens.get(components.identifier),
                             self.ast.tokens.get(components.identifier),
                             "Method `{s}` requires mutable list",
                             .{
@@ -1855,6 +1931,7 @@ fn generateDot(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.
 
 fn generateDoUntil(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.ObjFunction {
     const locations = self.ast.nodes.items(.location);
+    const end_locations = self.ast.nodes.items(.end_location);
     const type_defs = self.ast.nodes.items(.type_def);
     const node_components = self.ast.nodes.items(.components);
     const components = node_components[node].DoUntil;
@@ -1876,6 +1953,7 @@ fn generateDoUntil(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*
         self.reporter.reportErrorAt(
             .do_condition_type,
             self.ast.tokens.get(locations[components.condition]),
+            self.ast.tokens.get(end_locations[components.condition]),
             "`do` condition must be bool",
         );
     }
@@ -1907,6 +1985,7 @@ fn generateDoUntil(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*
 
 fn generateEnum(self: *Self, node: Ast.Node.Index, _: ?*Breaks) Error!?*obj.ObjFunction {
     const locations = self.ast.nodes.items(.location);
+    const end_locations = self.ast.nodes.items(.end_location);
     const type_defs = self.ast.nodes.items(.type_def);
     const node_components = self.ast.nodes.items(.components);
     const components = node_components[node].Enum;
@@ -1931,6 +2010,7 @@ fn generateEnum(self: *Self, node: Ast.Node.Index, _: ?*Breaks) Error!?*obj.ObjF
             self.reporter.reportErrorAt(
                 .syntax,
                 self.ast.tokens.get(locations[node]),
+                self.ast.tokens.get(end_locations[node]),
                 "Type not allowed as enum value",
             );
             return null;
@@ -1950,11 +2030,13 @@ fn generateEnum(self: *Self, node: Ast.Node.Index, _: ?*Breaks) Error!?*obj.ObjF
                 self.reporter.reportTypeCheck(
                     .enum_case_type,
                     self.ast.tokens.get(locations[node]),
+                    self.ast.tokens.get(end_locations[node]),
                     (try enum_type.toInstance(
                         &self.gc.type_registry,
                         false,
                     )),
                     self.ast.tokens.get(locations[case.value.?]),
+                    self.ast.tokens.get(end_locations[case.value.?]),
                     case_type,
                     "Bad enum case type",
                 );
@@ -1992,6 +2074,7 @@ fn generateExport(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*o
 
 fn generateExpression(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.ObjFunction {
     const locations = self.ast.nodes.items(.location);
+    const end_locations = self.ast.nodes.items(.end_location);
     const components = self.ast.nodes.items(.components);
     const expr = components[node].Expression;
     const expr_node_type = self.ast.nodes.items(.tag)[expr];
@@ -2014,6 +2097,7 @@ fn generateExpression(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error
         self.reporter.warnFmt(
             .discarded_value,
             self.ast.tokens.get(locations[node]),
+            self.ast.tokens.get(end_locations[node]),
             "Discarded value of type `{s}`",
             .{
                 type_def_str,
@@ -2041,6 +2125,7 @@ fn generateFloat(self: *Self, node: Ast.Node.Index, _: ?*Breaks) Error!?*obj.Obj
 
 fn generateFor(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.ObjFunction {
     const locations = self.ast.nodes.items(.location);
+    const end_locations = self.ast.nodes.items(.end_location);
     const type_defs = self.ast.nodes.items(.type_def);
     const node_components = self.ast.nodes.items(.components);
 
@@ -2068,6 +2153,7 @@ fn generateFor(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.
         self.reporter.reportErrorAt(
             .for_condition_type,
             self.ast.tokens.get(locations[components.condition]),
+            self.ast.tokens.get(end_locations[components.condition]),
             "`for` condition must be bool",
         );
     }
@@ -2124,6 +2210,7 @@ fn generateFor(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.
 
 fn generateForceUnwrap(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.ObjFunction {
     const locations = self.ast.nodes.items(.location);
+    const end_locations = self.ast.nodes.items(.end_location);
     const components = self.ast.nodes.items(.components)[node].ForceUnwrap;
 
     if (components.original_type.def_type == .Placeholder) {
@@ -2136,6 +2223,7 @@ fn generateForceUnwrap(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Erro
         self.reporter.reportErrorAt(
             .optional,
             self.ast.tokens.get(locations[components.unwrapped]),
+            self.ast.tokens.get(end_locations[components.unwrapped]),
             "Not an optional",
         );
     }
@@ -2153,6 +2241,7 @@ fn generateForceUnwrap(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Erro
 fn generateForEach(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.ObjFunction {
     const node_components = self.ast.nodes.items(.components);
     const locations = self.ast.nodes.items(.location);
+    const end_locations = self.ast.nodes.items(.end_location);
     const type_defs = self.ast.nodes.items(.type_def);
     const components = node_components[node].ForEach;
 
@@ -2174,6 +2263,7 @@ fn generateForEach(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*
                         self.reporter.reportErrorAt(
                             .foreach_key_type,
                             self.ast.tokens.get(locations[components.key]),
+                            self.ast.tokens.get(end_locations[components.key]),
                             "Expected `int`.",
                         );
                     }
@@ -2183,8 +2273,10 @@ fn generateForEach(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*
                         self.reporter.reportTypeCheck(
                             .foreach_key_type,
                             self.ast.tokens.get(locations[components.iterable]),
+                            self.ast.tokens.get(end_locations[components.iterable]),
                             iterable_type_def.resolved_type.?.Map.key_type,
                             self.ast.tokens.get(locations[components.key]),
+                            self.ast.tokens.get(end_locations[components.key]),
                             key_type_def,
                             "Bad key type",
                         );
@@ -2193,16 +2285,19 @@ fn generateForEach(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*
                 .Enum => self.reporter.reportErrorAt(
                     .foreach_key_type,
                     self.ast.tokens.get(locations[components.key]),
+                    self.ast.tokens.get(end_locations[components.key]),
                     "No key available when iterating over enum.",
                 ),
                 .Range => self.reporter.reportErrorAt(
                     .foreach_key_type,
                     self.ast.tokens.get(locations[components.key]),
+                    self.ast.tokens.get(end_locations[components.key]),
                     "No key available when iterating over range.",
                 ),
                 else => self.reporter.reportErrorAt(
                     .foreach_iterable,
                     self.ast.tokens.get(locations[components.iterable]),
+                    self.ast.tokens.get(end_locations[components.iterable]),
                     "Not iterable.",
                 ),
             }
@@ -2225,8 +2320,10 @@ fn generateForEach(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*
                     self.reporter.reportTypeCheck(
                         .foreach_value_type,
                         self.ast.tokens.get(locations[components.iterable]),
+                        self.ast.tokens.get(end_locations[components.iterable]),
                         iterable_type_def.resolved_type.?.Map.value_type,
                         self.ast.tokens.get(locations[components.value]),
+                        self.ast.tokens.get(end_locations[components.value]),
                         value_type_def,
                         "Bad value type",
                     );
@@ -2237,8 +2334,10 @@ fn generateForEach(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*
                     self.reporter.reportTypeCheck(
                         .foreach_value_type,
                         self.ast.tokens.get(locations[components.iterable]),
+                        self.ast.tokens.get(end_locations[components.iterable]),
                         iterable_type_def.resolved_type.?.List.item_type,
                         self.ast.tokens.get(locations[components.value]),
+                        self.ast.tokens.get(end_locations[components.value]),
                         value_type_def,
                         "Bad value type",
                     );
@@ -2249,8 +2348,10 @@ fn generateForEach(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*
                     self.reporter.reportTypeCheck(
                         .foreach_value_type,
                         self.ast.tokens.get(locations[components.iterable]),
+                        self.ast.tokens.get(end_locations[components.iterable]),
                         self.gc.type_registry.int_type,
                         self.ast.tokens.get(locations[components.value]),
+                        self.ast.tokens.get(end_locations[components.value]),
                         value_type_def,
                         "Bad value type",
                     );
@@ -2261,8 +2362,10 @@ fn generateForEach(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*
                     self.reporter.reportTypeCheck(
                         .foreach_value_type,
                         self.ast.tokens.get(locations[components.iterable]),
+                        self.ast.tokens.get(end_locations[components.iterable]),
                         self.gc.type_registry.str_type,
                         self.ast.tokens.get(locations[components.value]),
+                        self.ast.tokens.get(end_locations[components.value]),
                         value_type_def,
                         "Bad value type",
                     );
@@ -2277,8 +2380,10 @@ fn generateForEach(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*
                     self.reporter.reportTypeCheck(
                         .foreach_value_type,
                         self.ast.tokens.get(locations[components.iterable]),
+                        self.ast.tokens.get(end_locations[components.iterable]),
                         iterable_type,
                         self.ast.tokens.get(locations[components.value]),
+                        self.ast.tokens.get(end_locations[components.value]),
                         value_type_def,
                         "Bad value type",
                     );
@@ -2293,8 +2398,10 @@ fn generateForEach(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*
                     self.reporter.reportTypeCheck(
                         .foreach_value_type,
                         self.ast.tokens.get(locations[components.iterable]),
+                        self.ast.tokens.get(end_locations[components.iterable]),
                         iterable_type,
                         self.ast.tokens.get(locations[components.value]),
+                        self.ast.tokens.get(end_locations[components.value]),
                         value_type_def,
                         "Bad value type",
                     );
@@ -2303,6 +2410,7 @@ fn generateForEach(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*
             else => self.reporter.reportErrorAt(
                 .foreach_iterable,
                 self.ast.tokens.get(locations[components.iterable]),
+                self.ast.tokens.get(end_locations[components.iterable]),
                 "Not iterable.",
             ),
         }
@@ -2402,6 +2510,7 @@ fn generateFunction(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?
     const node_components = self.ast.nodes.items(.components);
     const type_defs = self.ast.nodes.items(.type_def);
     const locations = self.ast.nodes.items(.location);
+    const end_locations = self.ast.nodes.items(.end_location);
     const components = node_components[node].Function;
     const function_signature = if (components.function_signature) |fs|
         node_components[fs].FunctionType
@@ -2441,6 +2550,7 @@ fn generateFunction(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?
                         self.reporter.reportErrorAt(
                             .constant_default,
                             self.ast.tokens.get(locations[default]),
+                            self.ast.tokens.get(end_locations[default]),
                             "Default parameters must be constant values.",
                         );
                     } else {
@@ -2554,6 +2664,7 @@ fn generateFunction(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?
                     self.reporter.reportErrorFmt(
                         .export_count,
                         self.ast.tokens.get(locations[node]),
+                        self.ast.tokens.get(end_locations[node]),
                         "Can't export more than {} values.",
                         .{std.math.maxInt(u24)},
                     );
@@ -2588,6 +2699,7 @@ fn generateFunction(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?
             self.reporter.reportErrorAt(
                 .missing_return,
                 self.ast.tokens.get(locations[node]),
+                self.ast.tokens.get(end_locations[node]),
                 "Missing return statement",
             );
         }
@@ -2660,6 +2772,7 @@ fn generateGenericResolve(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) E
     const type_def = self.ast.nodes.items(.type_def)[node].?;
     const expr = self.ast.nodes.items(.components)[node].GenericResolve;
     const node_location = self.ast.nodes.items(.location)[node];
+    const node_end_location = self.ast.nodes.items(.end_location)[node];
 
     switch (type_def.def_type) {
         .Function => {
@@ -2671,6 +2784,7 @@ fn generateGenericResolve(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) E
                 self.reporter.reportErrorFmt(
                     .generic_type,
                     self.ast.tokens.get(node_location),
+                    self.ast.tokens.get(node_end_location),
                     "Missing generic types. Expected {} got {}.",
                     .{
                         function_type.generic_types.count(),
@@ -2684,6 +2798,7 @@ fn generateGenericResolve(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) E
                 self.reporter.reportErrorFmt(
                     .generic_type,
                     self.ast.tokens.get(node_location),
+                    self.ast.tokens.get(node_end_location),
                     "Too many generic types. Expected {} got {}.",
                     .{
                         function_type.generic_types.count(),
@@ -2704,6 +2819,7 @@ fn generateGenericResolve(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) E
                 self.reporter.reportErrorFmt(
                     .generic_type,
                     self.ast.tokens.get(node_location),
+                    self.ast.tokens.get(node_end_location),
                     "Missing generic types. Expected {} got {}.",
                     .{
                         object_type.generic_types.count(),
@@ -2717,6 +2833,7 @@ fn generateGenericResolve(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) E
                 self.reporter.reportErrorFmt(
                     .generic_type,
                     self.ast.tokens.get(node_location),
+                    self.ast.tokens.get(node_end_location),
                     "Too many generic types. Expected {} got {}.",
                     .{
                         object_type.generic_types.count(),
@@ -2735,6 +2852,7 @@ fn generateGenericResolve(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) E
             self.reporter.reportErrorFmt(
                 .generic_type,
                 self.ast.tokens.get(node_location),
+                self.ast.tokens.get(node_end_location),
                 "Type `{s}` does not support generic types",
                 .{
                     type_def_str,
@@ -2766,6 +2884,7 @@ fn generateGrouping(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?
 fn generateIf(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.ObjFunction {
     const type_defs = self.ast.nodes.items(.type_def);
     const locations = self.ast.nodes.items(.location);
+    const end_locations = self.ast.nodes.items(.end_location);
     const node_components = self.ast.nodes.items(.components);
     const components = node_components[node].If;
     const location = locations[node];
@@ -2789,8 +2908,10 @@ fn generateIf(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.O
             self.reporter.reportTypeCheck(
                 .inline_if_body_type,
                 self.ast.tokens.get(location),
+                self.ast.tokens.get(end_locations[node]),
                 type_defs[node].?,
                 self.ast.tokens.get(locations[components.body]),
+                self.ast.tokens.get(end_locations[components.body]),
                 type_defs[components.body].?,
                 "Inline if body type not matching",
             );
@@ -2800,8 +2921,10 @@ fn generateIf(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.O
             self.reporter.reportTypeCheck(
                 .inline_if_else_type,
                 self.ast.tokens.get(location),
+                self.ast.tokens.get(end_locations[node]),
                 type_defs[node].?,
                 self.ast.tokens.get(locations[components.else_branch.?]),
+                self.ast.tokens.get(end_locations[components.else_branch.?]),
                 type_defs[components.else_branch.?].?,
                 "Inline if else type not matching",
             );
@@ -2813,6 +2936,7 @@ fn generateIf(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.O
             self.reporter.reportErrorAt(
                 .optional,
                 self.ast.tokens.get(locations[components.condition]),
+                self.ast.tokens.get(end_locations[components.condition]),
                 "Expected optional",
             );
         }
@@ -2821,6 +2945,7 @@ fn generateIf(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.O
             self.reporter.reportErrorAt(
                 .if_condition_type,
                 self.ast.tokens.get(locations[components.condition]),
+                self.ast.tokens.get(end_locations[components.condition]),
                 "`if` condition must be bool",
             );
         }
@@ -2938,6 +3063,7 @@ fn generateIs(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.O
 
 fn generateList(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.ObjFunction {
     const locations = self.ast.nodes.items(.location);
+    const end_locations = self.ast.nodes.items(.end_location);
     const components = self.ast.nodes.items(.components)[node].List;
     const type_defs = self.ast.nodes.items(.type_def);
 
@@ -2955,8 +3081,10 @@ fn generateList(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj
             self.reporter.reportTypeCheck(
                 .list_item_type,
                 self.ast.tokens.get(locations[node]),
+                self.ast.tokens.get(end_locations[node]),
                 item_type,
                 self.ast.tokens.get(locations[item]),
+                self.ast.tokens.get(end_locations[item]),
                 type_defs[item].?,
                 "Bad list type",
             );
@@ -2980,6 +3108,7 @@ fn generateList(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj
 
 fn generateMap(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.ObjFunction {
     const locations = self.ast.nodes.items(.location);
+    const end_locations = self.ast.nodes.items(.end_location);
     const components = self.ast.nodes.items(.components)[node].Map;
     const type_defs = self.ast.nodes.items(.type_def);
 
@@ -3014,8 +3143,10 @@ fn generateMap(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.
             self.reporter.reportTypeCheck(
                 .map_key_type,
                 self.ast.tokens.get(locations[node]),
+                self.ast.tokens.get(end_locations[node]),
                 key_type.?,
                 self.ast.tokens.get(locations[entry.key]),
+                self.ast.tokens.get(end_locations[entry.key]),
                 type_defs[entry.key].?,
                 "Bad key type",
             );
@@ -3025,8 +3156,10 @@ fn generateMap(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.
             self.reporter.reportTypeCheck(
                 .map_value_type,
                 self.ast.tokens.get(locations[node]),
+                self.ast.tokens.get(end_locations[node]),
                 value_type.?,
                 self.ast.tokens.get(locations[entry.value]),
+                self.ast.tokens.get(end_locations[entry.value]),
                 type_defs[entry.value].?,
                 "Bad value type",
             );
@@ -3049,6 +3182,7 @@ fn generateMap(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.
 fn generateNamedVariable(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.ObjFunction {
     const components = self.ast.nodes.items(.components)[node].NamedVariable;
     const locations = self.ast.nodes.items(.location);
+    const end_locations = self.ast.nodes.items(.end_location);
     const type_defs = self.ast.nodes.items(.type_def);
     const tags = self.ast.tokens.items(.tag);
 
@@ -3080,8 +3214,10 @@ fn generateNamedVariable(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Er
             self.reporter.reportTypeCheck(
                 .assignment_value_type,
                 self.ast.tokens.get(locations[node]),
+                self.ast.tokens.get(end_locations[node]),
                 type_defs[node].?,
                 self.ast.tokens.get(locations[value]),
+                self.ast.tokens.get(end_locations[value]),
                 type_defs[value].?,
                 "Bad value type",
             );
@@ -3119,6 +3255,7 @@ fn generateNamedVariable(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Er
                 else => self.reporter.report(
                     .arithmetic_operand_type,
                     self.ast.tokens.get(components.assign_token.?),
+                    self.ast.tokens.get(components.assign_token.?),
                     "Addition is only allowed for types `int`, `double`, list, map and `str`",
                 ),
             },
@@ -3130,6 +3267,7 @@ fn generateNamedVariable(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Er
                 .Integer, .Double => {},
                 else => self.reporter.report(
                     .arithmetic_operand_type,
+                    self.ast.tokens.get(components.assign_token.?),
                     self.ast.tokens.get(components.assign_token.?),
                     "Operator is only allowed for types `int`, `double`",
                 ),
@@ -3143,6 +3281,7 @@ fn generateNamedVariable(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Er
             => if (type_defs[node].?.def_type != .Integer) {
                 self.reporter.report(
                     .arithmetic_operand_type,
+                    self.ast.tokens.get(components.assign_token.?),
                     self.ast.tokens.get(components.assign_token.?),
                     "Operator is only allowed for `int`",
                 );
@@ -3203,6 +3342,7 @@ fn generateNull(self: *Self, node: Ast.Node.Index, _: ?*Breaks) Error!?*obj.ObjF
 
 fn generateObjectDeclaration(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.ObjFunction {
     const locations = self.ast.nodes.items(.location);
+    const end_locations = self.ast.nodes.items(.end_location);
     const type_defs = self.ast.nodes.items(.type_def);
     const lexemes = self.ast.tokens.items(.lexeme);
     const components = self.ast.nodes.items(.components)[node].ObjectDeclaration;
@@ -3238,8 +3378,10 @@ fn generateObjectDeclaration(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks
                             self.reporter.reportTypeCheck(
                                 .protocol_conforming,
                                 protocol_def.location,
+                                protocol_def.location,
                                 mkv.value_ptr.*.type_def,
                                 self.ast.tokens.get(locations[member.method_or_default_value.?]),
+                                self.ast.tokens.get(end_locations[member.method_or_default_value.?]),
                                 type_defs[member.method_or_default_value.?].?,
                                 "Method not conforming to protocol",
                             );
@@ -3252,6 +3394,8 @@ fn generateObjectDeclaration(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks
                     self.reporter.reportWithOrigin(
                         .protocol_conforming,
                         self.ast.tokens.get(location),
+                        self.ast.tokens.get(end_locations[node]),
+                        protocol_def.methods_locations.get(mkv.value_ptr.*.type_def.resolved_type.?.Function.name.string).?,
                         protocol_def.methods_locations.get(mkv.value_ptr.*.type_def.resolved_type.?.Function.name.string).?,
                         "Object declared as conforming to protocol `{s}` but doesn't implement method `{s}`",
                         .{
@@ -3299,6 +3443,7 @@ fn generateObjectDeclaration(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks
                     self.reporter.reportErrorFmt(
                         .collect_signature,
                         self.ast.tokens.get(locations[member.method_or_default_value.?]),
+                        self.ast.tokens.get(end_locations[member.method_or_default_value.?]),
                         "Expected `collect` method to be `fun collect() > void` got {s}",
                         .{
                             collect_def_str,
@@ -3319,6 +3464,7 @@ fn generateObjectDeclaration(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks
                     self.reporter.reportErrorFmt(
                         .tostring_signature,
                         self.ast.tokens.get(locations[member.method_or_default_value.?]),
+                        self.ast.tokens.get(end_locations[member.method_or_default_value.?]),
                         "Expected `toString` method to be `fun toString() > str` got {s}",
                         .{
                             tostring_def_str,
@@ -3346,8 +3492,10 @@ fn generateObjectDeclaration(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks
                     self.reporter.reportTypeCheck(
                         .property_default_value,
                         object_def.location,
+                        object_def.location,
                         property_type,
                         self.ast.tokens.get(locations[default]),
+                        self.ast.tokens.get(end_locations[default]),
                         default_type_def,
                         "Wrong property default value type",
                     );
@@ -3384,6 +3532,7 @@ fn generateObjectDeclaration(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks
 
 fn generateObjectInit(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.ObjFunction {
     const locations = self.ast.nodes.items(.location);
+    const end_locations = self.ast.nodes.items(.end_location);
     const type_defs = self.ast.nodes.items(.type_def);
     const lexemes = self.ast.tokens.items(.lexeme);
     const components = self.ast.nodes.items(.components)[node].ObjectInit;
@@ -3406,6 +3555,7 @@ fn generateObjectInit(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error
         self.reporter.reportErrorAt(
             .expected_object,
             self.ast.tokens.get(location),
+            self.ast.tokens.get(end_locations[node]),
             "Expected object or foreign struct.",
         );
 
@@ -3479,15 +3629,19 @@ fn generateObjectInit(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error
                         },
                     );
                 }
+
+                const err_location = if (node_type_def.def_type == .ObjectInstance)
+                    node_type_def.resolved_type.?.ObjectInstance.of
+                        .resolved_type.?.Object.fields.get(property_name).?.location
+                else
+                    object_location;
                 self.reporter.reportTypeCheck(
                     .property_type,
-                    if (node_type_def.def_type == .ObjectInstance)
-                        node_type_def.resolved_type.?.ObjectInstance.of
-                            .resolved_type.?.Object.fields.get(property_name).?.location
-                    else
-                        object_location,
+                    err_location,
+                    err_location,
                     prop,
                     self.ast.tokens.get(locations[property.value]),
+                    self.ast.tokens.get(end_locations[property.value]),
                     value_type_def,
                     "Wrong property type",
                 );
@@ -3510,6 +3664,8 @@ fn generateObjectInit(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error
             self.reporter.reportWithOrigin(
                 .property_does_not_exists,
                 self.ast.tokens.get(location),
+                self.ast.tokens.get(end_locations[node]),
+                object_location,
                 object_location,
                 "Property `{s}` does not exists",
                 .{property_name},
@@ -3536,6 +3692,7 @@ fn generateObjectInit(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error
                 self.reporter.reportErrorFmt(
                     .property_not_initialized,
                     self.ast.tokens.get(location),
+                    self.ast.tokens.get(end_locations[node]),
                     "Property `{s}` was not initialized and has no default value",
                     .{kv.key_ptr.*},
                 );
@@ -3579,6 +3736,7 @@ fn generateRange(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*ob
     const type_defs = self.ast.nodes.items(.type_def);
     const components = self.ast.nodes.items(.components)[node].Range;
     const locations = self.ast.nodes.items(.location);
+    const end_locations = self.ast.nodes.items(.end_location);
 
     // Type checking
     if (type_defs[components.low].?.def_type == .Placeholder) {
@@ -3593,8 +3751,10 @@ fn generateRange(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*ob
         self.reporter.reportTypeCheck(
             .range_type,
             null,
+            null,
             self.gc.type_registry.int_type,
             self.ast.tokens.get(locations[components.low]),
+            self.ast.tokens.get(end_locations[components.low]),
             type_defs[components.low].?,
             "Bad low range limit type",
         );
@@ -3604,8 +3764,10 @@ fn generateRange(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*ob
         self.reporter.reportTypeCheck(
             .range_type,
             null,
+            null,
             self.gc.type_registry.int_type,
             self.ast.tokens.get(locations[components.high]),
+            self.ast.tokens.get(end_locations[components.high]),
             type_defs[components.high].?,
             "Bad high range limit type",
         );
@@ -3626,6 +3788,7 @@ fn generateResolve(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*
     const fiber = self.ast.nodes.items(.components)[node].Resolve;
     const fiber_type_def = self.ast.nodes.items(.type_def)[fiber].?;
     const locations = self.ast.nodes.items(.location);
+    const end_locations = self.ast.nodes.items(.end_location);
 
     if (fiber_type_def.def_type == .Placeholder) {
         self.reporter.reportPlaceholder(self.ast, fiber_type_def.resolved_type.?.Placeholder);
@@ -3637,6 +3800,7 @@ fn generateResolve(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*
         self.reporter.reportErrorAt(
             .fiber,
             self.ast.tokens.get(locations[fiber]),
+            self.ast.tokens.get(end_locations[fiber]),
             "Not a fiber",
         );
     }
@@ -3655,6 +3819,7 @@ fn generateResume(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*o
     const fiber = self.ast.nodes.items(.components)[node].Resume;
     const fiber_type_def = self.ast.nodes.items(.type_def)[fiber].?;
     const locations = self.ast.nodes.items(.location);
+    const end_locations = self.ast.nodes.items(.end_location);
 
     if (fiber_type_def.def_type == .Placeholder) {
         self.reporter.reportPlaceholder(self.ast, fiber_type_def.resolved_type.?.Placeholder);
@@ -3666,6 +3831,7 @@ fn generateResume(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*o
         self.reporter.reportErrorAt(
             .fiber,
             self.ast.tokens.get(locations[fiber]),
+            self.ast.tokens.get(end_locations[fiber]),
             "Not a fiber",
         );
     }
@@ -3684,6 +3850,7 @@ fn generateReturn(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*o
     const components = self.ast.nodes.items(.components)[node].Return;
     const type_defs = self.ast.nodes.items(.type_def);
     const locations = self.ast.nodes.items(.location);
+    const end_locations = self.ast.nodes.items(.end_location);
 
     if (components.unconditional) {
         self.current.?.return_emitted = true;
@@ -3695,6 +3862,7 @@ fn generateReturn(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*o
             self.reporter.reportErrorAt(
                 .undefined,
                 self.ast.tokens.get(locations[value]),
+                self.ast.tokens.get(end_locations[value]),
                 "Unknown type.",
             );
         } else if (value_type_def.?.def_type == .Placeholder) {
@@ -3703,8 +3871,10 @@ fn generateReturn(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*o
             self.reporter.reportTypeCheck(
                 .return_type,
                 self.ast.tokens.get(locations[self.current.?.function_node]),
+                self.ast.tokens.get(end_locations[self.current.?.function_node]),
                 self.current.?.function.?.type_def.resolved_type.?.Function.return_type,
                 self.ast.tokens.get(locations[value]),
+                self.ast.tokens.get(end_locations[value]),
                 value_type_def.?,
                 "Return value",
             );
@@ -3716,8 +3886,10 @@ fn generateReturn(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*o
             self.reporter.reportTypeCheck(
                 .return_type,
                 self.ast.tokens.get(locations[self.current.?.function_node]),
+                self.ast.tokens.get(end_locations[self.current.?.function_node]),
                 self.current.?.function.?.type_def.resolved_type.?.Function.return_type,
                 self.ast.tokens.get(locations[node]),
+                self.ast.tokens.get(end_locations[node]),
                 self.gc.type_registry.void_type,
                 "Return value",
             );
@@ -3787,6 +3959,7 @@ fn generateStringLiteral(self: *Self, node: Ast.Node.Index, _: ?*Breaks) Error!?
 
 fn generateSubscript(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.ObjFunction {
     const locations = self.ast.nodes.items(.location);
+    const end_locations = self.ast.nodes.items(.end_location);
     const location = locations[node];
     const type_defs = self.ast.nodes.items(.type_def);
     const components = self.ast.nodes.items(.components)[node].Subscript;
@@ -3817,6 +3990,7 @@ fn generateSubscript(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!
                 self.reporter.reportErrorAt(
                     .subscript_key_type,
                     self.ast.tokens.get(locations[components.index]),
+                    self.ast.tokens.get(end_locations[components.index]),
                     "Expected `int` index.",
                 );
             }
@@ -3830,6 +4004,7 @@ fn generateSubscript(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!
                 self.reporter.reportErrorAt(
                     .subscript_key_type,
                     self.ast.tokens.get(locations[components.index]),
+                    self.ast.tokens.get(end_locations[components.index]),
                     "Expected `int` index.",
                 );
             }
@@ -3841,6 +4016,7 @@ fn generateSubscript(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!
                     self.reporter.reportErrorFmt(
                         .not_mutable,
                         self.ast.tokens.get(locations[components.subscripted]),
+                        self.ast.tokens.get(end_locations[components.subscripted]),
                         "`{s}` not mutable",
                         .{
                             callee_type_str,
@@ -3852,8 +4028,10 @@ fn generateSubscript(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!
                     self.reporter.reportTypeCheck(
                         .subscript_value_type,
                         self.ast.tokens.get(locations[components.subscripted]),
+                        self.ast.tokens.get(end_locations[components.subscripted]),
                         subscripted_type_def.resolved_type.?.List.item_type,
                         self.ast.tokens.get(locations[value]),
+                        self.ast.tokens.get(end_locations[value]),
                         value_type_def.?,
                         "Bad value type",
                     );
@@ -3865,8 +4043,10 @@ fn generateSubscript(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!
                 self.reporter.reportTypeCheck(
                     .subscript_key_type,
                     self.ast.tokens.get(locations[components.subscripted]),
+                    self.ast.tokens.get(end_locations[components.subscripted]),
                     subscripted_type_def.resolved_type.?.Map.key_type,
                     self.ast.tokens.get(locations[components.index]),
+                    self.ast.tokens.get(end_locations[components.index]),
                     index_type_def,
                     "Bad key type",
                 );
@@ -3879,6 +4059,7 @@ fn generateSubscript(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!
                     self.reporter.reportErrorFmt(
                         .not_mutable,
                         self.ast.tokens.get(locations[components.subscripted]),
+                        self.ast.tokens.get(end_locations[components.subscripted]),
                         "`{s}` not mutable",
                         .{
                             callee_type_str,
@@ -3890,8 +4071,10 @@ fn generateSubscript(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!
                     self.reporter.reportTypeCheck(
                         .subscript_value_type,
                         self.ast.tokens.get(locations[components.subscripted]),
+                        self.ast.tokens.get(end_locations[components.subscripted]),
                         subscripted_type_def.resolved_type.?.Map.value_type,
                         self.ast.tokens.get(locations[value]),
+                        self.ast.tokens.get(end_locations[value]),
                         value_type_def.?,
                         "Bad value type",
                     );
@@ -3904,6 +4087,7 @@ fn generateSubscript(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!
         else => self.reporter.reportErrorAt(
             .subscriptable,
             self.ast.tokens.get(location),
+            self.ast.tokens.get(end_locations[node]),
             "Not subscriptable.",
         ),
     }
@@ -3932,6 +4116,7 @@ fn generateTry(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.
     const components = self.ast.nodes.items(.components)[node].Try;
     const type_defs = self.ast.nodes.items(.type_def);
     const locations = self.ast.nodes.items(.location);
+    const end_locations = self.ast.nodes.items(.end_location);
     const location = locations[node];
 
     self.current.?.try_should_handle = .{};
@@ -4030,6 +4215,8 @@ fn generateTry(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.
                 self.reporter.reportWithOrigin(
                     .error_not_handled,
                     self.ast.tokens.get(location),
+                    self.ast.tokens.get(end_locations[node]),
+                    self.ast.tokens.get(kv.value_ptr.*),
                     self.ast.tokens.get(kv.value_ptr.*),
                     "Error type `{s}` not handled",
                     .{err_str},
@@ -4049,6 +4236,7 @@ fn generateThrow(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*ob
     const components = self.ast.nodes.items(.components)[node].Throw;
     const type_defs = self.ast.nodes.items(.type_def);
     const location = self.ast.nodes.items(.location)[node];
+    const end_locations = self.ast.nodes.items(.end_location);
 
     if (components.unconditional) {
         self.current.?.return_emitted = true;
@@ -4086,6 +4274,7 @@ fn generateThrow(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*ob
                 self.reporter.reportErrorFmt(
                     .unexpected_error_type,
                     self.ast.tokens.get(location),
+                    self.ast.tokens.get(end_locations[node]),
                     "Error type `{s}` not expected",
                     .{error_str},
                 );
@@ -4132,6 +4321,7 @@ fn generateTypeOfExpression(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks)
 fn generateUnary(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.ObjFunction {
     const components = self.ast.nodes.items(.components)[node].Unary;
     const location = self.ast.nodes.items(.location)[node];
+    const end_locations = self.ast.nodes.items(.end_location);
     const expression_location = self.ast.nodes.items(.location)[components.expression];
     const expression_type_def = self.ast.nodes.items(.type_def)[components.expression].?;
 
@@ -4149,6 +4339,7 @@ fn generateUnary(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*ob
                 self.reporter.reportErrorFmt(
                     .bitwise_operand_type,
                     self.ast.tokens.get(expression_location),
+                    self.ast.tokens.get(end_locations[components.expression]),
                     "Expected type `int`, got `{s}`",
                     .{
                         try expression_type_def.toStringAlloc(self.gc.allocator),
@@ -4163,6 +4354,7 @@ fn generateUnary(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*ob
                 self.reporter.reportErrorFmt(
                     .bitwise_operand_type,
                     self.ast.tokens.get(expression_location),
+                    self.ast.tokens.get(end_locations[components.expression]),
                     "Expected type `bool`, got `{s}`",
                     .{
                         try expression_type_def.toStringAlloc(self.gc.allocator),
@@ -4177,6 +4369,7 @@ fn generateUnary(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*ob
                 self.reporter.reportErrorFmt(
                     .arithmetic_operand_type,
                     self.ast.tokens.get(expression_location),
+                    self.ast.tokens.get(end_locations[components.expression]),
                     "Expected type `int` or `double`, got `{s}`",
                     .{
                         try expression_type_def.toStringAlloc(self.gc.allocator),
@@ -4197,6 +4390,7 @@ fn generateUnary(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*ob
 
 fn generateUnwrap(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.ObjFunction {
     const locations = self.ast.nodes.items(.location);
+    const end_locations = self.ast.nodes.items(.end_location);
     const location = locations[node];
     const components = self.ast.nodes.items(.components)[node].Unwrap;
 
@@ -4210,6 +4404,7 @@ fn generateUnwrap(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*o
         self.reporter.reportErrorAt(
             .optional,
             self.ast.tokens.get(locations[components.unwrapped]),
+            self.ast.tokens.get(end_locations[components.unwrapped]),
             "Not an optional",
         );
     }
@@ -4248,6 +4443,7 @@ fn generateVarDeclaration(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) E
     else
         null;
     const locations = self.ast.nodes.items(.location);
+    const end_locations = self.ast.nodes.items(.end_location);
     const location = locations[node];
 
     if (components.value) |value| {
@@ -4263,8 +4459,10 @@ fn generateVarDeclaration(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) E
             self.reporter.reportTypeCheck(
                 .assignment_value_type,
                 self.ast.tokens.get(location),
+                self.ast.tokens.get(end_locations[node]),
                 try type_def.toInstance(&self.gc.type_registry, type_def.isMutable()),
                 self.ast.tokens.get(locations[value]),
+                self.ast.tokens.get(end_locations[value]),
                 value_type_def.?,
                 "Wrong variable type",
             );
@@ -4296,6 +4494,7 @@ fn generateWhile(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*ob
     const components = self.ast.nodes.items(.components)[node].While;
     const type_defs = self.ast.nodes.items(.type_def);
     const locations = self.ast.nodes.items(.location);
+    const end_locations = self.ast.nodes.items(.end_location);
     const location = locations[node];
     const condition_type_def = type_defs[components.condition].?;
 
@@ -4320,6 +4519,7 @@ fn generateWhile(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*ob
         self.reporter.reportErrorAt(
             .while_condition_type,
             self.ast.tokens.get(locations[components.condition]),
+            self.ast.tokens.get(end_locations[components.condition]),
             "`while` condition must be bool",
         );
     }
@@ -4360,6 +4560,7 @@ fn generateYield(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*ob
     const type_defs = self.ast.nodes.items(.type_def);
     const type_def = type_defs[node];
     const locations = self.ast.nodes.items(.location);
+    const end_locations = self.ast.nodes.items(.end_location);
     const location = locations[node];
 
     const current_function_typedef = type_defs[self.current.?.function_node].?.resolved_type.?.Function;
@@ -4374,6 +4575,7 @@ fn generateYield(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*ob
         => self.reporter.reportErrorAt(
             .yield_not_allowed,
             self.ast.tokens.get(location),
+            self.ast.tokens.get(end_locations[node]),
             "Can't yield here",
         ),
         else => {},
@@ -4383,6 +4585,7 @@ fn generateYield(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*ob
         self.reporter.reportErrorAt(
             .unknown,
             self.ast.tokens.get(location),
+            self.ast.tokens.get(end_locations[node]),
             "Unknown type.",
         );
     } else if (type_def.?.def_type == .Placeholder) {
@@ -4391,8 +4594,10 @@ fn generateYield(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*ob
         self.reporter.reportTypeCheck(
             .yield_type,
             self.ast.tokens.get(locations[self.current.?.function_node]),
+            self.ast.tokens.get(end_locations[self.current.?.function_node]),
             self.current.?.function.?.type_def.resolved_type.?.Function.yield_type,
             self.ast.tokens.get(location),
+            self.ast.tokens.get(end_locations[node]),
             type_def.?,
             "Bad yield value",
         );

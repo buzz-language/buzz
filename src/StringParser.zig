@@ -190,6 +190,12 @@ fn rawChar(self: *Self) !void {
     if (number) |unumber| {
         try self.current_chunk.append(unumber);
     } else {
-        self.parser.reportError(.raw_char, "Raw char should be between 0 and 255.");
+        const location = self.parser.ast.tokens.get(self.parser.current_token.? - 1);
+        self.parser.reporter.reportErrorAt(
+            .raw_char,
+            location,
+            location,
+            "Raw char should be between 0 and 255.",
+        );
     }
 }

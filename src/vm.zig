@@ -58,7 +58,10 @@ pub const RunFlavor = enum {
     Repl,
 
     pub inline fn resolveImports(self: RunFlavor) bool {
-        return self == .Run or self == .Test or self == .Repl;
+        return switch (self) {
+            .Check, .Fmt => false,
+            else => true,
+        };
     }
 };
 
@@ -4627,14 +4630,16 @@ pub const VM = struct {
             ) catch @panic("Could not report error");
         }
 
+        const location = self.current_ast.tokens.get(
+            error_site orelse stack[0].call_site.?,
+        );
         var err_report = Reporter.Report{
             .message = message,
             .error_type = .runtime,
             .items = &[_]Reporter.ReportItem{
                 .{
-                    .location = self.current_ast.tokens.get(
-                        error_site orelse stack[0].call_site.?,
-                    ),
+                    .location = location,
+                    .end_location = location,
                     .kind = .@"error",
                     .message = message,
                 },
