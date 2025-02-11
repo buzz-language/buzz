@@ -29,6 +29,273 @@ pub const Slice = struct {
     nodes: NodeList.Slice,
     root: ?Node.Index,
 
+    /// ctx should have:
+    /// - `fn processNode(ctx: @TypeOf(ctx), allocator: std.mem.Allocator, ast: Ast.Slice, node: Node.Index) error{OutOfMemory}!bool: returns true to stop walking deeper
+    pub fn walk(self: Slice, allocator: std.mem.Allocator, ctx: anytype, root: Node.Index) !void {
+        const tags = self.nodes.items(.tag);
+        const components = self.nodes.items(.components);
+
+        // Hold previous node's leaves
+        var node_queue = std.ArrayListUnmanaged(Node.Index){};
+        try node_queue.append(allocator, root);
+        defer node_queue.deinit(allocator);
+
+        while (node_queue.items.len > 0) {
+            const node = node_queue.orderedRemove(0);
+
+            // Stop if requested and if there's no neighbors to process
+            if (try ctx.processNode(allocator, self, node) and node_queue.items.len == 0) {
+                return;
+            }
+
+            // Otherwise continue walking the tree
+            const comp = components[node];
+            switch (tags[node]) {
+                .AnonymousObjectType => {
+                    for (comp.AnonymousObjectType.fields) |field| {
+                        try node_queue.append(allocator, field.type);
+                    }
+                },
+                .Is => {
+                    try node_queue.appendSlice(
+                        allocator,
+                        &.{
+                            comp.Is.left,
+                            comp.Is.constant,
+                        },
+                    );
+                },
+                .As => {
+                    try node_queue.appendSlice(
+                        allocator,
+                        &.{
+                            comp.As.left,
+                            comp.As.constant,
+                        },
+                    );
+                },
+                .AsyncCall => try node_queue.append(allocator, comp.AsyncCall),
+                .Binary => {
+                    try node_queue.append(allocator, comp.Binary.left);
+                    try node_queue.append(allocator, comp.Binary.right);
+                },
+                .Block => try node_queue.appendSlice(allocator, comp.Block),
+                .BlockExpression => try node_queue.appendSlice(allocator, comp.BlockExpression),
+                .Break => if (comp.Break) |expr| try node_queue.append(allocator, expr),
+                .Call => {
+                    if (tags[comp.Call.callee] != .Dot) {
+                        try node_queue.append(allocator, comp.Call.callee);
+                    }
+                    if (comp.Call.catch_default) |default| {
+                        try node_queue.append(allocator, default);
+                    }
+                    for (comp.Call.arguments) |arg| {
+                        try node_queue.append(allocator, arg.value);
+                    }
+                },
+                .Continue => if (comp.Continue) |expr| try node_queue.append(allocator, expr),
+                .Dot => {
+                    try node_queue.append(allocator, comp.Dot.callee);
+                    if (comp.Dot.generic_resolve) |generic_resolve| {
+                        try node_queue.append(allocator, generic_resolve);
+                    }
+                    switch (comp.Dot.member_kind) {
+                        .Value => try node_queue.append(allocator, comp.Dot.value_or_call_or_enum.Value.value),
+                        .Call => try node_queue.append(allocator, comp.Dot.value_or_call_or_enum.Call),
+                        .Ref, .EnumCase => {},
+                    }
+                },
+                .DoUntil => {
+                    try node_queue.append(allocator, comp.DoUntil.condition);
+                    try node_queue.append(allocator, comp.DoUntil.body);
+                },
+                .Enum => {
+                    if (comp.Enum.case_type) |case_type| {
+                        try node_queue.append(allocator, case_type);
+                    }
+                    for (comp.Enum.cases) |case| {
+                        if (case.value) |value| {
+                            try node_queue.append(allocator, value);
+                        }
+                    }
+                },
+                .Export => {
+                    if (comp.Export.declaration) |decl| {
+                        try node_queue.append(allocator, decl);
+                    }
+                },
+                .Expression => try node_queue.append(allocator, comp.Expression),
+                .FiberType => {
+                    try node_queue.append(allocator, comp.FiberType.return_type);
+                    try node_queue.append(allocator, comp.FiberType.yield_type);
+                },
+                .For => {
+                    try node_queue.append(allocator, comp.For.condition);
+                    try node_queue.append(allocator, comp.For.body);
+                    try node_queue.appendSlice(allocator, comp.For.init_declarations);
+                    try node_queue.appendSlice(allocator, comp.For.post_loop);
+                },
+                .ForceUnwrap => try node_queue.append(allocator, comp.ForceUnwrap.unwrapped),
+                .ForEach => {
+                    try node_queue.append(allocator, comp.ForEach.iterable);
+                    try node_queue.append(allocator, comp.ForEach.body);
+                    try node_queue.append(allocator, comp.ForEach.key);
+                    try node_queue.append(allocator, comp.ForEach.value);
+                },
+                .Function => {
+                    if (comp.Function.body) |body| {
+                        try node_queue.append(allocator, body);
+                    }
+
+                    if (comp.Function.function_signature) |signature| {
+                        try node_queue.append(allocator, signature);
+                    }
+                },
+                .FunctionType => {
+                    if (comp.FunctionType.return_type) |return_type| {
+                        try node_queue.append(allocator, return_type);
+                    }
+
+                    if (comp.FunctionType.yield_type) |yield_type| {
+                        try node_queue.append(allocator, yield_type);
+                    }
+
+                    try node_queue.appendSlice(allocator, comp.FunctionType.error_types);
+
+                    for (comp.FunctionType.arguments) |arg| {
+                        try node_queue.append(allocator, arg.type);
+
+                        if (arg.default) |default| {
+                            try node_queue.append(allocator, default);
+                        }
+                    }
+                },
+                .FunDeclaration => try node_queue.append(allocator, comp.FunDeclaration.function),
+                .GenericResolve => try node_queue.append(allocator, comp.GenericResolve),
+                .GenericResolveType => try node_queue.appendSlice(allocator, comp.GenericResolveType),
+                .Grouping => try node_queue.append(allocator, comp.Grouping),
+                .If => {
+                    try node_queue.append(allocator, comp.If.condition);
+                    try node_queue.append(allocator, comp.If.body);
+                    if (comp.If.casted_type) |casted_type| {
+                        try node_queue.append(allocator, casted_type);
+                    }
+                    if (comp.If.else_branch) |else_branch| {
+                        try node_queue.append(allocator, else_branch);
+                    }
+                },
+                .List => {
+                    try node_queue.appendSlice(allocator, comp.List.items);
+                    if (comp.List.explicit_item_type) |item_type| {
+                        try node_queue.append(allocator, item_type);
+                    }
+                },
+                .ListType => try node_queue.append(allocator, comp.ListType),
+                .Map => {
+                    if (comp.Map.explicit_key_type) |key_type| {
+                        try node_queue.append(allocator, key_type);
+                    }
+
+                    if (comp.Map.explicit_value_type) |value_type| {
+                        try node_queue.append(allocator, value_type);
+                    }
+
+                    for (comp.Map.entries) |entry| {
+                        try node_queue.append(allocator, entry.key);
+                        try node_queue.append(allocator, entry.value);
+                    }
+                },
+                .MapType => {
+                    try node_queue.append(allocator, comp.MapType.key_type);
+                    try node_queue.append(allocator, comp.MapType.value_type);
+                },
+                .NamedVariable => if (comp.NamedVariable.value) |value|
+                    try node_queue.append(allocator, value),
+                .ObjectDeclaration => {
+                    try node_queue.appendSlice(allocator, comp.ObjectDeclaration.protocols);
+                    for (comp.ObjectDeclaration.members) |member| {
+                        if (member.method_or_default_value) |value| {
+                            try node_queue.append(allocator, value);
+                        }
+                    }
+                },
+                .ObjectInit => {
+                    if (comp.ObjectInit.object) |object| {
+                        try node_queue.append(allocator, object);
+                    }
+                    for (comp.ObjectInit.properties) |property| {
+                        try node_queue.append(allocator, property.value);
+                    }
+                },
+                .Out => try node_queue.append(allocator, comp.Out),
+                .ProtocolDeclaration => for (comp.ProtocolDeclaration.methods) |method| {
+                    try node_queue.append(allocator, method.method);
+                },
+                .Range => {
+                    try node_queue.append(allocator, comp.Range.low);
+                    try node_queue.append(allocator, comp.Range.high);
+                },
+                .Resolve => try node_queue.append(allocator, comp.Resolve),
+                .Resume => try node_queue.append(allocator, comp.Resume),
+                .Return => if (comp.Return.value) |value|
+                    try node_queue.append(allocator, value),
+                .String => for (comp.String) |el|
+                    try node_queue.append(allocator, el),
+                .Subscript => {
+                    try node_queue.append(allocator, comp.Subscript.subscripted);
+                    try node_queue.append(allocator, comp.Subscript.index);
+                    if (comp.Subscript.value) |value| {
+                        try node_queue.append(allocator, value);
+                    }
+                },
+                .Throw => try node_queue.append(allocator, comp.Throw.expression),
+                .Try => {
+                    try node_queue.append(allocator, comp.Try.body);
+                    if (comp.Try.unconditional_clause) |clause| {
+                        try node_queue.append(allocator, clause);
+                    }
+                    for (comp.Try.clauses) |clause| {
+                        try node_queue.append(allocator, clause.type_def);
+                        try node_queue.append(allocator, clause.body);
+                    }
+                },
+                .TypeExpression => try node_queue.append(allocator, comp.TypeExpression),
+                .TypeOfExpression => try node_queue.append(allocator, comp.TypeOfExpression),
+                .Unary => try node_queue.append(allocator, comp.Unary.expression),
+                .Unwrap => try node_queue.append(allocator, comp.Unwrap.unwrapped),
+                .UserType => if (comp.UserType.generic_resolve) |generic_resolve|
+                    try node_queue.append(allocator, generic_resolve),
+                .VarDeclaration => {
+                    if (comp.VarDeclaration.value) |value| {
+                        try node_queue.append(allocator, value);
+                    }
+                    if (comp.VarDeclaration.type) |type_def| {
+                        try node_queue.append(allocator, type_def);
+                    }
+                },
+                .While => {
+                    try node_queue.append(allocator, comp.While.condition);
+                    try node_queue.append(allocator, comp.While.body);
+                },
+                .Yield => try node_queue.append(allocator, comp.Yield),
+                .Boolean,
+                .Import,
+                .Integer,
+                .Double,
+                .Null,
+                .GenericType,
+                .Namespace,
+                .Pattern,
+                .SimpleType,
+                .StringLiteral,
+                .Void,
+                .Zdef,
+                => {},
+            }
+        }
+    }
+
+    // FIXME: use walk to do this?
     pub fn usesFiber(self: Self.Slice, allocator: std.mem.Allocator, node: Node.Index, seen: *std.AutoHashMapUnmanaged(Node.Index, void)) !bool {
         if (seen.get(node) != null) {
             return false;
@@ -191,6 +458,7 @@ pub const Slice = struct {
         };
     }
 
+    // FIXME: use walk?
     pub fn isConstant(self: Self.Slice, node: Node.Index) bool {
         return switch (self.nodes.items(.tag)[node]) {
             .AnonymousObjectType,
@@ -530,6 +798,7 @@ pub const Slice = struct {
         }
     }
 
+    // FIXME: use walk
     pub fn toValue(self: Self.Slice, node: Node.Index, gc: *GarbageCollector) Error!Value {
         const value = &self.nodes.items(.value)[node];
 
@@ -793,6 +1062,14 @@ pub const Node = struct {
     /// Wether its blacklisted or already compiled
     compilable: bool = true,
 
+    pub fn deinit(self: *Node, allocator: std.mem.Allocator) void {
+        if (self.ends_scope) |ends_scope| {
+            allocator.free(ends_scope);
+        }
+
+        self.components.deinit(allocator);
+    }
+
     pub const Index = u32;
 
     pub const Tag = enum(u8) {
@@ -896,7 +1173,7 @@ pub const Node = struct {
         FunctionType: FunctionType,
         FunDeclaration: FunDeclaration,
         GenericResolve: Node.Index,
-        GenericResolveType: GenericResolveType,
+        GenericResolveType: []const Node.Index,
         GenericType: void,
         Grouping: Node.Index,
         If: If,
@@ -904,7 +1181,7 @@ pub const Node = struct {
         Integer: v.Integer,
         Is: IsAs,
         List: List,
-        ListType: ListType,
+        ListType: Node.Index,
         Map: Map,
         MapType: MapType,
         Namespace: []const TokenIndex,
@@ -936,6 +1213,93 @@ pub const Node = struct {
         While: WhileDoUntil,
         Yield: Node.Index,
         Zdef: Zdef,
+
+        pub fn deinit(self: Components, allocator: std.mem.Allocator) void {
+            switch (self) {
+                .AnonymousObjectType => allocator.free(self.AnonymousObjectType.fields),
+                .Block => allocator.free(self.Block),
+                .BlockExpression => allocator.free(self.BlockExpression),
+                .Call => allocator.free(self.Call.arguments),
+                .Enum => allocator.free(self.Enum.cases),
+                .Export => if (self.Export.name) |name| allocator.free(name) else void,
+                .For => {
+                    allocator.free(self.For.init_declarations);
+                    allocator.free(self.For.post_loop);
+                },
+                .Function => {
+                    self.Function.upvalue_binding.deinit(allocator);
+                },
+                .FunctionType => {
+                    allocator.free(self.FunctionType.error_types);
+                    allocator.free(self.FunctionType.arguments);
+                    allocator.free(self.FunctionType.generic_types);
+                },
+                .GenericResolveType => allocator.free(self.GenericResolveType.resolved_types),
+                .Import => {
+                    allocator.free(self.Import.imported_symbols);
+                    if (self.Import.prefix) |prefix| {
+                        allocator.free(prefix);
+                    }
+                },
+                .List => allocator.free(self.List.items),
+                .Map => allocator.free(self.Map.entries),
+                .Namespace => allocator.free(self.Namespace),
+                .NamedVariable => allocator.free(self.NamedVariable.name),
+                .ObjectDeclaration => {
+                    allocator.free(self.ObjectDeclaration.protocols);
+                    allocator.free(self.ObjectDeclaration.generics);
+                    allocator.free(self.ObjectDeclaration.members);
+                },
+                .ObjectInit => allocator.free(self.ObjectInit.properties),
+                .ProtocolDeclaration => allocator.free(self.ProtocolDeclaration.methods),
+                .String => allocator.free(self.String),
+                .Try => allocator.free(self.Try.clauses),
+                .UserType => allocator.free(self.UserType.name),
+                .Zdef => allocator.free(self.Zdef.elements),
+                .AsyncCall,
+                .As,
+                .Binary,
+                .Boolean,
+                .Break,
+                .Continue,
+                .Dot,
+                .DoUntil,
+                .Expression,
+                .FiberType,
+                .Double,
+                .ForceUnwrap,
+                .ForEach,
+                .FunDeclaration,
+                .GenericResolve,
+                .GenericType,
+                .Grouping,
+                .If,
+                .Integer,
+                .Is,
+                .ListType,
+                .MapType,
+                .Null,
+                .Out,
+                .Pattern,
+                .Range,
+                .Resolve,
+                .Resume,
+                .Return,
+                .SimpleType,
+                .StringLiteral,
+                .Subscript,
+                .Throw,
+                .TypeExpression,
+                .TypeOfExpression,
+                .Unary,
+                .Unwrap,
+                .VarDeclaration,
+                .Void,
+                .While,
+                .Yield,
+                => {},
+            }
+        }
     };
 };
 
@@ -1054,7 +1418,7 @@ pub const Function = struct {
     // Only function without a function_signature is a script
     function_signature: ?Node.Index,
 
-    upvalue_binding: std.AutoArrayHashMap(u8, bool),
+    upvalue_binding: std.AutoArrayHashMapUnmanaged(u8, bool),
 
     // If the function is a ScritEntryPoint
     entry: ?Entry = null,
@@ -1098,10 +1462,6 @@ pub const FunDeclaration = struct {
     slot_type: SlotType,
 };
 
-pub const GenericResolveType = struct {
-    resolved_types: []const Node.Index,
-};
-
 pub const If = struct {
     condition: Node.Index,
     unwrapped_identifier: ?TokenIndex,
@@ -1124,12 +1484,8 @@ pub const IsAs = struct {
 };
 
 pub const List = struct {
-    explicit_item_type: ?TokenIndex,
+    explicit_item_type: ?Node.Index,
     items: []const Node.Index,
-};
-
-pub const ListType = struct {
-    item_type: Node.Index,
 };
 
 pub const Map = struct {
@@ -1207,8 +1563,6 @@ pub const Range = struct {
     low: Node.Index,
     high: Node.Index,
 };
-
-pub const Resume = struct {};
 
 pub const Return = struct {
     value: ?Node.Index,

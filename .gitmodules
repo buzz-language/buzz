@@ -10,3 +10,6 @@
 [submodule "vendors/linenoise"]
 	path = vendors/linenoise
 	url = https://github.com/antirez/linenoise.git
+[submodule "src/ext/zig-lsp-kit"]
+	path = src/ext/zig-lsp-kit
+	url = https://github.com/buzz-language/zig-lsp-kit.git

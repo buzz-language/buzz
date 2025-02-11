@@ -3,8 +3,8 @@
     .version = "0.6.0",
     .dependencies = .{
         .@"zig-lsp-kit" = .{
-            .url = "git+https://github.com/buzz-language/zig-lsp-kit.git#5071b9c86013b33b889daf172454a1d365e58264",
-            .hash = "122079e29cb1633888f763c2c86e9b50cd24dfba98e6ddec44df87beb7b51b4fcb2e",
+            .url = "git+https://github.com/buzz-language/zig-lsp-kit.git#abf564080429e6e3a075ad23bf5bd6b13cee0f9e",
+            .hash = "1220196a4cbd33b502a3ef02c9b729e3e1b0e558bcc063b7f393306f2387c0880ad6",
         },
         .clap = .{
             .url = "git+https://github.com/Hejsil/zig-clap.git#068c38f89814079635692c7d0be9f58508c86173",

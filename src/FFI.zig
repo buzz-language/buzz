@@ -280,6 +280,7 @@ pub fn parse(self: *Self, parser: ?*Parser, source: Token, parsing_type_expr: bo
         self.reporter.report(
             .zdef,
             self.state.?.source,
+            self.state.?.source,
             "At least one declaration is required in zdef",
         );
 
@@ -351,8 +352,11 @@ fn getZdef(self: *Self, decl_index: Ast.Node.Index) !?*Zdef {
             self.reporter.reportErrorFmt(
                 .zdef,
                 self.state.?.source,
+                self.state.?.source,
                 "Unsupported zig node `{}`: only C ABI compatible function signatures, structs and variables are supported",
-                .{decl.tag},
+                .{
+                    decl.tag,
+                },
             );
             break :var_decl null;
         },
@@ -379,6 +383,7 @@ fn getZdef(self: *Self, decl_index: Ast.Node.Index) !?*Zdef {
                     self.reporter.reportErrorAt(
                         .zdef,
                         self.state.?.source,
+                        self.state.?.source,
                         "Optionals only allowed on pointers",
                     );
                 }
@@ -393,8 +398,11 @@ fn getZdef(self: *Self, decl_index: Ast.Node.Index) !?*Zdef {
             self.reporter.reportErrorFmt(
                 .zdef,
                 self.state.?.source,
+                self.state.?.source,
                 "Unsupported zig node `{}`: only C ABI compatible function signatures, structs and variables are supported",
-                .{decl.tag},
+                .{
+                    decl.tag,
+                },
             );
             break :fail null;
         },
@@ -420,6 +428,7 @@ fn containerDecl(self: *Self, name: []const u8, decl_index: Ast.Node.Index) anye
         self.reporter.reportErrorAt(
             .zdef,
             self.state.?.source,
+            self.state.?.source,
             "Only `extern` structs are supported",
         );
     }
@@ -431,6 +440,7 @@ fn containerDecl(self: *Self, name: []const u8, decl_index: Ast.Node.Index) anye
         else => unsupported: {
             self.reporter.reportErrorFmt(
                 .zdef,
+                self.state.?.source,
                 self.state.?.source,
                 "Unsupported container {s}",
                 .{self.state.?.ast.tokenSlice(container.ast.main_token)},
@@ -690,6 +700,7 @@ fn identifier(self: *Self, decl_index: Ast.Node.Index) anyerror!*Zdef {
         self.reporter.reportErrorFmt(
             .zdef,
             self.state.?.source,
+            self.state.?.source,
             "Unknown or unsupported type `{s}`",
             .{id},
         );
@@ -794,6 +805,7 @@ fn fnProto(self: *Self, tag: Ast.Node.Tag, decl_index: Ast.Node.Index) anyerror!
         self.reporter.report(
             .zdef,
             self.state.?.source,
+            self.state.?.source,
             "Functions must be named",
         );
     }
@@ -837,6 +849,7 @@ fn fnProto(self: *Self, tag: Ast.Node.Tag, decl_index: Ast.Node.Index) anyerror!
         if (param_name == null) {
             self.reporter.report(
                 .zdef,
+                self.state.?.source,
                 self.state.?.source,
                 "Please provide name to functions arguments",
             );
@@ -885,6 +898,7 @@ fn reportZigError(self: *Self, err: Ast.Error) void {
 
     self.reporter.report(
         .zdef,
+        self.state.?.source,
         self.state.?.source,
         message.items,
     );

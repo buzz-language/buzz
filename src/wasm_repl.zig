@@ -39,8 +39,8 @@ pub export fn initRepl() *ReplCtx {
     gc.* = GarbageCollector.init(allocator) catch unreachable;
     gc.type_registry = TypeRegistry.init(gc) catch unreachable;
 
-    const imports = allocator.create(std.StringHashMap(Parser.ScriptImport)) catch unreachable;
-    imports.* = std.StringHashMap(Parser.ScriptImport).init(allocator);
+    const imports = allocator.create(std.StringHashMapUnmanaged(Parser.ScriptImport)) catch unreachable;
+    imports.* = .{};
 
     const vm = allocator.create(VM) catch unreachable;
     vm.* = try VM.init(
@@ -96,7 +96,7 @@ pub export fn runLine(ctx: *ReplCtx) void {
     var stdin = io.stdInReader;
 
     var previous_global_top = ctx.vm.globals_count;
-    var previous_parser_globals = ctx.parser.globals.clone() catch unreachable;
+    var previous_parser_globals = ctx.parser.globals.clone(ctx.parser.gc.allocator) catch unreachable;
     var previous_globals = ctx.vm.globals.clone() catch unreachable;
     var previous_type_registry = ctx.vm.gc.type_registry.registry.clone() catch unreachable;
 
@@ -128,7 +128,7 @@ pub export fn runLine(ctx: *ReplCtx) void {
     if (ctx.parser.reporter.last_error == null and ctx.codegen.reporter.last_error == null) {
         // FIXME: why can't I deinit those?
         // previous_parser_globals.deinit();
-        previous_parser_globals = ctx.parser.globals.clone() catch unreachable;
+        previous_parser_globals = ctx.parser.globals.clone(ctx.parser.gc.allocator) catch unreachable;
         // previous_globals.deinit();
         previous_globals = ctx.vm.globals.clone() catch unreachable;
         // previous_type_registry.deinit();

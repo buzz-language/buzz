@@ -100,7 +100,7 @@ pub fn repl(allocator: std.mem.Allocator) !void {
     var import_registry = ImportRegistry.init(allocator);
     var gc = try GarbageCollector.init(allocator);
     gc.type_registry = try TypeRegistry.init(&gc);
-    var imports = std.StringHashMap(Parser.ScriptImport).init(allocator);
+    var imports = std.StringHashMapUnmanaged(Parser.ScriptImport){};
     var vm = try VM.init(&gc, &import_registry, .Repl);
     vm.jit = if (BuildOptions.jit and BuildOptions.cycle_limit == null)
         JIT.init(&vm)
@@ -133,7 +133,7 @@ pub fn repl(allocator: std.mem.Allocator) !void {
         while (it.next()) |kv| {
             kv.value_ptr.*.globals.deinit();
         }
-        imports.deinit();
+        imports.deinit(allocator);
         // TODO: free type_registry and its keys which are on the heap
     }
 
@@ -165,7 +165,7 @@ pub fn repl(allocator: std.mem.Allocator) !void {
     ) catch unreachable;
 
     var previous_global_top = vm.globals_count;
-    var previous_parser_globals = try parser.globals.clone();
+    var previous_parser_globals = try parser.globals.clone(allocator);
     var previous_globals = try vm.globals.clone();
     var previous_type_registry = try gc.type_registry.registry.clone();
     var previous_input: ?[]u8 = null;
@@ -262,7 +262,7 @@ pub fn repl(allocator: std.mem.Allocator) !void {
                 }
                 // FIXME: why can't I deinit those?
                 // previous_parser_globals.deinit();
-                previous_parser_globals = try parser.globals.clone();
+                previous_parser_globals = try parser.globals.clone(allocator);
                 // previous_globals.deinit();
                 previous_globals = try vm.globals.clone();
                 // previous_type_registry.deinit();

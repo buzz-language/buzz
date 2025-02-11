@@ -651,7 +651,7 @@ export fn bz_run(
         return false;
     }
 
-    var imports = std.StringHashMap(Parser.ScriptImport).init(self.gc.allocator);
+    var imports = std.StringHashMapUnmanaged(Parser.ScriptImport){};
     var strings = std.StringHashMap(*ObjString).init(self.gc.allocator);
     var parser = Parser.init(
         self.gc,
@@ -667,7 +667,7 @@ export fn bz_run(
     );
     defer {
         codegen.deinit();
-        imports.deinit();
+        imports.deinit(self.gc.allocator);
         parser.deinit();
         strings.deinit();
     }
