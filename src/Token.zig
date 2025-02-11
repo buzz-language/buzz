@@ -55,8 +55,52 @@ pub fn clone(self: Self) Self {
 pub fn getLines(self: Self, allocator: mem.Allocator, before: usize, after: usize) ![][]const u8 {
     var lines = std.ArrayList([]const u8).init(allocator);
     defer lines.shrinkAndFree(lines.items.len);
-    const before_index = if (self.line > 0) self.line - @min(before, self.line) else self.line;
-    const after_index = if (self.line > 0) self.line + after else self.line;
+
+    const before_index = if (self.line > 0)
+        self.line - @min(before, self.line)
+    else
+        self.line;
+
+    const after_index = if (self.line > 0)
+        self.line + after
+    else
+        self.line;
+
+    var it = std.mem.splitScalar(u8, self.source, '\n');
+    var current: usize = 0;
+    while (it.next()) |line| : (current += 1) {
+        if (current >= before_index and current <= after_index) {
+            try lines.append(line);
+        }
+
+        if (current > after_index) {
+            return lines.items;
+        }
+    }
+
+    return lines.items;
+}
+
+pub fn getLinesBetween(self: Self, allocator: mem.Allocator, other: Self, before: usize, after: usize) ![][]const u8 {
+    std.debug.assert(
+        std.mem.eql(u8, self.script_name, other.script_name),
+    );
+    std.debug.assert(
+        self.offset <= other.offset,
+    );
+
+    var lines = std.ArrayList([]const u8).init(allocator);
+    defer lines.shrinkAndFree(lines.items.len);
+
+    const before_index = if (self.line > 0 and other.line > 0)
+        @min(self.line, other.line) - @min(before, self.line)
+    else
+        @min(self.line, other.line);
+
+    const after_index = if (self.line > 0 and other.line > 0)
+        @max(self.line, other.line) + after
+    else
+        @max(self.line, other.line);
 
     var it = std.mem.splitScalar(u8, self.source, '\n');
     var current: usize = 0;

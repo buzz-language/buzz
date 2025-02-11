@@ -171,15 +171,16 @@ pub const Note = struct {
 };
 
 pub const ReportItem = struct {
-    location: Token,
+    start_location: Token,
+    end_location: Token,
     kind: ReportKind = .@"error",
     message: []const u8,
 
     pub const SortContext = struct {};
 
     pub fn lessThan(_: SortContext, lhs: ReportItem, rhs: ReportItem) bool {
-        return lhs.location.line < rhs.location.line or
-            (lhs.location.line == rhs.location.line and lhs.location.column < rhs.location.column);
+        return lhs.start_location.line < rhs.start_location.line or
+            (lhs.start_location.line == rhs.start_location.line and lhs.start_location.column < rhs.start_location.column);
     }
 };
 
@@ -219,9 +220,9 @@ pub const Report = struct {
             try out.print(
                 "\n{s}:{}:{}: \x1b[{d}m[{s}{d}] {s}{s}:\x1b[0m {s}\n",
                 .{
-                    main_item.location.script_name,
-                    main_item.location.line + 1,
-                    main_item.location.column,
+                    main_item.start_location.script_name,
+                    main_item.start_location.line + 1,
+                    main_item.start_location.column,
                     main_item.kind.color(),
                     main_item.kind.prefix(),
                     @intFromEnum(self.error_type),
@@ -240,9 +241,9 @@ pub const Report = struct {
             try out.print(
                 "\n{s}:{}:{}: [{s}{d}] {s}{s}: {s}\n",
                 .{
-                    main_item.location.script_name,
-                    main_item.location.line + 1,
-                    main_item.location.column,
+                    main_item.start_location.script_name,
+                    main_item.start_location.line + 1,
+                    main_item.start_location.column,
                     main_item.kind.prefix(),
                     @intFromEnum(self.error_type),
                     if (reporter.error_prefix) |prefix|
@@ -271,14 +272,15 @@ pub const Report = struct {
         }
 
         for (self.items) |item| {
-            if (reported_files.get(item.location.script_name) == null) {
+            if (reported_files.get(item.start_location.script_name) == null) {
                 try reported_files.put(
-                    item.location.script_name,
+                    item.start_location.script_name,
                     std.ArrayList(ReportItem).init(reporter.allocator),
                 );
             }
 
-            try reported_files.getEntry(item.location.script_name).?.value_ptr.append(item);
+            try reported_files.getEntry(item.start_location.script_name).?.value_ptr
+                .append(item);
         }
 
         var file_it = reported_files.iterator();
@@ -309,21 +311,21 @@ pub const Report = struct {
             }
 
             for (file_entry.value_ptr.items) |item| {
-                if (reported_lines.get(item.location.line) == null) {
+                if (reported_lines.get(item.start_location.line) == null) {
                     try reported_lines.put(
-                        item.location.line,
+                        item.start_location.line,
                         std.ArrayList(ReportItem).init(reporter.allocator),
                     );
                 }
 
-                try reported_lines.getEntry(item.location.line).?.value_ptr.append(item);
+                try reported_lines.getEntry(item.start_location.line).?.value_ptr.append(item);
             }
 
             var previous_line: ?usize = null;
             const keys = reported_lines.keys();
-            for (keys, 0..) |line, index| {
+            for (keys, 0..) |start_line, index| {
                 const next_line = if (index < keys.len - 1) keys[index + 1] else null;
-                const report_items = reported_lines.get(line).?;
+                const report_items = reported_lines.get(start_line).?;
 
                 assert(report_items.items.len > 0);
 
@@ -355,8 +357,9 @@ pub const Report = struct {
                 else
                     self.options.surrounding_lines;
 
-                const lines = try report_items.items[0].location.getLines(
+                const lines = try report_items.items[0].start_location.getLinesBetween(
                     reporter.allocator,
+                    report_items.items[0].end_location,
                     @intCast(before),
                     after,
                 );
@@ -413,8 +416,8 @@ pub const Report = struct {
                         }
                         var column: usize = 0;
                         for (report_items.items) |item| {
-                            const indent = if (item.location.column > 0)
-                                item.location.column - 1 - @min(column, item.location.column - 1)
+                            const indent = if (item.start_location.column > 0)
+                                item.start_location.column - 1 - @min(column, item.start_location.column - 1)
                             else
                                 0;
                             try out.writeByteNTimes(' ', indent);
@@ -423,19 +426,21 @@ pub const Report = struct {
                                 try out.print("\x1b[{d}m", .{item.kind.color()});
                             }
 
+                            const underline_len = item.start_location.lexeme.len + item.end_location.lexeme.len;
+
                             try out.print(
                                 "{s}",
                                 .{
-                                    if (item.location.lexeme.len > 1)
+                                    if (underline_len > 1)
                                         "╭"
                                     else
                                         "┬",
                                 },
                             );
 
-                            if (item.location.lexeme.len > 1) {
+                            if (underline_len > 1) {
                                 var i: usize = 0;
-                                while (i < item.location.lexeme.len - 1) : (i += 1) {
+                                while (i < underline_len - 1) : (i += 1) {
                                     try out.print("─", .{});
                                 }
                             } else {
@@ -514,14 +519,15 @@ pub const Report = struct {
     }
 };
 
-pub fn warn(self: *Self, error_type: Error, token: Token, message: []const u8) void {
+pub fn warn(self: *Self, error_type: Error, start_location: Token, end_location: Token, message: []const u8) void {
     var error_report = Report{
         .message = message,
         .error_type = error_type,
         .items = &[_]ReportItem{
             ReportItem{
                 .kind = .warning,
-                .location = token,
+                .start_location = start_location,
+                .end_location = end_location,
                 .message = message,
             },
         },
@@ -531,7 +537,7 @@ pub fn warn(self: *Self, error_type: Error, token: Token, message: []const u8) v
     error_report.reportStderr(self) catch @panic("Unable to report error");
 }
 
-pub fn report(self: *Self, error_type: Error, token: Token, message: []const u8) void {
+pub fn report(self: *Self, error_type: Error, start_location: Token, end_location: Token, message: []const u8) void {
     self.panic_mode = true;
     self.last_error = error_type;
 
@@ -540,7 +546,8 @@ pub fn report(self: *Self, error_type: Error, token: Token, message: []const u8)
         .error_type = error_type,
         .items = &[_]ReportItem{
             ReportItem{
-                .location = token,
+                .start_location = start_location,
+                .end_location = end_location,
                 .message = message,
             },
         },
@@ -550,43 +557,65 @@ pub fn report(self: *Self, error_type: Error, token: Token, message: []const u8)
     error_report.reportStderr(self) catch @panic("Unable to report error");
 }
 
-pub fn reportErrorAt(self: *Self, error_type: Error, token: Token, message: []const u8) void {
+pub fn reportErrorAt(self: *Self, error_type: Error, start_location: Token, end_location: Token, message: []const u8) void {
     if (self.panic_mode) {
         return;
     }
 
-    self.report(error_type, token, message);
+    self.report(
+        error_type,
+        start_location,
+        end_location,
+        message,
+    );
 }
 
-pub fn warnAt(self: *Self, error_type: Error, token: Token, message: []const u8) void {
-    self.warn(error_type, token, message);
+pub fn warnAt(self: *Self, error_type: Error, start_location: Token, end_location: Token, message: []const u8) void {
+    self.warn(
+        error_type,
+        start_location,
+        end_location,
+        message,
+    );
 }
 
-pub fn reportErrorFmt(self: *Self, error_type: Error, token: Token, comptime fmt: []const u8, args: anytype) void {
+pub fn reportErrorFmt(self: *Self, error_type: Error, start_location: Token, end_location: Token, comptime fmt: []const u8, args: anytype) void {
     var message = std.ArrayList(u8).init(self.allocator);
     defer message.deinit();
 
     var writer = message.writer();
     writer.print(fmt, args) catch @panic("Unable to report error");
 
-    self.reportErrorAt(error_type, token, message.items);
+    self.reportErrorAt(
+        error_type,
+        start_location,
+        end_location,
+        message.items,
+    );
 }
 
-pub fn warnFmt(self: *Self, error_type: Error, token: Token, comptime fmt: []const u8, args: anytype) void {
+pub fn warnFmt(self: *Self, error_type: Error, start_location: Token, end_location: Token, comptime fmt: []const u8, args: anytype) void {
     var message = std.ArrayList(u8).init(self.allocator);
     defer message.deinit();
 
     var writer = message.writer();
     writer.print(fmt, args) catch @panic("Unable to report error");
 
-    self.warnAt(error_type, token, message.items);
+    self.warnAt(
+        error_type,
+        start_location,
+        end_location,
+        message.items,
+    );
 }
 
 pub fn reportWithOrigin(
     self: *Self,
     error_type: Error,
-    at: Token,
-    decl_location: Token,
+    start_location: Token,
+    end_location: Token,
+    decl_start_location: Token,
+    decl_end_location: Token,
     comptime fmt: []const u8,
     args: anytype,
     declared_message: ?[]const u8,
@@ -602,12 +631,14 @@ pub fn reportWithOrigin(
         .error_type = error_type,
         .items = &[_]ReportItem{
             .{
-                .location = at,
+                .start_location = start_location,
+                .end_location = end_location,
                 .kind = .@"error",
                 .message = message.items,
             },
             .{
-                .location = decl_location,
+                .start_location = decl_start_location,
+                .end_location = decl_end_location,
                 .kind = .hint,
                 .message = declared_message orelse "declared here",
             },
@@ -715,9 +746,11 @@ pub fn reportPlaceholder(self: *Self, ast: Ast.Slice, placeholder: PlaceholderDe
         }
     } else {
         // Should be a root placeholder with a name
+        const location = ast.tokens.get(placeholder.where);
         self.reportErrorFmt(
             .undefined,
-            ast.tokens.get(placeholder.where),
+            location,
+            location,
             "`{s}` is not defined",
             .{ast.tokens.items(.lexeme)[placeholder.where]},
         );

@@ -4771,7 +4771,7 @@ pub const ObjTypeDef = struct {
             // Destroyed copied placeholder link
             optional.resolved_type.?.Placeholder.parent = null;
             optional.resolved_type.?.Placeholder.parent_relation = null;
-            optional.resolved_type.?.Placeholder.children = std.ArrayListUnmanaged(*ObjTypeDef){};
+            optional.resolved_type.?.Placeholder.children = .{};
 
             // Make actual link
             try PlaceholderDef.link(
@@ -5189,13 +5189,17 @@ pub const ObjTypeDef = struct {
             .Placeholder => {
                 const placeholder = self.resolved_type.?.Placeholder;
                 try writer.print(
-                    "{{{s}Placeholder @{}",
+                    "{{{s}Placeholder @{}{s}",
                     .{
                         if (placeholder.mutable != null and placeholder.mutable.?)
                             "mut "
                         else
                             "",
                         @intFromPtr(self),
+                        if (self.optional)
+                            "?"
+                        else
+                            "",
                     },
                 );
 
