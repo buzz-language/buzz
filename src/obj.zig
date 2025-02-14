@@ -1759,6 +1759,11 @@ pub const ObjObject = struct {
             }
         };
 
+        pub const Placeholder = struct {
+            placeholder: *ObjTypeDef,
+            referrers: std.ArrayListUnmanaged(Ast.Node.Index) = .{},
+        };
+
         id: usize,
         location: Token,
         name: *ObjString,
@@ -1766,8 +1771,8 @@ pub const ObjObject = struct {
         fields: std.StringArrayHashMapUnmanaged(Field),
         // When we have placeholders we don't know if they are properties or methods
         // That information is available only when the placeholder is resolved
-        placeholders: std.StringHashMapUnmanaged(*ObjTypeDef),
-        static_placeholders: std.StringHashMapUnmanaged(*ObjTypeDef),
+        placeholders: std.StringHashMapUnmanaged(Placeholder),
+        static_placeholders: std.StringHashMapUnmanaged(Placeholder),
         anonymous: bool,
         conforms_to: std.AutoHashMapUnmanaged(*ObjTypeDef, void),
 
@@ -1791,12 +1796,12 @@ pub const ObjObject = struct {
                 .name = name,
                 .location = location,
                 .qualified_name = qualified_name,
-                .fields = std.StringArrayHashMapUnmanaged(Field){},
-                .placeholders = std.StringHashMapUnmanaged(*ObjTypeDef){},
-                .static_placeholders = std.StringHashMapUnmanaged(*ObjTypeDef){},
+                .fields = .{},
+                .placeholders = .{},
+                .static_placeholders = .{},
                 .anonymous = anonymous,
-                .conforms_to = std.AutoHashMapUnmanaged(*ObjTypeDef, void){},
-                .generic_types = std.AutoArrayHashMapUnmanaged(*ObjString, *ObjTypeDef){},
+                .conforms_to = .{},
+                .generic_types = .{},
             };
         }
 
@@ -1895,12 +1900,12 @@ pub const ObjObject = struct {
 
             var it5 = self.placeholders.iterator();
             while (it5.next()) |kv| {
-                try gc.markObj(@constCast(kv.value_ptr.*.toObj()));
+                try gc.markObj(@constCast(kv.value_ptr.*.placeholder.toObj()));
             }
 
             var it6 = self.static_placeholders.iterator();
             while (it6.next()) |kv| {
-                try gc.markObj(@constCast(kv.value_ptr.*.toObj()));
+                try gc.markObj(@constCast(kv.value_ptr.*.placeholder.toObj()));
             }
 
             var it7 = self.conforms_to.iterator();
@@ -5579,18 +5584,19 @@ pub const PlaceholderDef = struct {
         GenericResolve,
     };
 
-    where: Ast.TokenIndex, // Where the placeholder was created
+    /// Where the placeholder was created
+    where: Ast.TokenIndex,
     where_end: Ast.TokenIndex,
-    // When accessing/calling/subscrit/assign a placeholder we produce another. We keep them linked so we
-    // can trace back the root of the unknown type.
+    /// When accessing/calling/subscrit/assign a placeholder we produce another. We keep them linked so we
+    /// can trace back the root of the unknown type.
     parent: ?*ObjTypeDef = null,
-    // What's the relation with the parent?
+    /// What's the relation with the parent?
     parent_relation: ?PlaceholderRelation = null,
-    // Children adds themselves here
+    /// Children adds themselves here
     children: std.ArrayListUnmanaged(*ObjTypeDef),
     mutable: ?bool,
 
-    // If the placeholder is a function return, we need to remember eventual generic types defined in that call
+    /// If the placeholder is a function return, we need to remember eventual generic types defined in that call
     resolved_generics: ?[]*ObjTypeDef = null,
 
     pub fn init(where: Ast.TokenIndex, where_end: Ast.TokenIndex, mutable: ?bool) Self {

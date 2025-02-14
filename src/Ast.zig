@@ -1515,6 +1515,7 @@ pub const Slot = u32;
 
 pub const NamedVariable = struct {
     name: []const TokenIndex,
+    definition: Node.Index,
     value: ?Node.Index,
     assign_token: ?TokenIndex,
     slot: Slot,

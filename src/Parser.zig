@@ -188,6 +188,7 @@ pub const CompileError = error{
 
 pub const Local = struct {
     name: Ast.TokenIndex,
+    node: Ast.Node.Index,
     type_def: *obj.ObjTypeDef,
     depth: i32,
     captured: bool,
@@ -217,9 +218,11 @@ pub const Local = struct {
 
 pub const Global = struct {
     name: []const Ast.TokenIndex,
+    node: Ast.Node.Index,
     type_def: *obj.ObjTypeDef,
     export_alias: ?Ast.TokenIndex = null,
     imported_from: ?[]const u8 = null,
+    placeholder_referrers: std.ArrayListUnmanaged(Ast.Node.Index) = .{},
 
     initialized: bool = false,
     exported: bool = false,
@@ -274,6 +277,7 @@ pub const Global = struct {
 pub const UpValue = struct {
     index: u8,
     is_local: bool,
+    node: Ast.Node.Index,
 };
 
 pub const Frame = struct {
@@ -1603,7 +1607,7 @@ fn statement(self: *Self, hanging: bool, loop_scope: ?LoopScope) !?Ast.Node.Inde
     return try self.expressionStatement(hanging);
 }
 
-fn addLocal(self: *Self, name: Ast.TokenIndex, local_type: *obj.ObjTypeDef, final: bool, mutable: bool) Error!usize {
+fn addLocal(self: *Self, node: Ast.Node.Index, name: Ast.TokenIndex, local_type: *obj.ObjTypeDef, final: bool, mutable: bool) Error!usize {
     if (self.current.?.local_count == std.math.maxInt(u8)) {
         const location = self.ast.tokens.get(name);
         self.reporter.reportErrorAt(
@@ -1618,6 +1622,7 @@ fn addLocal(self: *Self, name: Ast.TokenIndex, local_type: *obj.ObjTypeDef, fina
     const function_type = self.ast.nodes.items(.type_def)[self.current.?.function_node].?.resolved_type.?.Function.function_type;
     self.current.?.locals[self.current.?.local_count] = Local{
         .name = name,
+        .node = node,
         .depth = -1,
         .captured = false,
         .mutable = mutable,
@@ -1632,7 +1637,16 @@ fn addLocal(self: *Self, name: Ast.TokenIndex, local_type: *obj.ObjTypeDef, fina
     return self.current.?.local_count - 1;
 }
 
-fn addGlobal(self: *Self, name: Ast.TokenIndex, global_type: *obj.ObjTypeDef, final: bool, mutable: bool) Error!usize {
+fn resolveReferrer(self: *Self, referrer: Ast.Node.Index, definition: Ast.Node.Index) Error!void {
+    switch (self.ast.nodes.items(.tag)[referrer]) {
+        .NamedVariable => {
+            self.ast.nodes.items(.components)[referrer].NamedVariable.definition = definition;
+        },
+        else => {},
+    }
+}
+
+fn addGlobal(self: *Self, node: Ast.Node.Index, name: Ast.TokenIndex, global_type: *obj.ObjTypeDef, final: bool, mutable: bool) Error!usize {
     const lexemes = self.ast.tokens.items(.lexeme);
     // Search for an existing placeholder global with the same name
     for (self.globals.items, 0..) |*global, index| {
@@ -1644,6 +1658,14 @@ fn addGlobal(self: *Self, name: Ast.TokenIndex, global_type: *obj.ObjTypeDef, fi
 
             if (global_type.def_type != .Placeholder) {
                 try self.resolvePlaceholder(global.type_def, global_type, final);
+
+                if (self.flavor == .Ast) {
+                    for (global.placeholder_referrers.items) |referrer| {
+                        try self.resolveReferrer(referrer, node);
+                    }
+
+                    global.placeholder_referrers.deinit(self.gc.allocator);
+                }
             }
 
             return index;
@@ -1673,6 +1695,7 @@ fn addGlobal(self: *Self, name: Ast.TokenIndex, global_type: *obj.ObjTypeDef, fi
         self.gc.allocator,
         .{
             .name = qualified_name.items,
+            .node = node,
             .type_def = global_type,
             .final = final,
             .mutable = mutable,
@@ -1731,7 +1754,7 @@ fn resolveLocal(self: *Self, frame: *Frame, name: Ast.TokenIndex) !?usize {
 }
 
 // Will consume tokens if find a prefixed identifier
-pub fn resolveGlobal(self: *Self, name: []const Ast.TokenIndex) Error!?usize {
+pub fn resolveGlobal(self: *Self, referrer: Ast.Node.Index, name: []const Ast.TokenIndex) Error!?usize {
     if (self.globals.items.len == 0) {
         return null;
     }
@@ -1773,6 +1796,10 @@ pub fn resolveGlobal(self: *Self, name: []const Ast.TokenIndex) Error!?usize {
             }
 
             global.referenced = true;
+
+            if (self.flavor == .Ast and global.type_def.def_type == .Placeholder) {
+                try global.placeholder_referrers.append(self.gc.allocator, referrer);
+            }
 
             return i;
             // Is it an import prefix?
@@ -2300,7 +2327,7 @@ pub fn resolvePlaceholder(self: *Self, placeholder: *obj.ObjTypeDef, resolved_ty
     // TODO: does this work with vm.type_defs? (i guess not)
 }
 
-fn addUpvalue(self: *Self, frame: *Frame, index: usize, is_local: bool) Error!usize {
+fn addUpvalue(self: *Self, node: Ast.Node.Index, frame: *Frame, index: usize, is_local: bool) Error!usize {
     const upvalue_count: u8 = frame.upvalue_count;
 
     var i: usize = 0;
@@ -2325,6 +2352,8 @@ fn addUpvalue(self: *Self, frame: *Frame, index: usize, is_local: bool) Error!us
 
     frame.upvalues[upvalue_count].is_local = is_local;
     frame.upvalues[upvalue_count].index = @as(u8, @intCast(index));
+    frame.upvalues[upvalue_count].node = node;
+
     frame.upvalue_count += 1;
 
     return frame.upvalue_count - 1;
@@ -2338,12 +2367,22 @@ fn resolveUpvalue(self: *Self, frame: *Frame, name: Ast.TokenIndex) Error!?usize
     const local: ?usize = try self.resolveLocal(frame.enclosing.?, name);
     if (local) |resolved| {
         frame.enclosing.?.locals[resolved].captured = true;
-        return try self.addUpvalue(frame, resolved, true);
+        return try self.addUpvalue(
+            frame.enclosing.?.locals[resolved].node,
+            frame,
+            resolved,
+            true,
+        );
     }
 
     const upvalue: ?usize = try self.resolveUpvalue(frame.enclosing.?, name);
     if (upvalue) |resolved| {
-        return try self.addUpvalue(frame, resolved, false);
+        return try self.addUpvalue(
+            frame.upvalues[resolved].node,
+            frame,
+            resolved,
+            false,
+        );
     }
 
     return null;
@@ -2351,6 +2390,7 @@ fn resolveUpvalue(self: *Self, frame: *Frame, name: Ast.TokenIndex) Error!?usize
 
 fn declareVariable(
     self: *Self,
+    node: Ast.Node.Index,
     variable_type: *obj.ObjTypeDef,
     name: Ast.TokenIndex,
     final: bool,
@@ -2395,6 +2435,7 @@ fn declareVariable(
         }
 
         return try self.addLocal(
+            node,
             name,
             variable_type,
             final,
@@ -2430,6 +2471,14 @@ fn declareVariable(
                             }
 
                             try self.resolvePlaceholder(global.type_def, variable_type, final);
+
+                            if (self.flavor == .Ast) {
+                                for (global.placeholder_referrers.items) |referrer| {
+                                    try self.resolveReferrer(referrer, node);
+                                }
+
+                                global.placeholder_referrers.deinit(self.gc.allocator);
+                            }
                         }
 
                         global.referenced = true;
@@ -2460,6 +2509,7 @@ fn declareVariable(
         }
 
         return try self.addGlobal(
+            node,
             name,
             variable_type,
             final,
@@ -2470,6 +2520,7 @@ fn declareVariable(
 
 fn parseVariable(
     self: *Self,
+    node: Ast.Node.Index,
     identifier: ?Ast.TokenIndex,
     variable_type: *obj.ObjTypeDef,
     final: bool,
@@ -2481,6 +2532,7 @@ fn parseVariable(
     }
 
     return try self.declareVariable(
+        node,
         variable_type,
         identifier orelse self.current_token.? - 1,
         final,
@@ -2491,7 +2543,6 @@ fn parseVariable(
 
 fn markInitialized(self: *Self) void {
     if (self.current.?.scope_depth == 0) {
-        // assert(!self.globals.items[self.globals.items.len - 1].initialized);
         self.globals.items[self.globals.items.len - 1].initialized = true;
     } else {
         self.current.?.locals[self.current.?.local_count - 1].depth = @intCast(self.current.?.scope_depth);
@@ -2521,6 +2572,7 @@ fn declarePlaceholder(self: *Self, name: Ast.TokenIndex, placeholder: ?*obj.ObjT
     std.debug.assert(!placeholder_type.optional);
 
     const global = try self.addGlobal(
+        0, // Will be populated once the placeholder is resolved
         name,
         placeholder_type,
         false,
@@ -3507,12 +3559,14 @@ fn parseObjType(self: *Self, generic_types: ?std.AutoArrayHashMap(*obj.ObjString
 }
 
 fn parseUserType(self: *Self, instance: bool, mutable: bool) Error!Ast.Node.Index {
+    const node_slot = try self.ast.nodes.addOne(self.ast.allocator);
+
     const user_type_name = try self.qualifiedName();
     var var_type: ?*obj.ObjTypeDef = null;
     var global_slot: ?usize = null;
 
     // Search for a global with that name
-    if (try self.resolveGlobal(user_type_name)) |slot| {
+    if (try self.resolveGlobal(@intCast(node_slot), user_type_name)) |slot| {
         const global = self.globals.items[slot];
 
         var_type = global.type_def;
@@ -3549,7 +3603,10 @@ fn parseUserType(self: *Self, instance: bool, mutable: bool) Error!Ast.Node.Inde
         );
 
         std.debug.assert(user_type_name.len > 0);
-        global_slot = try self.declarePlaceholder(user_type_name[user_type_name.len - 1], var_type.?);
+        global_slot = try self.declarePlaceholder(
+            user_type_name[user_type_name.len - 1],
+            var_type.?,
+        );
     }
 
     // Concrete generic types list
@@ -3615,7 +3672,8 @@ fn parseUserType(self: *Self, instance: bool, mutable: bool) Error!Ast.Node.Inde
         );
     } else null;
 
-    return try self.ast.appendNode(
+    self.ast.nodes.set(
+        node_slot,
         .{
             .tag = .UserType,
             .location = user_type_name[0],
@@ -3635,6 +3693,8 @@ fn parseUserType(self: *Self, instance: bool, mutable: bool) Error!Ast.Node.Inde
             },
         },
     );
+
+    return @intCast(node_slot);
 }
 
 fn parseGenericResolve(self: *Self, callee_type_def: *obj.ObjTypeDef, expr: ?Ast.Node.Index) Error!Ast.Node.Index {
@@ -4903,11 +4963,17 @@ fn dot(self: *Self, can_assign: bool, callee: Ast.Node.Index) Error!Ast.Node.Ind
                             },
                         );
                     }
-                    try callee_type_def.?.resolved_type.?.Object.static_placeholders.put(
-                        self.gc.allocator,
-                        member_name,
-                        placeholder,
-                    );
+
+                    const kv = try callee_type_def.?.resolved_type.?.Object.static_placeholders
+                        .getOrPut(self.gc.allocator, member_name);
+
+                    if (!kv.found_existing) {
+                        kv.value_ptr.* = .{
+                            .placeholder = placeholder,
+                        };
+                    }
+
+                    try kv.value_ptr.referrers.append(self.gc.allocator, dot_node);
 
                     property_type = placeholder;
                 } else if (property_type == null) {
@@ -5011,7 +5077,7 @@ fn dot(self: *Self, can_assign: bool, callee: Ast.Node.Index) Error!Ast.Node.Ind
                 var property_type = (if (property_field) |field|
                     field.type_def
                 else
-                    null) orelse obj_def.placeholders.get(member_name);
+                    null) orelse if (obj_def.placeholders.get(member_name)) |plc| plc.placeholder else null;
 
                 // Else create placeholder
                 if (property_type == null and self.current_object != null and std.mem.eql(u8, self.current_object.?.name.lexeme, obj_def.name.string)) {
@@ -5039,11 +5105,15 @@ fn dot(self: *Self, can_assign: bool, callee: Ast.Node.Index) Error!Ast.Node.Ind
                             },
                         );
                     }
-                    try object.resolved_type.?.Object.placeholders.put(
-                        self.gc.allocator,
-                        member_name,
-                        placeholder,
-                    );
+                    const kv = try object.resolved_type.?.Object.placeholders.getOrPut(self.gc.allocator, member_name);
+
+                    if (!kv.found_existing) {
+                        kv.value_ptr.* = .{
+                            .placeholder = placeholder,
+                        };
+                    }
+
+                    try kv.value_ptr.referrers.append(self.gc.allocator, dot_node);
 
                     property_type = placeholder;
                 } else if (property_type == null) {
@@ -5376,6 +5446,14 @@ fn dot(self: *Self, can_assign: bool, callee: Ast.Node.Index) Error!Ast.Node.Ind
 
     self.ast.nodes.items(.end_location)[dot_node] = self.current_token.? - 1;
 
+    std.debug.print(
+        "Dot lives at ({}:{}) - ({},{})\n",
+        .{
+            self.ast.tokens.get(start_location).line,           self.ast.tokens.get(start_location).column,
+            self.ast.tokens.get(self.current_token.? - 1).line, self.ast.tokens.get(self.current_token.? - 1).column,
+        },
+    );
+
     return dot_node;
 }
 
@@ -5499,6 +5577,8 @@ fn @"and"(self: *Self, _: bool, left: Ast.Node.Index) Error!Ast.Node.Index {
 }
 
 fn @"if"(self: *Self, is_statement: bool, loop_scope: ?LoopScope) Error!Ast.Node.Index {
+    const node_slot = try self.ast.nodes.addOne(self.ast.allocator);
+
     const start_location = self.current_token.? - 1;
 
     try self.consume(.LeftParen, "Expected `(` after `if`.");
@@ -5512,6 +5592,7 @@ fn @"if"(self: *Self, is_statement: bool, loop_scope: ?LoopScope) Error!Ast.Node
     if (try self.match(.Arrow)) { // if (opt -> unwrapped)
         try self.consume(.Identifier, "Expected identifier");
         _ = try self.parseVariable(
+            @intCast(node_slot),
             self.current_token.? - 1,
             try condition_type_def.?.cloneNonOptional(&self.gc.type_registry),
             true,
@@ -5527,6 +5608,7 @@ fn @"if"(self: *Self, is_statement: bool, loop_scope: ?LoopScope) Error!Ast.Node
         try self.consume(.Colon, "Expected `:`");
         casted_type = try self.parseTypeDef(null, true);
         _ = try self.parseVariable(
+            @intCast(node_slot),
             identifier,
             try self.ast.nodes.items(.type_def)[casted_type.?].?.toInstance(
                 &self.gc.type_registry,
@@ -5565,7 +5647,8 @@ fn @"if"(self: *Self, is_statement: bool, loop_scope: ?LoopScope) Error!Ast.Node
         }
     }
 
-    return self.ast.appendNode(
+    self.ast.nodes.set(
+        node_slot,
         .{
             .tag = .If,
             .location = start_location,
@@ -5579,7 +5662,11 @@ fn @"if"(self: *Self, is_statement: bool, loop_scope: ?LoopScope) Error!Ast.Node
                 else
                     body_type_def;
 
-                const is_optional = if_type_def.?.optional or body_type_def.?.optional or else_branch_type_def.?.optional or body_type_def.?.def_type == .Void or else_branch_type_def.?.def_type == .Void;
+                const is_optional = if_type_def.?.optional or
+                    body_type_def.?.optional or
+                    else_branch_type_def.?.optional or
+                    body_type_def.?.def_type == .Void or
+                    else_branch_type_def.?.def_type == .Void;
                 if (is_optional and !if_type_def.?.optional) {
                     break :type_def try if_type_def.?.cloneOptional(&self.gc.type_registry);
                 }
@@ -5598,6 +5685,8 @@ fn @"if"(self: *Self, is_statement: bool, loop_scope: ?LoopScope) Error!Ast.Node
             },
         },
     );
+
+    return @intCast(node_slot);
 }
 
 fn ifStatement(self: *Self, loop_scope: ?LoopScope) Error!Ast.Node.Index {
@@ -5685,34 +5774,39 @@ fn string(self: *Self, _: bool) Error!Ast.Node.Index {
 }
 
 fn namedVariable(self: *Self, name: []const Ast.TokenIndex, can_assign: bool) Error!Ast.Node.Index {
+    const node_slot = try self.ast.nodes.addOne(self.ast.allocator);
     const start_location = self.current_token.? - 1;
 
     var var_def: ?*obj.ObjTypeDef = null;
     var slot: usize = undefined;
     var slot_type: Ast.SlotType = undefined;
     var slot_final = false;
+    var def_node: Ast.Node.Index = 0;
     if (name.len == 1) {
         if (try self.resolveLocal(self.current.?, name[0])) |uslot| {
             var_def = self.current.?.locals[uslot].type_def;
             slot = uslot;
             slot_type = .Local;
             slot_final = self.current.?.locals[uslot].final;
+            def_node = self.current.?.locals[uslot].node;
         } else if (try self.resolveUpvalue(self.current.?, name[0])) |uslot| {
             var_def = self.current.?.enclosing.?.locals[self.current.?.upvalues[uslot].index].type_def;
             slot = uslot;
             slot_type = .UpValue;
             slot_final = self.current.?.enclosing.?.locals[self.current.?.upvalues[uslot].index].final;
+            def_node = self.current.?.enclosing.?.locals[self.current.?.upvalues[uslot].index].node;
         }
     }
 
     if (var_def == null) {
-        if (try self.resolveGlobal(name)) |uslot| {
+        if (try self.resolveGlobal(@intCast(node_slot), name)) |uslot| {
             const global = self.globals.items[uslot];
 
             var_def = global.type_def;
             slot = uslot;
             slot_type = .Global;
             slot_final = global.final;
+            def_node = global.node;
 
             if (global.imported_from != null and self.script_imports.get(global.imported_from.?) != null) {
                 const imported_from = global.imported_from.?;
@@ -5771,7 +5865,8 @@ fn namedVariable(self: *Self, name: []const Ast.TokenIndex, can_assign: bool) Er
         }
     }
 
-    return try self.ast.appendNode(
+    self.ast.nodes.set(
+        node_slot,
         .{
             .tag = .NamedVariable,
             .location = start_location,
@@ -5780,6 +5875,7 @@ fn namedVariable(self: *Self, name: []const Ast.TokenIndex, can_assign: bool) Er
             .components = .{
                 .NamedVariable = .{
                     .name = name,
+                    .definition = def_node,
                     .value = value,
                     .assign_token = assign_token,
                     .slot = @intCast(slot),
@@ -5789,6 +5885,8 @@ fn namedVariable(self: *Self, name: []const Ast.TokenIndex, can_assign: bool) Er
             },
         },
     );
+
+    return @intCast(node_slot);
 }
 
 /// Will parse qualified name too: identifier or A\B\C\identifier
@@ -6004,6 +6102,7 @@ fn function(
                 const argument_type = self.ast.nodes.items(.type_def)[argument_type_node].?;
 
                 const slot = try self.parseVariable(
+                    function_node,
                     identifier,
                     argument_type,
                     true, // function arguments are final
@@ -6909,7 +7008,10 @@ fn funDeclaration(self: *Self) Error!Ast.Node.Index {
         }
     }
 
+    const node_slot = try self.ast.nodes.addOne(self.gc.allocator);
+
     const slot: usize = try self.declareVariable(
+        @intCast(node_slot),
         fun_typedef,
         name_token,
         true,
@@ -6919,7 +7021,8 @@ fn funDeclaration(self: *Self) Error!Ast.Node.Index {
 
     self.markInitialized();
 
-    return try self.ast.appendNode(
+    self.ast.nodes.set(
+        node_slot,
         .{
             .tag = .FunDeclaration,
             .location = start_location,
@@ -6934,9 +7037,12 @@ fn funDeclaration(self: *Self) Error!Ast.Node.Index {
             },
         },
     );
+
+    return @intCast(node_slot);
 }
 
 fn exportStatement(self: *Self) Error!Ast.Node.Index {
+    const node_slot = try self.ast.nodes.addOne(self.gc.allocator);
     const start_location = self.current_token.? - 1;
 
     if (self.namespace == null) {
@@ -6956,7 +7062,7 @@ fn exportStatement(self: *Self) Error!Ast.Node.Index {
         const qualified_name = try self.qualifiedName();
 
         // Search for a global with that name
-        if (try self.resolveGlobal(qualified_name)) |slot| {
+        if (try self.resolveGlobal(@intCast(node_slot), qualified_name)) |slot| {
             const global = &self.globals.items[slot];
 
             global.referenced = true;
@@ -6994,7 +7100,8 @@ fn exportStatement(self: *Self) Error!Ast.Node.Index {
 
             try self.consume(.Semicolon, "Expected `;` after statement.");
 
-            return try self.ast.appendNode(
+            self.ast.nodes.set(
+                node_slot,
                 .{
                     .tag = .Export,
                     .location = start_location,
@@ -7009,6 +7116,8 @@ fn exportStatement(self: *Self) Error!Ast.Node.Index {
                     },
                 },
             );
+
+            return @intCast(node_slot);
         }
     } else {
         self.exporting = true;
@@ -7017,7 +7126,8 @@ fn exportStatement(self: *Self) Error!Ast.Node.Index {
             global.referenced = true;
             self.exporting = false;
 
-            return try self.ast.appendNode(
+            self.ast.nodes.set(
+                node_slot,
                 .{
                     .tag = .Export,
                     .location = start_location,
@@ -7032,6 +7142,8 @@ fn exportStatement(self: *Self) Error!Ast.Node.Index {
                     },
                 },
             );
+
+            return @intCast(node_slot);
         }
         self.exporting = false;
     }
@@ -7043,7 +7155,8 @@ fn exportStatement(self: *Self) Error!Ast.Node.Index {
         "Expected identifier or declaration.",
     );
 
-    return try self.ast.appendNode(
+    self.ast.nodes.set(
+        node_slot,
         .{
             .tag = .Export,
             .location = start_location,
@@ -7058,6 +7171,8 @@ fn exportStatement(self: *Self) Error!Ast.Node.Index {
             },
         },
     );
+
+    return @intCast(node_slot);
 }
 
 fn objectDeclaration(self: *Self) Error!Ast.Node.Index {
@@ -7287,7 +7402,16 @@ fn objectDeclaration(self: *Self) Error!Ast.Node.Index {
             // Does a placeholder exists for this name ?
             if (static) {
                 if (object_type.resolved_type.?.Object.static_placeholders.get(method_name)) |placeholder| {
-                    try self.resolvePlaceholder(placeholder, method_type_def.?, true);
+                    try self.resolvePlaceholder(placeholder.placeholder, method_type_def.?, true);
+
+                    if (self.flavor == .Ast) {
+                        for (placeholder.referrers.items) |referrer| {
+                            try self.resolveReferrer(referrer, method_node);
+                        }
+
+                        var referrers = placeholder.referrers;
+                        referrers.deinit(self.gc.allocator);
+                    }
 
                     // Now we know the placeholder was a method
                     if (BuildOptions.debug_placeholders) {
@@ -7302,7 +7426,16 @@ fn objectDeclaration(self: *Self) Error!Ast.Node.Index {
                 }
             } else {
                 if (object_type.resolved_type.?.Object.placeholders.get(method_name)) |placeholder| {
-                    try self.resolvePlaceholder(placeholder, method_type_def.?, true);
+                    try self.resolvePlaceholder(placeholder.placeholder, method_type_def.?, true);
+
+                    if (self.flavor == .Ast) {
+                        for (placeholder.referrers.items) |referrer| {
+                            try self.resolveReferrer(referrer, method_node);
+                        }
+
+                        var referrers = placeholder.referrers;
+                        referrers.deinit(self.gc.allocator);
+                    }
 
                     // Now we know the placeholder was a method
                     if (BuildOptions.debug_placeholders) {
@@ -7368,7 +7501,16 @@ fn objectDeclaration(self: *Self) Error!Ast.Node.Index {
             // Does a placeholder exists for this name ?
             if (static) {
                 if (object_type.resolved_type.?.Object.static_placeholders.get(property_name.lexeme)) |placeholder| {
-                    try self.resolvePlaceholder(placeholder, property_type_def.?, false);
+                    try self.resolvePlaceholder(placeholder.placeholder, property_type_def.?, false);
+
+                    if (self.flavor == .Ast) {
+                        for (placeholder.referrers.items) |referrer| {
+                            try self.resolveReferrer(referrer, property_type);
+                        }
+
+                        var referrers = placeholder.referrers;
+                        referrers.deinit(self.gc.allocator);
+                    }
 
                     // Now we know the placeholder was a field
                     if (BuildOptions.debug_placeholders) {
@@ -7383,7 +7525,16 @@ fn objectDeclaration(self: *Self) Error!Ast.Node.Index {
                 }
             } else {
                 if (object_type.resolved_type.?.Object.placeholders.get(property_name.lexeme)) |placeholder| {
-                    try self.resolvePlaceholder(placeholder, property_type_def.?, false);
+                    try self.resolvePlaceholder(placeholder.placeholder, property_type_def.?, false);
+
+                    if (self.flavor == .Ast) {
+                        for (placeholder.referrers.items) |referrer| {
+                            try self.resolveReferrer(referrer, property_type);
+                        }
+
+                        var referrers = placeholder.referrers;
+                        referrers.deinit(self.gc.allocator);
+                    }
 
                     // Now we know the placeholder was a field
                     if (BuildOptions.debug_placeholders) {
@@ -7481,7 +7632,10 @@ fn objectDeclaration(self: *Self) Error!Ast.Node.Index {
 
     const scope_end = try self.endScope();
 
+    const node_slot = try self.ast.nodes.addOne(self.gc.allocator);
+
     const slot = try self.declareVariable(
+        @intCast(node_slot),
         &object_type, // Should resolve object_name_tokenect_placeholder and be discarded
         object_name_token,
         true, // Object is always final
@@ -7493,7 +7647,8 @@ fn objectDeclaration(self: *Self) Error!Ast.Node.Index {
 
     self.markInitialized();
 
-    const node = self.ast.appendNode(
+    self.ast.nodes.set(
+        node_slot,
         .{
             .tag = .ObjectDeclaration,
             .location = start_location,
@@ -7516,7 +7671,7 @@ fn objectDeclaration(self: *Self) Error!Ast.Node.Index {
 
     self.current_object = null;
 
-    return node;
+    return @intCast(node_slot);
 }
 
 fn method(self: *Self, abstract: bool, static: bool, this: *obj.ObjTypeDef) Error!Ast.Node.Index {
@@ -7652,7 +7807,10 @@ fn protocolDeclaration(self: *Self) Error!Ast.Node.Index {
 
     const scope_end = try self.endScope();
 
+    const node_slot = try self.ast.nodes.addOne(self.gc.allocator);
+
     const slot = try self.declareVariable(
+        @intCast(node_slot),
         &protocol_type, // Should resolve protocol_placeholder and be discarded
         protocol_name,
         true, // Protocol is always final
@@ -7664,7 +7822,8 @@ fn protocolDeclaration(self: *Self) Error!Ast.Node.Index {
 
     self.markInitialized();
 
-    return try self.ast.appendNode(
+    self.ast.nodes.set(
+        node_slot,
         .{
             .tag = .ProtocolDeclaration,
             .location = start_location,
@@ -7680,9 +7839,12 @@ fn protocolDeclaration(self: *Self) Error!Ast.Node.Index {
             },
         },
     );
+
+    return @intCast(node_slot);
 }
 
 fn enumDeclaration(self: *Self) Error!Ast.Node.Index {
+    const node_slot = try self.ast.nodes.addOne(self.gc.allocator);
     const start_location = self.current_token.? - 1;
 
     if (self.current.?.scope_depth > 0) {
@@ -7744,6 +7906,7 @@ fn enumDeclaration(self: *Self) Error!Ast.Node.Index {
     );
 
     const slot: usize = try self.declareVariable(
+        @intCast(node_slot),
         enum_type,
         enum_name,
         true,
@@ -7853,7 +8016,8 @@ fn enumDeclaration(self: *Self) Error!Ast.Node.Index {
         );
     }
 
-    const node = try self.ast.appendNode(
+    self.ast.nodes.set(
+        node_slot,
         .{
             .tag = .Enum,
             .location = start_location,
@@ -7905,9 +8069,9 @@ fn enumDeclaration(self: *Self) Error!Ast.Node.Index {
     @"enum".cases = obj_cases.items;
 
     enum_type.resolved_type.?.Enum.value = @"enum";
-    self.ast.nodes.items(.value)[node] = @"enum".toValue();
+    self.ast.nodes.items(.value)[node_slot] = @"enum".toValue();
 
-    return node;
+    return @intCast(node_slot);
 }
 
 fn varDeclaration(
@@ -7919,6 +8083,7 @@ fn varDeclaration(
     should_assign: bool,
     type_provided_later: bool,
 ) Error!Ast.Node.Index {
+    const node_slot = try self.ast.nodes.addOne(self.gc.allocator);
     var var_type = if (parsed_type) |ptype|
         try self.ast.nodes.items(.type_def)[ptype].?.toInstance(
             &self.gc.type_registry,
@@ -7930,6 +8095,7 @@ fn varDeclaration(
     const start_location = self.current_token.? - 1;
 
     const slot: usize = try self.parseVariable(
+        @intCast(node_slot),
         identifier,
         var_type,
         final,
@@ -8020,7 +8186,8 @@ fn varDeclaration(
 
     self.markInitialized();
 
-    return try self.ast.appendNode(
+    self.ast.nodes.set(
+        node_slot,
         .{
             .tag = .VarDeclaration,
             .location = start_location,
@@ -8038,6 +8205,8 @@ fn varDeclaration(
             },
         },
     );
+
+    return @intCast(node_slot);
 }
 
 // Same as varDeclaration but does not parse anything (useful when we need to declare a variable that need to exists but is not exposed to the user)
@@ -8048,11 +8217,13 @@ fn implicitVarDeclaration(
     final: bool,
     mutable: bool,
 ) Error!Ast.Node.Index {
+    const node_slot = try self.ast.nodes.addOne(self.gc.allocator);
     const var_type = try parsed_type.toInstance(
         &self.gc.type_registry,
         mutable,
     );
     const slot = try self.declareVariable(
+        @intCast(node_slot),
         var_type,
         name,
         final,
@@ -8061,7 +8232,8 @@ fn implicitVarDeclaration(
     );
     self.markInitialized();
 
-    return try self.ast.appendNode(
+    self.ast.nodes.set(
+        node_slot,
         .{
             .tag = .VarDeclaration,
             .location = self.current_token.? - 1,
@@ -8079,10 +8251,13 @@ fn implicitVarDeclaration(
             },
         },
     );
+
+    return @intCast(node_slot);
 }
 
 // `test` is just like a function but we don't parse arguments and we don't care about its return type
 fn testStatement(self: *Self) Error!Ast.Node.Index {
+    const node_slot = try self.ast.nodes.addOne(self.gc.allocator);
     const start_location = self.current_token.? - 1;
     // We can't consume the name because declareVariable will do it
     const name_token = self.current_token.?;
@@ -8094,6 +8269,7 @@ fn testStatement(self: *Self) Error!Ast.Node.Index {
     self.test_count += 1;
 
     const slot = try self.declareVariable(
+        @intCast(node_slot),
         &function_def_placeholder,
         name_token,
         true,
@@ -8110,7 +8286,8 @@ fn testStatement(self: *Self) Error!Ast.Node.Index {
         self.globals.items[slot].type_def = type_def;
     }
 
-    return try self.ast.appendNode(
+    self.ast.nodes.set(
+        node_slot,
         .{
             .tag = .VarDeclaration,
             .location = start_location,
@@ -8128,6 +8305,8 @@ fn testStatement(self: *Self) Error!Ast.Node.Index {
             },
         },
     );
+
+    return @intCast(node_slot);
 }
 
 fn searchPaths(self: *Self, file_name: []const u8) ![][]const u8 {
@@ -8891,6 +9070,7 @@ fn zdefStatement(self: *Self) Error!Ast.Node.Index {
         self.reportError(.zdef, "zdef is not available in WASM build");
     }
 
+    const node_slot = try self.ast.nodes.addOne(self.gc.allocator);
     const start_location = self.current_token.? - 1;
 
     try self.consume(.LeftParen, "Expected `(` after `zdef`.");
@@ -8922,6 +9102,7 @@ fn zdefStatement(self: *Self) Error!Ast.Node.Index {
             std.debug.assert(self.current.?.scope_depth == 0);
             const zdef_name_token = try self.insertUtilityToken(Token.identifier(zdef.name));
             slot = try self.declareVariable(
+                @intCast(node_slot),
                 zdef.type_def,
                 zdef_name_token,
                 true,
@@ -9015,7 +9196,8 @@ fn zdefStatement(self: *Self) Error!Ast.Node.Index {
 
     elements.shrinkAndFree(elements.items.len);
 
-    return try self.ast.appendNode(
+    self.ast.nodes.set(
+        node_slot,
         .{
             .tag = .Zdef,
             .location = start_location,
@@ -9030,10 +9212,13 @@ fn zdefStatement(self: *Self) Error!Ast.Node.Index {
             },
         },
     );
+
+    return @intCast(node_slot);
 }
 
 // FIXME: this is almost the same as parseUserType!
 fn userVarDeclaration(self: *Self, identifier: Ast.TokenIndex, final: bool, mutable: bool) Error!Ast.Node.Index {
+    const node_slot = try self.ast.nodes.addOne(self.gc.allocator);
     const start_location = self.current_token.? - 1;
     var var_type: ?*obj.ObjTypeDef = null;
 
@@ -9055,7 +9240,7 @@ fn userVarDeclaration(self: *Self, identifier: Ast.TokenIndex, final: bool, muta
 
     // Search for a global with that name
     if (var_type == null) {
-        if (try self.resolveGlobal(user_type_name)) |slot| {
+        if (try self.resolveGlobal(@intCast(node_slot), user_type_name)) |slot| {
             const global = self.globals.items[slot];
 
             var_type = global.type_def;
@@ -9171,7 +9356,8 @@ fn userVarDeclaration(self: *Self, identifier: Ast.TokenIndex, final: bool, muta
         var_type = try var_type.?.cloneOptional(&self.gc.type_registry);
     }
 
-    const user_type_node = try self.ast.appendNode(
+    self.ast.nodes.set(
+        node_slot,
         .{
             .tag = .UserType,
             .location = start_location,
@@ -9188,7 +9374,7 @@ fn userVarDeclaration(self: *Self, identifier: Ast.TokenIndex, final: bool, muta
 
     return try self.varDeclaration(
         identifier,
-        user_type_node,
+        @intCast(node_slot),
         .Semicolon,
         final,
         true,
@@ -9292,6 +9478,7 @@ fn forStatement(self: *Self) Error!Ast.Node.Index {
 }
 
 fn forEachStatement(self: *Self) Error!Ast.Node.Index {
+    const node_slot = try self.ast.nodes.addOne(self.gc.allocator);
     const start_location = self.current_token.? - 1;
 
     try self.consume(.LeftParen, "Expected `(` after `foreach`.");
@@ -9355,6 +9542,7 @@ fn forEachStatement(self: *Self) Error!Ast.Node.Index {
 
     // Local not usable by user but needed so that locals are correct
     const iterable_slot = try self.addLocal(
+        @intCast(node_slot),
         try self.insertUtilityToken(Token.identifier("$iterable")),
         undefined,
         true,
@@ -9452,7 +9640,8 @@ fn forEachStatement(self: *Self) Error!Ast.Node.Index {
     try self.consume(.LeftBrace, "Expected `{`.");
 
     // We add it before parsing the body so that we can find it on a labeled break/continue statement
-    const foreach_node = try self.ast.appendNode(
+    self.ast.nodes.set(
+        node_slot,
         .{
             .tag = .ForEach,
             .location = start_location,
@@ -9470,7 +9659,7 @@ fn forEachStatement(self: *Self) Error!Ast.Node.Index {
         },
     );
 
-    try self.beginScope(foreach_node);
+    try self.beginScope(@intCast(node_slot));
     const body = try self.block(
         .{
             .loop_type = .ForEach,
@@ -9479,11 +9668,11 @@ fn forEachStatement(self: *Self) Error!Ast.Node.Index {
     );
     self.ast.nodes.items(.ends_scope)[body] = try self.endScope();
 
-    self.ast.nodes.items(.end_location)[foreach_node] = self.current_token.? - 1;
-    self.ast.nodes.items(.components)[foreach_node].ForEach.body = body;
-    self.ast.nodes.items(.ends_scope)[foreach_node] = try self.endScope();
+    self.ast.nodes.items(.end_location)[node_slot] = self.current_token.? - 1;
+    self.ast.nodes.items(.components)[node_slot].ForEach.body = body;
+    self.ast.nodes.items(.ends_scope)[node_slot] = try self.endScope();
 
-    return foreach_node;
+    return @intCast(node_slot);
 }
 
 fn whileStatement(self: *Self) Error!Ast.Node.Index {
@@ -9732,6 +9921,7 @@ fn namespaceStatement(self: *Self) Error!Ast.Node.Index {
 }
 
 fn tryStatement(self: *Self) Error!Ast.Node.Index {
+    const node_slot = try self.ast.nodes.addOne(self.gc.allocator);
     const start_location = self.current_token.? - 1;
 
     if (self.current.?.in_try) {
@@ -9776,6 +9966,7 @@ fn tryStatement(self: *Self) Error!Ast.Node.Index {
             const type_def = try self.parseTypeDef(null, true);
 
             _ = try self.parseVariable(
+                @intCast(node_slot),
                 identifier,
                 self.ast.nodes.items(.type_def)[type_def].?,
                 true, // function arguments are final
@@ -9817,7 +10008,8 @@ fn tryStatement(self: *Self) Error!Ast.Node.Index {
 
     self.current.?.in_try = false;
 
-    return try self.ast.appendNode(
+    self.ast.nodes.set(
+        node_slot,
         .{
             .tag = .Try,
             .location = start_location,
@@ -9831,6 +10023,8 @@ fn tryStatement(self: *Self) Error!Ast.Node.Index {
             },
         },
     );
+
+    return @intCast(node_slot);
 }
 
 // Go up scopes until it finds a loop node with a matching label
