@@ -15,11 +15,6 @@ const log = std.log.scoped(.buzz_lsp);
 const Lsp = lsp.server.Server(Handler);
 
 const Document = struct {
-    pub const DefinitionRequest = struct {
-        uri: lsp.types.DocumentUri,
-        position: lsp.types.Position,
-    };
-
     src: [*:0]const u8,
     /// Not owned by this struct
     uri: []const u8,
@@ -30,7 +25,7 @@ const Document = struct {
     symbols: std.ArrayListUnmanaged(lsp.types.DocumentSymbol) = .{},
 
     /// Cache for previous gotoDefinition
-    definitions: std.AutoHashMapUnmanaged(DefinitionRequest, []const lsp.types.DefinitionLink) = .{},
+    definitions: std.AutoHashMapUnmanaged(lsp.types.Position, []const lsp.types.DefinitionLink) = .{},
 
     /// Cache for node under position
     node_under_position: std.AutoHashMapUnmanaged(lsp.types.Position, ?Ast.Node.Index) = .{},
@@ -111,6 +106,8 @@ const Document = struct {
         self.definitions.deinit(allocator);
 
         self.node_under_position.deinit(allocator);
+
+        allocator.free(self.uri);
     }
 };
 
@@ -283,7 +280,11 @@ const Handler = struct {
             .diagnostics = &.{},
         };
 
-        const doc = try Document.init(self.allocator, src, uri);
+        const doc = try Document.init(
+            self.allocator,
+            src,
+            try self.allocator.dupe(u8, uri),
+        );
 
         log.debug("Loaded document `{s}`", .{uri});
 
@@ -709,41 +710,27 @@ const Handler = struct {
         return null;
     }
 
-    const GotoDefinitionContext = struct {
-        node: Ast.Node.Index,
-        document: *Document,
-        result: std.ArrayListUnmanaged(lsp.types.LocationLink) = .{},
-
-        // pub fn processNode(self: GotoDefinitionContext, allocator: std.mem.Allocator, ast: Ast.Slice, node: Ast.Node.Index) (std.mem.Allocator.Error || std.fmt.BufPrintError)!bool {
-        //     const lexemes = ast.tokens.items(.lexeme);
-        //     const locations = ast.nodes.items(.location);
-        //     const location = ast.tokens.get(locations[node]);
-        //     const end_locations = ast.nodes.items(.end_location);
-        //     const end_location = ast.tokens.get(end_locations[node]);
-        //     const components = ast.nodes.items(.components)[node];
-        //     const type_def = ast.nodes.items(.type_def)[node];
-
-        //     switch (ast.nodes.items(.tag)[node]) {
-        //         else => {},
-        //     }
-        // }
-    };
-
     const NodeUnderPositionContext = struct {
         result: ?Ast.Node.Index = null,
         position: lsp.types.Position,
 
-        pub fn processNode(self: NodeUnderPositionContext, _: std.mem.Allocator, ast: Ast.Slice, node: Ast.Node.Index) (std.mem.Allocator.Error || std.fmt.BufPrintError)!bool {
+        pub fn processNode(self: *NodeUnderPositionContext, _: std.mem.Allocator, ast: Ast.Slice, node: Ast.Node.Index) (std.mem.Allocator.Error || std.fmt.BufPrintError)!bool {
             const locations = ast.nodes.items(.location);
             const location = ast.tokens.get(locations[node]);
             const end_locations = ast.nodes.items(.end_location);
             const end_location = ast.tokens.get(end_locations[node]);
+            const tags = ast.nodes.items(.tag);
+
+            // Ignore root node and imports
+            if (locations[node] == 0 or tags[node] == .Import) {
+                return false;
+            }
 
             // If outside of the node range, don't go deeper
             if (self.position.line < location.line or
                 self.position.line > end_location.line or
-                (self.position.line == end_location.line and self.position.character + 1 > end_location.column) or
-                (self.position.line == location.line and self.position.character + 1 < self.position.column))
+                (self.position.line == end_location.line and self.position.character + 1 > end_location.column + end_location.lexeme.len) or
+                (self.position.line == location.line and self.position.character + 1 < location.column))
             {
                 return true;
             }
@@ -760,13 +747,8 @@ const Handler = struct {
         _: std.mem.Allocator,
         notification: lsp.types.DefinitionParams,
     ) !lsp.server.ResultType("textDocument/definition") {
-        const request = .{
-            .uri = notification.textDocument.uri,
-            .position = notification.position,
-        };
-
         if (self.documents.getEntry(notification.textDocument.uri)) |kv| {
-            if (kv.value_ptr.definitions.get(request)) |result| {
+            if (kv.value_ptr.definitions.get(notification.position)) |result| {
                 return .{
                     .array_of_DefinitionLink = result,
                 };
@@ -776,14 +758,14 @@ const Handler = struct {
 
             if (document.ast.root) |root| {
                 // Search for node under requested position
-                const nodeEntry = document.node_under_position.getOrPut(self.allocator, request.position);
+                const nodeEntry = try document.node_under_position.getOrPut(self.allocator, notification.position);
 
                 if (!nodeEntry.found_existing) {
-                    const node_ctx = NodeUnderPositionContext{
-                        .position = request.position,
+                    var node_ctx = NodeUnderPositionContext{
+                        .position = notification.position,
                     };
 
-                    document.ast.slice().walk(self.allocator, node_ctx, root) catch |err| {
+                    document.ast.slice().walk(self.allocator, &node_ctx, root) catch |err| {
                         log.err("textDocument/definition: {!}", .{err});
                     };
 
@@ -791,29 +773,51 @@ const Handler = struct {
                 }
 
                 if (nodeEntry.value_ptr.* == null) {
-                    return null;
+                    return .{
+                        .array_of_DefinitionLink = &.{},
+                    };
                 }
 
-                // Search for definition if revelant
-                const ctx = GotoDefinitionContext{
-                    .node = nodeEntry.value_ptr.*,
-                    .document = &document,
-                };
+                const origin = nodeEntry.value_ptr.*.?;
 
-                document.ast.slice().walk(self.allocator, ctx, root) catch |err| {
-                    log.err("textDocument/definition: {!}", .{err});
+                const components = document.ast.nodes.items(.components);
+                const locations = document.ast.nodes.items(.location);
+                const end_locations = document.ast.nodes.items(.end_location);
+                var result = std.ArrayListUnmanaged(lsp.types.LocationLink){};
+                defer result.shrinkAndFree(self.allocator, result.items.len);
 
-                    ctx.result.deinit(self.allocator);
-                };
+                switch (document.ast.nodes.items(.tag)[origin]) {
+                    .NamedVariable => {
+                        const definition = components[origin].NamedVariable.definition;
+                        const location = document.ast.tokens.get(locations[definition]);
+                        const end_location = document.ast.tokens.get(end_locations[definition]);
 
-                ctx.result.shrinkAndFree(self.allocator, ctx.result.items.len);
+                        try result.append(
+                            self.allocator,
+                            .{
+                                .targetUri = location.script_name,
+                                .targetRange = tokenToRange(location, end_location),
+                                .targetSelectionRange = tokenToRange(location, end_location),
+                            },
+                        );
+                    },
+                    .Dot => {
+                        // if position on it, must find the member location
+                    },
+                    .UserType => {
+                        // must find the type location
+                    },
 
-                document.definitions.put(request, ctx.result);
+                    // Not a revelant node
+                    else => return .{
+                        .array_of_DefinitionLink = &.{},
+                    },
+                }
 
-                kv.value_ptr.* = document;
+                try document.definitions.put(self.allocator, notification.position, result.items);
 
                 return .{
-                    .array_of_DefinitionLink = ctx.result,
+                    .array_of_DefinitionLink = result.items,
                 };
             }
         }
