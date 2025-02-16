@@ -4179,15 +4179,17 @@ pub const ObjEnum = struct {
 
         name: *ObjString,
         qualified_name: *ObjString,
+        location: Token,
         enum_type: *ObjTypeDef,
         // TODO: should be a slice
         cases: [][]const u8,
         // Circular reference but needed so that we can generate enum case at compile time
         value: ?*ObjEnum = null,
 
-        pub fn init(name: *ObjString, qualified_name: *ObjString, enum_type: *ObjTypeDef, cases: [][]const u8) EnumDefSelf {
+        pub fn init(name: *ObjString, location: Token, qualified_name: *ObjString, enum_type: *ObjTypeDef, cases: [][]const u8) EnumDefSelf {
             return EnumDefSelf{
                 .name = name,
+                .location = location,
                 .qualified_name = qualified_name,
                 .cases = cases,
                 .enum_type = enum_type,

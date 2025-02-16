@@ -82,7 +82,11 @@ pub const Slice = struct {
                 .Block => try node_queue.appendSlice(allocator, comp.Block),
                 .BlockExpression => try node_queue.appendSlice(allocator, comp.BlockExpression),
                 .Call => {
-                    if (tags[comp.Call.callee] != .Dot) {
+                    // Avoid loop between Call and Dot nodes
+                    if (tags[comp.Call.callee] != .Dot or
+                        components[comp.Call.callee].Dot.member_kind != .Call or
+                        components[comp.Call.callee].Dot.value_or_call_or_enum.Call != node)
+                    {
                         try node_queue.append(allocator, comp.Call.callee);
                     }
                     if (comp.Call.catch_default) |default| {
@@ -99,7 +103,16 @@ pub const Slice = struct {
                     }
                     switch (comp.Dot.member_kind) {
                         .Value => try node_queue.append(allocator, comp.Dot.value_or_call_or_enum.Value.value),
-                        .Call => try node_queue.append(allocator, comp.Dot.value_or_call_or_enum.Call),
+                        .Call => {
+                            // We avoid the actual Call node, we're only interested in the Call's parts
+                            const call = components[comp.Dot.value_or_call_or_enum.Call].Call;
+                            if (call.catch_default) |default| {
+                                try node_queue.append(allocator, default);
+                            }
+                            for (call.arguments) |arg| {
+                                try node_queue.append(allocator, arg.value);
+                            }
+                        },
                         .Ref, .EnumCase => {},
                     }
                 },
@@ -212,6 +225,9 @@ pub const Slice = struct {
                 .ObjectDeclaration => {
                     try node_queue.appendSlice(allocator, comp.ObjectDeclaration.protocols);
                     for (comp.ObjectDeclaration.members) |member| {
+                        if (member.property_type) |property_type| {
+                            try node_queue.append(allocator, property_type);
+                        }
                         if (member.method_or_default_value) |value| {
                             try node_queue.append(allocator, value);
                         }
@@ -384,12 +400,14 @@ pub const Slice = struct {
 
                     self.result = type_def.def_type == .Enum and type_def.resolved_type.?.Enum.value != null;
 
-                    return true;
+                    if (!self.result.?) {
+                        return true;
+                    }
                 },
                 .If => {
                     const components = ast.nodes.items(.components)[node].If;
 
-                    if (components.is_statement) {
+                    if (components.is_statement or components.casted_type != null) {
                         self.result = false;
                         return true;
                     }
@@ -400,6 +418,10 @@ pub const Slice = struct {
 
                     if (components.items.len == 0) {
                         self.result = self.result == null or self.result.?;
+
+                        if (!self.result.?) {
+                            return false;
+                        }
                     }
 
                     for (components.items) |item| {
@@ -415,6 +437,10 @@ pub const Slice = struct {
 
                     if (components.entries.len == 0) {
                         self.result = self.result == null or self.result.?;
+
+                        if (!self.result.?) {
+                            return false;
+                        }
                     }
 
                     for (components.entries) |entry| {
@@ -432,6 +458,15 @@ pub const Slice = struct {
                         return true;
                     }
                 },
+                .String => {
+                    if (ast.nodes.items(.components)[node].String.len == 0) {
+                        self.result = self.result == null or self.result.?;
+
+                        if (!self.result.?) {
+                            return false;
+                        }
+                    }
+                },
                 .As,
                 .Binary,
                 .Expression,
@@ -440,7 +475,6 @@ pub const Slice = struct {
                 .Grouping,
                 .Is,
                 .Range,
-                .String,
                 .TypeOfExpression,
                 .Unary,
                 .Unwrap,
@@ -1415,6 +1449,7 @@ pub const ObjectDeclaration = struct {
         docblock: ?TokenIndex,
         method: bool,
         method_or_default_value: ?Node.Index,
+        property_type: ?Node.Index,
     };
 };
 

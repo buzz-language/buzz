@@ -912,12 +912,12 @@ fn synchronize(self: *Self) !void {
     }
 }
 
-pub fn parse(self: *Self, source: []const u8, file_name: []const u8) !?Ast {
+pub fn parse(self: *Self, source: []const u8, file_name: ?[]const u8, name: []const u8) !?Ast {
     if (self.scanner != null) {
         self.scanner = null;
     }
 
-    self.scanner = Scanner.init(self.gc.allocator, file_name, source);
+    self.scanner = Scanner.init(self.gc.allocator, file_name orelse name, source);
 
     const function_type: obj.ObjFunction.FunctionType = if (!self.imported and self.flavor == .Repl)
         .Repl
@@ -928,7 +928,7 @@ pub fn parse(self: *Self, source: []const u8, file_name: []const u8) !?Ast {
 
     const function_name: []const u8 = switch (function_type) {
         .EntryPoint => "main",
-        .ScriptEntryPoint, .Script => file_name,
+        .ScriptEntryPoint, .Script => name,
         .Repl => "REPL",
         else => "???",
     };
@@ -956,7 +956,7 @@ pub fn parse(self: *Self, source: []const u8, file_name: []const u8) !?Ast {
                         .Function = .{
                             .id = obj.ObjFunction.FunctionDef.nextId(),
                             .name = try self.gc.copyString(function_name),
-                            .script_name = try self.gc.copyString(file_name),
+                            .script_name = try self.gc.copyString(name),
                             .return_type = self.gc.type_registry.void_type,
                             .yield_type = self.gc.type_registry.void_type,
                             .parameters = .init(self.gc.allocator),
@@ -983,7 +983,7 @@ pub fn parse(self: *Self, source: []const u8, file_name: []const u8) !?Ast {
         .test_locations = undefined,
     };
 
-    self.script_name = file_name;
+    self.script_name = name;
 
     try self.beginFrame(function_type, function_node, null);
 
@@ -1111,6 +1111,7 @@ fn beginFrame(self: *Self, function_type: obj.ObjFunction.FunctionType, function
     self.current.?.local_count += 1;
     local.depth = 0;
     local.captured = false;
+    local.node = function_node;
 
     switch (function_type) {
         .Method => {
@@ -1147,6 +1148,15 @@ fn beginFrame(self: *Self, function_type: obj.ObjFunction.FunctionType, function
     );
     location.source = self.scanner.?.source;
     location.script_name = self.script_name;
+
+    if (function_type == .Method) {
+        const function_location = self.ast.tokens.get(
+            self.ast.nodes.items(.location)[function_node],
+        );
+        location.line = function_location.line;
+        location.column = function_location.column;
+        location.offset = function_location.offset;
+    }
 
     if (self.current_token != null) {
         local.name = try self.insertUtilityToken(location);
@@ -1415,13 +1425,8 @@ fn simpleTypeFromToken(token: Token.Type) ?obj.ObjTypeDef.Type {
     };
 }
 
-fn declaration(self: *Self) Error!?Ast.Node.Index {
+fn declaration(self: *Self, docblock: ?Ast.TokenIndex) Error!?Ast.Node.Index {
     const global_scope = self.current.?.scope_depth == 0;
-
-    const docblock = if (global_scope and try self.match(.Docblock))
-        self.current_token.? - 1
-    else
-        null;
 
     const node = if (try self.match(.Object))
         try self.objectDeclaration()
@@ -1541,11 +1546,22 @@ fn declaration(self: *Self) Error!?Ast.Node.Index {
 }
 
 fn declarationOrStatement(self: *Self, loop_scope: ?LoopScope) !?Ast.Node.Index {
-    return try self.declaration() orelse try self.statement(false, loop_scope);
+    const global_scope = self.current.?.scope_depth == 0;
+    const docblock = if (global_scope and try self.match(.Docblock))
+        self.current_token.? - 1
+    else
+        null;
+
+    return try self.declaration(docblock) orelse
+        try self.statement(
+        docblock,
+        false,
+        loop_scope,
+    );
 }
 
 // When a break statement, will return index of jump to patch
-fn statement(self: *Self, hanging: bool, loop_scope: ?LoopScope) !?Ast.Node.Index {
+fn statement(self: *Self, docblock: ?Ast.TokenIndex, hanging: bool, loop_scope: ?LoopScope) !?Ast.Node.Index {
     const global_scope = self.current.?.scope_depth == 0;
     const statement_allowed = self.flavor == .Repl or !global_scope;
 
@@ -1600,7 +1616,7 @@ fn statement(self: *Self, hanging: bool, loop_scope: ?LoopScope) !?Ast.Node.Inde
             return try self.zdefStatement();
         } else if (try self.match(.Export)) {
             std.debug.assert(!hanging);
-            return try self.exportStatement();
+            return try self.exportStatement(docblock);
         }
     }
 
@@ -1638,6 +1654,7 @@ fn addLocal(self: *Self, node: Ast.Node.Index, name: Ast.TokenIndex, local_type:
 }
 
 fn resolveReferrer(self: *Self, referrer: Ast.Node.Index, definition: Ast.Node.Index) Error!void {
+    std.debug.assert(definition != 0);
     switch (self.ast.nodes.items(.tag)[referrer]) {
         .NamedVariable => {
             self.ast.nodes.items(.components)[referrer].NamedVariable.definition = definition;
@@ -7033,7 +7050,7 @@ fn funDeclaration(self: *Self) Error!Ast.Node.Index {
     return @intCast(node_slot);
 }
 
-fn exportStatement(self: *Self) Error!Ast.Node.Index {
+fn exportStatement(self: *Self, docblock: ?Ast.TokenIndex) Error!Ast.Node.Index {
     const node_slot = try self.ast.nodes.addOne(self.gc.allocator);
     const start_location = self.current_token.? - 1;
 
@@ -7113,7 +7130,7 @@ fn exportStatement(self: *Self) Error!Ast.Node.Index {
         }
     } else {
         self.exporting = true;
-        if (try self.declaration()) |decl| {
+        if (try self.declaration(docblock)) |decl| {
             const global = &self.globals.items[self.globals.items.len - 1];
             global.referenced = true;
             self.exporting = false;
@@ -7124,6 +7141,7 @@ fn exportStatement(self: *Self) Error!Ast.Node.Index {
                     .tag = .Export,
                     .location = start_location,
                     .end_location = self.current_token.? - 1,
+                    .docblock = docblock,
                     .type_def = self.ast.nodes.items(.type_def)[decl],
                     .components = .{
                         .Export = .{
@@ -7466,6 +7484,7 @@ fn objectDeclaration(self: *Self) Error!Ast.Node.Index {
                     .docblock = docblock,
                     .method = true,
                     .method_or_default_value = method_node,
+                    .property_type = null,
                 },
             );
             try fields.put(method_name, {});
@@ -7608,6 +7627,7 @@ fn objectDeclaration(self: *Self) Error!Ast.Node.Index {
                     .docblock = docblock,
                     .method = false,
                     .method_or_default_value = default,
+                    .property_type = property_type,
                 },
             );
             try fields.put(property_name.lexeme, {});
@@ -7883,6 +7903,7 @@ fn enumDeclaration(self: *Self) Error!Ast.Node.Index {
 
     const enum_def = obj.ObjEnum.EnumDef.init(
         try self.gc.copyString(enum_name_lexeme),
+        self.ast.tokens.get(enum_name),
         try self.gc.copyString(qualified_name.items),
         enum_case_type,
         undefined,
@@ -8718,7 +8739,7 @@ fn importScript(
         const previous_tokens_len = self.ast.tokens.len;
         const previous_node_len = self.ast.nodes.len;
 
-        if (try parser.parse(source_and_path.?[0], file_name)) |ast| {
+        if (try parser.parse(source_and_path.?[0], source_and_path.?[1], file_name)) |ast| {
             self.ast = ast;
             self.ast.nodes.items(.components)[self.ast.root.?].Function.import_root = true;
 
