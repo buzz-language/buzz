@@ -173,12 +173,9 @@ pub fn compileFunction(self: *Self, ast: Ast.Slice, closure: *o.ObjClosure) Erro
 
     const ast_node = function.node;
 
-    var seen: std.AutoHashMapUnmanaged(Ast.Node.Index, void) = .{};
-    defer seen.deinit(self.vm.gc.allocator);
     if (try ast.usesFiber(
         self.vm.gc.allocator,
         ast_node,
-        &seen,
     )) {
         if (BuildOptions.jit_debug) {
             io.print(
@@ -263,12 +260,9 @@ pub fn compileFunction(self: *Self, ast: Ast.Slice, closure: *o.ObjClosure) Erro
 }
 
 pub fn compileHotSpot(self: *Self, ast: Ast.Slice, closure: *o.ObjClosure, hotspot_node: Ast.Node.Index) Error!*anyopaque {
-    var seen: std.AutoHashMapUnmanaged(Ast.Node.Index, void) = .{};
-    defer seen.deinit(self.vm.gc.allocator);
     if (try ast.usesFiber(
         self.vm.gc.allocator,
         hotspot_node,
-        &seen,
     )) {
         if (BuildOptions.jit_debug) {
             io.print(
@@ -481,7 +475,7 @@ fn buildFunction(self: *Self, ast: Ast.Slice, closure: ?*o.ObjClosure, ast_node:
 fn generateNode(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
     const components = self.state.?.ast.nodes.items(.components);
     const tag = self.state.?.ast.nodes.items(.tag)[node];
-    const constant = self.state.?.ast.nodes.items(.value)[node] orelse if (self.state.?.ast.isConstant(node))
+    const constant = self.state.?.ast.nodes.items(.value)[node] orelse if (try self.state.?.ast.isConstant(self.vm.gc.allocator, node))
         try self.state.?.ast.toValue(node, self.vm.gc)
     else
         null;

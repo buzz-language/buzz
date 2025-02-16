@@ -998,9 +998,9 @@ pub fn parse(self: *Self, source: []const u8, file_name: []const u8) !?Ast {
                 return err;
             }
 
-            // if (BuildOptions.debug) {
-            io.print("Parsing of `{s}` failed with error {} (collected {} errors)\n", .{ function_name, err, self.reporter.reports.items.len });
-            // }
+            if (BuildOptions.debug) {
+                io.print("Parsing of `{s}` failed with error {} (collected {} errors)\n", .{ function_name, err, self.reporter.reports.items.len });
+            }
             return null;
         }) |decl| {
             var statements = std.ArrayList(Ast.Node.Index).fromOwnedSlice(
@@ -3277,7 +3277,7 @@ fn parseFunctionType(self: *Self, parent_generic_types: ?std.AutoArrayHashMap(*o
                     );
                 }
 
-                if (!self.ast.slice().isConstant(expr)) {
+                if (!try self.ast.slice().isConstant(self.gc.allocator, expr)) {
                     self.reportErrorAtNode(
                         .constant_default,
                         expr,
@@ -5446,14 +5446,6 @@ fn dot(self: *Self, can_assign: bool, callee: Ast.Node.Index) Error!Ast.Node.Ind
 
     self.ast.nodes.items(.end_location)[dot_node] = self.current_token.? - 1;
 
-    std.debug.print(
-        "Dot lives at ({}:{}) - ({},{})\n",
-        .{
-            self.ast.tokens.get(start_location).line,           self.ast.tokens.get(start_location).column,
-            self.ast.tokens.get(self.current_token.? - 1).line, self.ast.tokens.get(self.current_token.? - 1).column,
-        },
-    );
-
     return dot_node;
 }
 
@@ -7566,7 +7558,7 @@ fn objectDeclaration(self: *Self) Error!Ast.Node.Index {
             else
                 null;
 
-            if (default != null and !self.ast.slice().isConstant(default.?)) {
+            if (default != null and !(try self.ast.slice().isConstant(self.gc.allocator, default.?))) {
                 self.reportErrorAtNode(
                     .constant_default,
                     default.?,
@@ -8043,7 +8035,7 @@ fn enumDeclaration(self: *Self) Error!Ast.Node.Index {
     var obj_cases = std.ArrayList(Value).init(self.gc.allocator);
     defer obj_cases.shrinkAndFree(obj_cases.items.len);
     for (cases.items, 0..) |case, idx| {
-        if (case.value != null and !self.ast.slice().isConstant(case.value.?)) {
+        if (case.value != null and !(try self.ast.slice().isConstant(self.gc.allocator, case.value.?))) {
             self.reportErrorAtNode(
                 .enum_case,
                 case.value.?,

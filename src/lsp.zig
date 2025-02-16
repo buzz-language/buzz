@@ -30,6 +30,9 @@ const Document = struct {
     /// Cache for node under position
     node_under_position: std.AutoHashMapUnmanaged(lsp.types.Position, ?Ast.Node.Index) = .{},
 
+    /// Cache for hover
+    node_hover: std.AutoArrayHashMapUnmanaged(Ast.Node.Index, []const u8) = .{},
+
     pub fn init(allocator: std.mem.Allocator, src: [*:0]const u8, uri: []const u8) !Document {
         var gc = try mem.GarbageCollector.init(allocator);
         gc.type_registry = mem.TypeRegistry.init(&gc) catch return error.OutOfMemory;
@@ -99,15 +102,25 @@ const Document = struct {
         }
         self.symbols.deinit(allocator);
 
-        var it = self.definitions.iterator();
-        while (it.next()) |kv| {
-            allocator.free(kv.value_ptr.*);
+        {
+            var it = self.definitions.iterator();
+            while (it.next()) |kv| {
+                allocator.free(kv.value_ptr.*);
+            }
+            self.definitions.deinit(allocator);
         }
-        self.definitions.deinit(allocator);
 
         self.node_under_position.deinit(allocator);
 
         allocator.free(self.uri);
+
+        {
+            var it = self.node_hover.iterator();
+            while (it.next()) |kv| {
+                allocator.free(kv.value_ptr.*);
+            }
+            self.node_hover.deinit(allocator);
+        }
     }
 };
 
@@ -702,11 +715,66 @@ const Handler = struct {
     }
 
     pub fn hover(
-        _: Handler,
+        self: Handler,
         _: std.mem.Allocator,
-        _: lsp.types.HoverParams,
+        notification: lsp.types.HoverParams,
         _: lsp.offsets.Encoding,
     ) !?lsp.types.Hover {
+        if (self.documents.getEntry(notification.textDocument.uri)) |kv| {
+            var document = kv.value_ptr.*;
+
+            if (document.ast.root) |root| {
+                // Search for node under requested position
+                const nodeEntry = try document.node_under_position.getOrPut(self.allocator, notification.position);
+
+                if (!nodeEntry.found_existing) {
+                    var node_ctx = NodeUnderPositionContext{
+                        .position = notification.position,
+                    };
+
+                    document.ast.slice().walk(self.allocator, &node_ctx, root) catch |err| {
+                        log.err("textDocument/hover: {!}", .{err});
+                    };
+
+                    nodeEntry.value_ptr.* = node_ctx.result;
+                }
+
+                if (nodeEntry.value_ptr.* == null) {
+                    return null;
+                }
+
+                const origin = nodeEntry.value_ptr.*.?;
+                const type_def = document.ast.nodes.items(.type_def)[origin];
+
+                if (type_def) |td| {
+                    const markupEntry = try document.node_hover.getOrPut(self.allocator, origin);
+
+                    if (!markupEntry.found_existing) {
+                        var markup = std.ArrayList(u8).init(self.allocator);
+                        const writer = markup.writer();
+
+                        try writer.writeAll("```buzz\n");
+                        td.toString(&writer) catch |err| {
+                            log.err("textDocument/hover: {!}", .{err});
+                        };
+                        try writer.writeAll("\n```");
+
+                        markup.shrinkAndFree(markup.items.len);
+
+                        markupEntry.value_ptr.* = markup.items;
+                    }
+
+                    return .{
+                        .contents = .{
+                            .MarkupContent = .{
+                                .kind = .markdown,
+                                .value = markupEntry.value_ptr.*,
+                            },
+                        },
+                    };
+                }
+            }
+        }
         return null;
     }
 

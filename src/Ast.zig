@@ -81,7 +81,6 @@ pub const Slice = struct {
                 },
                 .Block => try node_queue.appendSlice(allocator, comp.Block),
                 .BlockExpression => try node_queue.appendSlice(allocator, comp.BlockExpression),
-                .Break => if (comp.Break) |expr| try node_queue.append(allocator, expr),
                 .Call => {
                     if (tags[comp.Call.callee] != .Dot) {
                         try node_queue.append(allocator, comp.Call.callee);
@@ -93,7 +92,6 @@ pub const Slice = struct {
                         try node_queue.append(allocator, arg.value);
                     }
                 },
-                .Continue => if (comp.Continue) |expr| try node_queue.append(allocator, expr),
                 .Dot => {
                     try node_queue.append(allocator, comp.Dot.callee);
                     if (comp.Dot.generic_resolve) |generic_resolve| {
@@ -279,6 +277,8 @@ pub const Slice = struct {
                 },
                 .Yield => try node_queue.append(allocator, comp.Yield),
                 .Boolean,
+                .Break,
+                .Continue,
                 .Import,
                 .Integer,
                 .Double,
@@ -295,288 +295,168 @@ pub const Slice = struct {
         }
     }
 
-    // FIXME: use walk to do this?
-    pub fn usesFiber(self: Self.Slice, allocator: std.mem.Allocator, node: Node.Index, seen: *std.AutoHashMapUnmanaged(Node.Index, void)) !bool {
-        if (seen.get(node) != null) {
-            return false;
+    const UsesFiberContext = struct {
+        result: bool = false,
+
+        pub fn processNode(self: *UsesFiberContext, _: std.mem.Allocator, ast: Self.Slice, node: Self.Node.Index) (std.mem.Allocator.Error || std.fmt.BufPrintError)!bool {
+            switch (ast.nodes.items(.tag)[node]) {
+                .AsyncCall,
+                .Resolve,
+                .Resume,
+                .Yield,
+                => {
+                    self.result = true;
+                    return true;
+                },
+                else => return false,
+            }
         }
+    };
 
-        try seen.put(allocator, node, {});
+    pub fn usesFiber(self: Self.Slice, allocator: std.mem.Allocator, node: Node.Index) !bool {
+        var ctx = UsesFiberContext{};
 
-        const components = self.nodes.items(.components)[node];
-        return switch (self.nodes.items(.tag)[node]) {
-            .As => try self.usesFiber(allocator, components.As.left, seen),
-            .AsyncCall,
-            .Resolve,
-            .Resume,
-            .Yield,
-            => true,
-            .Binary => try self.usesFiber(allocator, components.Binary.left, seen) or
-                try self.usesFiber(allocator, components.Binary.right, seen),
-            .Block => blk: {
-                for (components.Block) |stmt| {
-                    if (try self.usesFiber(allocator, stmt, seen)) {
-                        break :blk true;
-                    }
-                }
+        try self.walk(allocator, &ctx, node);
 
-                break :blk false;
-            },
-            .BlockExpression => blk: {
-                for (components.BlockExpression) |stmt| {
-                    if (try self.usesFiber(allocator, stmt, seen)) {
-                        break :blk true;
-                    }
-                }
-
-                break :blk false;
-            },
-            .String => blk: {
-                for (components.String) |stmt| {
-                    if (try self.usesFiber(allocator, stmt, seen)) {
-                        break :blk true;
-                    }
-                }
-
-                break :blk false;
-            },
-            .Call => call: {
-                if (try self.usesFiber(allocator, components.Call.callee, seen) or
-                    (components.Call.catch_default != null and try self.usesFiber(allocator, components.Call.catch_default.?, seen)))
-                {
-                    break :call true;
-                }
-
-                for (components.Call.arguments) |argument| {
-                    if (try self.usesFiber(allocator, argument.value, seen)) {
-                        break :call true;
-                    }
-                }
-
-                break :call false;
-            },
-            .Dot => dot: {
-                if (try self.usesFiber(allocator, components.Dot.callee, seen)) {
-                    break :dot true;
-                }
-
-                switch (components.Dot.member_kind) {
-                    .Value => {
-                        if (try self.usesFiber(allocator, components.Dot.value_or_call_or_enum.Value.value, seen)) {
-                            break :dot true;
-                        }
-                    },
-                    .Call => {
-                        if (try self.usesFiber(allocator, components.Dot.value_or_call_or_enum.Call, seen)) {
-                            break :dot true;
-                        }
-                    },
-                    else => {},
-                }
-
-                break :dot false;
-            },
-            .DoUntil => try self.usesFiber(allocator, components.DoUntil.condition, seen) or try self.usesFiber(allocator, components.DoUntil.body, seen),
-            .Expression => try self.usesFiber(allocator, components.Expression, seen),
-            .For => for_loop: {
-                if (try self.usesFiber(allocator, components.For.condition, seen) or try self.usesFiber(allocator, components.For.body, seen)) {
-                    break :for_loop true;
-                }
-
-                for (components.For.init_declarations) |decl| {
-                    if (try self.usesFiber(allocator, decl, seen)) {
-                        break :for_loop true;
-                    }
-                }
-
-                for (components.For.post_loop) |decl| {
-                    if (try self.usesFiber(allocator, decl, seen)) {
-                        break :for_loop true;
-                    }
-                }
-
-                break :for_loop false;
-            },
-            .ForceUnwrap => try self.usesFiber(allocator, components.ForceUnwrap.unwrapped, seen),
-            .ForEach => try self.usesFiber(allocator, components.ForEach.iterable, seen) or try self.usesFiber(allocator, components.ForEach.key, seen) or try self.usesFiber(allocator, components.ForEach.value, seen) or try self.usesFiber(allocator, components.ForEach.body, seen),
-            .Function => components.Function.body != null and try self.usesFiber(allocator, components.Function.body.?, seen),
-            .Grouping => try self.usesFiber(allocator, components.Grouping, seen),
-            .If => try self.usesFiber(allocator, components.If.condition, seen) or try self.usesFiber(allocator, components.If.body, seen) or (components.If.else_branch != null and try self.usesFiber(allocator, components.If.else_branch.?, seen)),
-            .Is => try self.usesFiber(allocator, components.Is.left, seen),
-            .List => list: {
-                for (components.List.items) |item| {
-                    if (try self.usesFiber(allocator, item, seen)) {
-                        break :list true;
-                    }
-                }
-
-                break :list false;
-            },
-            .Map => map: {
-                for (components.Map.entries) |entry| {
-                    if (try self.usesFiber(allocator, entry.key, seen) or try self.usesFiber(allocator, entry.value, seen)) {
-                        break :map true;
-                    }
-                }
-
-                break :map false;
-            },
-            .NamedVariable => components.NamedVariable.value != null and try self.usesFiber(allocator, components.NamedVariable.value.?, seen),
-            .ObjectInit => obj_init: {
-                for (components.ObjectInit.properties) |property| {
-                    if (try self.usesFiber(allocator, property.value, seen)) {
-                        break :obj_init true;
-                    }
-                }
-
-                break :obj_init false;
-            },
-            .Out => try self.usesFiber(allocator, components.Out, seen),
-            .Range => try self.usesFiber(allocator, components.Range.low, seen) or try self.usesFiber(allocator, components.Range.high, seen),
-            .Return => components.Return.value != null and try self.usesFiber(allocator, components.Return.value.?, seen),
-            .Subscript => try self.usesFiber(allocator, components.Subscript.subscripted, seen) or try self.usesFiber(allocator, components.Subscript.index, seen) or (components.Subscript.value != null and try self.usesFiber(allocator, components.Subscript.value.?, seen)),
-            .Throw => try self.usesFiber(allocator, components.Throw.expression, seen),
-            .Try => @"try": {
-                if (try self.usesFiber(allocator, components.Try.body, seen) or (components.Try.unconditional_clause != null and try self.usesFiber(allocator, components.Try.unconditional_clause.?, seen))) {
-                    break :@"try" true;
-                }
-
-                for (components.Try.clauses) |clause| {
-                    if (try self.usesFiber(allocator, clause.body, seen)) {
-                        break :@"try" true;
-                    }
-                }
-
-                break :@"try" false;
-            },
-            .TypeOfExpression => try self.usesFiber(allocator, components.TypeOfExpression, seen),
-            .Unary => try self.usesFiber(allocator, components.Unary.expression, seen),
-            .Unwrap => try self.usesFiber(allocator, components.Unwrap.unwrapped, seen),
-            .VarDeclaration => components.VarDeclaration.value != null and try self.usesFiber(allocator, components.VarDeclaration.value.?, seen),
-            .While => try self.usesFiber(allocator, components.While.condition, seen) or try self.usesFiber(allocator, components.While.body, seen),
-            else => false,
-        };
+        return ctx.result;
     }
 
-    // FIXME: use walk?
-    pub fn isConstant(self: Self.Slice, node: Node.Index) bool {
-        return switch (self.nodes.items(.tag)[node]) {
-            .AnonymousObjectType,
-            .FiberType,
-            .FunctionType,
-            .GenericResolveType,
-            .GenericType,
-            .ListType,
-            .MapType,
-            .SimpleType,
-            .UserType,
-            .Boolean,
-            .Integer,
-            .Double,
-            .Pattern,
-            .Null,
-            .StringLiteral,
-            .TypeExpression,
-            .Void,
-            .Namespace,
-            => true,
+    const IsConstantContext = struct {
+        result: ?bool = null,
 
-            .AsyncCall,
-            .Block,
-            .Break,
-            .Continue,
-            .Call,
-            .DoUntil,
-            .Enum,
-            .Export,
-            .For,
-            .ForEach,
-            .Function,
-            .FunDeclaration,
-            .Import,
-            .NamedVariable,
-            .ObjectDeclaration,
-            .ObjectInit,
-            .ProtocolDeclaration,
-            .Resolve,
-            .Resume,
-            .Return,
-            .Try,
-            .Throw,
-            .VarDeclaration,
-            .While,
-            .Yield,
-            .Zdef,
-            .BlockExpression,
-            .Out,
-            => false,
+        pub fn processNode(self: *IsConstantContext, _: std.mem.Allocator, ast: Self.Slice, node: Self.Node.Index) (std.mem.Allocator.Error || std.fmt.BufPrintError)!bool {
+            switch (ast.nodes.items(.tag)[node]) {
+                .AnonymousObjectType,
+                .FiberType,
+                .FunctionType,
+                .GenericResolveType,
+                .GenericType,
+                .ListType,
+                .MapType,
+                .SimpleType,
+                .UserType,
+                .Boolean,
+                .Integer,
+                .Double,
+                .Pattern,
+                .Null,
+                .StringLiteral,
+                .TypeExpression,
+                .Void,
+                .Namespace,
+                => self.result = self.result == null or self.result.?,
 
-            .As => self.isConstant(self.nodes.items(.components)[node].As.left),
-            .Is => self.isConstant(self.nodes.items(.components)[node].Is.left),
-            .Range => self.isConstant(self.nodes.items(.components)[node].Range.low) and self.isConstant(self.nodes.items(.components)[node].Range.high),
-            .Binary => {
-                const components = self.nodes.items(.components)[node].Binary;
+                .AsyncCall,
+                .Block,
+                .Break,
+                .Continue,
+                .Call,
+                .DoUntil,
+                .Enum,
+                .Export,
+                .For,
+                .ForEach,
+                .Function,
+                .FunDeclaration,
+                .Import,
+                .NamedVariable,
+                .ObjectDeclaration,
+                .ObjectInit,
+                .ProtocolDeclaration,
+                .Resolve,
+                .Resume,
+                .Return,
+                .Try,
+                .Throw,
+                .VarDeclaration,
+                .While,
+                .Yield,
+                .Zdef,
+                .BlockExpression,
+                .Out,
+                => {
+                    self.result = false;
+                    return true;
+                },
 
-                return self.isConstant(components.left) and self.isConstant(components.right);
-            },
-            .Dot => {
-                const type_def = self.nodes.items(.type_def)[self.nodes.items(.components)[node].Dot.callee].?;
+                .Dot => {
+                    const type_def = ast.nodes.items(.type_def)[ast.nodes.items(.components)[node].Dot.callee].?;
 
-                return type_def.def_type == .Enum and type_def.resolved_type.?.Enum.value != null;
-            },
-            .Expression => self.isConstant(self.nodes.items(.components)[node].Expression),
-            .Grouping => self.isConstant(self.nodes.items(.components)[node].Grouping),
-            .ForceUnwrap => self.isConstant(self.nodes.items(.components)[node].ForceUnwrap.unwrapped),
-            .GenericResolve => self.isConstant(self.nodes.items(.components)[node].GenericResolve),
-            .If => {
-                const components = self.nodes.items(.components)[node].If;
+                    self.result = type_def.def_type == .Enum and type_def.resolved_type.?.Enum.value != null;
 
-                return !components.is_statement and self.isConstant(components.condition) and self.isConstant(components.body) and self.isConstant(components.else_branch.?);
-            },
-            .List => {
-                const components = self.nodes.items(.components)[node].List;
-                const node_types = self.nodes.items(.tag);
+                    return true;
+                },
+                .If => {
+                    const components = ast.nodes.items(.components)[node].If;
 
-                for (components.items) |item| {
-                    if (node_types[item] == .List or node_types[item] == .Map or !self.isConstant(item)) {
-                        return false;
+                    if (components.is_statement) {
+                        self.result = false;
+                        return true;
                     }
-                }
+                },
+                .List => {
+                    const components = ast.nodes.items(.components)[node].List;
+                    const node_types = ast.nodes.items(.tag);
 
-                return true;
-            },
-            .Map => {
-                const components = self.nodes.items(.components)[node].Map;
-                const node_types = self.nodes.items(.tag);
-
-                for (components.entries) |entry| {
-                    if (node_types[entry.key] == .List or node_types[entry.value] == .List or node_types[entry.key] == .Map or node_types[entry.key] == .Map or !self.isConstant(entry.key) or !self.isConstant(entry.value)) {
-                        return false;
+                    if (components.items.len == 0) {
+                        self.result = self.result == null or self.result.?;
                     }
-                }
 
-                return true;
-            },
-            .String => {
-                const elements = self.nodes.items(.components)[node].String;
-
-                for (elements) |element| {
-                    if (!self.isConstant(element)) {
-                        return false;
+                    for (components.items) |item| {
+                        if (node_types[item] == .List or node_types[item] == .Map) {
+                            self.result = false;
+                            return true;
+                        }
                     }
-                }
+                },
+                .Map => {
+                    const components = ast.nodes.items(.components)[node].Map;
+                    const node_types = ast.nodes.items(.tag);
 
-                return true;
-            },
-            .Subscript => {
-                const components = self.nodes.items(.components)[node].Subscript;
+                    if (components.entries.len == 0) {
+                        self.result = self.result == null or self.result.?;
+                    }
 
-                return self.isConstant(components.subscripted) and self.isConstant(components.index) and components.value == null;
-            },
-            .TypeOfExpression => self.isConstant(self.nodes.items(.components)[node].TypeOfExpression),
-            .Unary => self.isConstant(self.nodes.items(.components)[node].Unary.expression),
-            .Unwrap => self.isConstant(self.nodes.items(.components)[node].Unwrap.unwrapped),
-        };
+                    for (components.entries) |entry| {
+                        if (node_types[entry.key] == .List or node_types[entry.value] == .List or node_types[entry.key] == .Map or node_types[entry.key] == .Map) {
+                            self.result = false;
+                            return true;
+                        }
+                    }
+                },
+                .Subscript => {
+                    const components = ast.nodes.items(.components)[node].Subscript;
+
+                    if (components.value != null) {
+                        self.result = false;
+                        return true;
+                    }
+                },
+                .As,
+                .Binary,
+                .Expression,
+                .ForceUnwrap,
+                .GenericResolve,
+                .Grouping,
+                .Is,
+                .Range,
+                .String,
+                .TypeOfExpression,
+                .Unary,
+                .Unwrap,
+                => {},
+            }
+
+            return false;
+        }
+    };
+
+    pub fn isConstant(self: Self.Slice, allocator: std.mem.Allocator, node: Node.Index) !bool {
+        var ctx = IsConstantContext{};
+
+        try self.walk(allocator, &ctx, node);
+
+        return ctx.result orelse false;
     }
 
     fn binaryValue(self: Self.Slice, node: Node.Index, gc: *GarbageCollector) !?Value {
@@ -798,11 +678,10 @@ pub const Slice = struct {
         }
     }
 
-    // FIXME: use walk
     pub fn toValue(self: Self.Slice, node: Node.Index, gc: *GarbageCollector) Error!Value {
         const value = &self.nodes.items(.value)[node];
 
-        if (value.* == null and self.isConstant(node)) {
+        if (value.* == null and try self.isConstant(gc.allocator, node)) {
             value.* = switch (self.nodes.items(.tag)[node]) {
                 .AnonymousObjectType,
                 .FiberType,
