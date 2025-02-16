@@ -338,7 +338,7 @@ fn runSource(
     var codegen_time: u64 = undefined;
     var running_time: u64 = undefined;
 
-    if (try parser.parse(source, file_name)) |ast| {
+    if (try parser.parse(source, null, file_name)) |ast| {
         parsing_time = timer.read();
         timer.reset();
 

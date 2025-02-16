@@ -186,7 +186,7 @@ fn runSource(
     codegen: *CodeGen,
     parser: *Parser,
 ) !?Value {
-    if (try parser.parse(source, file_name)) |ast| {
+    if (try parser.parse(source, null, file_name)) |ast| {
         const ast_slice = ast.slice();
         if (try codegen.generate(ast_slice)) |function| {
             try vm.interpret(
