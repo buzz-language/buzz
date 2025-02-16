@@ -259,7 +259,12 @@ fn docblock(self: *Self) !Token {
         }
     }
 
-    return self.makeToken(.Docblock, std.mem.trim(u8, block.items, " "), null, null);
+    return self.makeToken(
+        .Docblock,
+        std.mem.trim(u8, block.items, " "),
+        null,
+        null,
+    );
 }
 
 fn atIdentifier(self: *Self) Token {

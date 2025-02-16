@@ -127,7 +127,7 @@ fn runFile(allocator: Allocator, file_name: []const u8, args: []const []const u8
     var codegen_time: u64 = undefined;
     var running_time: u64 = undefined;
 
-    if (try parser.parse(source, file_name)) |ast| {
+    if (try parser.parse(source, null, file_name)) |ast| {
         if (!is_wasm) {
             parsing_time = timer.read();
             timer.reset();
