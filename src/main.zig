@@ -332,10 +332,8 @@ test "Testing behavior" {
 
         while (try it.next()) |file| : (count += 1) {
             if (file.kind == .file and std.mem.endsWith(u8, file.name, ".buzz")) {
-                const file_name: []u8 = try allocator.alloc(u8, 6 + file.name.len);
+                const file_name = try allocator.alloc(u8, 6 + file.name.len);
                 defer allocator.free(file_name);
-
-                io.print("{s}\n", .{file.name});
 
                 var had_error: bool = false;
                 runFile(
@@ -426,5 +424,5 @@ test "Testing behavior" {
         fail_count,
     });
 
-    std.testing.expectEqual(fail_count, 0);
+    std.process.exit(if (fail_count > 0) 1 else 0);
 }

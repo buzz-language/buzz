@@ -2130,7 +2130,7 @@ fn generateFor(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.
     const node_components = self.ast.nodes.items(.components);
 
     const components = node_components[node].For;
-    if (self.ast.isConstant(components.condition) and !(try self.ast.toValue(components.condition, self.gc)).boolean()) {
+    if (try self.ast.isConstant(self.gc.allocator, components.condition) and !(try self.ast.toValue(components.condition, self.gc)).boolean()) {
         try self.patchOptJumps(node);
 
         return null;
@@ -2417,7 +2417,7 @@ fn generateForEach(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*
     }
 
     // If iterable constant and empty, skip the node
-    if (self.ast.isConstant(components.iterable)) {
+    if (try self.ast.isConstant(self.gc.allocator, components.iterable)) {
         const iterable = (try self.ast.toValue(components.iterable, self.gc)).obj();
 
         if (switch (iterable.obj_type) {
@@ -2546,7 +2546,7 @@ fn generateFunction(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?
         .Function, .Method, .Anonymous, .Extern => {
             for (self.ast.nodes.items(.components)[components.function_signature.?].FunctionType.arguments) |argument| {
                 if (argument.default) |default| {
-                    if (!self.ast.isConstant(default)) {
+                    if (!try self.ast.isConstant(self.gc.allocator, default)) {
                         self.reporter.reportErrorAt(
                             .constant_default,
                             self.ast.tokens.get(locations[default]),
@@ -2952,7 +2952,7 @@ fn generateIf(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.O
     }
 
     // If condition is a constant expression, no need to generate branches
-    if (self.ast.isConstant(components.condition) and components.unwrapped_identifier == null and components.casted_type == null) {
+    if (try self.ast.isConstant(self.gc.allocator, components.condition) and components.unwrapped_identifier == null and components.casted_type == null) {
         const condition = try self.ast.toValue(components.condition, self.gc);
 
         if (condition.boolean()) {
@@ -4499,7 +4499,7 @@ fn generateWhile(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*ob
     const condition_type_def = type_defs[components.condition].?;
 
     // If condition constant and false, skip the node
-    if (self.ast.isConstant(components.condition) and !(try self.ast.toValue(components.condition, self.gc)).boolean()) {
+    if (try self.ast.isConstant(self.gc.allocator, components.condition) and !(try self.ast.toValue(components.condition, self.gc)).boolean()) {
         try self.patchOptJumps(node);
         try self.endScope(node);
 
