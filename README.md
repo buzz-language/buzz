@@ -20,7 +20,7 @@ A small/lightweight statically typed scripting language written in Zig
 - Statically typed
 - Unambiguous
 - No nonsense coercion
-- [Fibers](#fibers)
+- [Fibers](https://buzz-lang.dev/guide/fibers.html)
 - JIT compilation with [MIR](https://github.com/vnmakarov/mir)
 - Tooling
     - Generate doc from docblocks (planned)
