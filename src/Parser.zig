@@ -293,7 +293,7 @@ pub const Frame = struct {
     /// We only count `return` emitted within the scope_depth 0 of the current function or unconditionned else statement
     function_node: Ast.Node.Index,
     function: ?*obj.ObjFunction = null,
-    generics: ?*std.AutoArrayHashMap(*obj.ObjString, *obj.ObjTypeDef) = null,
+    generics: ?*std.AutoArrayHashMapUnmanaged(*obj.ObjString, *obj.ObjTypeDef) = null,
 
     in_try: bool = false,
     in_block_expression: ?u32 = null,
@@ -959,10 +959,7 @@ pub fn parse(self: *Self, source: []const u8, file_name: ?[]const u8, name: []co
                             .script_name = try self.gc.copyString(name),
                             .return_type = self.gc.type_registry.void_type,
                             .yield_type = self.gc.type_registry.void_type,
-                            .parameters = .init(self.gc.allocator),
-                            .defaults = .init(self.gc.allocator),
                             .function_type = function_type,
-                            .generic_types = .init(self.gc.allocator),
                         },
                     },
                 },
@@ -2641,7 +2638,7 @@ pub fn parseTypeDefFrom(self: *Self, source: []const u8) Error!*obj.ObjTypeDef {
 
 fn parseTypeDef(
     self: *Self,
-    generic_types: ?std.AutoArrayHashMap(*obj.ObjString, *obj.ObjTypeDef),
+    generic_types: ?std.AutoArrayHashMapUnmanaged(*obj.ObjString, *obj.ObjTypeDef),
     instance: bool,
 ) Error!Ast.Node.Index {
     const mutable = try self.match(.Mut);
@@ -3020,7 +3017,7 @@ fn parseTypeDef(
     }
 }
 
-fn parseFiberType(self: *Self, generic_types: ?std.AutoArrayHashMap(*obj.ObjString, *obj.ObjTypeDef)) Error!Ast.Node.Index {
+fn parseFiberType(self: *Self, generic_types: ?std.AutoArrayHashMapUnmanaged(*obj.ObjString, *obj.ObjTypeDef)) Error!Ast.Node.Index {
     const start_location = self.current_token.? - 1;
 
     try self.consume(.Less, "Expected `<` after `fib`");
@@ -3067,7 +3064,7 @@ fn parseFiberType(self: *Self, generic_types: ?std.AutoArrayHashMap(*obj.ObjStri
     );
 }
 
-fn parseListType(self: *Self, generic_types: ?std.AutoArrayHashMap(*obj.ObjString, *obj.ObjTypeDef), mutable: bool) Error!Ast.Node.Index {
+fn parseListType(self: *Self, generic_types: ?std.AutoArrayHashMapUnmanaged(*obj.ObjString, *obj.ObjTypeDef), mutable: bool) Error!Ast.Node.Index {
     const start_location = self.current_token.? - 1;
     const item_type = try self.parseTypeDef(generic_types, true);
 
@@ -3099,7 +3096,7 @@ fn parseListType(self: *Self, generic_types: ?std.AutoArrayHashMap(*obj.ObjStrin
     );
 }
 
-fn parseMapType(self: *Self, generic_types: ?std.AutoArrayHashMap(*obj.ObjString, *obj.ObjTypeDef), mutable: bool) Error!Ast.Node.Index {
+fn parseMapType(self: *Self, generic_types: ?std.AutoArrayHashMapUnmanaged(*obj.ObjString, *obj.ObjTypeDef), mutable: bool) Error!Ast.Node.Index {
     const start_location = self.current_token.? - 1;
 
     const key_type = try self.parseTypeDef(generic_types, true);
@@ -3140,7 +3137,7 @@ fn parseMapType(self: *Self, generic_types: ?std.AutoArrayHashMap(*obj.ObjString
     );
 }
 
-fn parseFunctionType(self: *Self, parent_generic_types: ?std.AutoArrayHashMap(*obj.ObjString, *obj.ObjTypeDef)) Error!Ast.Node.Index {
+fn parseFunctionType(self: *Self, parent_generic_types: ?std.AutoArrayHashMapUnmanaged(*obj.ObjString, *obj.ObjTypeDef)) Error!Ast.Node.Index {
     const start_location = self.current_token.? - 1;
     const tag = self.ast.tokens.items(.tag)[start_location];
 
@@ -3159,19 +3156,23 @@ fn parseFunctionType(self: *Self, parent_generic_types: ?std.AutoArrayHashMap(*o
         name = try self.gc.copyString(self.ast.tokens.items(.lexeme)[self.current_token.? - 1]);
     }
 
-    var merged_generic_types = std.AutoArrayHashMap(*obj.ObjString, *obj.ObjTypeDef).init(self.gc.allocator);
-    defer merged_generic_types.deinit();
+    var merged_generic_types = std.AutoArrayHashMapUnmanaged(*obj.ObjString, *obj.ObjTypeDef){};
+    defer merged_generic_types.deinit(self.gc.allocator);
     if (parent_generic_types != null) {
         var it = parent_generic_types.?.iterator();
         while (it.next()) |kv| {
-            try merged_generic_types.put(kv.key_ptr.*, kv.value_ptr.*);
+            try merged_generic_types.put(
+                self.gc.allocator,
+                kv.key_ptr.*,
+                kv.value_ptr.*,
+            );
         }
     }
 
-    var generic_types_list = std.ArrayList(Ast.Node.Index).init(self.gc.allocator);
-    defer generic_types_list.shrinkAndFree(generic_types_list.items.len);
+    var generic_types_list = std.ArrayListUnmanaged(Ast.Node.Index){};
+    defer generic_types_list.shrinkAndFree(self.gc.allocator, generic_types_list.items.len);
     // To avoid duplicates
-    var generic_types = std.AutoArrayHashMap(*obj.ObjString, *obj.ObjTypeDef).init(self.gc.allocator);
+    var generic_types = std.AutoArrayHashMapUnmanaged(*obj.ObjString, *obj.ObjTypeDef){};
     if (try self.match(.DoubleColon)) {
         try self.consume(.Less, "Expected `<` at start of generic types list.");
 
@@ -3195,16 +3196,19 @@ fn parseFunctionType(self: *Self, parent_generic_types: ?std.AutoArrayHashMap(*o
                 );
 
                 try generic_types.put(
+                    self.gc.allocator,
                     try self.gc.copyString(generic_identifier_lexeme),
                     type_def,
                 );
 
                 try merged_generic_types.put(
+                    self.gc.allocator,
                     try self.gc.copyString(generic_identifier_lexeme),
                     type_def,
                 );
 
                 try generic_types_list.append(
+                    self.gc.allocator,
                     try self.ast.appendNode(
                         .{
                             .tag = .GenericType,
@@ -3252,8 +3256,8 @@ fn parseFunctionType(self: *Self, parent_generic_types: ?std.AutoArrayHashMap(*o
 
     var arguments = std.ArrayList(Ast.FunctionType.Argument).init(self.gc.allocator);
     defer arguments.shrinkAndFree(arguments.items.len);
-    var parameters = std.AutoArrayHashMap(*obj.ObjString, *obj.ObjTypeDef).init(self.gc.allocator);
-    var defaults = std.AutoArrayHashMap(*obj.ObjString, Value).init(self.gc.allocator);
+    var parameters = std.AutoArrayHashMapUnmanaged(*obj.ObjString, *obj.ObjTypeDef){};
+    var defaults = std.AutoArrayHashMapUnmanaged(*obj.ObjString, Value){};
     var arity: usize = 0;
     if (!self.check(.RightParen)) {
         while (true) {
@@ -3321,11 +3325,16 @@ fn parseFunctionType(self: *Self, parent_generic_types: ?std.AutoArrayHashMap(*o
                 null) |dflt|
             {
                 try defaults.put(
+                    self.gc.allocator,
                     try self.gc.copyString(arg_name),
                     dflt,
                 );
             }
-            try parameters.put(try self.gc.copyString(arg_name), arg_type_def.?);
+            try parameters.put(
+                self.gc.allocator,
+                try self.gc.copyString(arg_name),
+                arg_type_def.?,
+            );
 
             if (!try self.match(.Comma)) break;
         }
@@ -3423,7 +3432,7 @@ fn parseFunctionType(self: *Self, parent_generic_types: ?std.AutoArrayHashMap(*o
 }
 
 // Only used to parse anonymouse object type
-fn parseObjType(self: *Self, generic_types: ?std.AutoArrayHashMap(*obj.ObjString, *obj.ObjTypeDef)) Error!Ast.Node.Index {
+fn parseObjType(self: *Self, generic_types: ?std.AutoArrayHashMapUnmanaged(*obj.ObjString, *obj.ObjTypeDef)) Error!Ast.Node.Index {
     const start_location = self.current_token.? - 1;
 
     try self.consume(.LeftBrace, "Expected `{` after `obj`");
@@ -5989,10 +5998,7 @@ fn function(
             try self.gc.copyString("anonymous"),
         .return_type = undefined,
         .yield_type = self.gc.type_registry.void_type,
-        .parameters = .init(self.gc.allocator),
-        .defaults = .init(self.gc.allocator),
         .function_type = function_type,
-        .generic_types = .init(self.gc.allocator),
         .resolved_generics = null,
     };
 
@@ -6030,6 +6036,7 @@ fn function(
                 const generic_identifier = try self.gc.copyString(self.ast.tokens.items(.lexeme)[generic_identifier_token]);
                 if ((self.current.?.generics == null or self.current.?.generics.?.get(generic_identifier) == null) and (self.current_object == null or self.current_object.?.generics == null or self.current_object.?.generics.?.get(generic_identifier) == null)) {
                     try function_typedef.resolved_type.?.Function.generic_types.put(
+                        self.gc.allocator,
                         generic_identifier,
                         try self.gc.type_registry.getTypeDef(
                             obj.ObjTypeDef{
@@ -6123,6 +6130,7 @@ fn function(
                 const local = self.current.?.locals[slot];
 
                 try function_typedef.resolved_type.?.Function.parameters.put(
+                    self.gc.allocator,
                     try self.gc.copyString(self.ast.tokens.items(.lexeme)[local.name]),
                     local.type_def,
                 );
@@ -6148,6 +6156,7 @@ fn function(
                             break :value expr;
                         } else if (argument_type.optional) {
                             try function_typedef.resolved_type.?.Function.defaults.put(
+                                self.gc.allocator,
                                 try self.gc.copyString(self.ast.tokens.items(.lexeme)[local.name]),
                                 Value.Null,
                             );
@@ -6168,6 +6177,7 @@ fn function(
 
                 if (default) |dft| {
                     try function_typedef.resolved_type.?.Function.defaults.put(
+                        self.gc.allocator,
                         try self.gc.copyString(self.ast.tokens.items(.lexeme)[local.name]),
                         try self.ast.slice().toValue(dft, self.gc),
                     );
@@ -9076,11 +9086,23 @@ fn importStatement(self: *Self) Error!Ast.Node.Index {
 
 fn zdefStatement(self: *Self) Error!Ast.Node.Index {
     if (!BuildOptions.jit and BuildOptions.cycle_limit == null) {
-        self.reportError(.zdef, "zdef can't be used, this instance of buzz was built with JIT compiler disabled");
+        const location = self.ast.tokens.get(self.current_token.? - 1);
+        self.reporter.reportErrorAt(
+            .zdef,
+            location,
+            location,
+            "zdef can't be used, this instance of buzz was built with JIT compiler disabled",
+        );
     }
 
     if (is_wasm) {
-        self.reportError(.zdef, "zdef is not available in WASM build");
+        const location = self.ast.tokens.get(self.current_token.? - 1);
+        self.reporter.reportErrorAt(
+            .zdef,
+            location,
+            location,
+            "zdef is not available in WASM build",
+        );
     }
 
     const node_slot = try self.ast.nodes.addOne(self.gc.allocator);

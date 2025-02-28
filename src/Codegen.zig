@@ -2555,6 +2555,7 @@ fn generateFunction(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?
                         );
                     } else {
                         try node_type_def.resolved_type.?.Function.defaults.put(
+                            self.gc.allocator,
                             try self.gc.copyString(self.ast.tokens.items(.lexeme)[argument.name]),
                             try self.ast.toValue(default, self.gc),
                         );

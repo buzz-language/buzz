@@ -1367,13 +1367,13 @@ pub const ObjFunction = struct {
         yield_type: *ObjTypeDef,
         error_types: ?[]const *ObjTypeDef = null,
         // TODO: rename 'arguments'
-        parameters: std.AutoArrayHashMap(*ObjString, *ObjTypeDef),
+        parameters: std.AutoArrayHashMapUnmanaged(*ObjString, *ObjTypeDef) = .{},
         // Storing here the defaults means they can only be non-Obj values
-        defaults: std.AutoArrayHashMap(*ObjString, Value),
+        defaults: std.AutoArrayHashMapUnmanaged(*ObjString, Value) = .{},
         function_type: FunctionType = .Function,
         lambda: bool = false,
 
-        generic_types: std.AutoArrayHashMap(*ObjString, *ObjTypeDef),
+        generic_types: std.AutoArrayHashMapUnmanaged(*ObjString, *ObjTypeDef) = .{},
         resolved_generics: ?[]*ObjTypeDef = null,
 
         pub fn nextId() usize {
@@ -2134,13 +2134,17 @@ pub const ObjList = struct {
             }
 
             if (mem.eql(u8, method, "append")) {
-                var parameters = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator);
+                var parameters = std.AutoArrayHashMapUnmanaged(*ObjString, *ObjTypeDef){};
 
                 // We omit first arg: it'll be OP_SWAPed in and we already parsed it
                 // It's always the list.
 
                 // `value` arg is of item_type
-                try parameters.put(try parser.gc.copyString("value"), self.item_type);
+                try parameters.put(
+                    parser.gc.allocator,
+                    try parser.gc.copyString("value"),
+                    self.item_type,
+                );
 
                 const native_type = try parser.gc.type_registry.getTypeDef(
                     .{
@@ -2151,10 +2155,8 @@ pub const ObjList = struct {
                                 .script_name = try parser.gc.copyString("builtin"),
                                 .name = try parser.gc.copyString("append"),
                                 .parameters = parameters,
-                                .defaults = .init(parser.gc.allocator),
                                 .return_type = parser.gc.type_registry.void_type,
                                 .yield_type = parser.gc.type_registry.void_type,
-                                .generic_types = .init(parser.gc.allocator),
                                 .function_type = .Extern,
                             },
                         },
@@ -2173,12 +2175,16 @@ pub const ObjList = struct {
 
                 return member_def;
             } else if (mem.eql(u8, method, "remove")) {
-                var parameters = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator);
+                var parameters = std.AutoArrayHashMapUnmanaged(*ObjString, *ObjTypeDef){};
 
                 // We omit first arg: it'll be OP_SWAPed in and we already parsed it
                 // It's always the list.
 
-                try parameters.put(try parser.gc.copyString("at"), parser.gc.type_registry.int_type);
+                try parameters.put(
+                    parser.gc.allocator,
+                    try parser.gc.copyString("at"),
+                    parser.gc.type_registry.int_type,
+                );
 
                 const native_type = try parser.gc.type_registry.getTypeDef(
                     .{
@@ -2189,14 +2195,12 @@ pub const ObjList = struct {
                                 .script_name = try parser.gc.copyString("builtin"),
                                 .name = try parser.gc.copyString("remove"),
                                 .parameters = parameters,
-                                .defaults = .init(parser.gc.allocator),
                                 .return_type = try parser.gc.type_registry.getTypeDef(.{
                                     .optional = true,
                                     .def_type = self.item_type.def_type,
                                     .resolved_type = self.item_type.resolved_type,
                                 }),
                                 .yield_type = parser.gc.type_registry.void_type,
-                                .generic_types = .init(parser.gc.allocator),
                                 .function_type = .Extern,
                             },
                         },
@@ -2223,11 +2227,8 @@ pub const ObjList = struct {
                                 .id = ObjFunction.FunctionDef.nextId(),
                                 .script_name = try parser.gc.copyString("builtin"),
                                 .name = try parser.gc.copyString("len"),
-                                .parameters = .init(parser.gc.allocator),
-                                .defaults = .init(parser.gc.allocator),
                                 .return_type = parser.gc.type_registry.int_type,
                                 .yield_type = parser.gc.type_registry.void_type,
-                                .generic_types = .init(parser.gc.allocator),
                                 .function_type = .Extern,
                             },
                         },
@@ -2246,13 +2247,14 @@ pub const ObjList = struct {
 
                 return member_def;
             } else if (mem.eql(u8, method, "next")) {
-                var parameters = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator);
+                var parameters = std.AutoArrayHashMapUnmanaged(*ObjString, *ObjTypeDef){};
 
                 // We omit first arg: it'll be OP_SWAPed in and we already parsed it
                 // It's always the list.
 
                 // `key` arg is number
                 try parameters.put(
+                    parser.gc.allocator,
                     try parser.gc.copyString("key"),
                     try parser.gc.type_registry.getTypeDef(
                         ObjTypeDef{
@@ -2270,7 +2272,6 @@ pub const ObjList = struct {
                                 .script_name = try parser.gc.copyString("builtin"),
                                 .name = try parser.gc.copyString("next"),
                                 .parameters = parameters,
-                                .defaults = .init(parser.gc.allocator),
                                 // When reached end of list, returns null
                                 .return_type = try parser.gc.type_registry.getTypeDef(
                                     ObjTypeDef{
@@ -2279,7 +2280,6 @@ pub const ObjList = struct {
                                     },
                                 ),
                                 .yield_type = parser.gc.type_registry.void_type,
-                                .generic_types = .init(parser.gc.allocator),
                                 .function_type = .Extern,
                             },
                         },
@@ -2298,18 +2298,20 @@ pub const ObjList = struct {
 
                 return member_def;
             } else if (mem.eql(u8, method, "sub")) {
-                var parameters = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator);
+                var parameters = std.AutoArrayHashMapUnmanaged(*ObjString, *ObjTypeDef){};
 
                 // We omit first arg: it'll be OP_SWAPed in and we already parsed it
                 // It's always the string.
 
                 try parameters.put(
+                    parser.gc.allocator,
                     try parser.gc.copyString("start"),
                     parser.gc.type_registry.int_type,
                 );
 
                 const len_str = try parser.gc.copyString("len");
                 try parameters.put(
+                    parser.gc.allocator,
                     len_str,
                     try parser.gc.type_registry.getTypeDef(
                         .{
@@ -2319,8 +2321,8 @@ pub const ObjList = struct {
                     ),
                 );
 
-                var defaults = std.AutoArrayHashMap(*ObjString, Value).init(parser.gc.allocator);
-                try defaults.put(len_str, Value.Null);
+                var defaults = std.AutoArrayHashMapUnmanaged(*ObjString, Value){};
+                try defaults.put(parser.gc.allocator, len_str, Value.Null);
 
                 const native_type = try parser.gc.type_registry.getTypeDef(
                     ObjTypeDef{
@@ -2334,7 +2336,6 @@ pub const ObjList = struct {
                                 .defaults = defaults,
                                 .return_type = obj_list,
                                 .yield_type = parser.gc.type_registry.void_type,
-                                .generic_types = .init(parser.gc.allocator),
                                 .function_type = .Extern,
                             },
                         },
@@ -2353,18 +2354,20 @@ pub const ObjList = struct {
 
                 return member_def;
             } else if (mem.eql(u8, method, "fill")) {
-                var parameters = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator);
+                var parameters = std.AutoArrayHashMapUnmanaged(*ObjString, *ObjTypeDef){};
 
                 // We omit first arg: it'll be OP_SWAPed in and we already parsed it
                 // It's always the string.
 
                 try parameters.put(
+                    parser.gc.allocator,
                     try parser.gc.copyString("value"),
                     parser.gc.type_registry.any_type,
                 );
 
                 const start_str = try parser.gc.copyString("start");
                 try parameters.put(
+                    parser.gc.allocator,
                     start_str,
                     try parser.gc.type_registry.getTypeDef(
                         .{
@@ -2376,6 +2379,7 @@ pub const ObjList = struct {
 
                 const len_str = try parser.gc.copyString("len");
                 try parameters.put(
+                    parser.gc.allocator,
                     len_str,
                     try parser.gc.type_registry.getTypeDef(
                         .{
@@ -2385,9 +2389,9 @@ pub const ObjList = struct {
                     ),
                 );
 
-                var defaults = std.AutoArrayHashMap(*ObjString, Value).init(parser.gc.allocator);
-                try defaults.put(len_str, Value.Null);
-                try defaults.put(start_str, Value.Null);
+                var defaults = std.AutoArrayHashMapUnmanaged(*ObjString, Value){};
+                try defaults.put(parser.gc.allocator, len_str, Value.Null);
+                try defaults.put(parser.gc.allocator, start_str, Value.Null);
 
                 const native_type = try parser.gc.type_registry.getTypeDef(
                     .{
@@ -2401,7 +2405,6 @@ pub const ObjList = struct {
                                 .defaults = defaults,
                                 .return_type = obj_list,
                                 .yield_type = parser.gc.type_registry.void_type,
-                                .generic_types = .init(parser.gc.allocator),
                                 .function_type = .Extern,
                             },
                         },
@@ -2420,12 +2423,16 @@ pub const ObjList = struct {
 
                 return member_def;
             } else if (mem.eql(u8, method, "indexOf")) {
-                var parameters = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator);
+                var parameters = std.AutoArrayHashMapUnmanaged(*ObjString, *ObjTypeDef){};
 
                 // We omit first arg: it'll be OP_SWAPed in and we already parsed it
                 // It's always the string.
 
-                try parameters.put(try parser.gc.copyString("needle"), self.item_type);
+                try parameters.put(
+                    parser.gc.allocator,
+                    try parser.gc.copyString("needle"),
+                    self.item_type,
+                );
 
                 const native_type = try parser.gc.type_registry.getTypeDef(
                     .{
@@ -2436,7 +2443,6 @@ pub const ObjList = struct {
                                 .script_name = try parser.gc.copyString("builtin"),
                                 .name = try parser.gc.copyString("indexOf"),
                                 .parameters = parameters,
-                                .defaults = .init(parser.gc.allocator),
                                 .return_type = try parser.gc.type_registry.getTypeDef(
                                     .{
                                         .def_type = .Integer,
@@ -2444,7 +2450,6 @@ pub const ObjList = struct {
                                     },
                                 ),
                                 .yield_type = parser.gc.type_registry.void_type,
-                                .generic_types = .init(parser.gc.allocator),
                                 .function_type = .Extern,
                             },
                         },
@@ -2463,12 +2468,16 @@ pub const ObjList = struct {
 
                 return member_def;
             } else if (mem.eql(u8, method, "join")) {
-                var parameters = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator);
+                var parameters = std.AutoArrayHashMapUnmanaged(*ObjString, *ObjTypeDef){};
 
                 // We omit first arg: it'll be OP_SWAPed in and we already parsed it
                 // It's always the string.
 
-                try parameters.put(try parser.gc.copyString("separator"), parser.gc.type_registry.str_type);
+                try parameters.put(
+                    parser.gc.allocator,
+                    try parser.gc.copyString("separator"),
+                    parser.gc.type_registry.str_type,
+                );
 
                 const native_type = try parser.gc.type_registry.getTypeDef(
                     .{
@@ -2479,10 +2488,8 @@ pub const ObjList = struct {
                                 .script_name = try parser.gc.copyString("builtin"),
                                 .name = try parser.gc.copyString("join"),
                                 .parameters = parameters,
-                                .defaults = .init(parser.gc.allocator),
                                 .return_type = parser.gc.type_registry.str_type,
                                 .yield_type = parser.gc.type_registry.void_type,
-                                .generic_types = .init(parser.gc.allocator),
                                 .function_type = .Extern,
                             },
                         },
@@ -2501,18 +2508,23 @@ pub const ObjList = struct {
 
                 return member_def;
             } else if (mem.eql(u8, method, "insert")) {
-                var parameters = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator);
+                var parameters = std.AutoArrayHashMapUnmanaged(*ObjString, *ObjTypeDef){};
 
                 // We omit first arg: it'll be OP_SWAPed in and we already parsed it
                 // It's always the list.
 
                 try parameters.put(
+                    parser.gc.allocator,
                     try parser.gc.copyString("index"),
                     parser.gc.type_registry.int_type,
                 );
 
                 // `value` arg is of item_type
-                try parameters.put(try parser.gc.copyString("value"), self.item_type);
+                try parameters.put(
+                    parser.gc.allocator,
+                    try parser.gc.copyString("value"),
+                    self.item_type,
+                );
 
                 const native_type = try parser.gc.type_registry.getTypeDef(
                     .{
@@ -2523,10 +2535,8 @@ pub const ObjList = struct {
                                 .script_name = try parser.gc.copyString("builtin"),
                                 .name = try parser.gc.copyString("insert"),
                                 .parameters = parameters,
-                                .defaults = .init(parser.gc.allocator),
                                 .return_type = try self.item_type.cloneOptional(&parser.gc.type_registry),
                                 .yield_type = parser.gc.type_registry.void_type,
-                                .generic_types = .init(parser.gc.allocator),
                                 .function_type = .Extern,
                             },
                         },
@@ -2553,11 +2563,8 @@ pub const ObjList = struct {
                                 .id = ObjFunction.FunctionDef.nextId(),
                                 .script_name = try parser.gc.copyString("builtin"),
                                 .name = try parser.gc.copyString("pop"),
-                                .parameters = .init(parser.gc.allocator),
-                                .defaults = .init(parser.gc.allocator),
                                 .return_type = try self.item_type.cloneOptional(&parser.gc.type_registry),
                                 .yield_type = parser.gc.type_registry.void_type,
-                                .generic_types = .init(parser.gc.allocator),
                                 .function_type = .Extern,
                             },
                         },
@@ -2579,13 +2586,15 @@ pub const ObjList = struct {
                 // We omit first arg: it'll be OP_SWAPed in and we already parsed it
                 // It's always the list.
 
-                var callback_parameters = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator);
+                var callback_parameters = std.AutoArrayHashMapUnmanaged(*ObjString, *ObjTypeDef){};
 
                 try callback_parameters.put(
+                    parser.gc.allocator,
                     try parser.gc.copyString("index"),
                     parser.gc.type_registry.int_type,
                 );
                 try callback_parameters.put(
+                    parser.gc.allocator,
                     try parser.gc.copyString("element"),
                     self.item_type,
                 );
@@ -2600,18 +2609,17 @@ pub const ObjList = struct {
                                 .script_name = try parser.gc.copyString("builtin"),
                                 .name = try parser.gc.copyString("anonymous"),
                                 .parameters = callback_parameters,
-                                .defaults = .init(parser.gc.allocator),
                                 .return_type = parser.gc.type_registry.void_type,
                                 .yield_type = parser.gc.type_registry.void_type,
-                                .generic_types = .init(parser.gc.allocator),
                             },
                         },
                     },
                 );
 
-                var parameters = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator);
+                var parameters = std.AutoArrayHashMapUnmanaged(*ObjString, *ObjTypeDef){};
 
                 try parameters.put(
+                    parser.gc.allocator,
                     try parser.gc.copyString("callback"),
                     callback_type,
                 );
@@ -2625,10 +2633,8 @@ pub const ObjList = struct {
                                 .script_name = try parser.gc.copyString("builtin"),
                                 .name = try parser.gc.copyString("forEach"),
                                 .parameters = parameters,
-                                .defaults = .init(parser.gc.allocator),
                                 .return_type = parser.gc.type_registry.void_type,
                                 .yield_type = parser.gc.type_registry.void_type,
-                                .generic_types = .init(parser.gc.allocator),
                                 .function_type = .Extern,
                             },
                         },
@@ -2663,13 +2669,15 @@ pub const ObjList = struct {
                     },
                 );
 
-                var callback_parameters = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator);
+                var callback_parameters = std.AutoArrayHashMapUnmanaged(*ObjString, *ObjTypeDef){};
 
                 try callback_parameters.put(
+                    parser.gc.allocator,
                     try parser.gc.copyString("index"),
                     parser.gc.type_registry.int_type,
                 );
                 try callback_parameters.put(
+                    parser.gc.allocator,
                     try parser.gc.copyString("element"),
                     self.item_type,
                 );
@@ -2684,19 +2692,18 @@ pub const ObjList = struct {
                                 .script_name = try parser.gc.copyString("builtin"),
                                 .name = try parser.gc.copyString("anonymous"),
                                 .parameters = callback_parameters,
-                                .defaults = .init(parser.gc.allocator),
                                 .return_type = generic_type,
                                 .yield_type = parser.gc.type_registry.void_type,
-                                .generic_types = .init(parser.gc.allocator),
                                 // FIXME: user could provide an .Extern function and JIT will be lost here
                             },
                         },
                     },
                 );
 
-                var parameters = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator);
+                var parameters = std.AutoArrayHashMapUnmanaged(*ObjString, *ObjTypeDef){};
 
                 try parameters.put(
+                    parser.gc.allocator,
                     try parser.gc.copyString("callback"),
                     callback_type,
                 );
@@ -2713,17 +2720,16 @@ pub const ObjList = struct {
                     .script_name = try parser.gc.copyString("builtin"),
                     .name = try parser.gc.copyString("map"),
                     .parameters = parameters,
-                    .defaults = .init(parser.gc.allocator),
                     .return_type = try parser.gc.type_registry.getTypeDef(.{
                         .def_type = .List,
                         .resolved_type = new_list_type,
                     }),
                     .yield_type = parser.gc.type_registry.void_type,
-                    .generic_types = .init(parser.gc.allocator),
                     .function_type = .Extern,
                 };
 
                 try method_def.generic_types.put(
+                    parser.gc.allocator,
                     try parser.gc.copyString("T"),
                     generic_type,
                 );
@@ -2752,14 +2758,16 @@ pub const ObjList = struct {
                 // We omit first arg: it'll be OP_SWAPed in and we already parsed it
                 // It's always the list.
 
-                var callback_parameters = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator);
+                var callback_parameters = std.AutoArrayHashMapUnmanaged(*ObjString, *ObjTypeDef){};
 
                 try callback_parameters.put(
+                    parser.gc.allocator,
                     try parser.gc.copyString("index"),
                     parser.gc.type_registry.int_type,
                 );
 
                 try callback_parameters.put(
+                    parser.gc.allocator,
                     try parser.gc.copyString("element"),
                     self.item_type,
                 );
@@ -2774,18 +2782,17 @@ pub const ObjList = struct {
                                 .script_name = try parser.gc.copyString("builtin"),
                                 .name = try parser.gc.copyString("anonymous"),
                                 .parameters = callback_parameters,
-                                .defaults = .init(parser.gc.allocator),
                                 .return_type = parser.gc.type_registry.bool_type,
                                 .yield_type = parser.gc.type_registry.void_type,
-                                .generic_types = .init(parser.gc.allocator),
                             },
                         },
                     },
                 );
 
-                var parameters = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator);
+                var parameters = std.AutoArrayHashMapUnmanaged(*ObjString, *ObjTypeDef){};
 
                 try parameters.put(
+                    parser.gc.allocator,
                     try parser.gc.copyString("callback"),
                     callback_type,
                 );
@@ -2799,10 +2806,8 @@ pub const ObjList = struct {
                                 .script_name = try parser.gc.copyString("builtin"),
                                 .name = try parser.gc.copyString("filter"),
                                 .parameters = parameters,
-                                .defaults = .init(parser.gc.allocator),
                                 .return_type = obj_list,
                                 .yield_type = parser.gc.type_registry.void_type,
-                                .generic_types = .init(parser.gc.allocator),
                                 .function_type = .Extern,
                             },
                         },
@@ -2836,17 +2841,20 @@ pub const ObjList = struct {
                     },
                 );
 
-                var callback_parameters = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator);
+                var callback_parameters = std.AutoArrayHashMapUnmanaged(*ObjString, *ObjTypeDef){};
 
                 try callback_parameters.put(
+                    parser.gc.allocator,
                     try parser.gc.copyString("index"),
                     parser.gc.type_registry.int_type,
                 );
                 try callback_parameters.put(
+                    parser.gc.allocator,
                     try parser.gc.copyString("element"),
                     self.item_type,
                 );
                 try callback_parameters.put(
+                    parser.gc.allocator,
                     try parser.gc.copyString("accumulator"),
                     generic_type,
                 );
@@ -2861,28 +2869,32 @@ pub const ObjList = struct {
                                 .script_name = try parser.gc.copyString("builtin"),
                                 .name = try parser.gc.copyString("anonymous"),
                                 .parameters = callback_parameters,
-                                .defaults = .init(parser.gc.allocator),
                                 .return_type = generic_type,
                                 .yield_type = parser.gc.type_registry.void_type,
-                                .generic_types = .init(parser.gc.allocator),
                             },
                         },
                     },
                 );
 
-                var parameters = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator);
+                var parameters = std.AutoArrayHashMapUnmanaged(*ObjString, *ObjTypeDef){};
 
                 try parameters.put(
+                    parser.gc.allocator,
                     try parser.gc.copyString("callback"),
                     callback_type,
                 );
                 try parameters.put(
+                    parser.gc.allocator,
                     try parser.gc.copyString("initial"),
                     generic_type,
                 );
 
-                var generic_types = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator);
-                try generic_types.put(try parser.gc.copyString("T"), generic_type);
+                var generic_types = std.AutoArrayHashMapUnmanaged(*ObjString, *ObjTypeDef){};
+                try generic_types.put(
+                    parser.gc.allocator,
+                    try parser.gc.copyString("T"),
+                    generic_type,
+                );
 
                 const native_type = try parser.gc.type_registry.getTypeDef(
                     .{
@@ -2893,7 +2905,6 @@ pub const ObjList = struct {
                                 .script_name = try parser.gc.copyString("builtin"),
                                 .name = try parser.gc.copyString("reduce"),
                                 .parameters = parameters,
-                                .defaults = .init(parser.gc.allocator),
                                 .return_type = generic_type,
                                 .yield_type = parser.gc.type_registry.void_type,
                                 .generic_types = generic_types,
@@ -2918,13 +2929,15 @@ pub const ObjList = struct {
                 // We omit first arg: it'll be OP_SWAPed in and we already parsed it
                 // It's always the list.
 
-                var callback_parameters = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator);
+                var callback_parameters = std.AutoArrayHashMapUnmanaged(*ObjString, *ObjTypeDef){};
 
                 try callback_parameters.put(
+                    parser.gc.allocator,
                     try parser.gc.copyString("left"),
                     self.item_type,
                 );
                 try callback_parameters.put(
+                    parser.gc.allocator,
                     try parser.gc.copyString("right"),
                     self.item_type,
                 );
@@ -2939,18 +2952,17 @@ pub const ObjList = struct {
                                 .script_name = try parser.gc.copyString("builtin"),
                                 .name = try parser.gc.copyString("anonymous"),
                                 .parameters = callback_parameters,
-                                .defaults = .init(parser.gc.allocator),
                                 .return_type = parser.gc.type_registry.bool_type,
                                 .yield_type = parser.gc.type_registry.void_type,
-                                .generic_types = .init(parser.gc.allocator),
                             },
                         },
                     },
                 );
 
-                var parameters = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator);
+                var parameters = std.AutoArrayHashMapUnmanaged(*ObjString, *ObjTypeDef){};
 
                 try parameters.put(
+                    parser.gc.allocator,
                     try parser.gc.copyString("callback"),
                     callback_type,
                 );
@@ -2964,10 +2976,8 @@ pub const ObjList = struct {
                                 .script_name = try parser.gc.copyString("builtin"),
                                 .name = try parser.gc.copyString("sort"),
                                 .parameters = parameters,
-                                .defaults = .init(parser.gc.allocator),
                                 .return_type = obj_list,
                                 .yield_type = parser.gc.type_registry.void_type,
-                                .generic_types = .init(parser.gc.allocator),
                                 .function_type = .Extern,
                             },
                         },
@@ -2997,11 +3007,8 @@ pub const ObjList = struct {
                                 .id = ObjFunction.FunctionDef.nextId(),
                                 .script_name = try parser.gc.copyString("builtin"),
                                 .name = try parser.gc.copyString("reverse"),
-                                .parameters = .init(parser.gc.allocator),
-                                .defaults = .init(parser.gc.allocator),
                                 .return_type = obj_list,
                                 .yield_type = parser.gc.type_registry.void_type,
-                                .generic_types = .init(parser.gc.allocator),
                                 .function_type = .Extern,
                             },
                         },
@@ -3036,14 +3043,11 @@ pub const ObjList = struct {
                                     .id = ObjFunction.FunctionDef.nextId(),
                                     .script_name = try parser.gc.copyString("builtin"),
                                     .name = try parser.gc.copyString(method),
-                                    .parameters = .init(parser.gc.allocator),
-                                    .defaults = .init(parser.gc.allocator),
                                     .return_type = try obj_list.cloneMutable(
                                         &parser.gc.type_registry,
                                         mem.eql(u8, method, "cloneMutable") or mem.eql(u8, method, "copyMutable"),
                                     ),
                                     .yield_type = parser.gc.type_registry.void_type,
-                                    .generic_types = .init(parser.gc.allocator),
                                     .function_type = .Extern,
                                 },
                             },
@@ -3373,11 +3377,8 @@ pub const ObjMap = struct {
                                 .id = ObjFunction.FunctionDef.nextId(),
                                 .script_name = try parser.gc.copyString("builtin"),
                                 .name = try parser.gc.copyString("size"),
-                                .parameters = .init(parser.gc.allocator),
-                                .defaults = .init(parser.gc.allocator),
                                 .return_type = parser.gc.type_registry.int_type,
                                 .yield_type = parser.gc.type_registry.void_type,
-                                .generic_types = .init(parser.gc.allocator),
                                 .function_type = .Extern,
                             },
                         },
@@ -3396,12 +3397,16 @@ pub const ObjMap = struct {
 
                 return method_def;
             } else if (mem.eql(u8, method, "remove")) {
-                var parameters = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator);
+                var parameters = std.AutoArrayHashMapUnmanaged(*ObjString, *ObjTypeDef){};
 
                 // We omit first arg: it'll be OP_SWAPed in and we already parsed it
                 // It's always the list.
 
-                try parameters.put(try parser.gc.copyString("at"), self.key_type);
+                try parameters.put(
+                    parser.gc.allocator,
+                    try parser.gc.copyString("at"),
+                    self.key_type,
+                );
 
                 const native_type = try parser.gc.type_registry.getTypeDef(
                     .{
@@ -3412,7 +3417,6 @@ pub const ObjMap = struct {
                                 .script_name = try parser.gc.copyString("builtin"),
                                 .name = try parser.gc.copyString("remove"),
                                 .parameters = parameters,
-                                .defaults = .init(parser.gc.allocator),
                                 .return_type = try parser.gc.type_registry.getTypeDef(
                                     .{
                                         .optional = true,
@@ -3421,7 +3425,6 @@ pub const ObjMap = struct {
                                     },
                                 ),
                                 .yield_type = parser.gc.type_registry.void_type,
-                                .generic_types = .init(parser.gc.allocator),
                                 .function_type = .Extern,
                             },
                         },
@@ -3448,8 +3451,6 @@ pub const ObjMap = struct {
                                 .id = ObjFunction.FunctionDef.nextId(),
                                 .script_name = try parser.gc.copyString("builtin"),
                                 .name = try parser.gc.copyString("keys"),
-                                .parameters = .init(parser.gc.allocator),
-                                .defaults = .init(parser.gc.allocator),
                                 .return_type = try parser.gc.type_registry.getTypeDef(
                                     .{
                                         .def_type = .List,
@@ -3463,7 +3464,6 @@ pub const ObjMap = struct {
                                     },
                                 ),
                                 .yield_type = parser.gc.type_registry.void_type,
-                                .generic_types = .init(parser.gc.allocator),
                                 .function_type = .Extern,
                             },
                         },
@@ -3490,8 +3490,6 @@ pub const ObjMap = struct {
                                 .id = ObjFunction.FunctionDef.nextId(),
                                 .script_name = try parser.gc.copyString("builtin"),
                                 .name = try parser.gc.copyString("values"),
-                                .parameters = .init(parser.gc.allocator),
-                                .defaults = .init(parser.gc.allocator),
                                 .return_type = try parser.gc.type_registry.getTypeDef(.{
                                     .def_type = .List,
                                     .optional = false,
@@ -3503,7 +3501,6 @@ pub const ObjMap = struct {
                                     },
                                 }),
                                 .yield_type = parser.gc.type_registry.void_type,
-                                .generic_types = .init(parser.gc.allocator),
                                 .function_type = .Extern,
                             },
                         },
@@ -3525,10 +3522,18 @@ pub const ObjMap = struct {
                 // We omit first arg: it'll be OP_SWAPed in and we already parsed it
                 // It's always the list.
 
-                var callback_parameters = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator);
+                var callback_parameters = std.AutoArrayHashMapUnmanaged(*ObjString, *ObjTypeDef){};
 
-                try callback_parameters.put(try parser.gc.copyString("left"), self.key_type);
-                try callback_parameters.put(try parser.gc.copyString("right"), self.key_type);
+                try callback_parameters.put(
+                    parser.gc.allocator,
+                    try parser.gc.copyString("left"),
+                    self.key_type,
+                );
+                try callback_parameters.put(
+                    parser.gc.allocator,
+                    try parser.gc.copyString("right"),
+                    self.key_type,
+                );
 
                 const callback_type = try parser.gc.type_registry.getTypeDef(
                     .{
@@ -3540,18 +3545,17 @@ pub const ObjMap = struct {
                                 .script_name = try parser.gc.copyString("builtin"),
                                 .name = try parser.gc.copyString("anonymous"),
                                 .parameters = callback_parameters,
-                                .defaults = .init(parser.gc.allocator),
                                 .return_type = parser.gc.type_registry.bool_type,
                                 .yield_type = parser.gc.type_registry.void_type,
-                                .generic_types = .init(parser.gc.allocator),
                             },
                         },
                     },
                 );
 
-                var parameters = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator);
+                var parameters = std.AutoArrayHashMapUnmanaged(*ObjString, *ObjTypeDef){};
 
                 try parameters.put(
+                    parser.gc.allocator,
                     try parser.gc.copyString("callback"),
                     callback_type,
                 );
@@ -3565,10 +3569,8 @@ pub const ObjMap = struct {
                                 .script_name = try parser.gc.copyString("builtin"),
                                 .name = try parser.gc.copyString("sort"),
                                 .parameters = parameters,
-                                .defaults = .init(parser.gc.allocator),
                                 .return_type = obj_map,
                                 .yield_type = parser.gc.type_registry.void_type,
-                                .generic_types = .init(parser.gc.allocator),
                                 .function_type = .Extern,
                             },
                         },
@@ -3590,9 +3592,10 @@ pub const ObjMap = struct {
                 // We omit first arg: it'll be OP_SWAPed in and we already parsed it
                 // It's always the list.
 
-                var parameters = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator);
+                var parameters = std.AutoArrayHashMapUnmanaged(*ObjString, *ObjTypeDef){};
 
                 try parameters.put(
+                    parser.gc.allocator,
                     try parser.gc.copyString("other"),
                     obj_map,
                 );
@@ -3606,10 +3609,8 @@ pub const ObjMap = struct {
                                 .script_name = try parser.gc.copyString("builtin"),
                                 .name = try parser.gc.copyString("diff"),
                                 .parameters = parameters,
-                                .defaults = .init(parser.gc.allocator),
                                 .return_type = obj_map,
                                 .yield_type = parser.gc.type_registry.void_type,
-                                .generic_types = .init(parser.gc.allocator),
                                 .function_type = .Extern,
                             },
                         },
@@ -3631,9 +3632,10 @@ pub const ObjMap = struct {
                 // We omit first arg: it'll be OP_SWAPed in and we already parsed it
                 // It's always the list.
 
-                var parameters = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator);
+                var parameters = std.AutoArrayHashMapUnmanaged(*ObjString, *ObjTypeDef){};
 
                 try parameters.put(
+                    parser.gc.allocator,
                     try parser.gc.copyString("other"),
                     obj_map,
                 );
@@ -3647,10 +3649,8 @@ pub const ObjMap = struct {
                                 .script_name = try parser.gc.copyString("builtin"),
                                 .name = try parser.gc.copyString("intersect"),
                                 .parameters = parameters,
-                                .defaults = .init(parser.gc.allocator),
                                 .return_type = obj_map,
                                 .yield_type = parser.gc.type_registry.void_type,
-                                .generic_types = .init(parser.gc.allocator),
                                 .function_type = .Extern,
                             },
                         },
@@ -3672,13 +3672,15 @@ pub const ObjMap = struct {
                 // We omit first arg: it'll be OP_SWAPed in and we already parsed it
                 // It's always the list.
 
-                var callback_parameters = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator);
+                var callback_parameters = std.AutoArrayHashMapUnmanaged(*ObjString, *ObjTypeDef){};
 
                 try callback_parameters.put(
+                    parser.gc.allocator,
                     try parser.gc.copyString("key"),
                     self.key_type,
                 );
                 try callback_parameters.put(
+                    parser.gc.allocator,
                     try parser.gc.copyString("value"),
                     self.value_type,
                 );
@@ -3693,18 +3695,17 @@ pub const ObjMap = struct {
                                 .script_name = try parser.gc.copyString("builtin"),
                                 .name = try parser.gc.copyString("anonymous"),
                                 .parameters = callback_parameters,
-                                .defaults = .init(parser.gc.allocator),
                                 .return_type = parser.gc.type_registry.void_type,
                                 .yield_type = parser.gc.type_registry.void_type,
-                                .generic_types = .init(parser.gc.allocator),
                             },
                         },
                     },
                 );
 
-                var parameters = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator);
+                var parameters = std.AutoArrayHashMapUnmanaged(*ObjString, *ObjTypeDef){};
 
                 try parameters.put(
+                    parser.gc.allocator,
                     try parser.gc.copyString("callback"),
                     callback_type,
                 );
@@ -3718,10 +3719,8 @@ pub const ObjMap = struct {
                                 .script_name = try parser.gc.copyString("builtin"),
                                 .name = try parser.gc.copyString("forEach"),
                                 .parameters = parameters,
-                                .defaults = .init(parser.gc.allocator),
                                 .return_type = parser.gc.type_registry.void_type,
                                 .yield_type = parser.gc.type_registry.void_type,
-                                .generic_types = .init(parser.gc.allocator),
                                 .function_type = .Extern,
                             },
                         },
@@ -3740,13 +3739,15 @@ pub const ObjMap = struct {
 
                 return method_def;
             } else if (mem.eql(u8, method, "map")) {
-                var callback_parameters = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator);
+                var callback_parameters = std.AutoArrayHashMapUnmanaged(*ObjString, *ObjTypeDef){};
 
                 try callback_parameters.put(
+                    parser.gc.allocator,
                     try parser.gc.copyString("key"),
                     self.key_type,
                 );
                 try callback_parameters.put(
+                    parser.gc.allocator,
                     try parser.gc.copyString("value"),
                     self.value_type,
                 );
@@ -3757,10 +3758,8 @@ pub const ObjMap = struct {
                     .script_name = try parser.gc.copyString("builtin"),
                     .name = try parser.gc.copyString("anonymous"),
                     .parameters = callback_parameters,
-                    .defaults = .init(parser.gc.allocator),
                     .return_type = undefined,
                     .yield_type = parser.gc.type_registry.void_type,
-                    .generic_types = .init(parser.gc.allocator),
                     // FIXME: user could provide an .Extern function and JIT will be lost here
                 };
 
@@ -3849,9 +3848,10 @@ pub const ObjMap = struct {
                     },
                 );
 
-                var parameters = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator);
+                var parameters = std.AutoArrayHashMapUnmanaged(*ObjString, *ObjTypeDef){};
 
                 try parameters.put(
+                    parser.gc.allocator,
                     try parser.gc.copyString("callback"),
                     callback_type,
                 );
@@ -3861,7 +3861,6 @@ pub const ObjMap = struct {
                     .script_name = try parser.gc.copyString("builtin"),
                     .name = try parser.gc.copyString("map"),
                     .parameters = parameters,
-                    .defaults = .init(parser.gc.allocator),
                     .return_type = try parser.gc.type_registry.getTypeDef(.{
                         .def_type = .Map,
                         .resolved_type = .{
@@ -3873,16 +3872,17 @@ pub const ObjMap = struct {
                         },
                     }),
                     .yield_type = parser.gc.type_registry.void_type,
-                    .generic_types = .init(parser.gc.allocator),
                     .function_type = .Extern,
                 };
 
                 try method_def.generic_types.put(
+                    parser.gc.allocator,
                     try parser.gc.copyString("K"),
                     generic_key_type,
                 );
 
                 try method_def.generic_types.put(
+                    parser.gc.allocator,
                     try parser.gc.copyString("V"),
                     generic_value_type,
                 );
@@ -3909,13 +3909,15 @@ pub const ObjMap = struct {
                 // We omit first arg: it'll be OP_SWAPed in and we already parsed it
                 // It's always the list.
 
-                var callback_parameters = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator);
+                var callback_parameters = std.AutoArrayHashMapUnmanaged(*ObjString, *ObjTypeDef){};
 
                 try callback_parameters.put(
+                    parser.gc.allocator,
                     try parser.gc.copyString("key"),
                     self.key_type,
                 );
                 try callback_parameters.put(
+                    parser.gc.allocator,
                     try parser.gc.copyString("value"),
                     self.value_type,
                 );
@@ -3930,18 +3932,17 @@ pub const ObjMap = struct {
                                 .script_name = try parser.gc.copyString("builtin"),
                                 .name = try parser.gc.copyString("anonymous"),
                                 .parameters = callback_parameters,
-                                .defaults = .init(parser.gc.allocator),
                                 .return_type = parser.gc.type_registry.bool_type,
                                 .yield_type = parser.gc.type_registry.void_type,
-                                .generic_types = .init(parser.gc.allocator),
                             },
                         },
                     },
                 );
 
-                var parameters = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator);
+                var parameters = std.AutoArrayHashMapUnmanaged(*ObjString, *ObjTypeDef){};
 
                 try parameters.put(
+                    parser.gc.allocator,
                     try parser.gc.copyString("callback"),
                     callback_type,
                 );
@@ -3955,10 +3956,8 @@ pub const ObjMap = struct {
                                 .script_name = try parser.gc.copyString("builtin"),
                                 .name = try parser.gc.copyString("filter"),
                                 .parameters = parameters,
-                                .defaults = .init(parser.gc.allocator),
                                 .return_type = obj_map,
                                 .yield_type = parser.gc.type_registry.void_type,
-                                .generic_types = .init(parser.gc.allocator),
                                 .function_type = .Extern,
                             },
                         },
@@ -3992,17 +3991,20 @@ pub const ObjMap = struct {
                     },
                 );
 
-                var callback_parameters = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator);
+                var callback_parameters = std.AutoArrayHashMapUnmanaged(*ObjString, *ObjTypeDef){};
 
                 try callback_parameters.put(
+                    parser.gc.allocator,
                     try parser.gc.copyString("key"),
                     self.key_type,
                 );
                 try callback_parameters.put(
+                    parser.gc.allocator,
                     try parser.gc.copyString("value"),
                     self.value_type,
                 );
                 try callback_parameters.put(
+                    parser.gc.allocator,
                     try parser.gc.copyString("accumulator"),
                     generic_type,
                 );
@@ -4017,28 +4019,32 @@ pub const ObjMap = struct {
                                 .script_name = try parser.gc.copyString("builtin"),
                                 .name = try parser.gc.copyString("anonymous"),
                                 .parameters = callback_parameters,
-                                .defaults = .init(parser.gc.allocator),
                                 .return_type = generic_type,
                                 .yield_type = parser.gc.type_registry.void_type,
-                                .generic_types = .init(parser.gc.allocator),
                             },
                         },
                     },
                 );
 
-                var parameters = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator);
+                var parameters = std.AutoArrayHashMapUnmanaged(*ObjString, *ObjTypeDef){};
 
                 try parameters.put(
+                    parser.gc.allocator,
                     try parser.gc.copyString("callback"),
                     callback_type,
                 );
                 try parameters.put(
+                    parser.gc.allocator,
                     try parser.gc.copyString("initial"),
                     generic_type,
                 );
 
-                var generic_types = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(parser.gc.allocator);
-                try generic_types.put(try parser.gc.copyString("T"), generic_type);
+                var generic_types = std.AutoArrayHashMapUnmanaged(*ObjString, *ObjTypeDef){};
+                try generic_types.put(
+                    parser.gc.allocator,
+                    try parser.gc.copyString("T"),
+                    generic_type,
+                );
 
                 const native_type = try parser.gc.type_registry.getTypeDef(
                     .{
@@ -4049,7 +4055,6 @@ pub const ObjMap = struct {
                                 .script_name = try parser.gc.copyString("builtin"),
                                 .name = try parser.gc.copyString("reduce"),
                                 .parameters = parameters,
-                                .defaults = .init(parser.gc.allocator),
                                 .return_type = generic_type,
                                 .yield_type = parser.gc.type_registry.void_type,
                                 .generic_types = generic_types,
@@ -4087,14 +4092,11 @@ pub const ObjMap = struct {
                                     .id = ObjFunction.FunctionDef.nextId(),
                                     .script_name = try parser.gc.copyString("builtin"),
                                     .name = try parser.gc.copyString(method),
-                                    .parameters = .init(parser.gc.allocator),
-                                    .defaults = .init(parser.gc.allocator),
                                     .return_type = try obj_map.cloneMutable(
                                         &parser.gc.type_registry,
                                         mem.eql(u8, method, "cloneMutable") or mem.eql(u8, method, "copyMutable"),
                                     ),
                                     .yield_type = parser.gc.type_registry.void_type,
-                                    .generic_types = .init(parser.gc.allocator),
                                     .function_type = .Extern,
                                 },
                             },
@@ -4662,25 +4664,34 @@ pub const ObjTypeDef = struct {
             .Function => function: {
                 const old_fun_def = self.resolved_type.?.Function;
 
-                var error_types: ?std.ArrayList(*ObjTypeDef) = null;
+                var error_types: ?std.ArrayListUnmanaged(*ObjTypeDef) = null;
+                defer {
+                    if (error_types) |*et| {
+                        et.shrinkAndFree(type_registry.gc.allocator, et.items.len);
+                    }
+                }
                 if (old_fun_def.error_types) |old_error_types| {
-                    error_types = std.ArrayList(*ObjTypeDef).init(type_registry.gc.allocator);
+                    error_types = .{};
                     for (old_error_types) |error_type| {
-                        try error_types.?.append(try error_type.populateGenerics(
-                            where,
-                            origin,
-                            generics,
-                            type_registry,
-                            visited_ptr,
-                        ));
+                        try error_types.?.append(
+                            type_registry.gc.allocator,
+                            try error_type.populateGenerics(
+                                where,
+                                origin,
+                                generics,
+                                type_registry,
+                                visited_ptr,
+                            ),
+                        );
                     }
                 }
 
-                var parameters = std.AutoArrayHashMap(*ObjString, *ObjTypeDef).init(type_registry.gc.allocator);
+                var parameters = std.AutoArrayHashMapUnmanaged(*ObjString, *ObjTypeDef){};
                 {
                     var it = old_fun_def.parameters.iterator();
                     while (it.next()) |kv| {
                         try parameters.put(
+                            type_registry.gc.allocator,
                             kv.key_ptr.*,
                             try (try kv.value_ptr.*.populateGenerics(
                                 where,
@@ -4728,7 +4739,7 @@ pub const ObjTypeDef = struct {
                     .defaults = old_fun_def.defaults,
                     .function_type = old_fun_def.function_type,
                     .lambda = old_fun_def.lambda,
-                    .generic_types = try old_fun_def.generic_types.clone(),
+                    .generic_types = try old_fun_def.generic_types.clone(type_registry.gc.allocator),
                     .resolved_generics = generics,
                 };
 
