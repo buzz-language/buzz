@@ -286,7 +286,7 @@ pub const GarbageCollector = struct {
         self.gray_stack.deinit(self.allocator);
         self.strings.deinit(self.allocator);
         self.active_vms.deinit(self.allocator);
-        if (self.debugger != null) {
+        if (BuildOptions.gc_debug_access) {
             self.debugger.?.deinit();
         }
 
@@ -418,7 +418,7 @@ pub const GarbageCollector = struct {
                     ObjFiber => .Fiber,
                     ObjForeignContainer => .ForeignContainer,
                     ObjRange => .Range,
-                    else => {},
+                    else => @panic("Unknown object type being allocated"),
                 },
             );
         }
@@ -716,7 +716,7 @@ pub const GarbageCollector = struct {
                 if (obj_objectinstance.object) |object| {
                     if (object.type_def.resolved_type.?.Object.fields.get("collect")) |field| {
                         if (field.method and !field.static) {
-                            if (self.debugger != null) {
+                            if (BuildOptions.gc_debug_access) {
                                 self.debugger.?.invoking_collector = true;
                             }
                             buzz_api.bz_invoke(
@@ -727,7 +727,7 @@ pub const GarbageCollector = struct {
                                 0,
                                 null,
                             );
-                            if (self.debugger != null) {
+                            if (BuildOptions.gc_debug_access) {
                                 self.debugger.?.invoking_collector = false;
                             }
 
@@ -1034,9 +1034,6 @@ pub const GarbageCollector = struct {
                     self.objects.len,
                 },
             );
-
-            // var it = self.active_vms.iterator();
-            // dumpStack(it.next().?.key_ptr.*);
         }
 
         var it = self.active_vms.iterator();
@@ -1125,12 +1122,13 @@ pub const GarbageCollectorDebugger = struct {
     pub fn allocated(self: *Self, ptr: *Obj, at: ?Token, what: _obj.ObjType) void {
         assert(self.tracker.get(ptr) == null);
         self.tracker.put(
+            self.allocator,
             ptr,
             Ptr{
                 .what = what,
                 .allocated_at = at,
             },
-        ) catch unreachable;
+        ) catch @panic("Could not track object");
     }
 
     pub fn collected(self: *Self, ptr: *Obj, at: Token) void {
@@ -1139,18 +1137,20 @@ pub const GarbageCollectorDebugger = struct {
                 self.reporter.reportWithOrigin(
                     .gc,
                     at,
+                    at,
+                    collected_at,
                     collected_at,
                     "Trying to collected already collected {} {*}",
                     .{ tracked.what, ptr },
                     "first collected here",
                 );
 
-                unreachable;
+                @panic("Double collect");
             }
 
             tracked.collected_at = at;
         } else {
-            unreachable;
+            @panic("Collect of untracked object");
         }
     }
 
@@ -1176,6 +1176,7 @@ pub const GarbageCollectorDebugger = struct {
                 items.append(
                     .{
                         .location = at.?,
+                        .end_location = at.?,
                         .kind = .@"error",
                         .message = message.items,
                     },
@@ -1185,6 +1186,7 @@ pub const GarbageCollectorDebugger = struct {
                     items.append(
                         .{
                             .location = allocated_at,
+                            .end_location = allocated_at,
                             .kind = .hint,
                             .message = "allocated here",
                         },
@@ -1194,6 +1196,7 @@ pub const GarbageCollectorDebugger = struct {
                 items.append(
                     .{
                         .location = collected_at,
+                        .end_location = collected_at,
                         .kind = .hint,
                         .message = "collected here",
                     },
@@ -1207,12 +1210,13 @@ pub const GarbageCollectorDebugger = struct {
 
                 report.reportStderr(&self.reporter) catch unreachable;
 
-                unreachable;
+                @panic("Access to already collected object");
             }
         } else {
             if (at) |accessed_at| {
                 self.reporter.reportErrorFmt(
                     .gc,
+                    accessed_at,
                     accessed_at,
                     "Untracked obj {*}",
                     .{
@@ -1228,7 +1232,7 @@ pub const GarbageCollectorDebugger = struct {
                 );
             }
 
-            unreachable;
+            @panic("Access to untracked object");
         }
     }
 };
