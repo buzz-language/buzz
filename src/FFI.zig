@@ -819,10 +819,7 @@ fn fnProto(self: *Self, tag: Ast.Node.Tag, decl_index: Ast.Node.Index) anyerror!
         else
             self.gc.type_registry.void_type,
         .yield_type = self.gc.type_registry.void_type,
-        .parameters = .init(self.gc.allocator),
-        .defaults = .init(self.gc.allocator),
         .function_type = .Extern,
-        .generic_types = .init(self.gc.allocator),
     };
 
     var parameters_zig_types = std.ArrayList(ZigType.FnType.Param).init(self.gc.allocator);
@@ -859,6 +856,7 @@ fn fnProto(self: *Self, tag: Ast.Node.Tag, decl_index: Ast.Node.Index) anyerror!
         if (param_zdef == null) break;
 
         try function_def.parameters.put(
+            self.gc.allocator,
             try self.gc.copyString(param_name orelse "$"),
             param_zdef.?.type_def,
         );

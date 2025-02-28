@@ -846,7 +846,9 @@ pub const VM = struct {
         }
 
         if (BuildOptions.gc_debug_access) {
-            self.gc.where = current_frame.closure.function.chunk.lines.items[current_frame.ip - 1];
+            self.gc.where = self.current_ast.tokens.get(
+                current_frame.closure.function.chunk.lines.items[current_frame.ip - 1],
+            );
         }
 
         if (BuildOptions.cycle_limit) |limit| {

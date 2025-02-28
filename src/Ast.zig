@@ -398,7 +398,7 @@ pub const Slice = struct {
                 .Dot => {
                     const type_def = ast.nodes.items(.type_def)[ast.nodes.items(.components)[node].Dot.callee].?;
 
-                    self.result = type_def.def_type == .Enum and type_def.resolved_type.?.Enum.value != null;
+                    self.result = (self.result == null or self.result.?) and type_def.def_type == .Enum;
 
                     if (!self.result.?) {
                         return true;
