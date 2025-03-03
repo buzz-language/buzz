@@ -1004,11 +1004,10 @@ pub fn parse(self: *Self, source: []const u8, file_name: ?[]const u8, name: []co
                 self.gc.allocator,
                 @constCast(self.ast.nodes.items(.components)[body_node].Block),
             );
-            defer statements.shrinkAndFree(statements.items.len);
 
             try statements.append(decl);
 
-            self.ast.nodes.items(.components)[body_node].Block = statements.items;
+            self.ast.nodes.items(.components)[body_node].Block = try statements.toOwnedSlice();
         } else {
             self.reporter.reportErrorAt(
                 .syntax,
@@ -1047,10 +1046,8 @@ pub fn parse(self: *Self, source: []const u8, file_name: ?[]const u8, name: []co
         }
     }
 
-    test_slots.shrinkAndFree(test_slots.items.len);
-    test_locations.shrinkAndFree(test_locations.items.len);
-    entry.test_slots = test_slots.items;
-    entry.test_locations = test_locations.items;
+    entry.test_slots = try test_slots.toOwnedSlice();
+    entry.test_locations = try test_locations.toOwnedSlice();
 
     // If we're being imported, put all globals on the stack
     if (self.imported) {
@@ -1253,8 +1250,7 @@ fn endScope(self: *Self) ![]Chunk.OpCode {
         current.local_count -= 1;
     }
 
-    closing.shrinkAndFree(self.gc.allocator, closing.items.len);
-    return closing.items;
+    return try closing.toOwnedSlice(self.gc.allocator);
 }
 
 fn closeScope(self: *Self, upto_depth: usize) ![]Chunk.OpCode {
@@ -1272,8 +1268,7 @@ fn closeScope(self: *Self, upto_depth: usize) ![]Chunk.OpCode {
         local_count -= 1;
     }
 
-    closing.shrinkAndFree(closing.items.len);
-    return closing.items;
+    return try closing.toOwnedSlice();
 }
 
 inline fn getRule(token: Token.Type) ParseRule {
@@ -1363,7 +1358,6 @@ fn block(self: *Self, loop_scope: ?LoopScope) Error!Ast.Node.Index {
     const start_location = self.current_token.? - 1;
 
     var statements = std.ArrayList(Ast.Node.Index).init(self.gc.allocator);
-    defer statements.shrinkAndFree(statements.items.len);
     while (!self.check(.RightBrace) and !self.check(.Eof)) {
         if (try self.declarationOrStatement(loop_scope)) |declOrStmt| {
             try statements.append(declOrStmt);
@@ -1379,7 +1373,7 @@ fn block(self: *Self, loop_scope: ?LoopScope) Error!Ast.Node.Index {
             .end_location = self.current_token.? - 1,
             .type_def = null,
             .components = .{
-                .Block = statements.items,
+                .Block = try statements.toOwnedSlice(),
             },
         },
     );
@@ -1703,12 +1697,11 @@ fn addGlobal(self: *Self, node: Ast.Node.Index, name: Ast.TokenIndex, global_typ
         try qualified_name.appendSlice(namespace);
     }
     try qualified_name.append(name);
-    qualified_name.shrinkAndFree(qualified_name.items.len);
 
     try self.globals.append(
         self.gc.allocator,
         .{
-            .name = qualified_name.items,
+            .name = try qualified_name.toOwnedSlice(),
             .node = node,
             .type_def = global_type,
             .final = final,
@@ -3170,7 +3163,6 @@ fn parseFunctionType(self: *Self, parent_generic_types: ?std.AutoArrayHashMapUnm
     }
 
     var generic_types_list = std.ArrayListUnmanaged(Ast.Node.Index){};
-    defer generic_types_list.shrinkAndFree(self.gc.allocator, generic_types_list.items.len);
     // To avoid duplicates
     var generic_types = std.AutoArrayHashMapUnmanaged(*obj.ObjString, *obj.ObjTypeDef){};
     if (try self.match(.DoubleColon)) {
@@ -3255,7 +3247,6 @@ fn parseFunctionType(self: *Self, parent_generic_types: ?std.AutoArrayHashMapUnm
     try self.consume(.LeftParen, "Expected `(` after function name.");
 
     var arguments = std.ArrayList(Ast.FunctionType.Argument).init(self.gc.allocator);
-    defer arguments.shrinkAndFree(arguments.items.len);
     var parameters = std.AutoArrayHashMapUnmanaged(*obj.ObjString, *obj.ObjTypeDef){};
     var defaults = std.AutoArrayHashMapUnmanaged(*obj.ObjString, Value){};
     var arity: usize = 0;
@@ -3354,9 +3345,7 @@ fn parseFunctionType(self: *Self, parent_generic_types: ?std.AutoArrayHashMapUnm
     }
 
     var error_types_list = std.ArrayList(Ast.Node.Index).init(self.gc.allocator);
-    defer error_types_list.shrinkAndFree(error_types_list.items.len);
     var error_types = std.ArrayList(*obj.ObjTypeDef).init(self.gc.allocator);
-    defer error_types.shrinkAndFree(error_types.items.len);
     if (try self.match(.BangGreater)) {
         const expects_multiple_error_types = try self.match(.LeftParen);
 
@@ -3420,9 +3409,9 @@ fn parseFunctionType(self: *Self, parent_generic_types: ?std.AutoArrayHashMapUnm
                 .FunctionType = .{
                     .lambda = false,
                     .name = name_token,
-                    .arguments = arguments.items,
-                    .error_types = error_types_list.items,
-                    .generic_types = generic_types_list.items,
+                    .arguments = try arguments.toOwnedSlice(),
+                    .error_types = try error_types_list.toOwnedSlice(),
+                    .generic_types = try generic_types_list.toOwnedSlice(self.gc.allocator),
                     .return_type = return_type,
                     .yield_type = yield_type,
                 },
@@ -3462,7 +3451,6 @@ fn parseObjType(self: *Self, generic_types: ?std.AutoArrayHashMapUnmanaged(*obj.
     var field_names = std.StringHashMap(void).init(self.gc.allocator);
     defer field_names.deinit();
     var fields = std.ArrayList(Ast.AnonymousObjectType.Field).init(self.gc.allocator);
-    defer fields.shrinkAndFree(fields.items.len);
     var tuple_index: u8 = 0;
     var obj_is_tuple = false;
     var obj_is_not_tuple = false;
@@ -3577,7 +3565,7 @@ fn parseObjType(self: *Self, generic_types: ?std.AutoArrayHashMapUnmanaged(*obj.
             .type_def = try self.gc.type_registry.getTypeDef(object_type),
             .components = .{
                 .AnonymousObjectType = .{
-                    .fields = fields.items,
+                    .fields = try fields.toOwnedSlice(),
                 },
             },
         },
@@ -3637,9 +3625,7 @@ fn parseUserType(self: *Self, instance: bool, mutable: bool) Error!Ast.Node.Inde
 
     // Concrete generic types list
     var resolved_generics = std.ArrayList(*obj.ObjTypeDef).init(self.gc.allocator);
-    defer resolved_generics.shrinkAndFree(resolved_generics.items.len);
     var generic_nodes = std.ArrayList(Ast.Node.Index).init(self.gc.allocator);
-    defer generic_nodes.shrinkAndFree(generic_nodes.items.len);
     const generic_resolve = if (try self.match(.DoubleColon)) gn: {
         const generic_start = self.current_token.? - 1;
 
@@ -3681,7 +3667,7 @@ fn parseUserType(self: *Self, instance: bool, mutable: bool) Error!Ast.Node.Inde
         var_type = try var_type.?.populateGenerics(
             self.current_token.? - 1,
             var_type.?.resolved_type.?.Object.id,
-            resolved_generics.items,
+            try resolved_generics.toOwnedSlice(),
             &self.gc.type_registry,
             null,
         );
@@ -3692,7 +3678,7 @@ fn parseUserType(self: *Self, instance: bool, mutable: bool) Error!Ast.Node.Inde
                 .end_location = self.current_token.? - 1,
                 .type_def = var_type,
                 .components = .{
-                    .GenericResolveType = generic_nodes.items,
+                    .GenericResolveType = try generic_nodes.toOwnedSlice(),
                 },
             },
         );
@@ -3727,9 +3713,7 @@ fn parseGenericResolve(self: *Self, callee_type_def: *obj.ObjTypeDef, expr: ?Ast
     const start_location = self.current_token.? - 1;
 
     var resolved_generics = std.ArrayList(Ast.Node.Index).init(self.gc.allocator);
-    defer resolved_generics.shrinkAndFree(resolved_generics.items.len);
     var resolved_generics_types = std.ArrayList(*obj.ObjTypeDef).init(self.gc.allocator);
-    defer resolved_generics_types.shrinkAndFree(resolved_generics_types.items.len);
 
     try self.consume(.Less, "Expected `<` at start of generic types list");
 
@@ -3771,14 +3755,14 @@ fn parseGenericResolve(self: *Self, callee_type_def: *obj.ObjTypeDef, expr: ?Ast
                     callee_type_def.resolved_type.?.Object.id
                 else
                     null,
-                resolved_generics_types.items,
+                try resolved_generics_types.toOwnedSlice(),
                 &self.gc.type_registry,
                 null,
             ),
             .components = if (expr) |e| .{
                 .GenericResolve = e,
             } else .{
-                .GenericResolveType = resolved_generics.items,
+                .GenericResolveType = try resolved_generics.toOwnedSlice(),
             },
         },
     );
@@ -4104,7 +4088,6 @@ fn grouping(self: *Self, _: bool) Error!Ast.Node.Index {
 
 fn argumentList(self: *Self) ![]Ast.Call.Argument {
     var arguments = std.ArrayList(Ast.Call.Argument).init(self.gc.allocator);
-    defer arguments.shrinkAndFree(arguments.items.len);
 
     const start_location = self.current_token.? - 1;
 
@@ -4154,7 +4137,7 @@ fn argumentList(self: *Self) ![]Ast.Call.Argument {
                 "Can't have more than 255 arguments.",
             );
 
-            return arguments.items;
+            return try arguments.toOwnedSlice();
         }
 
         arg_count += 1;
@@ -4266,7 +4249,6 @@ fn map(self: *Self, _: bool) Error!Ast.Node.Index {
     }
 
     var entries = std.ArrayList(Ast.Map.Entry).init(self.gc.allocator);
-    defer entries.shrinkAndFree(entries.items.len);
     if (key_type_node == null or try self.match(.Comma)) {
         var common_key_type: ?*obj.ObjTypeDef = null;
         var common_value_type: ?*obj.ObjTypeDef = null;
@@ -4409,7 +4391,7 @@ fn map(self: *Self, _: bool) Error!Ast.Node.Index {
                 .Map = .{
                     .explicit_key_type = key_type_node,
                     .explicit_value_type = value_type_node,
-                    .entries = entries.items,
+                    .entries = try entries.toOwnedSlice(),
                 },
             },
         },
@@ -4420,7 +4402,6 @@ fn objectInit(self: *Self, _: bool, object: Ast.Node.Index) Error!Ast.Node.Index
     const start_location = self.current_token.? - 1;
     const obj_type_def = self.ast.nodes.items(.type_def)[object];
     var properties = std.ArrayList(Ast.ObjectInit.Property).init(self.gc.allocator);
-    defer properties.shrinkAndFree(properties.items.len);
     var property_names = std.StringHashMap(Ast.Node.Index).init(self.gc.allocator);
     defer property_names.deinit();
 
@@ -4512,7 +4493,7 @@ fn objectInit(self: *Self, _: bool, object: Ast.Node.Index) Error!Ast.Node.Index
             .components = .{
                 .ObjectInit = .{
                     .object = object,
-                    .properties = properties.items,
+                    .properties = try properties.toOwnedSlice(),
                 },
             },
         },
@@ -4547,7 +4528,6 @@ fn anonymousObjectInit(self: *Self, _: bool) Error!Ast.Node.Index {
     // Anonymous object can only have properties without default values (no methods, no static fields)
     // They can't self reference since their anonymous
     var properties = std.ArrayList(Ast.ObjectInit.Property).init(self.gc.allocator);
-    defer properties.shrinkAndFree(properties.items.len);
     var property_names = std.StringHashMap(Ast.Node.Index).init(self.gc.allocator);
     defer property_names.deinit();
 
@@ -4721,7 +4701,7 @@ fn anonymousObjectInit(self: *Self, _: bool) Error!Ast.Node.Index {
             .components = .{
                 .ObjectInit = .{
                     .object = null,
-                    .properties = properties.items,
+                    .properties = try properties.toOwnedSlice(),
                 },
             },
         },
@@ -5920,9 +5900,8 @@ fn qualifiedName(self: *Self) Error![]const Ast.TokenIndex {
 
         try name.append(self.current_token.? - 1);
     }
-    name.shrinkAndFree(name.items.len);
 
-    return name.items;
+    return try name.toOwnedSlice();
 }
 
 fn variable(self: *Self, can_assign: bool) Error!Ast.Node.Index {
@@ -5943,11 +5922,8 @@ fn function(
     this: ?*obj.ObjTypeDef,
 ) Error!Ast.Node.Index {
     var error_types = std.ArrayList(Ast.Node.Index).init(self.gc.allocator);
-    defer error_types.shrinkAndFree(error_types.items.len);
     var arguments = std.ArrayList(Ast.FunctionType.Argument).init(self.gc.allocator);
-    defer arguments.shrinkAndFree(arguments.items.len);
     var generic_types = std.ArrayList(Ast.TokenIndex).init(self.gc.allocator);
-    defer generic_types.shrinkAndFree(generic_types.items.len);
 
     const function_signature = try self.ast.appendNode(
         .{
@@ -6083,7 +6059,7 @@ fn function(
             try self.consume(.Greater, "Expected `>` after generic types list");
         }
 
-        self.ast.nodes.items(.components)[function_signature].FunctionType.generic_types = generic_types.items;
+        self.ast.nodes.items(.components)[function_signature].FunctionType.generic_types = try generic_types.toOwnedSlice();
 
         try self.consume(.LeftParen, "Expected `(` after function name.");
 
@@ -6190,7 +6166,7 @@ fn function(
         try self.consume(.RightParen, "Expected `)` after function parameters.");
     }
 
-    self.ast.nodes.items(.components)[function_signature].FunctionType.arguments = arguments.items;
+    self.ast.nodes.items(.components)[function_signature].FunctionType.arguments = try arguments.toOwnedSlice();
 
     // Parse return type
     const return_type_node = if (function_type != .Test and try self.match(.Greater))
@@ -6243,7 +6219,6 @@ fn function(
     // Error set
     if (function_type.canHaveErrorSet() and (try self.match(.BangGreater))) {
         var error_typedefs = std.ArrayList(*obj.ObjTypeDef).init(self.gc.allocator);
-        defer error_typedefs.shrinkAndFree(error_typedefs.items.len);
 
         const end_token: Token.Type = if (function_type.canOmitBody()) .Semicolon else .LeftBrace;
 
@@ -6272,11 +6247,11 @@ fn function(
         }
 
         if (error_types.items.len > 0) {
-            function_typedef.resolved_type.?.Function.error_types = error_typedefs.items;
+            function_typedef.resolved_type.?.Function.error_types = try error_typedefs.toOwnedSlice();
         }
     }
 
-    self.ast.nodes.items(.components)[function_signature].FunctionType.error_types = error_types.items;
+    self.ast.nodes.items(.components)[function_signature].FunctionType.error_types = try error_types.toOwnedSlice();
     self.ast.nodes.items(.end_location)[function_signature] = self.current_token.? - 1;
 
     // Parse body
@@ -6852,8 +6827,6 @@ fn blockExpression(self: *Self, _: bool) Error!Ast.Node.Index {
 
     self.current.?.in_block_expression = null;
 
-    statements.shrinkAndFree(statements.items.len);
-
     return try self.ast.appendNode(
         .{
             .tag = .BlockExpression,
@@ -6864,7 +6837,7 @@ fn blockExpression(self: *Self, _: bool) Error!Ast.Node.Index {
             else
                 self.gc.type_registry.void_type,
             .components = .{
-                .BlockExpression = statements.items,
+                .BlockExpression = try statements.toOwnedSlice(),
             },
             .ends_scope = try self.endScope(),
         },
@@ -7114,8 +7087,7 @@ fn exportStatement(self: *Self, docblock: ?Ast.TokenIndex) Error!Ast.Node.Index 
             var new_global_name = std.ArrayList(Ast.TokenIndex).init(self.gc.allocator);
             try new_global_name.appendSlice(self.namespace orelse &[_]Ast.TokenIndex{});
             try new_global_name.append(name);
-            new_global_name.shrinkAndFree(new_global_name.items.len);
-            global.name = new_global_name.items;
+            global.name = try new_global_name.toOwnedSlice();
 
             try self.consume(.Semicolon, "Expected `;` after statement.");
 
@@ -7211,7 +7183,6 @@ fn objectDeclaration(self: *Self) Error!Ast.Node.Index {
     // Conforms to protocols?
     var protocols = std.AutoHashMapUnmanaged(*obj.ObjTypeDef, void){};
     var protocol_nodes = std.ArrayList(Ast.Node.Index).init(self.gc.allocator);
-    defer protocol_nodes.shrinkAndFree(protocol_nodes.items.len);
     var protocol_count: usize = 0;
     if (try self.match(.Less)) {
         while (!self.check(.Greater) and !self.check(.Eof)) : (protocol_count += 1) {
@@ -7306,7 +7277,6 @@ fn objectDeclaration(self: *Self) Error!Ast.Node.Index {
 
     // Parse generic types
     var generics = std.ArrayList(Ast.TokenIndex).init(self.gc.allocator);
-    defer generics.shrinkAndFree(generics.items.len);
     if (try self.match(.DoubleColon)) {
         try self.consume(.Less, "Expected generic types list after `::`");
         var i: usize = 0;
@@ -7370,7 +7340,6 @@ fn objectDeclaration(self: *Self) Error!Ast.Node.Index {
     try self.consume(.LeftBrace, "Expected `{` before object body.");
 
     var members = std.ArrayList(Ast.ObjectDeclaration.Member).init(self.gc.allocator);
-    defer members.shrinkAndFree(members.items.len);
 
     // To avoid using the same name twice
     var fields = std.StringArrayHashMap(void).init(self.gc.allocator);
@@ -7681,9 +7650,9 @@ fn objectDeclaration(self: *Self) Error!Ast.Node.Index {
                 .ObjectDeclaration = .{
                     .name = object_name_token,
                     .slot = @intCast(slot),
-                    .protocols = protocol_nodes.items,
-                    .generics = generics.items,
-                    .members = members.items,
+                    .protocols = try protocol_nodes.toOwnedSlice(),
+                    .generics = try generics.toOwnedSlice(),
+                    .members = try members.toOwnedSlice(),
                 },
             },
         },
@@ -7765,7 +7734,6 @@ fn protocolDeclaration(self: *Self) Error!Ast.Node.Index {
     var fields = std.StringHashMap(void).init(self.gc.allocator);
     defer fields.deinit();
     var methods = std.ArrayList(Ast.ProtocolDeclaration.Method).init(self.gc.allocator);
-    defer methods.shrinkAndFree(methods.items.len);
     while (!self.check(.RightBrace) and !self.check(.Eof)) {
         const docblock = if (try self.match(.Docblock))
             self.current_token.? - 1
@@ -7856,7 +7824,7 @@ fn protocolDeclaration(self: *Self) Error!Ast.Node.Index {
                 .ProtocolDeclaration = .{
                     .name = protocol_name,
                     .slot = @intCast(slot),
-                    .methods = methods.items,
+                    .methods = try methods.toOwnedSlice(),
                 },
             },
         },
@@ -7941,9 +7909,7 @@ fn enumDeclaration(self: *Self) Error!Ast.Node.Index {
     try self.consume(.LeftBrace, "Expected `{` before enum body.");
 
     var cases = std.ArrayList(Ast.Enum.Case).init(self.gc.allocator);
-    defer cases.shrinkAndFree(cases.items.len);
     var def_cases = std.ArrayList([]const u8).init(self.gc.allocator);
-    defer def_cases.shrinkAndFree(def_cases.items.len);
     var picked = std.ArrayList(bool).init(self.gc.allocator);
     var case_index: i32 = 0;
     while (!self.check(.RightBrace) and !self.check(.Eof)) : (case_index += 1) {
@@ -8026,7 +7992,7 @@ fn enumDeclaration(self: *Self) Error!Ast.Node.Index {
         }
     }
 
-    enum_type.resolved_type.?.Enum.cases = def_cases.items;
+    enum_type.resolved_type.?.Enum.cases = try def_cases.toOwnedSlice();
 
     try self.consume(.RightBrace, "Expected `}` after enum body.");
 
@@ -8039,6 +8005,7 @@ fn enumDeclaration(self: *Self) Error!Ast.Node.Index {
         );
     }
 
+    const cases_slice = try cases.toOwnedSlice();
     self.ast.nodes.set(
         node_slot,
         .{
@@ -8051,7 +8018,7 @@ fn enumDeclaration(self: *Self) Error!Ast.Node.Index {
                     .name = enum_name,
                     .case_type = enum_case_type_node,
                     .slot = @intCast(slot),
-                    .cases = cases.items,
+                    .cases = cases_slice,
                 },
             },
         },
@@ -8064,8 +8031,7 @@ fn enumDeclaration(self: *Self) Error!Ast.Node.Index {
     );
 
     var obj_cases = std.ArrayList(Value).init(self.gc.allocator);
-    defer obj_cases.shrinkAndFree(obj_cases.items.len);
-    for (cases.items, 0..) |case, idx| {
+    for (cases_slice, 0..) |case, idx| {
         if (case.value != null and !(try self.ast.slice().isConstant(self.gc.allocator, case.value.?))) {
             self.reportErrorAtNode(
                 .enum_case,
@@ -8089,7 +8055,7 @@ fn enumDeclaration(self: *Self) Error!Ast.Node.Index {
         );
     }
 
-    @"enum".cases = obj_cases.items;
+    @"enum".cases = try obj_cases.toOwnedSlice();
 
     enum_type.resolved_type.?.Enum.value = @"enum";
     self.ast.nodes.items(.value)[node_slot] = @"enum".toValue();
@@ -8334,7 +8300,6 @@ fn testStatement(self: *Self) Error!Ast.Node.Index {
 
 fn searchPaths(self: *Self, file_name: []const u8) ![][]const u8 {
     var paths = std.ArrayList([]const u8).init(self.gc.allocator);
-    defer paths.shrinkAndFree(paths.items.len);
 
     for (search_paths) |path| {
         const filled = try std.mem.replaceOwned(
@@ -8375,10 +8340,10 @@ fn searchPaths(self: *Self, file_name: []const u8) ![][]const u8 {
         }
     }
 
-    return paths.items;
+    return try paths.toOwnedSlice();
 }
 
-fn searchLibPaths(self: *Self, file_name: []const u8) !std.ArrayList([]const u8) {
+fn searchLibPaths(self: *Self, file_name: []const u8) ![][]const u8 {
     var paths = std.ArrayList([]const u8).init(self.gc.allocator);
 
     for (lib_search_paths) |path| {
@@ -8448,9 +8413,7 @@ fn searchLibPaths(self: *Self, file_name: []const u8) !std.ArrayList([]const u8)
             },
         );
 
-        filled.shrinkAndFree(filled.items.len);
-
-        try paths.append(filled.items);
+        try paths.append(try filled.toOwnedSlice());
 
         var prefixed_filled = std.ArrayList(u8).init(self.gc.allocator);
 
@@ -8474,16 +8437,13 @@ fn searchLibPaths(self: *Self, file_name: []const u8) !std.ArrayList([]const u8)
             },
         );
 
-        prefixed_filled.shrinkAndFree(prefixed_filled.items.len);
-
-        try paths.append(prefixed_filled.items);
+        try paths.append(try prefixed_filled.toOwnedSlice());
     }
 
-    paths.shrinkAndFree(paths.items.len);
-    return paths;
+    return try paths.toOwnedSlice();
 }
 
-fn searchZdefLibPaths(self: *Self, file_name: []const u8) !std.ArrayList([]const u8) {
+fn searchZdefLibPaths(self: *Self, file_name: []const u8) ![][]const u8 {
     var paths = std.ArrayList([]const u8).init(self.gc.allocator);
 
     for (zdef_search_paths) |path| {
@@ -8539,9 +8499,7 @@ fn searchZdefLibPaths(self: *Self, file_name: []const u8) !std.ArrayList([]const
             },
         );
 
-        filled.shrinkAndFree(filled.items.len);
-
-        try paths.append(filled.items);
+        try paths.append(try filled.toOwnedSlice());
 
         var prefixed_filled = std.ArrayList(u8).init(self.gc.allocator);
 
@@ -8565,12 +8523,10 @@ fn searchZdefLibPaths(self: *Self, file_name: []const u8) !std.ArrayList([]const
             },
         );
 
-        prefixed_filled.shrinkAndFree(prefixed_filled.items.len);
-
-        try paths.append(prefixed_filled.items);
+        try paths.append(try prefixed_filled.toOwnedSlice());
     }
 
-    return paths;
+    return try paths.toOwnedSlice();
 }
 
 fn readStaticScript(self: *Self, file_name: []const u8) ?[2][]const u8 {
@@ -8773,10 +8729,9 @@ fn importScript(
                                 &[_]Ast.TokenIndex{},
                         );
                         try new_name.append(export_alias);
-                        new_name.shrinkAndFree(new_name.items.len);
                         self.gc.allocator.free(previous_name); // TODO: will this free be an issue?
 
-                        global.name = new_name.items;
+                        global.name = try new_name.toOwnedSlice();
                         global.export_alias = null;
                     }
                 } else {
@@ -8838,10 +8793,9 @@ fn importScript(
                         prefix orelse global.name[0 .. global.name.len - 1], // override or take initial namespace
                 );
                 try imported_name.append(global.name[global.name.len - 1]);
-                imported_name.shrinkAndFree(imported_name.items.len);
                 // self.gc.allocator.free(global.name);
 
-                global.name = imported_name.items;
+                global.name = try imported_name.toOwnedSlice();
             }
 
             global.imported_from = file_name;
@@ -8907,14 +8861,14 @@ fn importLibSymbol(self: *Self, location: Ast.TokenIndex, end_location: Ast.Toke
     const file_basename = std.fs.path.basename(file_name);
     const paths = try self.searchLibPaths(file_basename);
     defer {
-        for (paths.items) |path| {
+        for (paths) |path| {
             self.gc.allocator.free(path);
         }
-        paths.deinit();
+        self.gc.allocator.free(paths);
     }
 
     var lib: ?std.DynLib = null;
-    for (paths.items) |path| {
+    for (paths) |path| {
         lib = std.DynLib.open(path) catch null;
         if (lib != null) {
             break;
@@ -8956,7 +8910,7 @@ fn importLibSymbol(self: *Self, location: Ast.TokenIndex, end_location: Ast.Toke
     defer search_report.deinit();
     var writer = search_report.writer();
 
-    for (paths.items) |path| {
+    for (paths) |path| {
         try writer.print("    no file `{s}`\n", .{path});
     }
 
@@ -8983,7 +8937,6 @@ fn importStatement(self: *Self) Error!Ast.Node.Index {
 
     var imported_symbols = std.StringHashMap(Ast.TokenIndex).init(self.gc.allocator);
     var symbols = std.ArrayList(Ast.TokenIndex).init(self.gc.allocator);
-    defer symbols.shrinkAndFree(symbols.items.len);
 
     while ((try self.match(.Identifier)) and !self.check(.Eof)) {
         const symbol = self.ast.tokens.items(.lexeme)[self.current_token.? - 1];
@@ -9075,7 +9028,7 @@ fn importStatement(self: *Self) Error!Ast.Node.Index {
             .components = .{
                 .Import = .{
                     .prefix = prefix,
-                    .imported_symbols = symbols.items,
+                    .imported_symbols = try symbols.toOwnedSlice(),
                     .path = path_token,
                     .import = import,
                 },
@@ -9155,14 +9108,14 @@ fn zdefStatement(self: *Self) Error!Ast.Node.Index {
                 // Load the lib
                 const paths = try self.searchZdefLibPaths(lib_name_str);
                 defer {
-                    for (paths.items) |path| {
+                    for (paths) |path| {
                         self.gc.allocator.free(path);
                     }
-                    paths.deinit();
+                    self.gc.allocator.free(paths);
                 }
 
                 var lib: ?std.DynLib = null;
-                for (paths.items) |path| {
+                for (paths) |path| {
                     lib = std.DynLib.open(path) catch null;
                     if (lib != null) {
                         break;
@@ -9197,7 +9150,7 @@ fn zdefStatement(self: *Self) Error!Ast.Node.Index {
                     defer search_report.deinit();
                     var writer = search_report.writer();
 
-                    for (paths.items) |path| {
+                    for (paths) |path| {
                         try writer.print("    no file `{s}`\n", .{path});
                     }
 
@@ -9229,8 +9182,6 @@ fn zdefStatement(self: *Self) Error!Ast.Node.Index {
         }
     }
 
-    elements.shrinkAndFree(elements.items.len);
-
     self.ast.nodes.set(
         node_slot,
         .{
@@ -9242,7 +9193,7 @@ fn zdefStatement(self: *Self) Error!Ast.Node.Index {
                 .Zdef = .{
                     .lib_name = lib_name,
                     .source = source,
-                    .elements = elements.items,
+                    .elements = try elements.toOwnedSlice(),
                 },
             },
         },
@@ -9325,9 +9276,7 @@ fn userVarDeclaration(self: *Self, identifier: Ast.TokenIndex, final: bool, muta
         try self.consume(.Less, "Expected generic types list after `::`");
 
         var resolved_generics = std.ArrayList(*obj.ObjTypeDef).init(self.gc.allocator);
-        defer resolved_generics.shrinkAndFree(resolved_generics.items.len);
         var generic_nodes = std.ArrayList(Ast.Node.Index).init(self.gc.allocator);
-        defer generic_nodes.shrinkAndFree(generic_nodes.items.len);
         var i: usize = 0;
         while (!self.check(.Greater) and !self.check(.Eof)) : (i += 1) {
             try generic_nodes.append(
@@ -9364,7 +9313,7 @@ fn userVarDeclaration(self: *Self, identifier: Ast.TokenIndex, final: bool, muta
         var_type = try var_type.?.populateGenerics(
             self.current_token.? - 1,
             var_type.?.resolved_type.?.Object.id,
-            resolved_generics.items,
+            try resolved_generics.toOwnedSlice(),
             &self.gc.type_registry,
             null,
         );
@@ -9376,7 +9325,7 @@ fn userVarDeclaration(self: *Self, identifier: Ast.TokenIndex, final: bool, muta
                 .end_location = self.current_token.? - 1,
                 .type_def = var_type,
                 .components = .{
-                    .GenericResolveType = generic_nodes.items,
+                    .GenericResolveType = try generic_nodes.toOwnedSlice(),
                 },
             },
         );
@@ -9426,7 +9375,6 @@ fn forStatement(self: *Self) Error!Ast.Node.Index {
 
     // Should be either VarDeclaration or expression
     var init_declarations = std.ArrayList(Ast.Node.Index).init(self.gc.allocator);
-    defer init_declarations.shrinkAndFree(init_declarations.items.len);
     while (!self.check(.Semicolon) and !self.check(.Eof)) {
         try self.consume(.Identifier, "Expected identifier");
         const identifier = self.current_token.? - 1;
@@ -9459,7 +9407,6 @@ fn forStatement(self: *Self) Error!Ast.Node.Index {
     try self.consume(.Semicolon, "Expected `;` after for loop condition.");
 
     var post_loop = std.ArrayList(Ast.Node.Index).init(self.gc.allocator);
-    defer post_loop.shrinkAndFree(post_loop.items.len);
     while (!self.check(.RightParen) and !self.check(.Eof)) {
         try post_loop.append(try self.expression(false));
 
@@ -9486,9 +9433,9 @@ fn forStatement(self: *Self) Error!Ast.Node.Index {
             .end_location = undefined,
             .components = .{
                 .For = .{
-                    .init_declarations = init_declarations.items,
+                    .init_declarations = try init_declarations.toOwnedSlice(),
                     .condition = condition,
-                    .post_loop = post_loop.items,
+                    .post_loop = try post_loop.toOwnedSlice(),
                     .body = undefined,
                     .label = label,
                 },
@@ -9937,9 +9884,8 @@ fn namespaceStatement(self: *Self) Error!Ast.Node.Index {
             break;
         }
     }
-    namespace.shrinkAndFree(namespace.items.len);
 
-    self.namespace = namespace.items;
+    self.namespace = try namespace.toOwnedSlice();
 
     try self.consume(.Semicolon, "Expected `;` after statement.");
 
@@ -9978,7 +9924,6 @@ fn tryStatement(self: *Self) Error!Ast.Node.Index {
     self.ast.nodes.items(.ends_scope)[body] = try self.endScope();
 
     var clauses = std.ArrayList(Ast.Try.Clause).init(self.gc.allocator);
-    defer clauses.shrinkAndFree(clauses.items.len);
     var unconditional_clause: ?Ast.Node.Index = null;
     // either catch with no type of catch any
     while (try self.match(.Catch)) {
@@ -10052,7 +9997,7 @@ fn tryStatement(self: *Self) Error!Ast.Node.Index {
             .components = .{
                 .Try = .{
                     .body = body,
-                    .clauses = clauses.items,
+                    .clauses = try clauses.toOwnedSlice(),
                     .unconditional_clause = unconditional_clause,
                 },
             },

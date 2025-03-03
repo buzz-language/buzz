@@ -638,7 +638,6 @@ pub fn reportErrorFmt(self: *Self, error_type: Error, location: Token, end_locat
 
     var writer = message.writer();
     writer.print(fmt, args) catch @panic("Unable to report error");
-    message.shrinkAndFree(message.items.len);
 
     if (self.panic_mode) {
         return;
@@ -648,7 +647,7 @@ pub fn reportErrorFmt(self: *Self, error_type: Error, location: Token, end_locat
         error_type,
         location,
         end_location,
-        message.items,
+        message.toOwnedSlice() catch @panic("Untable to report error"),
     );
 }
 
@@ -662,13 +661,11 @@ pub fn warnFmt(self: *Self, error_type: Error, location: Token, end_location: To
 
     var writer = message.writer();
     writer.print(fmt, args) catch @panic("Unable to report error");
-    message.shrinkAndFree(message.items.len);
-
     self.warn(
         error_type,
         location,
         end_location,
-        message.items,
+        message.toOwnedSlice() catch @panic("Unable to report error"),
     );
 }
 
@@ -746,8 +743,6 @@ pub fn reportTypeCheck(
     defer {
         if (!self.collect) {
             actual_message.deinit();
-        } else {
-            actual_message.shrinkAndFree(actual_message.items.len);
         }
     }
 
@@ -761,8 +756,6 @@ pub fn reportTypeCheck(
     defer {
         if (!self.collect) {
             expected_message.deinit();
-        } else {
-            expected_message.shrinkAndFree(expected_message.items.len);
         }
     }
 
@@ -782,7 +775,13 @@ pub fn reportTypeCheck(
         }
     }
     if (expected_location != null) {
-        full_message.writer().print("{s}, {s}", .{ actual_message.items, expected_message.items }) catch @panic("Unable to report error");
+        full_message.writer().print(
+            "{s}, {s}",
+            .{
+                actual_message.toOwnedSlice() catch @panic("Unable to report error"),
+                expected_message.toOwnedSlice() catch @panic("Unable to report error"),
+            },
+        ) catch @panic("Unable to report error");
     }
 
     var check_report = rpt: {

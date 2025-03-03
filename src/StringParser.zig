@@ -96,8 +96,6 @@ pub fn parse(self: *Self) !Ast.Node.Index {
         self.current_chunk = .init(self.parser.gc.allocator);
     }
 
-    self.elements.shrinkAndFree(self.elements.items.len);
-
     return try self.parser.ast.appendNode(
         .{
             .tag = .String,
@@ -105,7 +103,7 @@ pub fn parse(self: *Self) !Ast.Node.Index {
             .end_location = self.parser.ast.nodes.items(.location)[self.elements.getLast()],
             .type_def = self.parser.gc.type_registry.str_type,
             .components = .{
-                .String = self.elements.items,
+                .String = try self.elements.toOwnedSlice(),
             },
         },
     );

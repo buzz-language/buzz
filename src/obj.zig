@@ -4665,11 +4665,6 @@ pub const ObjTypeDef = struct {
                 const old_fun_def = self.resolved_type.?.Function;
 
                 var error_types: ?std.ArrayListUnmanaged(*ObjTypeDef) = null;
-                defer {
-                    if (error_types) |*et| {
-                        et.shrinkAndFree(type_registry.gc.allocator, et.items.len);
-                    }
-                }
                 if (old_fun_def.error_types) |old_error_types| {
                     error_types = .{};
                     for (old_error_types) |error_type| {
@@ -4734,7 +4729,7 @@ pub const ObjTypeDef = struct {
                         old_fun_def.yield_type.isMutable(),
                     ))
                         .cloneOptional(type_registry),
-                    .error_types = if (error_types) |types| types.items else null,
+                    .error_types = if (error_types) |*types| try types.toOwnedSlice(type_registry.gc.allocator) else null,
                     .parameters = parameters,
                     .defaults = old_fun_def.defaults,
                     .function_type = old_fun_def.function_type,
@@ -4911,20 +4906,19 @@ pub const ObjTypeDef = struct {
         var str = std.ArrayList(u8).init(allocator);
 
         try self.toString(&str.writer());
-        str.shrinkAndFree(str.items.len);
 
-        return str.items;
+        return try str.toOwnedSlice();
     }
 
-    pub fn toString(self: *const Self, writer: *const std.ArrayList(u8).Writer) (Allocator.Error || std.fmt.BufPrintError)!void {
+    pub fn toString(self: *const Self, writer: anytype) (Allocator.Error || std.fmt.BufPrintError)!void {
         try self.toStringRaw(writer, true);
     }
 
-    pub fn toStringUnqualified(self: *const Self, writer: *const std.ArrayList(u8).Writer) (Allocator.Error || std.fmt.BufPrintError)!void {
+    pub fn toStringUnqualified(self: *const Self, writer: anytype) (Allocator.Error || std.fmt.BufPrintError)!void {
         try self.toStringRaw(writer, false);
     }
 
-    fn toStringRaw(self: *const Self, writer: *const std.ArrayList(u8).Writer, qualified: bool) (Allocator.Error || std.fmt.BufPrintError)!void {
+    fn toStringRaw(self: *const Self, writer: anytype, qualified: bool) (Allocator.Error || std.fmt.BufPrintError)!void {
         switch (self.def_type) {
             .Generic => try writer.print("generic type #{}-{}", .{ self.resolved_type.?.Generic.origin, self.resolved_type.?.Generic.index }),
             .UserData => try writer.writeAll("ud"),

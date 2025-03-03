@@ -4567,7 +4567,6 @@ pub const VM = struct {
         for (stack, 0..) |frame, i| {
             const next = if (i < stack.len - 1) stack[i + 1] else null;
             var msg = std.ArrayList(u8).init(self.gc.allocator);
-            defer msg.shrinkAndFree(msg.items.len);
             var writer = msg.writer();
 
             if (next) |unext| {
@@ -4626,7 +4625,7 @@ pub const VM = struct {
 
             notes.append(
                 Reporter.Note{
-                    .message = msg.items,
+                    .message = msg.toOwnedSlice() catch @panic("Could not report error"),
                     .show_prefix = false,
                 },
             ) catch @panic("Could not report error");

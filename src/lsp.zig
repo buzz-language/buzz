@@ -495,8 +495,7 @@ const Handler = struct {
                 }
             }
 
-            diags.shrinkAndFree(self.allocator, diags.items.len);
-            res.diagnostics = diags.items;
+            res.diagnostics = try diags.toOwnedSlice(self.allocator);
         }
 
         self.allocator.free(
@@ -692,8 +691,6 @@ const Handler = struct {
                         );
                     }
 
-                    children.shrinkAndFree(allocator, children.items.len);
-
                     try self.document.symbols.append(
                         allocator,
                         .{
@@ -705,7 +702,7 @@ const Handler = struct {
                             .kind = .Enum,
                             .range = tokenToRange(location, end_location),
                             .selectionRange = tokenToRange(location, end_location),
-                            .children = children.items,
+                            .children = try children.toOwnedSlice(allocator),
                         },
                     );
                 },
@@ -733,8 +730,6 @@ const Handler = struct {
                         }
                     }
 
-                    children.shrinkAndFree(allocator, children.items.len);
-
                     try self.document.symbols.append(
                         allocator,
                         .{
@@ -746,7 +741,7 @@ const Handler = struct {
                             .kind = .Struct,
                             .range = tokenToRange(location, end_location),
                             .selectionRange = tokenToRange(location, end_location),
-                            .children = children.items,
+                            .children = try children.toOwnedSlice(allocator),
                         },
                     );
                 },
@@ -774,8 +769,6 @@ const Handler = struct {
                         }
                     }
 
-                    children.shrinkAndFree(allocator, children.items.len);
-
                     try self.document.symbols.append(
                         allocator,
                         .{
@@ -787,7 +780,7 @@ const Handler = struct {
                             .kind = .Interface,
                             .range = tokenToRange(location, end_location),
                             .selectionRange = tokenToRange(location, end_location),
-                            .children = children.items,
+                            .children = try children.toOwnedSlice(allocator),
                         },
                     );
                 },
@@ -915,9 +908,7 @@ const Handler = struct {
                         };
                         try writer.writeAll("\n```");
 
-                        markup.shrinkAndFree(markup.items.len);
-
-                        markupEntry.value_ptr.* = markup.items;
+                        markupEntry.value_ptr.* = try markup.toOwnedSlice();
                     }
 
                     return .{
