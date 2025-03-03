@@ -400,9 +400,7 @@ pub const Slice = struct {
 
                     self.result = (self.result == null or self.result.?) and type_def.def_type == .Enum;
 
-                    if (!self.result.?) {
-                        return true;
-                    }
+                    return true;
                 },
                 .If => {
                     const components = ast.nodes.items(.components)[node].If;
@@ -418,10 +416,6 @@ pub const Slice = struct {
 
                     if (components.items.len == 0) {
                         self.result = self.result == null or self.result.?;
-
-                        if (!self.result.?) {
-                            return false;
-                        }
                     }
 
                     for (components.items) |item| {
@@ -437,10 +431,6 @@ pub const Slice = struct {
 
                     if (components.entries.len == 0) {
                         self.result = self.result == null or self.result.?;
-
-                        if (!self.result.?) {
-                            return false;
-                        }
                     }
 
                     for (components.entries) |entry| {
@@ -461,10 +451,6 @@ pub const Slice = struct {
                 .String => {
                     if (ast.nodes.items(.components)[node].String.len == 0) {
                         self.result = self.result == null or self.result.?;
-
-                        if (!self.result.?) {
-                            return false;
-                        }
                     }
                 },
                 .As,
@@ -637,9 +623,8 @@ pub const Slice = struct {
                     var new_string = std.ArrayList(u8).init(gc.allocator);
                     try new_string.appendSlice(left_string.?.string);
                     try new_string.appendSlice(rs.string);
-                    new_string.shrinkAndFree(new_string.items.len);
 
-                    return (try gc.copyString(new_string.items)).toValue();
+                    return (try gc.copyString(try new_string.toOwnedSlice())).toValue();
                 } else if (right_float) |rf| {
                     return Value.fromFloat(rf + left_float.?);
                 } else if (right_integer) |ri| {
@@ -841,8 +826,7 @@ pub const Slice = struct {
                         try (try self.toValue(element, gc)).toString(writer);
                     }
 
-                    string.shrinkAndFree(string.items.len);
-                    break :string (try gc.copyString(string.items)).toValue();
+                    break :string (try gc.copyString(try string.toOwnedSlice())).toValue();
                 },
                 .Subscript => subscript: {
                     const components = self.nodes.items(.components)[node].Subscript;

@@ -53,13 +53,12 @@ pub const TypeRegistry = struct {
     rg_type: *ObjTypeDef,
 
     // Buffer resused when we build a type key
-    type_def_key_buffer: std.ArrayList(u8),
+    type_def_key_buffer: std.ArrayListUnmanaged(u8) = .{},
 
     pub fn init(gc: *GarbageCollector) !Self {
         var self = Self{
             .gc = gc,
             .registry = .init(gc.allocator),
-            .type_def_key_buffer = .init(gc.allocator),
             .void_type = undefined,
             .str_type = undefined,
             .int_type = undefined,
@@ -107,7 +106,7 @@ pub const TypeRegistry = struct {
 
     pub fn getTypeDef(self: *Self, type_def: ObjTypeDef) !*ObjTypeDef {
         self.type_def_key_buffer.shrinkRetainingCapacity(0);
-        try type_def.toString(&self.type_def_key_buffer.writer());
+        try type_def.toString(&self.type_def_key_buffer.writer(self.gc.allocator));
 
         // We don't return a cached version of a placeholder since they all maintain a particular state (link)
         if (type_def.def_type != .Placeholder) {
@@ -129,15 +128,14 @@ pub const TypeRegistry = struct {
         }
 
         // Since the key buffer is reused, we clone the key
-        var copy = try self.type_def_key_buffer.clone();
-        copy.shrinkAndFree(copy.items.len);
+        var copy = try self.type_def_key_buffer.clone(self.gc.allocator);
 
-        const slot = try self.registry.getOrPut(copy.items);
+        const slot = try self.registry.getOrPut(try copy.toOwnedSlice(self.gc.allocator));
 
         slot.value_ptr.* = type_def_ptr;
 
         if (slot.found_existing) {
-            copy.deinit();
+            copy.deinit(self.gc.allocator);
         }
 
         return type_def_ptr;

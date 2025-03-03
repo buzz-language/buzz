@@ -295,9 +295,7 @@ pub fn parse(self: *Self, parser: ?*Parser, source: Token, parsing_type_expr: bo
         }
     }
 
-    zdefs.shrinkAndFree(zdefs.items.len);
-
-    return zdefs.items;
+    return try zdefs.toOwnedSlice();
 }
 
 fn getZdef(self: *Self, decl_index: Ast.Node.Index) !?*Zdef {
@@ -870,8 +868,7 @@ fn fnProto(self: *Self, tag: Ast.Node.Tag, decl_index: Ast.Node.Index) anyerror!
         );
     }
 
-    parameters_zig_types.shrinkAndFree(parameters_zig_types.items.len);
-    zig_fn_type.params = parameters_zig_types.items;
+    zig_fn_type.params = try parameters_zig_types.toOwnedSlice();
 
     const type_def = o.ObjTypeDef{
         .def_type = .Function,

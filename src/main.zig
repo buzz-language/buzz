@@ -273,13 +273,12 @@ pub fn main() u8 {
 
     if (res.args.library.len > 0) {
         var list = std.ArrayList([]const u8).init(allocator);
-        defer list.shrinkAndFree(list.items.len);
 
         for (res.args.library) |path| {
             list.append(path) catch return 1;
         }
 
-        Parser.user_library_paths = list.items;
+        Parser.user_library_paths = list.toOwnedSlice() catch return 1;
     }
 
     const flavor: RunFlavor = if (res.args.check == 1)

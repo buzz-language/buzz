@@ -164,9 +164,8 @@ pub const Value = packed struct {
         var str = std.ArrayList(u8).init(allocator);
 
         try value.toString(&str.writer());
-        str.shrinkAndFree(str.items.len);
 
-        return str.items;
+        return try str.toOwnedSlice();
     }
 
     pub fn toString(self: Value, writer: *const std.ArrayList(u8).Writer) (Allocator.Error || std.fmt.BufPrintError)!void {
