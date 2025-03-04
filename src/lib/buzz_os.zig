@@ -203,7 +203,7 @@ pub export fn execute(ctx: *api.NativeCtx) callconv(.c) c_int {
     }
 
     var child_process = std.process.Child.init(command.items, api.VM.allocator);
-    child_process.disable_aslr = builtin.target.isDarwin();
+    child_process.disable_aslr = builtin.target.os.tag.isDarwin();
 
     const term = child_process.spawnAndWait() catch |err| {
         handleSpawnError(ctx, err);

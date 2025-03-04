@@ -101,7 +101,7 @@ pub fn build(b: *Build) !void {
 
     // Check minimum zig version
     const current_zig = builtin.zig_version;
-    const min_zig = std.SemanticVersion.parse("0.14.0-dev.2989+bf6ee7cb3") catch return;
+    const min_zig = std.SemanticVersion.parse("0.14.0-dev.3460+6d29ef0ba") catch return;
     if (current_zig.order(min_zig).compare(.lt)) {
         @panic(b.fmt("Your Zig version v{} does not meet the minimum build requirement of v{}", .{ current_zig, min_zig }));
     }
@@ -301,31 +301,37 @@ pub fn build(b: *Build) !void {
         clap.module("clap"),
     );
 
-    var lsp_exe = b.addExecutable(.{
-        .name = "buzz_lsp",
-        .root_source_file = b.path("src/lsp.zig"),
-        .target = target,
-        .optimize = build_mode,
-    });
-    b.installArtifact(lsp_exe);
-
-    lsp_exe.root_module.addImport(
-        "clap",
-        clap.module("clap"),
-    );
-
-    const lsp = b.dependency(
-        "zig-lsp-kit",
-        .{
+    var lsp_exe = if (!is_wasm)
+        b.addExecutable(.{
+            .name = "buzz_lsp",
+            .root_source_file = b.path("src/lsp.zig"),
             .target = target,
             .optimize = build_mode,
-        },
-    );
+        })
+    else
+        null;
 
-    lsp_exe.root_module.addImport(
-        "lsp",
-        lsp.module("lsp"),
-    );
+    if (!is_wasm) {
+        b.installArtifact(lsp_exe.?);
+
+        lsp_exe.?.root_module.addImport(
+            "clap",
+            clap.module("clap"),
+        );
+
+        const lsp = b.dependency(
+            "zig_lsp_kit",
+            .{
+                .target = target,
+                .optimize = build_mode,
+            },
+        );
+
+        lsp_exe.?.root_module.addImport(
+            "lsp",
+            lsp.module("lsp"),
+        );
+    }
 
     var exe_check = b.addExecutable(
         .{
@@ -337,7 +343,7 @@ pub fn build(b: *Build) !void {
     );
 
     exe.root_module.sanitize_c = false;
-    lsp_exe.root_module.sanitize_c = false;
+    if (!is_wasm) lsp_exe.?.root_module.sanitize_c = false;
 
     const check = b.step("check", "Check if buzz compiles");
     check.dependOn(&exe_check.step);
@@ -351,15 +357,6 @@ pub fn build(b: *Build) !void {
 
         exe.initial_memory = std.wasm.page_size * 100;
         exe.max_memory = std.wasm.page_size * 1000;
-
-        lsp_exe.global_base = 6560;
-        lsp_exe.entry = .disabled;
-        lsp_exe.rdynamic = true;
-        lsp_exe.import_memory = true;
-        lsp_exe.stack_size = std.wasm.page_size;
-
-        lsp_exe.initial_memory = std.wasm.page_size * 100;
-        lsp_exe.max_memory = std.wasm.page_size * 1000;
     }
 
     const run_exe = b.addRunArtifact(exe);
@@ -369,22 +366,24 @@ pub fn build(b: *Build) !void {
     }
     b.step("run", "run buzz").dependOn(&run_exe.step);
 
-    const run_lsp_exe = b.addRunArtifact(lsp_exe);
-    run_lsp_exe.step.dependOn(install_step);
-    if (b.args) |args| {
-        run_lsp_exe.addArgs(args);
+    if (!is_wasm) {
+        const run_lsp_exe = b.addRunArtifact(lsp_exe.?);
+        run_lsp_exe.step.dependOn(install_step);
+        if (b.args) |args| {
+            run_lsp_exe.addArgs(args);
+        }
+        b.step("lsp", "run buzz lsp").dependOn(&run_lsp_exe.step);
     }
-    b.step("lsp", "run buzz lsp").dependOn(&run_lsp_exe.step);
 
     if (build_options.needLibC()) {
         exe.linkLibC();
         exe_check.linkLibC();
-        lsp_exe.linkLibC();
+        if (!is_wasm) lsp_exe.?.linkLibC();
     }
 
     exe.root_module.addImport("build_options", build_option_module);
     exe_check.root_module.addImport("build_options", build_option_module);
-    lsp_exe.root_module.addImport("build_options", build_option_module);
+    if (!is_wasm) lsp_exe.?.root_module.addImport("build_options", build_option_module);
 
     if (!is_wasm) {
         // Building buzz api library
@@ -411,41 +410,41 @@ pub fn build(b: *Build) !void {
         if (lib_pcre2) |pcre| {
             lib.linkLibrary(pcre);
             exe.linkLibrary(pcre);
-            lsp_exe.linkLibrary(pcre);
+            if (!is_wasm) lsp_exe.?.linkLibrary(pcre);
         }
 
         if (lib_mimalloc) |mimalloc| {
             lib.addIncludePath(b.path("vendors/mimalloc/include"));
             exe.addIncludePath(b.path("vendors/mimalloc/include"));
-            lsp_exe.addIncludePath(b.path("vendors/mimalloc/include"));
+            if (!is_wasm) lsp_exe.?.addIncludePath(b.path("vendors/mimalloc/include"));
             lib.linkLibrary(mimalloc);
             exe.linkLibrary(mimalloc);
-            lsp_exe.linkLibrary(mimalloc);
+            if (!is_wasm) lsp_exe.?.linkLibrary(mimalloc);
             if (lib.root_module.resolved_target.?.result.os.tag == .windows) {
                 lib.linkSystemLibrary("bcrypt");
                 exe.linkSystemLibrary("bcrypt");
-                lsp_exe.linkSystemLibrary("bcrypt");
+                if (!is_wasm) lsp_exe.?.linkSystemLibrary("bcrypt");
             }
         }
 
         if (lib_mir) |mir| {
             lib.linkLibrary(mir);
             exe.linkLibrary(mir);
-            lsp_exe.linkLibrary(mir);
+            if (!is_wasm) lsp_exe.?.linkLibrary(mir);
         }
 
         // So that JIT compiled function can reference buzz_api
         exe.linkLibrary(lib);
-        lsp_exe.linkLibrary(lib);
+        if (!is_wasm) lsp_exe.?.linkLibrary(lib);
         exe_check.linkLibrary(lib);
         if (lib_linenoise) |ln| {
             exe.linkLibrary(ln);
-            lsp_exe.linkLibrary(ln);
+            if (!is_wasm) lsp_exe.?.linkLibrary(ln);
             exe_check.linkLibrary(ln);
         }
 
         b.default_step.dependOn(&exe.step);
-        b.default_step.dependOn(&lsp_exe.step);
+        if (!is_wasm) b.default_step.dependOn(&lsp_exe.?.step);
         b.default_step.dependOn(&lib.step);
 
         // Building std libraries

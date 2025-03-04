@@ -561,7 +561,7 @@ fn generateNode(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
         if (self.state.?.ast.nodes.items(.patch_opt_jumps)[node]) {
             std.debug.assert(self.state.?.opt_jumps.items.len > 0);
 
-            var opt_jump = self.state.?.opt_jumps.pop();
+            var opt_jump = self.state.?.opt_jumps.pop().?;
             const out_label = m.MIR_new_label(self.ctx);
 
             // We reached here, means nothing was null, set the alloca with the value and use it has the node return value

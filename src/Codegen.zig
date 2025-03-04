@@ -399,7 +399,7 @@ fn patchOptJumps(self: *Self, node: Ast.Node.Index) !void {
 
         self.patchJump(njump);
 
-        var popped = self.opt_jumps.pop();
+        var popped = self.opt_jumps.pop().?;
         popped.deinit(self.gc.allocator);
     }
 }
@@ -2689,7 +2689,7 @@ fn generateFunction(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?
             self.ast.nodes.items(.tag)[node_components[components.body.?].Block[node_components[components.body.?].Block.len - 1]] == .Expression)
         {
             // Repl and last expression is a lone statement, remove OP_POP, add OP_RETURN
-            std.debug.assert(vm.VM.getCode(self.current.?.function.?.chunk.code.pop()) == .OP_POP);
+            std.debug.assert(vm.VM.getCode(self.current.?.function.?.chunk.code.pop().?) == .OP_POP);
             _ = self.current.?.function.?.chunk.lines.pop();
 
             try self.emitReturn(locations[node]);

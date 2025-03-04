@@ -2081,10 +2081,11 @@ pub const VM = struct {
         // Is or will be JIT compiled, call and stop there
         if (!is_wasm and self.current_fiber.parent_fiber == null and
             try self.compileAndCall(
-            closure,
-            arg_count,
-            catch_value,
-        )) {
+                closure,
+                arg_count,
+                catch_value,
+            ))
+        {
             return;
         }
 
@@ -4439,10 +4440,15 @@ pub const VM = struct {
     }
 
     pub fn throw(self: *Self, code: Error, payload: Value, previous_stack: ?*std.ArrayList(CallFrame), previous_error_site: ?Ast.TokenIndex) Error!void {
-        var stack = if (previous_stack) |pstack|
-            pstack.*
+        var initial_stack = if (previous_stack == null)
+            std.ArrayList(CallFrame).init(self.gc.allocator)
         else
-            std.ArrayList(CallFrame).init(self.gc.allocator);
+            null;
+
+        var stack = if (previous_stack) |pstack|
+            pstack
+        else
+            &initial_stack.?;
         defer {
             if (previous_stack == null) {
                 stack.deinit();
@@ -4487,21 +4493,20 @@ pub const VM = struct {
                 // Raise the runtime error
                 // If object instance, does it have a str `message` field ?
                 const processed_payload =
-                    if (payload.isObj())
-                payload: {
-                    if (payload.obj().access(ObjObjectInstance, .ObjectInstance, self.gc)) |instance| {
-                        const object_def = instance.type_def.resolved_type.?.ObjectInstance.of
-                            .resolved_type.?.Object;
+                    if (payload.isObj()) payload: {
+                        if (payload.obj().access(ObjObjectInstance, .ObjectInstance, self.gc)) |instance| {
+                            const object_def = instance.type_def.resolved_type.?.ObjectInstance.of
+                                .resolved_type.?.Object;
 
-                        if (object_def.fields.get("message")) |field| {
-                            if (!field.method and !field.static) {
-                                break :payload instance.fields[field.index];
+                            if (object_def.fields.get("message")) |field| {
+                                if (!field.method and !field.static) {
+                                    break :payload instance.fields[field.index];
+                                }
                             }
                         }
-                    }
 
-                    break :payload payload;
-                } else payload;
+                        break :payload payload;
+                    } else payload;
 
                 const value_str = try processed_payload.toStringAlloc(self.gc.allocator);
                 defer self.gc.allocator.free(value_str);
@@ -4524,7 +4529,7 @@ pub const VM = struct {
                 try self.throw(
                     code,
                     payload,
-                    &stack,
+                    stack,
                     error_site,
                 );
 
@@ -4739,10 +4744,11 @@ pub const VM = struct {
         if (!is_wasm and
             self.current_fiber.parent_fiber == null and
             try self.compileAndCall(
-            closure,
-            arg_count,
-            catch_value,
-        )) {
+                closure,
+                arg_count,
+                catch_value,
+            ))
+        {
             return;
         }
 
@@ -5168,10 +5174,10 @@ pub const VM = struct {
         self.current_ast.nodes.items(.compilable)[closure.function.node] and
             self.jit != null and
             (
-        // Always on
-            BuildOptions.jit_always_on or
-            // Threshold reached
-            (closure.function.call_count > 10 and (@as(f128, @floatFromInt(closure.function.call_count)) / @as(f128, @floatFromInt(self.jit.?.call_count))) > BuildOptions.jit_prof_threshold)))
+                // Always on
+                BuildOptions.jit_always_on or
+                    // Threshold reached
+                    (closure.function.call_count > 10 and (@as(f128, @floatFromInt(closure.function.call_count)) / @as(f128, @floatFromInt(self.jit.?.call_count))) > BuildOptions.jit_prof_threshold)))
         {
             // Not blacklisted or already compiled
             self.current_ast.nodes.items(.compilable)[closure.function.node] =
@@ -5194,10 +5200,10 @@ pub const VM = struct {
             BuildOptions.jit_hotspot_on and
             // JIT compile all the thing?
             (
-        // Always compile
-            BuildOptions.jit_always_on or BuildOptions.jit_hotspot_always_on or
-            // Threshold reached
-            (count > 10 and (@as(f128, @floatFromInt(count)) / @as(f128, @floatFromInt(self.hotspots_count))) > BuildOptions.jit_prof_threshold)))
+                // Always compile
+                BuildOptions.jit_always_on or BuildOptions.jit_hotspot_always_on or
+                    // Threshold reached
+                    (count > 10 and (@as(f128, @floatFromInt(count)) / @as(f128, @floatFromInt(self.hotspots_count))) > BuildOptions.jit_prof_threshold)))
         {
             // It's not already done or blacklisted
             self.current_ast.nodes.items(.compilable)[node] = (self.jit.?.compiled_nodes.get(node) == null and self.jit.?.blacklisted_nodes.get(node) == null);

@@ -89,7 +89,7 @@ pub fn pop(ctx: *NativeCtx) callconv(.c) c_int {
     const list: *ObjList = ObjList.cast(ctx.vm.peek(0).obj()).?;
 
     if (list.items.items.len > 0) {
-        ctx.vm.push(list.items.pop());
+        ctx.vm.push(list.items.pop().?);
     } else {
         ctx.vm.push(Value.Null);
     }

@@ -11,13 +11,13 @@ const MimAllocator = struct {
     fn alloc(
         _: *anyopaque,
         len: usize,
-        log2_align: u8,
+        log2_align: mem.Alignment,
         _: usize,
     ) ?[*]u8 {
         return @ptrCast(
             mi.mi_malloc_aligned(
                 len,
-                @as(usize, 1) << @as(u6, @intCast(log2_align)),
+                log2_align.toByteUnits(),
             ),
         );
     }
@@ -25,7 +25,7 @@ const MimAllocator = struct {
     fn resize(
         _: *anyopaque,
         buf: []u8,
-        _: u8,
+        _: mem.Alignment,
         new_len: usize,
         _: usize,
     ) bool {
@@ -45,10 +45,23 @@ const MimAllocator = struct {
     fn free(
         _: *anyopaque,
         buf: []u8,
-        _: u8,
+        _: mem.Alignment,
         _: usize,
     ) void {
         mi.mi_free(buf.ptr);
+    }
+
+    fn remap(
+        ctx: *anyopaque,
+        buf: []u8,
+        log2_align: mem.Alignment,
+        new_len: usize,
+        return_address: usize,
+    ) ?[*]u8 {
+        return if (resize(ctx, buf, log2_align, new_len, return_address))
+            buf.ptr
+        else
+            null;
     }
 };
 
@@ -60,4 +73,5 @@ const mim_allocator_vtable = Allocator.VTable{
     .alloc = MimAllocator.alloc,
     .resize = MimAllocator.resize,
     .free = MimAllocator.free,
+    .remap = MimAllocator.remap,
 };
