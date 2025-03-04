@@ -14,6 +14,7 @@ const disassembler = @import("disassembler.zig");
 const CodeGen = @import("Codegen.zig");
 const Scanner = @import("Scanner.zig");
 const io = @import("io.zig");
+const run = @import("run.zig");
 
 pub const PROMPT = ">>> ";
 pub const MULTILINE_PROMPT = "... ";
