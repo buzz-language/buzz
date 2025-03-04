@@ -131,7 +131,7 @@ pub fn repl(allocator: std.mem.Allocator) !void {
         // gc.deinit();
         var it = imports.iterator();
         while (it.next()) |kv| {
-            kv.value_ptr.*.globals.deinit();
+            kv.value_ptr.*.globals.deinit(vm.gc.allocator);
         }
         imports.deinit(allocator);
         // TODO: free type_registry and its keys which are on the heap

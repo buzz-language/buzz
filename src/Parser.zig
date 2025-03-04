@@ -139,6 +139,68 @@ else
 
 const Self = @This();
 
+ast: Ast,
+gc: *GarbageCollector,
+scanner: ?Scanner = null,
+current_token: ?Ast.TokenIndex = null,
+script_name: []const u8 = undefined,
+/// If true the script is being imported
+imported: bool = false,
+/// True when parsing a declaration inside an export statement
+exporting: bool = false,
+/// Cached imported functions (shared across instances of Parser)
+imports: *std.StringHashMapUnmanaged(ScriptImport),
+/// Keep track of things imported by the current script
+script_imports: std.StringHashMapUnmanaged(LocalScriptImport),
+test_count: u64 = 0,
+// FIXME: use SinglyLinkedList instead of heap allocated ptrs
+current: ?*Frame = null,
+current_object: ?ObjectFrame = null,
+globals: std.ArrayListUnmanaged(Global),
+namespace: ?[]const Ast.TokenIndex = null,
+flavor: RunFlavor,
+ffi: FFI,
+reporter: Reporter,
+
+/// Jump to patch at end of current expression with a optional unwrapping in the middle of it
+opt_jumps: ?std.ArrayList(Precedence) = null,
+
+pub fn init(
+    gc: *GarbageCollector,
+    imports: *std.StringHashMapUnmanaged(ScriptImport),
+    imported: bool,
+    flavor: RunFlavor,
+) Self {
+    return .{
+        .gc = gc,
+        .imports = imports,
+        .script_imports = .{},
+        .imported = imported,
+        .globals = .{},
+        .flavor = flavor,
+        .reporter = Reporter{
+            .allocator = gc.allocator,
+            .error_prefix = "Syntax",
+            .collect = flavor == .Ast,
+        },
+        .ffi = FFI.init(gc),
+        .ast = Ast.init(gc.allocator),
+    };
+}
+
+pub fn deinit(self: *Self) void {
+    // for (self.globals.items) |global| {
+    //     self.gc.allocator.free(global.name);
+    // }
+    self.globals.deinit(self.gc.allocator);
+    self.script_imports.deinit(self.gc.allocator);
+    if (self.opt_jumps) |jumps| {
+        jumps.deinit();
+    }
+    self.ffi.deinit();
+    self.reporter.deinit();
+}
+
 extern fn dlerror() callconv(.c) [*:0]u8;
 
 pub fn defaultBuzzPrefix() []const u8 {
@@ -325,8 +387,9 @@ pub const ObjectFrame = struct {
 
 pub const ScriptImport = struct {
     function: Ast.Node.Index,
-    globals: std.ArrayList(Global),
+    globals: std.ArrayListUnmanaged(Global) = .{},
     absolute_path: *obj.ObjString,
+    imported_by: std.AutoHashMapUnmanaged(*Frame, void) = .{},
 };
 
 const LocalScriptImport = struct {
@@ -574,68 +637,6 @@ const rules = [_]ParseRule{
     .{}, // AmpersandEqual
     .{}, // PercentEqual
 };
-
-ast: Ast,
-gc: *GarbageCollector,
-scanner: ?Scanner = null,
-current_token: ?Ast.TokenIndex = null,
-script_name: []const u8 = undefined,
-/// If true the script is being imported
-imported: bool = false,
-/// True when parsing a declaration inside an export statement
-exporting: bool = false,
-/// Cached imported functions (shared across instances of Parser)
-imports: *std.StringHashMapUnmanaged(ScriptImport),
-/// Keep track of things imported by the current script
-script_imports: std.StringHashMapUnmanaged(LocalScriptImport),
-test_count: u64 = 0,
-// FIXME: use SinglyLinkedList instead of heap allocated ptrs
-current: ?*Frame = null,
-current_object: ?ObjectFrame = null,
-globals: std.ArrayListUnmanaged(Global),
-namespace: ?[]const Ast.TokenIndex = null,
-flavor: RunFlavor,
-ffi: FFI,
-reporter: Reporter,
-
-/// Jump to patch at end of current expression with a optional unwrapping in the middle of it
-opt_jumps: ?std.ArrayList(Precedence) = null,
-
-pub fn init(
-    gc: *GarbageCollector,
-    imports: *std.StringHashMapUnmanaged(ScriptImport),
-    imported: bool,
-    flavor: RunFlavor,
-) Self {
-    return .{
-        .gc = gc,
-        .imports = imports,
-        .script_imports = .{},
-        .imported = imported,
-        .globals = .{},
-        .flavor = flavor,
-        .reporter = Reporter{
-            .allocator = gc.allocator,
-            .error_prefix = "Syntax",
-            .collect = flavor == .Ast,
-        },
-        .ffi = FFI.init(gc),
-        .ast = Ast.init(gc.allocator),
-    };
-}
-
-pub fn deinit(self: *Self) void {
-    // for (self.globals.items) |global| {
-    //     self.gc.allocator.free(global.name);
-    // }
-    self.globals.deinit(self.gc.allocator);
-    self.script_imports.deinit(self.gc.allocator);
-    if (self.opt_jumps) |jumps| {
-        jumps.deinit();
-    }
-    self.ffi.deinit();
-    self.reporter.deinit();
-}
 
 pub fn reportErrorAtNode(self: *Self, error_type: Reporter.Error, node: Ast.Node.Index, comptime fmt: []const u8, args: anytype) void {
     self.reporter.reportErrorFmt(
@@ -8679,7 +8680,26 @@ fn importScript(
 ) Error!?ScriptImport {
     var import = self.imports.get(file_name);
 
-    if (import == null) {
+    if (import) |*uimport| {
+        if (uimport.imported_by.get(self.current.?) != null) {
+            const location = self.ast.tokens.get(path_token);
+            self.reporter.reportErrorFmt(
+                .import_already_exists,
+                location,
+                location,
+                "`{s}` already imported",
+                .{
+                    location.literal_string.?,
+                },
+            );
+        }
+
+        try uimport.imported_by.put(
+            self.gc.allocator,
+            self.current.?,
+            {},
+        );
+    } else {
         const source_and_path = if (is_wasm)
             self.readStaticScript(file_name)
         else
@@ -8711,9 +8731,14 @@ fn importScript(
 
             import = ScriptImport{
                 .function = self.ast.root.?,
-                .globals = .init(self.gc.allocator),
                 .absolute_path = try self.gc.copyString(source_and_path.?[1]),
             };
+
+            try import.?.imported_by.put(
+                self.gc.allocator,
+                self.current.?,
+                {},
+            );
 
             for (parser.globals.items) |*global| {
                 if (global.exported) {
@@ -8738,7 +8763,7 @@ fn importScript(
                     global.hidden = true;
                 }
 
-                try import.?.globals.append(global.*);
+                try import.?.globals.append(self.gc.allocator, global.*);
             }
 
             try self.imports.put(
