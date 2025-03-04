@@ -65,7 +65,7 @@ pub fn getLines(self: Self, allocator: mem.Allocator, before: usize, after: usiz
         }
 
         if (current > after_index) {
-            return lines.items;
+            return try lines.toOwnedSlice();
         }
     }
 

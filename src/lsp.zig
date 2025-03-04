@@ -60,12 +60,6 @@ const Document = struct {
             .Ast,
             null,
         );
-        defer {
-            parser.deinit();
-            codegen.deinit();
-            gc.deinit();
-            imports.deinit(allocator);
-        }
 
         const owned_uri = try allocator.dupe(u8, uri);
 
@@ -360,7 +354,6 @@ const Handler = struct {
         );
 
         var version = std.ArrayList(u8).init(allocator);
-        defer version.deinit();
 
         try version.writer().print(
             "{}-{s}",
@@ -842,7 +835,6 @@ const Handler = struct {
                     document.ast.slice().walk(self.allocator, ctx, root) catch |err| {
                         log.err("textDocument/documentSymbol: {!}", .{err});
 
-                        document.symbols.deinit(self.allocator);
                         document.symbols = .{};
                     };
 
