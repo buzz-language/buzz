@@ -1,11 +1,9 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const StringHashMap = std.StringHashMap;
-const _obj = @import("obj.zig");
+const o = @import("obj.zig");
 const VM = @import("vm.zig").VM;
 const GarbageCollector = @import("memory.zig").GarbageCollector;
-const Obj = _obj.Obj;
-const ObjTypeDef = _obj.ObjTypeDef;
 
 pub const Double = f64;
 pub const Integer = i32;
@@ -63,7 +61,7 @@ pub const Value = packed struct {
         return .{ .val = @as(u64, @bitCast(val)) };
     }
 
-    pub inline fn fromObj(val: *Obj) Value {
+    pub inline fn fromObj(val: *o.Obj) Value {
         return .{ .val = PointerMask | @intFromPtr(val) };
     }
 
@@ -115,8 +113,8 @@ pub const Value = packed struct {
         return @as(f64, @bitCast(self.val));
     }
 
-    pub inline fn obj(self: Value) *Obj {
-        return @as(*Obj, @ptrFromInt(@as(usize, @truncate(self.val & ~PointerMask))));
+    pub inline fn obj(self: Value) *o.Obj {
+        return @as(*o.Obj, @ptrFromInt(@as(usize, @truncate(self.val & ~PointerMask))));
     }
 
     pub inline fn booleanOrNull(self: Value) ?bool {
@@ -131,11 +129,11 @@ pub const Value = packed struct {
         return if (self.isFloat()) self.double() else null;
     }
 
-    pub inline fn objOrNull(self: Value) ?*Obj {
+    pub inline fn objOrNull(self: Value) ?*o.Obj {
         return if (self.isObj()) self.obj() else null;
     }
 
-    pub fn typeOf(self: Value, gc: *GarbageCollector) !*ObjTypeDef {
+    pub fn typeOf(self: Value, gc: *GarbageCollector) !*o.ObjTypeDef {
         if (self.isObj()) {
             return try self.obj().typeOf(gc);
         }
@@ -152,7 +150,7 @@ pub const Value = packed struct {
         };
     }
 
-    pub fn serialize(self: Value, vm: *VM, seen: *std.AutoHashMap(*Obj, void)) !Value {
+    pub fn serialize(self: Value, vm: *VM, seen: *std.AutoHashMap(*o.Obj, void)) !Value {
         if (self.isObj()) {
             return try self.obj().serialize(vm, seen);
         }
@@ -231,7 +229,7 @@ pub const Value = packed struct {
     }
 
     pub fn is(type_def_val: Value, value: Value) bool {
-        const type_def: *ObjTypeDef = ObjTypeDef.cast(type_def_val.obj()).?;
+        const type_def: *o.ObjTypeDef = o.ObjTypeDef.cast(type_def_val.obj()).?;
 
         if (type_def.def_type == .Any) {
             return true;
@@ -255,7 +253,7 @@ pub const Value = packed struct {
         };
     }
 
-    pub fn typeEql(value: Value, type_def: *ObjTypeDef) bool {
+    pub fn typeEql(value: Value, type_def: *o.ObjTypeDef) bool {
         if (value.isObj()) {
             return value.obj().typeEql(type_def);
         }

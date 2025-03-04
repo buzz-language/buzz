@@ -1,56 +1,32 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const _vm = @import("vm.zig");
-const Fiber = _vm.Fiber;
-const _value = @import("value.zig");
-const _obj = @import("obj.zig");
+const v = @import("vm.zig");
+const Value = @import("value.zig").Value;
+const o = @import("obj.zig");
 const dumpStack = @import("disassembler.zig").dumpStack;
 const BuildOptions = @import("build_options");
-const VM = @import("vm.zig").VM;
-const assert = std.debug.assert;
 const Token = @import("Token.zig");
 const buzz_api = @import("buzz_api.zig");
 const Reporter = @import("Reporter.zig");
 const is_wasm = builtin.cpu.arch.isWasm();
 const io = @import("io.zig");
 
-const Value = _value.Value;
-const Obj = _obj.Obj;
-const ObjString = _obj.ObjString;
-const ObjTypeDef = _obj.ObjTypeDef;
-const ObjUpValue = _obj.ObjUpValue;
-const ObjClosure = _obj.ObjClosure;
-const ObjFunction = _obj.ObjFunction;
-const ObjObjectInstance = _obj.ObjObjectInstance;
-const ObjObject = _obj.ObjObject;
-const ObjList = _obj.ObjList;
-const ObjMap = _obj.ObjMap;
-const ObjEnum = _obj.ObjEnum;
-const ObjEnumInstance = _obj.ObjEnumInstance;
-const ObjBoundMethod = _obj.ObjBoundMethod;
-const ObjNative = _obj.ObjNative;
-const ObjUserData = _obj.ObjUserData;
-const ObjPattern = _obj.ObjPattern;
-const ObjFiber = _obj.ObjFiber;
-const ObjForeignContainer = _obj.ObjForeignContainer;
-const ObjRange = _obj.ObjRange;
-
 pub const TypeRegistry = struct {
     const Self = @This();
 
     gc: *GarbageCollector,
-    registry: std.StringHashMap(*ObjTypeDef),
+    registry: std.StringHashMap(*o.ObjTypeDef),
 
     // Common types we reuse all the time
-    void_type: *ObjTypeDef,
-    str_type: *ObjTypeDef,
-    int_type: *ObjTypeDef,
-    float_type: *ObjTypeDef,
-    bool_type: *ObjTypeDef,
-    any_type: *ObjTypeDef,
-    pat_type: *ObjTypeDef,
-    ud_type: *ObjTypeDef,
-    rg_type: *ObjTypeDef,
+    void_type: *o.ObjTypeDef,
+    str_type: *o.ObjTypeDef,
+    int_type: *o.ObjTypeDef,
+    float_type: *o.ObjTypeDef,
+    bool_type: *o.ObjTypeDef,
+    any_type: *o.ObjTypeDef,
+    pat_type: *o.ObjTypeDef,
+    ud_type: *o.ObjTypeDef,
+    rg_type: *o.ObjTypeDef,
 
     // Buffer resused when we build a type key
     type_def_key_buffer: std.ArrayListUnmanaged(u8) = .{},
@@ -104,7 +80,7 @@ pub const TypeRegistry = struct {
         io.print("===========================\n\n", .{});
     }
 
-    pub fn getTypeDef(self: *Self, type_def: ObjTypeDef) !*ObjTypeDef {
+    pub fn getTypeDef(self: *Self, type_def: o.ObjTypeDef) !*o.ObjTypeDef {
         self.type_def_key_buffer.shrinkRetainingCapacity(0);
         try type_def.toString(&self.type_def_key_buffer.writer(self.gc.allocator));
 
@@ -115,7 +91,7 @@ pub const TypeRegistry = struct {
             }
         }
 
-        const type_def_ptr = try self.gc.allocateObject(ObjTypeDef, type_def);
+        const type_def_ptr = try self.gc.allocateObject(o.ObjTypeDef, type_def);
 
         if (BuildOptions.debug_placeholders or BuildOptions.debug_type_registry) {
             io.print(
@@ -141,10 +117,10 @@ pub const TypeRegistry = struct {
         return type_def_ptr;
     }
 
-    pub fn setTypeDef(self: *Self, type_def: *ObjTypeDef) !void {
+    pub fn setTypeDef(self: *Self, type_def: *o.ObjTypeDef) !void {
         const type_def_str = try type_def.toStringAlloc(self.gc.allocator);
 
-        assert(type_def.def_type != .Placeholder);
+        std.debug.assert(type_def.def_type != .Placeholder);
 
         _ = try self.registry.put(type_def_str, type_def);
 
@@ -159,7 +135,7 @@ pub const TypeRegistry = struct {
         }
     }
 
-    pub inline fn getTypeDefByName(self: *Self, name: []const u8) ?*ObjTypeDef {
+    pub inline fn getTypeDefByName(self: *Self, name: []const u8) ?*o.ObjTypeDef {
         return self.registry.get(name);
     }
 
@@ -194,31 +170,31 @@ pub const GarbageCollector = struct {
     };
 
     allocator: std.mem.Allocator,
-    strings: std.StringHashMapUnmanaged(*ObjString),
+    strings: std.StringHashMapUnmanaged(*o.ObjString),
     type_registry: TypeRegistry,
     bytes_allocated: usize = 0,
     // next_gc == next_full_gc at first so the first cycle is a full gc
     next_gc: usize = if (builtin.mode == .Debug) 1024 else 1024 * BuildOptions.initial_gc,
     next_full_gc: usize = if (builtin.mode == .Debug) 1024 else 1024 * BuildOptions.initial_gc,
     last_gc: ?Mode = null,
-    objects: std.DoublyLinkedList(*Obj) = .{},
-    gray_stack: std.ArrayListUnmanaged(*Obj),
-    active_vms: std.AutoHashMapUnmanaged(*VM, void),
-    // Obj being collected, useful to avoid setting object instance dirty while running its collector method
-    obj_collected: ?*Obj = null,
+    objects: std.DoublyLinkedList(*o.Obj) = .{},
+    gray_stack: std.ArrayListUnmanaged(*o.Obj),
+    active_vms: std.AutoHashMapUnmanaged(*v.VM, void),
+    // o.Obj being collected, useful to avoid setting object instance dirty while running its collector method
+    obj_collected: ?*o.Obj = null,
 
     debugger: ?GarbageCollectorDebugger,
     where: ?Token = null,
 
     // Types we generaly don't wan't to ever be collected
-    objfiber_members: []?*ObjNative,
-    objfiber_memberDefs: []?*ObjTypeDef,
-    objpattern_members: []?*ObjNative,
-    objpattern_memberDefs: []?*ObjTypeDef,
-    objstring_members: []?*ObjNative,
-    objstring_memberDefs: []?*ObjTypeDef,
-    objrange_memberDefs: []?*ObjTypeDef,
-    objrange_members: []?*ObjNative,
+    objfiber_members: []?*o.ObjNative,
+    objfiber_memberDefs: []?*o.ObjTypeDef,
+    objpattern_members: []?*o.ObjNative,
+    objpattern_memberDefs: []?*o.ObjTypeDef,
+    objstring_members: []?*o.ObjNative,
+    objstring_memberDefs: []?*o.ObjTypeDef,
+    objrange_memberDefs: []?*o.ObjTypeDef,
+    objrange_members: []?*o.ObjNative,
 
     full_collection_count: usize = 0,
     light_collection_count: usize = 0,
@@ -229,38 +205,38 @@ pub const GarbageCollector = struct {
     pub fn init(allocator: std.mem.Allocator) !Self {
         const self = Self{
             .allocator = allocator,
-            .strings = std.StringHashMapUnmanaged(*ObjString){},
+            .strings = std.StringHashMapUnmanaged(*o.ObjString){},
             .type_registry = undefined,
-            .gray_stack = std.ArrayListUnmanaged(*Obj){},
-            .active_vms = std.AutoHashMapUnmanaged(*VM, void){},
+            .gray_stack = std.ArrayListUnmanaged(*o.Obj){},
+            .active_vms = std.AutoHashMapUnmanaged(*v.VM, void){},
             .debugger = if (BuildOptions.gc_debug_access) GarbageCollectorDebugger.init(allocator) else null,
 
-            .objfiber_members = try allocator.alloc(?*ObjNative, ObjFiber.members.len),
-            .objfiber_memberDefs = try allocator.alloc(?*ObjTypeDef, ObjFiber.members.len),
-            .objpattern_members = try allocator.alloc(?*ObjNative, ObjPattern.members.len),
-            .objpattern_memberDefs = try allocator.alloc(?*ObjTypeDef, ObjPattern.members.len),
-            .objstring_members = try allocator.alloc(?*ObjNative, ObjString.members.len),
-            .objstring_memberDefs = try allocator.alloc(?*ObjTypeDef, ObjString.members.len),
-            .objrange_members = try allocator.alloc(?*ObjNative, ObjRange.members.len),
-            .objrange_memberDefs = try allocator.alloc(?*ObjTypeDef, ObjRange.members.len),
+            .objfiber_members = try allocator.alloc(?*o.ObjNative, o.ObjFiber.members.len),
+            .objfiber_memberDefs = try allocator.alloc(?*o.ObjTypeDef, o.ObjFiber.members.len),
+            .objpattern_members = try allocator.alloc(?*o.ObjNative, o.ObjPattern.members.len),
+            .objpattern_memberDefs = try allocator.alloc(?*o.ObjTypeDef, o.ObjPattern.members.len),
+            .objstring_members = try allocator.alloc(?*o.ObjNative, o.ObjString.members.len),
+            .objstring_memberDefs = try allocator.alloc(?*o.ObjTypeDef, o.ObjString.members.len),
+            .objrange_members = try allocator.alloc(?*o.ObjNative, o.ObjRange.members.len),
+            .objrange_memberDefs = try allocator.alloc(?*o.ObjTypeDef, o.ObjRange.members.len),
         };
 
-        for (0..ObjFiber.members.len) |i| {
+        for (0..o.ObjFiber.members.len) |i| {
             self.objfiber_members[i] = null;
             self.objfiber_memberDefs[i] = null;
         }
 
-        for (0..ObjPattern.members.len) |i| {
+        for (0..o.ObjPattern.members.len) |i| {
             self.objpattern_members[i] = null;
             self.objpattern_memberDefs[i] = null;
         }
 
-        for (0..ObjString.members.len) |i| {
+        for (0..o.ObjString.members.len) |i| {
             self.objstring_members[i] = null;
             self.objstring_memberDefs[i] = null;
         }
 
-        for (0..ObjRange.members.len) |i| {
+        for (0..o.ObjRange.members.len) |i| {
             self.objrange_members[i] = null;
             self.objrange_memberDefs[i] = null;
         }
@@ -268,7 +244,7 @@ pub const GarbageCollector = struct {
         return self;
     }
 
-    pub fn registerVM(self: *Self, vm: *VM) !void {
+    pub fn registerVM(self: *Self, vm: *v.VM) !void {
         try self.active_vms.put(
             self.allocator,
             vm,
@@ -276,8 +252,8 @@ pub const GarbageCollector = struct {
         );
     }
 
-    pub fn unregisterVM(self: *Self, vm: *VM) void {
-        assert(self.active_vms.remove(vm));
+    pub fn unregisterVM(self: *Self, vm: *v.VM) void {
+        std.debug.assert(self.active_vms.remove(vm));
     }
 
     pub fn deinit(self: *Self) void {
@@ -363,25 +339,25 @@ pub const GarbageCollector = struct {
         const obj: *T = try self.allocate(T);
         obj.* = data;
 
-        const object: *Obj = switch (T) {
-            ObjString => ObjString.toObj(obj),
-            ObjTypeDef => ObjTypeDef.toObj(obj),
-            ObjUpValue => ObjUpValue.toObj(obj),
-            ObjClosure => ObjClosure.toObj(obj),
-            ObjFunction => ObjFunction.toObj(obj),
-            ObjObjectInstance => ObjObjectInstance.toObj(obj),
-            ObjObject => ObjObject.toObj(obj),
-            ObjList => ObjList.toObj(obj),
-            ObjMap => ObjMap.toObj(obj),
-            ObjEnum => ObjEnum.toObj(obj),
-            ObjEnumInstance => ObjEnumInstance.toObj(obj),
-            ObjBoundMethod => ObjBoundMethod.toObj(obj),
-            ObjNative => ObjNative.toObj(obj),
-            ObjUserData => ObjUserData.toObj(obj),
-            ObjPattern => ObjPattern.toObj(obj),
-            ObjFiber => ObjFiber.toObj(obj),
-            ObjForeignContainer => ObjForeignContainer.toObj(obj),
-            ObjRange => ObjRange.toObj(obj),
+        const object: *o.Obj = switch (T) {
+            o.ObjString => o.ObjString.toObj(obj),
+            o.ObjTypeDef => o.ObjTypeDef.toObj(obj),
+            o.ObjUpValue => o.ObjUpValue.toObj(obj),
+            o.ObjClosure => o.ObjClosure.toObj(obj),
+            o.ObjFunction => o.ObjFunction.toObj(obj),
+            o.ObjObjectInstance => o.ObjObjectInstance.toObj(obj),
+            o.ObjObject => o.ObjObject.toObj(obj),
+            o.ObjList => o.ObjList.toObj(obj),
+            o.ObjMap => o.ObjMap.toObj(obj),
+            o.ObjEnum => o.ObjEnum.toObj(obj),
+            o.ObjEnumInstance => o.ObjEnumInstance.toObj(obj),
+            o.ObjBoundMethod => o.ObjBoundMethod.toObj(obj),
+            o.ObjNative => o.ObjNative.toObj(obj),
+            o.ObjUserData => o.ObjUserData.toObj(obj),
+            o.ObjPattern => o.ObjPattern.toObj(obj),
+            o.ObjFiber => o.ObjFiber.toObj(obj),
+            o.ObjForeignContainer => o.ObjForeignContainer.toObj(obj),
+            o.ObjRange => o.ObjRange.toObj(obj),
             else => {},
         };
 
@@ -398,24 +374,24 @@ pub const GarbageCollector = struct {
                 object,
                 self.where,
                 switch (T) {
-                    ObjString => .String,
-                    ObjTypeDef => .Type,
-                    ObjUpValue => .UpValue,
-                    ObjClosure => .Closure,
-                    ObjFunction => .Function,
-                    ObjObjectInstance => .ObjectInstance,
-                    ObjObject => .Object,
-                    ObjList => .List,
-                    ObjMap => .Map,
-                    ObjEnum => .Enum,
-                    ObjEnumInstance => .EnumInstance,
-                    ObjBoundMethod => .Bound,
-                    ObjNative => .Native,
-                    ObjUserData => .UserData,
-                    ObjPattern => .Pattern,
-                    ObjFiber => .Fiber,
-                    ObjForeignContainer => .ForeignContainer,
-                    ObjRange => .Range,
+                    o.ObjString => .String,
+                    o.ObjTypeDef => .Type,
+                    o.ObjUpValue => .UpValue,
+                    o.ObjClosure => .Closure,
+                    o.ObjFunction => .Function,
+                    o.ObjObjectInstance => .ObjectInstance,
+                    o.ObjObject => .Object,
+                    o.ObjList => .List,
+                    o.ObjMap => .Map,
+                    o.ObjEnum => .Enum,
+                    o.ObjEnumInstance => .EnumInstance,
+                    o.ObjBoundMethod => .Bound,
+                    o.ObjNative => .Native,
+                    o.ObjUserData => .UserData,
+                    o.ObjPattern => .Pattern,
+                    o.ObjFiber => .Fiber,
+                    o.ObjForeignContainer => .ForeignContainer,
+                    o.ObjRange => .Range,
                     else => @panic("Unknown object type being allocated"),
                 },
             );
@@ -424,8 +400,8 @@ pub const GarbageCollector = struct {
         return obj;
     }
 
-    fn addObject(self: *Self, obj: *Obj) !void {
-        const new_node = try self.allocator.create(std.DoublyLinkedList(*Obj).Node);
+    fn addObject(self: *Self, obj: *o.Obj) !void {
+        const new_node = try self.allocator.create(std.DoublyLinkedList(*o.Obj).Node);
         new_node.* = .{
             .data = obj,
         };
@@ -433,11 +409,11 @@ pub const GarbageCollector = struct {
         self.objects.prepend(new_node);
     }
 
-    pub fn allocateString(self: *Self, chars: []const u8) !*ObjString {
-        const string: *ObjString = try allocateObject(
+    pub fn allocateString(self: *Self, chars: []const u8) !*o.ObjString {
+        const string: *o.ObjString = try allocateObject(
             self,
-            ObjString,
-            ObjString{ .string = chars },
+            o.ObjString,
+            o.ObjString{ .string = chars },
         );
 
         try self.strings.put(
@@ -449,7 +425,7 @@ pub const GarbageCollector = struct {
         return string;
     }
 
-    pub fn copyString(self: *Self, chars: []const u8) !*ObjString {
+    pub fn copyString(self: *Self, chars: []const u8) !*o.ObjString {
         if (self.strings.get(chars)) |interned| {
             return interned;
         }
@@ -517,7 +493,7 @@ pub const GarbageCollector = struct {
         }
     }
 
-    pub fn markObjDirty(self: *Self, obj: *Obj) !void {
+    pub fn markObjDirty(self: *Self, obj: *o.Obj) !void {
         if (!obj.dirty and self.obj_collected != obj) {
             obj.dirty = true;
 
@@ -538,7 +514,7 @@ pub const GarbageCollector = struct {
         }
     }
 
-    pub fn markObj(self: *Self, obj: *Obj) !void {
+    pub fn markObj(self: *Self, obj: *o.Obj) !void {
         if (obj.marked or self.obj_collected == obj) {
             if (BuildOptions.gc_debug) {
                 io.print(
@@ -577,7 +553,7 @@ pub const GarbageCollector = struct {
         try self.gray_stack.append(self.allocator, obj);
     }
 
-    fn blackenObject(self: *Self, obj: *Obj) !void {
+    fn blackenObject(self: *Self, obj: *o.Obj) !void {
         if (BuildOptions.gc_debug) {
             io.print(
                 "blackening @{} {}\n",
@@ -591,24 +567,24 @@ pub const GarbageCollector = struct {
         obj.dirty = false;
 
         _ = try switch (obj.obj_type) {
-            .String => obj.access(ObjString, .String, self).?.mark(self),
-            .Type => obj.access(ObjTypeDef, .Type, self).?.mark(self),
-            .UpValue => obj.access(ObjUpValue, .UpValue, self).?.mark(self),
-            .Closure => obj.access(ObjClosure, .Closure, self).?.mark(self),
-            .Function => obj.access(ObjFunction, .Function, self).?.mark(self),
-            .ObjectInstance => obj.access(ObjObjectInstance, .ObjectInstance, self).?.mark(self),
-            .Object => obj.access(ObjObject, .Object, self).?.mark(self),
-            .List => obj.access(ObjList, .List, self).?.mark(self),
-            .Map => obj.access(ObjMap, .Map, self).?.mark(self),
-            .Enum => obj.access(ObjEnum, .Enum, self).?.mark(self),
-            .EnumInstance => obj.access(ObjEnumInstance, .EnumInstance, self).?.mark(self),
-            .Bound => obj.access(ObjBoundMethod, .Bound, self).?.mark(self),
-            .Native => obj.access(ObjNative, .Native, self).?.mark(self),
-            .UserData => obj.access(ObjUserData, .UserData, self).?.mark(self),
-            .Pattern => obj.access(ObjPattern, .Pattern, self).?.mark(self),
-            .Fiber => obj.access(ObjFiber, .Fiber, self).?.mark(self),
-            .ForeignContainer => obj.access(ObjForeignContainer, .ForeignContainer, self).?.mark(self),
-            .Range => obj.access(ObjRange, .Range, self).?.mark(self),
+            .String => obj.access(o.ObjString, .String, self).?.mark(self),
+            .Type => obj.access(o.ObjTypeDef, .Type, self).?.mark(self),
+            .UpValue => obj.access(o.ObjUpValue, .UpValue, self).?.mark(self),
+            .Closure => obj.access(o.ObjClosure, .Closure, self).?.mark(self),
+            .Function => obj.access(o.ObjFunction, .Function, self).?.mark(self),
+            .ObjectInstance => obj.access(o.ObjObjectInstance, .ObjectInstance, self).?.mark(self),
+            .Object => obj.access(o.ObjObject, .Object, self).?.mark(self),
+            .List => obj.access(o.ObjList, .List, self).?.mark(self),
+            .Map => obj.access(o.ObjMap, .Map, self).?.mark(self),
+            .Enum => obj.access(o.ObjEnum, .Enum, self).?.mark(self),
+            .EnumInstance => obj.access(o.ObjEnumInstance, .EnumInstance, self).?.mark(self),
+            .Bound => obj.access(o.ObjBoundMethod, .Bound, self).?.mark(self),
+            .Native => obj.access(o.ObjNative, .Native, self).?.mark(self),
+            .UserData => obj.access(o.ObjUserData, .UserData, self).?.mark(self),
+            .Pattern => obj.access(o.ObjPattern, .Pattern, self).?.mark(self),
+            .Fiber => obj.access(o.ObjFiber, .Fiber, self).?.mark(self),
+            .ForeignContainer => obj.access(o.ObjForeignContainer, .ForeignContainer, self).?.mark(self),
+            .Range => obj.access(o.ObjRange, .Range, self).?.mark(self),
         };
 
         if (BuildOptions.gc_debug) {
@@ -622,7 +598,7 @@ pub const GarbageCollector = struct {
         }
     }
 
-    fn freeObj(self: *Self, obj: *Obj) (std.mem.Allocator.Error || std.fmt.BufPrintError)!void {
+    fn freeObj(self: *Self, obj: *o.Obj) (std.mem.Allocator.Error || std.fmt.BufPrintError)!void {
         if (BuildOptions.gc_debug) {
             io.print(">> freeing {} {}\n", .{ @intFromPtr(obj), obj.obj_type });
         }
@@ -638,24 +614,24 @@ pub const GarbageCollector = struct {
 
         switch (obj.obj_type) {
             .String => {
-                const obj_string = ObjString.cast(obj).?;
+                const obj_string = o.ObjString.cast(obj).?;
 
                 // Remove it from interned strings
                 _ = self.strings.remove(obj_string.string);
 
                 freeMany(self, u8, obj_string.string);
-                free(self, ObjString, obj_string);
+                free(self, o.ObjString, obj_string);
             },
             .Pattern => {
-                var obj_pattern = ObjPattern.cast(obj).?;
+                var obj_pattern = o.ObjPattern.cast(obj).?;
                 if (!is_wasm) {
                     obj_pattern.pattern.free();
                 }
 
-                free(self, ObjPattern, obj_pattern);
+                free(self, o.ObjPattern, obj_pattern);
             },
             .Type => {
-                var obj_typedef = ObjTypeDef.cast(obj).?;
+                var obj_typedef = o.ObjTypeDef.cast(obj).?;
 
                 const str = try obj_typedef.toStringAlloc(self.allocator);
                 defer self.allocator.free(str);
@@ -683,32 +659,32 @@ pub const GarbageCollector = struct {
 
                 obj_typedef.deinit();
 
-                free(self, ObjTypeDef, obj_typedef);
+                free(self, o.ObjTypeDef, obj_typedef);
             },
             .UpValue => {
-                const obj_upvalue = ObjUpValue.cast(obj).?;
+                const obj_upvalue = o.ObjUpValue.cast(obj).?;
                 if (obj_upvalue.closed) |value| {
                     if (value.isObj()) {
                         try freeObj(self, value.obj());
                     }
                 }
 
-                free(self, ObjUpValue, obj_upvalue);
+                free(self, o.ObjUpValue, obj_upvalue);
             },
             .Closure => {
-                var obj_closure = ObjClosure.cast(obj).?;
+                var obj_closure = o.ObjClosure.cast(obj).?;
                 obj_closure.deinit(self.allocator);
 
-                free(self, ObjClosure, obj_closure);
+                free(self, o.ObjClosure, obj_closure);
             },
             .Function => {
-                var obj_function = ObjFunction.cast(obj).?;
+                var obj_function = o.ObjFunction.cast(obj).?;
                 obj_function.deinit();
 
-                free(self, ObjFunction, obj_function);
+                free(self, o.ObjFunction, obj_function);
             },
             .ObjectInstance => {
-                var obj_objectinstance = ObjObjectInstance.cast(obj).?;
+                var obj_objectinstance = o.ObjObjectInstance.cast(obj).?;
 
                 // Calling eventual destructor method
                 if (obj_objectinstance.object) |object| {
@@ -737,53 +713,53 @@ pub const GarbageCollector = struct {
 
                 obj_objectinstance.deinit(self.allocator);
 
-                free(self, ObjObjectInstance, obj_objectinstance);
+                free(self, o.ObjObjectInstance, obj_objectinstance);
             },
             .Object => {
-                var obj_object = ObjObject.cast(obj).?;
+                var obj_object = o.ObjObject.cast(obj).?;
                 obj_object.deinit(self.allocator);
 
-                free(self, ObjObject, obj_object);
+                free(self, o.ObjObject, obj_object);
             },
             .List => {
-                var obj_list = ObjList.cast(obj).?;
+                var obj_list = o.ObjList.cast(obj).?;
                 obj_list.deinit(self.allocator);
 
-                free(self, ObjList, obj_list);
+                free(self, o.ObjList, obj_list);
             },
             .Map => {
-                var obj_map = ObjMap.cast(obj).?;
+                var obj_map = o.ObjMap.cast(obj).?;
                 obj_map.deinit(self.allocator);
 
-                free(self, ObjMap, obj_map);
+                free(self, o.ObjMap, obj_map);
             },
             .Enum => {
-                const obj_enum = ObjEnum.cast(obj).?;
+                const obj_enum = o.ObjEnum.cast(obj).?;
                 self.allocator.free(obj_enum.cases);
 
-                free(self, ObjEnum, obj_enum);
+                free(self, o.ObjEnum, obj_enum);
             },
-            .EnumInstance => free(self, ObjEnumInstance, ObjEnumInstance.cast(obj).?),
-            .Bound => free(self, ObjBoundMethod, ObjBoundMethod.cast(obj).?),
-            .Native => free(self, ObjNative, ObjNative.cast(obj).?),
-            .UserData => free(self, ObjUserData, ObjUserData.cast(obj).?),
+            .EnumInstance => free(self, o.ObjEnumInstance, o.ObjEnumInstance.cast(obj).?),
+            .Bound => free(self, o.ObjBoundMethod, o.ObjBoundMethod.cast(obj).?),
+            .Native => free(self, o.ObjNative, o.ObjNative.cast(obj).?),
+            .UserData => free(self, o.ObjUserData, o.ObjUserData.cast(obj).?),
             .Fiber => {
-                var obj_fiber = ObjFiber.cast(obj).?;
+                var obj_fiber = o.ObjFiber.cast(obj).?;
                 obj_fiber.fiber.deinit();
 
                 self.allocator.destroy(obj_fiber.fiber);
 
-                free(self, ObjFiber, obj_fiber);
+                free(self, o.ObjFiber, obj_fiber);
             },
             .ForeignContainer => {
-                const obj_foreignstruct = ObjForeignContainer.cast(obj).?;
+                const obj_foreignstruct = o.ObjForeignContainer.cast(obj).?;
 
                 self.freeMany(u8, obj_foreignstruct.data);
 
-                free(self, ObjForeignContainer, obj_foreignstruct);
+                free(self, o.ObjForeignContainer, obj_foreignstruct);
             },
             .Range => {
-                free(self, ObjRange, ObjRange.cast(obj).?);
+                free(self, o.ObjRange, o.ObjRange.cast(obj).?);
             },
         }
     }
@@ -794,8 +770,8 @@ pub const GarbageCollector = struct {
         }
     }
 
-    pub fn markFiber(self: *Self, fiber: *Fiber) !void {
-        var current_fiber: ?*Fiber = fiber;
+    pub fn markFiber(self: *Self, fiber: *v.Fiber) !void {
+        var current_fiber: ?*v.Fiber = fiber;
         while (current_fiber) |ufiber| {
             try self.markObj(@constCast(ufiber.type_def.toObj()));
             // Mark main fiber
@@ -832,7 +808,7 @@ pub const GarbageCollector = struct {
                 io.print("MARKING UPVALUES OF FIBER @{}\n", .{@intFromPtr(ufiber)});
             }
             if (fiber.open_upvalues) |open_upvalues| {
-                var upvalue: ?*ObjUpValue = open_upvalues;
+                var upvalue: ?*o.ObjUpValue = open_upvalues;
                 while (upvalue) |unwrapped| : (upvalue = unwrapped.next) {
                     try self.markObj(unwrapped.toObj());
                 }
@@ -903,7 +879,7 @@ pub const GarbageCollector = struct {
         }
     }
 
-    fn markRoots(self: *Self, vm: *VM) !void {
+    fn markRoots(self: *Self, vm: *v.VM) !void {
         // FIXME: We should not need this, but we don't know how to prevent collection before the VM actually starts making reference to them
         try self.type_registry.mark();
 
@@ -962,7 +938,7 @@ pub const GarbageCollector = struct {
         const swept: usize = self.bytes_allocated;
 
         var obj_count: usize = 0;
-        var obj_node: ?*std.DoublyLinkedList(*Obj).Node = self.objects.first;
+        var obj_node: ?*std.DoublyLinkedList(*o.Obj).Node = self.objects.first;
         var count: usize = 0;
         while (obj_node) |node| : (count += 1) {
             if (node.data.marked) {
@@ -980,7 +956,7 @@ pub const GarbageCollector = struct {
 
                 obj_node = node.next;
             } else {
-                const unreached: *Obj = node.data;
+                const unreached: *o.Obj = node.data;
                 obj_node = node.next;
 
                 self.objects.remove(node);
@@ -992,7 +968,7 @@ pub const GarbageCollector = struct {
 
         if (BuildOptions.gc_debug or BuildOptions.gc_debug_light) {
             if (swept < self.bytes_allocated) {
-                io.print("Warn: sweep gained memory, possibly due to an Object collector that takes up memory\n", .{});
+                io.print("Warn: sweep gained memory, possibly due to an o.Object collector that takes up memory\n", .{});
             }
 
             io.print(
@@ -1093,20 +1069,20 @@ pub const GarbageCollectorDebugger = struct {
     const Self = @This();
 
     pub const Ptr = struct {
-        what: _obj.ObjType,
+        what: o.ObjType,
         allocated_at: ?Token,
         collected_at: ?Token = null,
     };
 
     allocator: std.mem.Allocator,
     reporter: Reporter,
-    tracker: std.AutoHashMapUnmanaged(*Obj, Ptr),
+    tracker: std.AutoHashMapUnmanaged(*o.Obj, Ptr),
     invoking_collector: bool = false,
 
     pub fn init(allocator: std.mem.Allocator) Self {
         return .{
             .allocator = allocator,
-            .tracker = std.AutoHashMapUnmanaged(*Obj, Ptr){},
+            .tracker = std.AutoHashMapUnmanaged(*o.Obj, Ptr){},
             .reporter = Reporter{
                 .allocator = allocator,
             },
@@ -1117,8 +1093,8 @@ pub const GarbageCollectorDebugger = struct {
         self.tracker.deinit(self.allocator);
     }
 
-    pub fn allocated(self: *Self, ptr: *Obj, at: ?Token, what: _obj.ObjType) void {
-        assert(self.tracker.get(ptr) == null);
+    pub fn allocated(self: *Self, ptr: *o.Obj, at: ?Token, what: o.ObjType) void {
+        std.debug.assert(self.tracker.get(ptr) == null);
         self.tracker.put(
             self.allocator,
             ptr,
@@ -1129,7 +1105,7 @@ pub const GarbageCollectorDebugger = struct {
         ) catch @panic("Could not track object");
     }
 
-    pub fn collected(self: *Self, ptr: *Obj, at: Token) void {
+    pub fn collected(self: *Self, ptr: *o.Obj, at: Token) void {
         if (self.tracker.getPtr(ptr)) |tracked| {
             if (tracked.collected_at) |collected_at| {
                 self.reporter.reportWithOrigin(
@@ -1152,7 +1128,7 @@ pub const GarbageCollectorDebugger = struct {
         }
     }
 
-    pub fn accessed(self: *Self, ptr: *Obj, at: ?Token) void {
+    pub fn accessed(self: *Self, ptr: *o.Obj, at: ?Token) void {
         if (self.invoking_collector) return;
 
         if (self.tracker.getPtr(ptr)) |tracked| {

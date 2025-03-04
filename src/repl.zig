@@ -3,39 +3,14 @@ const builtin = @import("builtin");
 const is_wasm = builtin.cpu.arch.isWasm();
 const BuildOptions = @import("build_options");
 
-const _vm = @import("vm.zig");
-const VM = _vm.VM;
-const ImportRegistry = _vm.ImportRegistry;
-const _mem = @import("memory.zig");
-const GarbageCollector = _mem.GarbageCollector;
-const TypeRegistry = _mem.TypeRegistry;
-const _obj = @import("obj.zig");
-const Obj = _obj.Obj;
-const ObjString = _obj.ObjString;
-const ObjPattern = _obj.ObjPattern;
-const ObjMap = _obj.ObjMap;
-const ObjUpValue = _obj.ObjUpValue;
-const ObjEnum = _obj.ObjEnum;
-const ObjEnumInstance = _obj.ObjEnumInstance;
-const ObjObject = _obj.ObjObject;
-const ObjObjectInstance = _obj.ObjObjectInstance;
-const ObjTypeDef = _obj.ObjTypeDef;
-const ObjFunction = _obj.ObjFunction;
-const ObjList = _obj.ObjList;
-const ObjUserData = _obj.ObjUserData;
-const ObjClosure = _obj.ObjClosure;
-const ObjNative = _obj.ObjNative;
-const ObjBoundMethod = _obj.ObjBoundMethod;
-const ObjFiber = _obj.ObjFiber;
-const ObjForeignContainer = _obj.ObjForeignContainer;
+const v = @import("vm.zig");
+const memory = @import("memory.zig");
+const obj = @import("obj.zig");
 const Parser = @import("Parser.zig");
-const CompileError = Parser.CompileError;
 const JIT = @import("Jit.zig");
 const ln = if (builtin.os.tag != .windows) @import("linenoise.zig") else void;
 const Value = @import("value.zig").Value;
 const disassembler = @import("disassembler.zig");
-const dumpStack = disassembler.dumpStack;
-const DumpState = disassembler.DumpState;
 const CodeGen = @import("Codegen.zig");
 const Scanner = @import("Scanner.zig");
 const io = @import("io.zig");
@@ -97,11 +72,11 @@ pub fn repl(allocator: std.mem.Allocator) !void {
     else
         false;
 
-    var import_registry = ImportRegistry.init(allocator);
-    var gc = try GarbageCollector.init(allocator);
-    gc.type_registry = try TypeRegistry.init(&gc);
+    var import_registry = v.ImportRegistry.init(allocator);
+    var gc = try memory.GarbageCollector.init(allocator);
+    gc.type_registry = try memory.TypeRegistry.init(&gc);
     var imports = std.StringHashMapUnmanaged(Parser.ScriptImport){};
-    var vm = try VM.init(&gc, &import_registry, .Repl);
+    var vm = try v.VM.init(&gc, &import_registry, .Repl);
     vm.jit = if (BuildOptions.jit and BuildOptions.cycle_limit == null)
         JIT.init(&vm)
     else
@@ -276,7 +251,7 @@ pub fn repl(allocator: std.mem.Allocator) !void {
 
                     var value_str = std.ArrayList(u8).init(vm.gc.allocator);
                     defer value_str.deinit();
-                    var state = DumpState.init(&vm);
+                    var state = disassembler.DumpState.init(&vm);
 
                     state.valueDump(
                         value,
@@ -327,10 +302,10 @@ pub fn repl(allocator: std.mem.Allocator) !void {
 fn runSource(
     source: []const u8,
     file_name: []const u8,
-    vm: *VM,
+    vm: *v.VM,
     codegen: *CodeGen,
     parser: *Parser,
-    gc: *GarbageCollector,
+    gc: *memory.GarbageCollector,
 ) !?Value {
     var total_timer = std.time.Timer.start() catch unreachable;
     var timer = try std.time.Timer.start();
@@ -363,7 +338,7 @@ fn runSource(
 
             running_time = timer.read();
         } else {
-            return CompileError.Recoverable;
+            return Parser.CompileError.Recoverable;
         }
 
         if (BuildOptions.show_perf) {
@@ -385,7 +360,7 @@ fn runSource(
     } else if (parser.reporter.last_error == .unclosed) {
         return null;
     } else {
-        return CompileError.Recoverable;
+        return Parser.CompileError.Recoverable;
     }
 
     return null;

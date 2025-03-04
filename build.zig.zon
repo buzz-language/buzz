@@ -5,19 +5,13 @@
     .minimum_zig_version = "0.14.0-dev.3460+6d29ef0ba",
     .dependencies = .{
         .clap = .{
-            .url = "git+https://github.com/Hejsil/zig-clap.git#068c38f89814079635692c7d0be9f58508c86173",
-            .hash = "1220ff14a53e9a54311c9b0e665afeda2c82cfd6f57e7e1b90768bf13b85f9f29cd0",
+            .url = "git+https://github.com/Hejsil/zig-clap.git#e47028deaefc2fb396d3d9e9f7bd776ae0b2a43a",
+            .hash = "clap-0.10.0-oBajB434AQBDh-Ei3YtoKIRxZacVPF1iSwp3IX_ZB8f0",
         },
         .zig_lsp_kit = .{
             .url = "git+https://github.com/buzz-language/zig-lsp-kit.git#fe16f27f41ca5ad7ffb4e3d73e9e2a5ed42b0cc9",
             .hash = "zig_lsp_kit-0.0.0-SaK5ApS9AACj10m7vj2CNyiD1k8LdA5jmKMAaEwQ71RY",
         },
     },
-    .paths = .{
-        "build.zig",
-        "build.zig.zon",
-        "src",
-        "LICENSE",
-        "README.md",
-    },
+    .paths = .{""},
 }
