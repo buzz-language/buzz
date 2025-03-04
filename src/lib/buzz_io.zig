@@ -45,11 +45,11 @@ pub export fn getStdErr(ctx: *api.NativeCtx) callconv(.c) c_int {
 pub export fn FileIsTTY(ctx: api.NativeCtx) callconv(.c) c_int {
     const handle: std.fs.File.Handle =
         if (builtin.os.tag == .windows)
-        @ptrFromInt(@as(usize, @intCast(ctx.vm.bz_peek(0).integer())))
-    else
-        @intCast(
-            ctx.vm.bz_peek(0).integer(),
-        );
+            @ptrFromInt(@as(usize, @intCast(ctx.vm.bz_peek(0).integer())))
+        else
+            @intCast(
+                ctx.vm.bz_peek(0).integer(),
+            );
 
     ctx.vm.bz_push(api.Value.fromBoolean(std.posix.isatty(handle)));
 
@@ -135,11 +135,11 @@ pub export fn FileOpen(ctx: *api.NativeCtx) callconv(.c) c_int {
 pub export fn FileClose(ctx: *api.NativeCtx) callconv(.c) c_int {
     const handle: std.fs.File.Handle =
         if (builtin.os.tag == .windows)
-        @ptrFromInt(@as(usize, @intCast(ctx.vm.bz_peek(0).integer())))
-    else
-        @intCast(
-            ctx.vm.bz_peek(0).integer(),
-        );
+            @ptrFromInt(@as(usize, @intCast(ctx.vm.bz_peek(0).integer())))
+        else
+            @intCast(
+                ctx.vm.bz_peek(0).integer(),
+            );
 
     const file: std.fs.File = std.fs.File{ .handle = handle };
     file.close();
@@ -183,11 +183,11 @@ fn handleFileReadWriteError(ctx: *api.NativeCtx, err: anytype) void {
 pub export fn FileReadAll(ctx: *api.NativeCtx) callconv(.c) c_int {
     const handle: std.fs.File.Handle =
         if (builtin.os.tag == .windows)
-        @ptrFromInt(@as(usize, @intCast(ctx.vm.bz_peek(1).integer())))
-    else
-        @intCast(
-            ctx.vm.bz_peek(1).integer(),
-        );
+            @ptrFromInt(@as(usize, @intCast(ctx.vm.bz_peek(1).integer())))
+        else
+            @intCast(
+                ctx.vm.bz_peek(1).integer(),
+            );
     const max_size = ctx.vm.bz_peek(0);
 
     const file: std.fs.File = std.fs.File{ .handle = handle };
@@ -255,11 +255,11 @@ fn handleFileReadLineError(ctx: *api.NativeCtx, err: anytype) void {
 pub export fn FileReadLine(ctx: *api.NativeCtx) callconv(.c) c_int {
     const handle: std.fs.File.Handle =
         if (builtin.os.tag == .windows)
-        @ptrFromInt(@as(usize, @intCast(ctx.vm.bz_peek(1).integer())))
-    else
-        @intCast(
-            ctx.vm.bz_peek(1).integer(),
-        );
+            @ptrFromInt(@as(usize, @intCast(ctx.vm.bz_peek(1).integer())))
+        else
+            @intCast(
+                ctx.vm.bz_peek(1).integer(),
+            );
     const max_size = ctx.vm.bz_peek(0);
 
     const file: std.fs.File = std.fs.File{ .handle = handle };
@@ -331,11 +331,11 @@ pub export fn FileRead(ctx: *api.NativeCtx) callconv(.c) c_int {
 
     const handle: std.fs.File.Handle =
         if (builtin.os.tag == .windows)
-        @ptrFromInt(@as(usize, @intCast(ctx.vm.bz_peek(1).integer())))
-    else
-        @intCast(
-            ctx.vm.bz_peek(1).integer(),
-        );
+            @ptrFromInt(@as(usize, @intCast(ctx.vm.bz_peek(1).integer())))
+        else
+            @intCast(
+                ctx.vm.bz_peek(1).integer(),
+            );
 
     if (n <= 255) {
         return fileSmallRead(ctx, handle, @intCast(n));
@@ -413,11 +413,11 @@ fn fileSmallRead(ctx: *api.NativeCtx, handle: std.fs.File.Handle, n: usize) c_in
 pub export fn FileWrite(ctx: *api.NativeCtx) callconv(.c) c_int {
     const handle: std.fs.File.Handle =
         if (builtin.os.tag == .windows)
-        @ptrFromInt(@as(usize, @intCast(ctx.vm.bz_peek(1).integer())))
-    else
-        @intCast(
-            ctx.vm.bz_peek(1).integer(),
-        );
+            @ptrFromInt(@as(usize, @intCast(ctx.vm.bz_peek(1).integer())))
+        else
+            @intCast(
+                ctx.vm.bz_peek(1).integer(),
+            );
 
     const file: std.fs.File = std.fs.File{ .handle = handle };
 

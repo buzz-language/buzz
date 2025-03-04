@@ -1,14 +1,16 @@
 .{
-    .name = "buzz",
+    .name = .buzz,
+    .fingerprint = 0x87514371589e863a,
     .version = "0.6.0",
+    .minimum_zig_version = "0.14.0-dev.3460+6d29ef0ba",
     .dependencies = .{
-        .@"zig-lsp-kit" = .{
-            .url = "git+https://github.com/buzz-language/zig-lsp-kit.git#abf564080429e6e3a075ad23bf5bd6b13cee0f9e",
-            .hash = "1220196a4cbd33b502a3ef02c9b729e3e1b0e558bcc063b7f393306f2387c0880ad6",
-        },
         .clap = .{
             .url = "git+https://github.com/Hejsil/zig-clap.git#068c38f89814079635692c7d0be9f58508c86173",
             .hash = "1220ff14a53e9a54311c9b0e665afeda2c82cfd6f57e7e1b90768bf13b85f9f29cd0",
+        },
+        .zig_lsp_kit = .{
+            .url = "git+https://github.com/buzz-language/zig-lsp-kit.git#fe16f27f41ca5ad7ffb4e3d73e9e2a5ed42b0cc9",
+            .hash = "zig_lsp_kit-0.0.0-SaK5ApS9AACj10m7vj2CNyiD1k8LdA5jmKMAaEwQ71RY",
         },
     },
     .paths = .{

@@ -951,7 +951,7 @@ pub const GarbageCollector = struct {
             io.print("TRACING REFERENCE\n", .{});
         }
         while (self.gray_stack.items.len > 0) {
-            try blackenObject(self, self.gray_stack.pop());
+            try blackenObject(self, self.gray_stack.pop().?);
         }
         if (BuildOptions.gc_debug) {
             io.print("DONE TRACING REFERENCE\n", .{});

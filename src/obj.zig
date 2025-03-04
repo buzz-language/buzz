@@ -3029,7 +3029,7 @@ pub const ObjList = struct {
             } else if ((self.mutable and (mem.eql(u8, method, "cloneImmutable") or
                 mem.eql(u8, method, "copyMutable"))) or
                 (!self.mutable and (mem.eql(u8, method, "cloneMutable") or
-                mem.eql(u8, method, "copyImmutable"))))
+                    mem.eql(u8, method, "copyImmutable"))))
             {
                 // We omit first arg: it'll be OP_SWAPed in and we already parsed it
                 // It's always the list.
@@ -4078,7 +4078,7 @@ pub const ObjMap = struct {
             } else if ((self.mutable and (mem.eql(u8, method, "cloneImmutable") or
                 mem.eql(u8, method, "copyMutable"))) or
                 (!self.mutable and (mem.eql(u8, method, "cloneMutable") or
-                mem.eql(u8, method, "copyImmutable"))))
+                    mem.eql(u8, method, "copyImmutable"))))
             {
                 // We omit first arg: it'll be OP_SWAPed in and we already parsed it
                 // It's always the list.
@@ -5473,9 +5473,9 @@ pub const ObjTypeDef = struct {
     pub fn strictEql(expected: *Self, actual: *Self) bool {
         const type_eql = (expected.resolved_type == null and actual.resolved_type == null and expected.def_type == actual.def_type) or
             (expected.resolved_type != null and actual.resolved_type != null and eqlTypeUnion(
-            expected.resolved_type.?,
-            actual.resolved_type.?,
-        ));
+                expected.resolved_type.?,
+                actual.resolved_type.?,
+            ));
 
         // TODO: in an ideal world comparing pointers should be enough, but typedef can come from different type_registries and we can't reconcile them like we can with strings
         // FIXME: previous comment should be wrong now? we do share type_registries between fibers and this should be enough ?

@@ -1027,8 +1027,8 @@ pub fn parse(self: *Self, source: []const u8, file_name: ?[]const u8, name: []co
             if (std.mem.eql(u8, self.ast.tokens.items(.lexeme)[global.name[global.name.len - 1]], "main") and
                 !global.hidden and
                 (self.namespace == null or
-                global.name.len == 1 or
-                global.matchNamespace(self.ast, self.namespace.?)))
+                    global.name.len == 1 or
+                    global.matchNamespace(self.ast, self.namespace.?)))
             {
                 entry.main_slot = index;
                 entry.main_location = global.name[global.name.len - 1];
@@ -1430,7 +1430,7 @@ fn declaration(self: *Self, docblock: ?Ast.TokenIndex) Error!?Ast.Node.Index {
         try self.funDeclaration()
     else if ((try self.match(.Final)) or
         (try self.match(.Var) or
-        (self.check(.Identifier) and std.mem.eql(u8, "_", self.ast.tokens.items(.lexeme)[self.current_token.?]))))
+            (self.check(.Identifier) and std.mem.eql(u8, "_", self.ast.tokens.items(.lexeme)[self.current_token.?]))))
     variable: {
         const final = self.current_token.? > 0 and self.ast.tokens.items(.tag)[self.current_token.? - 1] == .Final;
         try self.consume(.Identifier, "Expected identifier");
@@ -1546,10 +1546,10 @@ fn declarationOrStatement(self: *Self, loop_scope: ?LoopScope) !?Ast.Node.Index 
 
     return try self.declaration(docblock) orelse
         try self.statement(
-        docblock,
-        false,
-        loop_scope,
-    );
+            docblock,
+            false,
+            loop_scope,
+        );
 }
 
 // When a break statement, will return index of jump to patch
@@ -2455,10 +2455,10 @@ fn declareVariable(
             for (self.globals.items, 0..) |*global, index| {
                 if (!std.mem.eql(u8, name_lexeme, "_") and
                     global.matchName(
-                    self.ast,
-                    self.namespace orelse &[_]Ast.TokenIndex{},
-                    name,
-                ) and
+                        self.ast,
+                        self.namespace orelse &[_]Ast.TokenIndex{},
+                        name,
+                    ) and
                     !global.hidden)
                 {
                     // If we found a placeholder with that name, try to resolve it with `variable_type`
@@ -7850,9 +7850,9 @@ fn enumDeclaration(self: *Self) Error!Ast.Node.Index {
 
     const enum_case_type_node =
         if (try self.match(.Less))
-        try self.parseTypeDef(null, true)
-    else
-        null;
+            try self.parseTypeDef(null, true)
+        else
+            null;
 
     if (enum_case_type_node != null) {
         try self.consume(.Greater, "Expected `>` after enum type.");
@@ -8578,8 +8578,11 @@ fn readStaticScript(self: *Self, file_name: []const u8) ?[2][]const u8 {
             file_name,
         }
     else none: {
-        self.reportErrorFmt(
+        const location = self.ast.tokens.get(self.current_token.? - 1);
+        self.reporter.reportErrorFmt(
             .script_not_found,
+            location,
+            location,
             "buzz script `{s}` not found",
             .{
                 file_name,
@@ -8853,8 +8856,11 @@ fn importStaticLibSymbol(self: *Self, file_name: []const u8, symbol: []const u8)
         null;
 
     if (symbol_ptr == null) {
-        self.reportErrorFmt(
+        const location = self.ast.tokens.get(self.current_token.? - 1);
+        self.reporter.reportErrorFmt(
             .symbol_not_found,
+            location,
+            location,
             "Could not find symbol `{s}` in lib `{s}` (only std libraries can be imported from a WASM build)",
             .{
                 symbol,
