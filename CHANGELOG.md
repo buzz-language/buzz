@@ -2,12 +2,14 @@
 
 # Added
 
+- First working version of a LSP thanks to [zig-lsp-kit](https://github.com/kristoff-it/zig-lsp-kit) (https://github.com/buzz-language/buzz/issues/16)
 - File polling API: `File.getPoller`, `FilePoller` (see example https://github.com/buzz-language/buzz/blob/main/tests/manual/007-fd-poller.buzz)
 - _Shortcut_ operators: `+=`, `-=`, `*=`, etc. (https://github.com/buzz-language/buzz/issues/78)
 - `rg.contains`
 
 # Changed
 
+- `int` are now `i48` instead of `i32` (https://github.com/buzz-language/buzz/issues/306). If you're wondering why, it's because all buzz values live in a NaN boxed f64 and the maximum bits available for an integer in there is 48. However, C ABI does not understand `i48` so we're still stuck with `i32` in FFI for now.
 - `main` signature can omit `args` argument
 - Maximum number of enum cases is now 16 777 215 instead of 255
 - `pattern.match` returns now a list of `obj{ start: int, end: int, capture: str }` and `matchAll` a list of those lists

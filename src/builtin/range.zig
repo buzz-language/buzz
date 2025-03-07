@@ -1,5 +1,5 @@
 const obj = @import("../obj.zig");
-const Value = @import("../value.zig").Value;
+const v = @import("../value.zig");
 
 pub fn toList(ctx: *obj.NativeCtx) callconv(.c) c_int {
     const range = ctx.vm.peek(0).obj().access(obj.ObjRange, .Range, ctx.vm.gc).?;
@@ -31,20 +31,20 @@ pub fn toList(ctx: *obj.NativeCtx) callconv(.c) c_int {
         unreachable;
     };
 
-    ctx.vm.push(Value.fromObj(list.toObj()));
+    ctx.vm.push(v.Value.fromObj(list.toObj()));
 
     if (range.low < range.high) {
-        var i: i32 = range.low;
+        var i: v.Integer = range.low;
         while (i < range.high) : (i += 1) {
-            list.rawAppend(ctx.vm.gc, Value.fromInteger(i)) catch {
+            list.rawAppend(ctx.vm.gc, v.Value.fromInteger(i)) catch {
                 ctx.vm.panic("Out of memory");
                 unreachable;
             };
         }
     } else {
-        var i: i32 = range.low;
+        var i: v.Integer = range.low;
         while (i > range.high) : (i -= 1) {
-            list.rawAppend(ctx.vm.gc, Value.fromInteger(i)) catch {
+            list.rawAppend(ctx.vm.gc, v.Value.fromInteger(i)) catch {
                 ctx.vm.panic("Out of memory");
                 unreachable;
             };
@@ -58,7 +58,7 @@ pub fn len(ctx: *obj.NativeCtx) callconv(.c) c_int {
     const range = ctx.vm.peek(0).obj().access(obj.ObjRange, .Range, ctx.vm.gc).?;
 
     ctx.vm.push(
-        Value.fromInteger(
+        v.Value.fromInteger(
             if (range.low < range.high)
                 range.high - range.low
             else
@@ -73,7 +73,7 @@ pub fn invert(ctx: *obj.NativeCtx) callconv(.c) c_int {
     const range = ctx.vm.peek(0).obj().access(obj.ObjRange, .Range, ctx.vm.gc).?;
 
     ctx.vm.push(
-        Value.fromObj((ctx.vm.gc.allocateObject(
+        v.Value.fromObj((ctx.vm.gc.allocateObject(
             obj.ObjRange,
             .{
                 .high = range.low,
@@ -93,7 +93,7 @@ pub fn subsetOf(ctx: *obj.NativeCtx) callconv(.c) c_int {
     const rangeB = ctx.vm.peek(0).obj().access(obj.ObjRange, .Range, ctx.vm.gc).?;
 
     ctx.vm.push(
-        Value.fromBoolean(
+        v.Value.fromBoolean(
             @min(rangeA.low, rangeA.high) >= @min(rangeB.low, rangeB.high) and
                 @max(rangeA.low, rangeA.high) <= @max(rangeB.low, rangeB.high),
         ),
@@ -107,7 +107,7 @@ pub fn intersect(ctx: *obj.NativeCtx) callconv(.c) c_int {
     const rangeB = ctx.vm.peek(0).obj().access(obj.ObjRange, .Range, ctx.vm.gc).?;
 
     ctx.vm.push(
-        Value.fromObj((ctx.vm.gc.allocateObject(
+        v.Value.fromObj((ctx.vm.gc.allocateObject(
             obj.ObjRange,
             .{
                 .high = @max(
@@ -133,7 +133,7 @@ pub fn @"union"(ctx: *obj.NativeCtx) callconv(.c) c_int {
     const rangeB = ctx.vm.peek(0).obj().access(obj.ObjRange, .Range, ctx.vm.gc).?;
 
     ctx.vm.push(
-        Value.fromObj((ctx.vm.gc.allocateObject(
+        v.Value.fromObj((ctx.vm.gc.allocateObject(
             obj.ObjRange,
             .{
                 .high = @min(
@@ -156,7 +156,7 @@ pub fn @"union"(ctx: *obj.NativeCtx) callconv(.c) c_int {
 
 pub fn high(ctx: *obj.NativeCtx) callconv(.c) c_int {
     ctx.vm.push(
-        Value.fromInteger(
+        v.Value.fromInteger(
             ctx.vm.peek(0).obj().access(obj.ObjRange, .Range, ctx.vm.gc).?.high,
         ),
     );
@@ -166,7 +166,7 @@ pub fn high(ctx: *obj.NativeCtx) callconv(.c) c_int {
 
 pub fn low(ctx: *obj.NativeCtx) callconv(.c) c_int {
     ctx.vm.push(
-        Value.fromInteger(
+        v.Value.fromInteger(
             ctx.vm.peek(0).obj().access(obj.ObjRange, .Range, ctx.vm.gc).?.low,
         ),
     );
@@ -179,7 +179,7 @@ pub fn contains(ctx: *obj.NativeCtx) callconv(.c) c_int {
     const value = ctx.vm.peek(0).integer();
 
     ctx.vm.push(
-        Value.fromBoolean(
+        v.Value.fromBoolean(
             (range.high >= range.low and value >= range.low and value < range.high) or
                 (range.low >= range.high and value >= range.high and value < range.low),
         ),

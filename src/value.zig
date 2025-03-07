@@ -6,7 +6,7 @@ const VM = @import("vm.zig").VM;
 const GarbageCollector = @import("memory.zig").GarbageCollector;
 
 pub const Double = f64;
-pub const Integer = i32;
+pub const Integer = i48;
 const Tag = u3;
 
 pub const Value = packed struct {
@@ -22,23 +22,21 @@ pub const Value = packed struct {
 
     /// QNAN and one extra bit to the right.
     pub const TaggedValueMask: u64 = 0x7ffc000000000000;
+    pub const TaggedUpperValueMask: u64 = 0xffff000000000000;
 
     /// TaggedMask + Sign bit indicates a pointer value.
     pub const PointerMask: u64 = TaggedValueMask | SignMask;
-
     pub const BooleanMask: u64 = TaggedValueMask | (@as(u64, TagBoolean) << 32);
     pub const FalseMask: u64 = BooleanMask;
     pub const TrueBitMask: u64 = 1;
     pub const TrueMask: u64 = BooleanMask | TrueBitMask;
-
-    // FIXME: Their's room to have a bigger integer. How would MIR handle it?
-    pub const IntegerMask: u64 = TaggedValueMask | (@as(u64, TagInteger) << 32);
+    pub const IntegerMask: u64 = TaggedValueMask | (@as(u64, TagInteger) << 49);
     pub const NullMask: u64 = TaggedValueMask | (@as(u64, TagNull) << 32);
     pub const VoidMask: u64 = TaggedValueMask | (@as(u64, TagVoid) << 32);
     pub const ErrorMask: u64 = TaggedValueMask | (@as(u64, TagError) << 32);
 
     pub const TagMask: u32 = (1 << 3) - 1;
-    pub const TaggedPrimitiveMask = TaggedValueMask | (@as(u64, TagMask) << 32);
+    pub const TaggedPrimitiveMask = TaggedValueMask | (@as(u64, TagMask) << 32) | IntegerMask;
 
     val: u64,
 
@@ -53,11 +51,11 @@ pub const Value = packed struct {
         return if (val) True else False;
     }
 
-    pub inline fn fromInteger(val: i32) Value {
-        return .{ .val = IntegerMask | @as(u32, @bitCast(val)) };
+    pub inline fn fromInteger(val: Integer) Value {
+        return .{ .val = IntegerMask | @as(u48, @bitCast(val)) };
     }
 
-    pub inline fn fromFloat(val: f64) Value {
+    pub inline fn fromDouble(val: Double) Value {
         return .{ .val = @as(u64, @bitCast(val)) };
     }
 
@@ -74,15 +72,15 @@ pub const Value = packed struct {
     }
 
     pub inline fn isInteger(self: Value) bool {
-        return self.val & (TaggedPrimitiveMask | SignMask) == IntegerMask;
+        return self.val & (TaggedUpperValueMask | SignMask) == IntegerMask;
     }
 
-    pub inline fn isFloat(self: Value) bool {
+    pub inline fn isDouble(self: Value) bool {
         return !self.isBool() and !self.isError() and !self.isInteger() and !self.isNull() and !self.isObj() and !self.isVoid();
     }
 
     pub inline fn isNumber(self: Value) bool {
-        return self.isFloat() or self.isInteger();
+        return self.isDouble() or self.isInteger();
     }
 
     pub inline fn isObj(self: Value) bool {
@@ -105,28 +103,28 @@ pub const Value = packed struct {
         return self.val == TrueMask;
     }
 
-    pub inline fn integer(self: Value) i32 {
-        return @as(i32, @bitCast(@as(u32, @intCast(self.val & 0xffffffff))));
+    pub inline fn integer(self: Value) Integer {
+        return @bitCast(@as(u48, @intCast(self.val & 0xffffffffffff)));
     }
 
-    pub inline fn double(self: Value) f64 {
-        return @as(f64, @bitCast(self.val));
+    pub inline fn double(self: Value) Double {
+        return @bitCast(self.val);
     }
 
     pub inline fn obj(self: Value) *o.Obj {
-        return @as(*o.Obj, @ptrFromInt(@as(usize, @truncate(self.val & ~PointerMask))));
+        return @ptrFromInt(@as(usize, @truncate(self.val & ~PointerMask)));
     }
 
     pub inline fn booleanOrNull(self: Value) ?bool {
         return if (self.isBool()) self.boolean() else null;
     }
 
-    pub inline fn integerOrNull(self: Value) ?i32 {
+    pub inline fn integerOrNull(self: Value) ?Integer {
         return if (self.isInteger()) self.integer() else null;
     }
 
-    pub inline fn floatOrNull(self: Value) ?f64 {
-        return if (self.isFloat()) self.double() else null;
+    pub inline fn doubleOrNull(self: Value) ?Double {
+        return if (self.isDouble()) self.double() else null;
     }
 
     pub inline fn objOrNull(self: Value) ?*o.Obj {
@@ -138,13 +136,16 @@ pub const Value = packed struct {
             return try self.obj().typeOf(gc);
         }
 
-        if (self.isFloat()) {
+        if (self.isDouble()) {
             return gc.type_registry.float_type;
+        }
+
+        if (self.isInteger()) {
+            return gc.type_registry.int_type;
         }
 
         return switch (self.getTag()) {
             TagBoolean => gc.type_registry.bool_type,
-            TagInteger => gc.type_registry.int_type,
             TagNull, TagVoid => gc.type_registry.void_type,
             else => gc.type_registry.float_type,
         };
@@ -173,14 +174,18 @@ pub const Value = packed struct {
             return;
         }
 
-        if (self.isFloat()) {
+        if (self.isDouble()) {
             try writer.print("{d}", .{self.double()});
+            return;
+        }
+
+        if (self.isInteger()) {
+            try writer.print("{d}", .{self.integer()});
             return;
         }
 
         switch (self.getTag()) {
             TagBoolean => try writer.print("{}", .{self.boolean()}),
-            TagInteger => try writer.print("{d}", .{self.integer()}),
             TagNull => try writer.print("null", .{}),
             TagVoid => try writer.print("void", .{}),
             else => try writer.print("{d}", .{self.double()}),
@@ -199,21 +204,21 @@ pub const Value = packed struct {
             return a.obj().eql(b.obj());
         }
 
-        if (a.isInteger() or a.isFloat()) {
-            const a_f: ?f64 = if (a.isFloat()) a.double() else null;
-            const b_f: ?f64 = if (b.isFloat()) b.double() else null;
-            const a_i: ?i32 = if (a.isInteger()) a.integer() else null;
-            const b_i: ?i32 = if (b.isInteger()) b.integer() else null;
+        if (a.isInteger() or a.isDouble()) {
+            const a_f = if (a.isDouble()) a.double() else null;
+            const b_f = if (b.isDouble()) b.double() else null;
+            const a_i = if (a.isInteger()) a.integer() else null;
+            const b_i = if (b.isInteger()) b.integer() else null;
 
             if (a_f) |af| {
                 if (b_f) |bf| {
                     return af == bf;
                 } else {
-                    return af == @as(f64, @floatFromInt(b_i.?));
+                    return af == @as(Double, @floatFromInt(b_i.?));
                 }
             } else {
                 if (b_f) |bf| {
-                    return @as(f64, @floatFromInt(a_i.?)) == bf;
+                    return @as(Double, @floatFromInt(a_i.?)) == bf;
                 } else {
                     return a_i.? == b_i.?;
                 }
@@ -239,13 +244,16 @@ pub const Value = packed struct {
             return value.obj().is(type_def);
         }
 
-        if (value.isFloat()) {
+        if (value.isDouble()) {
             return type_def.def_type == .Double;
+        }
+
+        if (value.isInteger()) {
+            return type_def.def_type == .Integer;
         }
 
         return switch (value.getTag()) {
             TagBoolean => type_def.def_type == .Bool,
-            TagInteger => type_def.def_type == .Integer,
             // TODO: this one is ambiguous at runtime, is it the `null` constant? or an optional local with a null value?
             TagNull => type_def.def_type == .Void or type_def.optional,
             TagVoid => type_def.def_type == .Void,
@@ -258,13 +266,16 @@ pub const Value = packed struct {
             return value.obj().typeEql(type_def);
         }
 
-        if (value.isFloat()) {
+        if (value.isDouble()) {
             return type_def.def_type == .Double;
+        }
+
+        if (value.isInteger()) {
+            return type_def.def_type == .Integer;
         }
 
         return switch (value.getTag()) {
             TagBoolean => type_def.def_type == .Bool,
-            TagInteger => type_def.def_type == .Integer,
             // TODO: this one is ambiguous at runtime, is it the `null` constant? or an optional local with a null value?
             TagNull => type_def.def_type == .Void or type_def.optional,
             TagVoid => type_def.def_type == .Void,

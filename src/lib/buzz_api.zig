@@ -12,6 +12,9 @@ else
 pub const Native = fn (ctx: *NativeCtx) callconv(.C) c_int;
 pub const NativeFn = *const Native;
 
+pub const Double = f64;
+pub const Integer = i48;
+
 // FIXME: can we avoid duplicating this code from value.zig?
 const Tag = u3;
 const TagBoolean: Tag = 0;
@@ -26,6 +29,7 @@ const SignMask: u64 = 1 << 63;
 
 /// QNAN and one extra bit to the right.
 const TaggedValueMask: u64 = 0x7ffc000000000000;
+pub const TaggedUpperValueMask: u64 = 0xffff000000000000;
 
 /// TaggedMask + Sign bit indicates a pointer value.
 const PointerMask: u64 = TaggedValueMask | SignMask;
@@ -34,14 +38,13 @@ const BooleanMask: u64 = TaggedValueMask | (@as(u64, TagBoolean) << 32);
 const FalseMask: u64 = BooleanMask;
 const TrueBitMask: u64 = 1;
 const TrueMask: u64 = BooleanMask | TrueBitMask;
-
-const IntegerMask: u64 = TaggedValueMask | (@as(u64, TagInteger) << 32);
+const IntegerMask: u64 = TaggedValueMask | (@as(u64, TagInteger) << 49);
 const NullMask: u64 = TaggedValueMask | (@as(u64, TagNull) << 32);
 const VoidMask: u64 = TaggedValueMask | (@as(u64, TagVoid) << 32);
 const ErrorMask: u64 = TaggedValueMask | (@as(u64, TagError) << 32);
 
 const TagMask: u32 = (1 << 3) - 1;
-const TaggedPrimitiveMask = TaggedValueMask | (@as(u64, TagMask) << 32);
+const TaggedPrimitiveMask = TaggedValueMask | (@as(u64, TagMask) << 32) | IntegerMask;
 
 pub const Value = packed struct {
     val: u64,
@@ -57,11 +60,11 @@ pub const Value = packed struct {
         return if (val) True else False;
     }
 
-    pub inline fn fromInteger(val: i32) Value {
-        return .{ .val = IntegerMask | @as(u32, @bitCast(val)) };
+    pub inline fn fromInteger(val: Integer) Value {
+        return .{ .val = IntegerMask | @as(u48, @bitCast(val)) };
     }
 
-    pub inline fn fromFloat(val: f64) Value {
+    pub inline fn fromDouble(val: Double) Value {
         return .{ .val = @as(u64, @bitCast(val)) };
     }
 
@@ -78,7 +81,7 @@ pub const Value = packed struct {
     }
 
     pub inline fn isInteger(self: Value) bool {
-        return self.val & (TaggedPrimitiveMask | SignMask) == IntegerMask;
+        return self.val & (TaggedUpperValueMask | SignMask) == IntegerMask;
     }
 
     pub inline fn isFloat(self: Value) bool {
@@ -109,16 +112,16 @@ pub const Value = packed struct {
         return self.val == TrueMask;
     }
 
-    pub inline fn integer(self: Value) i32 {
-        return @bitCast(@as(u32, @intCast(self.val & 0xffffffff)));
+    pub inline fn integer(self: Value) Integer {
+        return @bitCast(@as(u48, @intCast(self.val & 0xffffffffffff)));
     }
 
-    pub inline fn double(self: Value) f64 {
+    pub inline fn double(self: Value) Double {
         return @bitCast(self.val);
     }
 
     pub inline fn obj(self: Value) *anyopaque {
-        return @ptrFromInt(self.val & ~PointerMask);
+        return @ptrFromInt(@as(usize, @truncate(self.val & ~PointerMask)));
     }
 
     pub extern fn bz_valueToString(value: Value, len: *usize) ?[*]const u8;
@@ -139,7 +142,7 @@ pub const Value = packed struct {
     pub extern fn bz_rangeNext(range_value: Value, index_slot: Value) callconv(.c) Value;
     pub extern fn bz_getRangeProperty(range_value: Value, property_idx: usize, bind: bool, vm: *VM) callconv(.c) Value;
     pub extern fn bz_listAppend(list: Value, value: Value, vm: *VM) callconv(.c) void;
-    pub extern fn bz_listGet(list: Value, index: i32, checked: bool) callconv(.c) Value;
+    pub extern fn bz_listGet(list: Value, index: i64, checked: bool) callconv(.c) Value;
     pub extern fn bz_listSet(list: Value, index: usize, value: Value, vm: *VM) callconv(.c) void;
     pub extern fn bz_listLen(list: Value) callconv(.c) usize;
     pub extern fn bz_listConcat(list: Value, other_list: Value, vm: *VM) callconv(.c) Value;
@@ -253,7 +256,7 @@ pub const VM = opaque {
     pub extern fn bz_getMapProperty(vm: *VM, map: Value, property_idx: usize, bind: bool) callconv(.c) Value;
     pub extern fn bz_getPatternProperty(vm: *VM, pattern: Value, property_idx: usize) callconv(.c) Value;
     pub extern fn bz_getFiberProperty(vm: *VM, fiber: Value, property_idx: usize) callconv(.c) Value;
-    pub extern fn bz_newRange(vm: *VM, low: i32, high: i32) callconv(.c) Value;
+    pub extern fn bz_newRange(vm: *VM, low: i64, high: i64) callconv(.c) Value;
     pub extern fn bz_newList(vm: *VM, list_type: Value) callconv(.c) Value;
     pub extern fn bz_newMap(vm: *VM, map_type: Value) callconv(.c) Value;
     pub extern fn bz_newQualifiedObjectInstance(self: *VM, qualified_name: [*]const u8, len: usize, mutable: bool) callconv(.c) Value;

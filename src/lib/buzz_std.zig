@@ -26,7 +26,7 @@ pub export fn random(ctx: *api.NativeCtx) callconv(.c) c_int {
     ctx.vm.bz_push(
         api.Value.fromInteger(
             std.crypto.random.intRangeAtMost(
-                i32,
+                api.Integer,
                 if (min.isInteger())
                     min.integer()
                 else
@@ -70,7 +70,7 @@ pub export fn toDouble(ctx: *api.NativeCtx) callconv(.c) c_int {
     const value = ctx.vm.bz_peek(0);
 
     ctx.vm.bz_push(
-        api.Value.fromFloat(@floatFromInt(value.integer())),
+        api.Value.fromDouble(@floatFromInt(value.integer())),
     );
 
     return 1;
@@ -105,7 +105,7 @@ pub export fn parseInt(ctx: *api.NativeCtx) callconv(.c) c_int {
 
     const string_slice = string.?[0..len];
 
-    const number = std.fmt.parseInt(i32, string_slice, 10) catch {
+    const number = std.fmt.parseInt(api.Integer, string_slice, 10) catch {
         ctx.vm.bz_push(api.Value.Null);
 
         return 1;
@@ -166,7 +166,7 @@ pub export fn parseDouble(ctx: *api.NativeCtx) callconv(.c) c_int {
         return 1;
     };
 
-    ctx.vm.bz_push(api.Value.fromFloat(number));
+    ctx.vm.bz_push(api.Value.fromDouble(number));
 
     return 1;
 }

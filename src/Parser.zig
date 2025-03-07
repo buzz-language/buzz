@@ -5,7 +5,9 @@ const BuildOptions = @import("build_options");
 const obj = @import("obj.zig");
 const Token = @import("Token.zig");
 const Chunk = @import("Chunk.zig");
-const Value = @import("value.zig").Value;
+const v = @import("value.zig");
+const Value = v.Value;
+const Integer = v.Integer;
 const FFI = @import("FFI.zig");
 const Ast = @import("Ast.zig");
 const GarbageCollector = @import("memory.zig").GarbageCollector;
@@ -7912,7 +7914,7 @@ fn enumDeclaration(self: *Self) Error!Ast.Node.Index {
     var cases = std.ArrayList(Ast.Enum.Case).init(self.gc.allocator);
     var def_cases = std.ArrayList([]const u8).init(self.gc.allocator);
     var picked = std.ArrayList(bool).init(self.gc.allocator);
-    var case_index: i32 = 0;
+    var case_index: v.Integer = 0;
     while (!self.check(.RightBrace) and !self.check(.Eof)) : (case_index += 1) {
         if (case_index > std.math.maxInt(u24)) {
             const location = self.ast.tokens.get(self.current_token.? - 1);
