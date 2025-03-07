@@ -1,13 +1,7 @@
 const std = @import("std");
-const _obj = @import("../obj.zig");
-const ObjPattern = _obj.ObjPattern;
-const ObjString = _obj.ObjString;
-const ObjList = _obj.ObjList;
-const ObjTypeDef = _obj.ObjTypeDef;
-const NativeCtx = _obj.NativeCtx;
+const o = @import("../obj.zig");
 const VM = @import("../vm.zig").VM;
-const _value = @import("../value.zig");
-const Value = _value.Value;
+const v = @import("../value.zig");
 const builtin = @import("builtin");
 const is_wasm = builtin.cpu.arch.isWasm();
 const Token = @import("../Token.zig");
@@ -66,12 +60,12 @@ const fake_token: Token = .{
 };
 
 // Return match anonymous object type: obj{ start: int, end: int, capture: str }
-fn matchType(vm: *VM) !*ObjTypeDef {
+fn matchType(vm: *VM) !*o.ObjTypeDef {
     if (vm.gc.type_registry.registry.get(".{ capture: str, start: int, end: int }")) |type_def| {
         return type_def;
     }
 
-    var object_def = _obj.ObjObject.ObjectDef.init(
+    var object_def = o.ObjObject.ObjectDef.init(
         fake_token,
         try vm.gc.copyString("match"),
         try vm.gc.copyString("builtin.match"),
@@ -139,12 +133,12 @@ fn matchType(vm: *VM) !*ObjTypeDef {
     );
 }
 
-fn rawMatch(self: *ObjPattern, vm: *VM, subject: *ObjString, offset: *usize) !?*ObjList {
+fn rawMatch(self: *o.ObjPattern, vm: *VM, subject: *o.ObjString, offset: *usize) !?*o.ObjList {
     if (subject.string.len == 0) {
         return null;
     }
 
-    var results: ?*ObjList = null;
+    var results: ?*o.ObjList = null;
     var match_data = self.pattern.createMatchData(null) orelse {
         vm.panic("Out of memory");
         unreachable;
@@ -173,15 +167,15 @@ fn rawMatch(self: *ObjPattern, vm: *VM, subject: *ObjString, offset: *usize) !?*
             offset.* = @intCast(output_vector[1]);
 
             results = try vm.gc.allocateObject(
-                ObjList,
-                try ObjList.init(
+                o.ObjList,
+                try o.ObjList.init(
                     vm.gc.allocator,
                     try vm.gc.type_registry.getTypeDef(
                         .{
                             .def_type = .List,
                             .optional = false,
                             .resolved_type = .{
-                                .List = ObjList.ListDef.init(
+                                .List = o.ObjList.ListDef.init(
                                     vm.gc.type_registry.str_type,
                                     false,
                                 ),
@@ -199,8 +193,8 @@ fn rawMatch(self: *ObjPattern, vm: *VM, subject: *ObjString, offset: *usize) !?*
             var i: usize = 0;
             while (i < rc) : (i += 1) {
                 const match_instance = try vm.gc.allocateObject(
-                    _obj.ObjObjectInstance,
-                    try _obj.ObjObjectInstance.init(
+                    o.ObjObjectInstance,
+                    try o.ObjObjectInstance.init(
                         vm,
                         null,
                         match_type,
@@ -209,9 +203,9 @@ fn rawMatch(self: *ObjPattern, vm: *VM, subject: *ObjString, offset: *usize) !?*
                 );
 
                 // start
-                match_instance.fields[2] = Value.fromInteger(@intCast(output_vector[2 * i]));
+                match_instance.fields[2] = v.Value.fromInteger(@intCast(output_vector[2 * i]));
                 // end
-                match_instance.fields[1] = Value.fromInteger(@intCast(output_vector[2 * i + 1]));
+                match_instance.fields[1] = v.Value.fromInteger(@intCast(output_vector[2 * i + 1]));
                 // capture
                 match_instance.fields[0] = (try vm.gc.copyString(
                     subject.string[@intCast(output_vector[2 * i])..@intCast(output_vector[2 * i + 1])],
@@ -230,26 +224,26 @@ fn rawMatch(self: *ObjPattern, vm: *VM, subject: *ObjString, offset: *usize) !?*
     return results;
 }
 
-fn rawMatchAll(self: *ObjPattern, vm: *VM, subject: *ObjString) !?*ObjList {
+fn rawMatchAll(self: *o.ObjPattern, vm: *VM, subject: *o.ObjString) !?*o.ObjList {
     if (subject.string.len == 0) {
         return null;
     }
 
-    var results: ?*ObjList = null;
+    var results: ?*o.ObjList = null;
     var offset: usize = 0;
     while (true) {
         if (try rawMatch(self, vm, subject, &offset)) |matches| {
             const was_null = results == null;
             results = results orelse try vm.gc.allocateObject(
-                ObjList,
-                try ObjList.init(
+                o.ObjList,
+                try o.ObjList.init(
                     vm.gc.allocator,
                     try vm.gc.type_registry.getTypeDef(
                         .{
                             .def_type = .List,
                             .optional = false,
                             .resolved_type = .{
-                                .List = ObjList.ListDef.init(
+                                .List = o.ObjList.ListDef.init(
                                     matches.type_def,
                                     false,
                                 ),
@@ -280,7 +274,7 @@ fn rawMatchAll(self: *ObjPattern, vm: *VM, subject: *ObjString) !?*ObjList {
     return results;
 }
 
-fn rawReplace(self: *ObjPattern, vm: *VM, subject: *ObjString, replacement: *ObjString, offset: *usize) !*ObjString {
+fn rawReplace(self: *o.ObjPattern, vm: *VM, subject: *o.ObjString, replacement: *o.ObjString, offset: *usize) !*o.ObjString {
     if (subject.string.len == 0) {
         return subject;
     }
@@ -324,7 +318,7 @@ fn rawReplace(self: *ObjPattern, vm: *VM, subject: *ObjString, replacement: *Obj
     return try vm.gc.copyString(result.items);
 }
 
-fn rawReplaceAll(self: *ObjPattern, vm: *VM, subject: *ObjString, replacement: *ObjString) !*ObjString {
+fn rawReplaceAll(self: *o.ObjPattern, vm: *VM, subject: *o.ObjString, replacement: *o.ObjString) !*o.ObjString {
     if (subject.string.len == 0) {
         return subject;
     }
@@ -350,9 +344,9 @@ fn rawReplaceAll(self: *ObjPattern, vm: *VM, subject: *ObjString, replacement: *
     return current;
 }
 
-pub fn match(ctx: *NativeCtx) callconv(.c) c_int {
-    const self = ObjPattern.cast(ctx.vm.peek(1).obj()).?;
-    const subject = ObjString.cast(ctx.vm.peek(0).obj()).?;
+pub fn match(ctx: *o.NativeCtx) callconv(.c) c_int {
+    const self = o.ObjPattern.cast(ctx.vm.peek(1).obj()).?;
+    const subject = o.ObjString.cast(ctx.vm.peek(0).obj()).?;
 
     var offset: usize = 0;
     if (rawMatch(
@@ -366,16 +360,16 @@ pub fn match(ctx: *NativeCtx) callconv(.c) c_int {
     }) |results| {
         ctx.vm.push(results.toValue());
     } else {
-        ctx.vm.push(Value.Null);
+        ctx.vm.push(v.Value.Null);
     }
 
     return 1;
 }
 
-pub fn replace(ctx: *NativeCtx) callconv(.c) c_int {
-    const self = ObjPattern.cast(ctx.vm.peek(2).obj()).?;
-    const subject = ObjString.cast(ctx.vm.peek(1).obj()).?;
-    const replacement = ObjString.cast(ctx.vm.peek(0).obj()).?;
+pub fn replace(ctx: *o.NativeCtx) callconv(.c) c_int {
+    const self = o.ObjPattern.cast(ctx.vm.peek(2).obj()).?;
+    const subject = o.ObjString.cast(ctx.vm.peek(1).obj()).?;
+    const replacement = o.ObjString.cast(ctx.vm.peek(0).obj()).?;
 
     if (!is_wasm) {
         var offset: usize = 0;
@@ -432,9 +426,9 @@ pub fn replace(ctx: *NativeCtx) callconv(.c) c_int {
     return 1;
 }
 
-pub fn matchAll(ctx: *NativeCtx) callconv(.c) c_int {
-    const self = ObjPattern.cast(ctx.vm.peek(1).obj()).?;
-    const subject = ObjString.cast(ctx.vm.peek(0).obj()).?;
+pub fn matchAll(ctx: *o.NativeCtx) callconv(.c) c_int {
+    const self = o.ObjPattern.cast(ctx.vm.peek(1).obj()).?;
+    const subject = o.ObjString.cast(ctx.vm.peek(0).obj()).?;
 
     if (rawMatchAll(
         self,
@@ -446,16 +440,16 @@ pub fn matchAll(ctx: *NativeCtx) callconv(.c) c_int {
     }) |results| {
         ctx.vm.push(results.toValue());
     } else {
-        ctx.vm.push(Value.Null);
+        ctx.vm.push(v.Value.Null);
     }
 
     return 1;
 }
 
-pub fn replaceAll(ctx: *NativeCtx) callconv(.c) c_int {
-    const self = ObjPattern.cast(ctx.vm.peek(2).obj()).?;
-    const subject = ObjString.cast(ctx.vm.peek(1).obj()).?;
-    const replacement = ObjString.cast(ctx.vm.peek(0).obj()).?;
+pub fn replaceAll(ctx: *o.NativeCtx) callconv(.c) c_int {
+    const self = o.ObjPattern.cast(ctx.vm.peek(2).obj()).?;
+    const subject = o.ObjString.cast(ctx.vm.peek(1).obj()).?;
+    const replacement = o.ObjString.cast(ctx.vm.peek(0).obj()).?;
 
     if (!is_wasm) {
         const result = rawReplaceAll(

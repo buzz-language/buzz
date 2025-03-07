@@ -135,7 +135,7 @@ const Buffer = struct {
         try self.buffer.append(if (value) 1 else 0);
     }
 
-    pub fn readInteger(self: *Self) !?i32 {
+    pub fn readInteger(self: *Self) !?api.Integer {
         if (self.cursor > self.buffer.items.len) {
             return null;
         }
@@ -143,14 +143,14 @@ const Buffer = struct {
         var buffer_stream = std.io.fixedBufferStream(self.buffer.items[self.cursor..self.buffer.items.len]);
         var reader = buffer_stream.reader();
 
-        const number = try reader.readInt(i32, builtin.cpu.arch.endian());
+        const number = try reader.readInt(api.Integer, builtin.cpu.arch.endian());
 
-        self.cursor += @sizeOf(i32);
+        self.cursor += @divExact(@typeInfo(api.Integer).int.bits, 8);
 
         return number;
     }
 
-    pub fn writeInteger(self: *Self, integer: i32) !void {
+    pub fn writeInteger(self: *Self, integer: api.Integer) !void {
         if (self.cursor > 0) {
             return Error.WriteWhileReading;
         }
@@ -158,7 +158,7 @@ const Buffer = struct {
         var writer = self.buffer.writer();
 
         // Flag so we know it an integer
-        try writer.writeInt(i32, integer, native_endian);
+        try writer.writeInt(api.Integer, integer, native_endian);
     }
 
     pub fn readUserData(self: *Self, vm: *api.VM) !?api.Value {
@@ -191,7 +191,7 @@ const Buffer = struct {
         );
     }
 
-    pub fn readFloat(self: *Self) !?f64 {
+    pub fn readDouble(self: *Self) !?api.Double {
         if (self.cursor > self.buffer.items.len) {
             return null;
         }
@@ -201,19 +201,18 @@ const Buffer = struct {
 
         const number = try reader.readInt(u64, builtin.cpu.arch.endian());
 
-        self.cursor += @sizeOf(f64);
+        self.cursor += @divExact(@typeInfo(u64).int.bits, 8);
 
         return @bitCast(number);
     }
 
-    pub fn writeFloat(self: *Self, double: f64) !void {
+    pub fn writeFloat(self: *Self, double: api.Double) !void {
         if (self.cursor > 0) {
             return Error.WriteWhileReading;
         }
 
         var writer = self.buffer.writer();
 
-        // Flag so we know it an double
         try writer.writeInt(
             u64,
             @as(u64, @bitCast(double)),
@@ -365,7 +364,7 @@ pub export fn BufferReadUserData(ctx: *api.NativeCtx) callconv(.c) c_int {
 pub export fn BufferReadDouble(ctx: *api.NativeCtx) callconv(.c) c_int {
     const buffer = Buffer.fromUserData(ctx.vm.bz_peek(0).bz_getUserDataPtr());
 
-    if (buffer.readFloat() catch |err| {
+    if (buffer.readDouble() catch |err| {
         switch (err) {
             error.EndOfStream => {
                 ctx.vm.bz_push(api.Value.Null);
@@ -374,7 +373,7 @@ pub export fn BufferReadDouble(ctx: *api.NativeCtx) callconv(.c) c_int {
             },
         }
     }) |value| {
-        ctx.vm.bz_push(api.Value.fromFloat(value));
+        ctx.vm.bz_push(api.Value.fromDouble(value));
 
         return 1;
     }

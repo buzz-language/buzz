@@ -1,7 +1,8 @@
 const std = @import("std");
 const Ast = @import("Ast.zig");
 const o = @import("obj.zig");
-const Value = @import("value.zig").Value;
+const v = @import("value.zig");
+const Value = v.Value;
 const m = @import("mir.zig");
 const builtin = @import("builtin");
 const BuildOptions = @import("build_options");
@@ -1131,19 +1132,68 @@ fn buildValueFromBoolean(self: *Self, value: m.MIR_op_t, dest: m.MIR_op_t) void 
     self.append(out_label);
 }
 
-fn buildValueToInteger(self: *Self, value: m.MIR_op_t, dest: m.MIR_op_t) void {
-    self.ANDS(
-        dest,
-        value,
-        m.MIR_new_uint_op(self.ctx, 0xffffffff),
+fn buildValueToInteger(self: *Self, value: m.MIR_op_t, dest: m.MIR_op_t) !void {
+    const inter = m.MIR_new_reg_op(
+        self.ctx,
+        try self.REG(
+            "inter",
+            m.MIR_T_I64,
+        ),
     );
+
+    // Extract i48
+    self.AND(
+        inter,
+        value,
+        m.MIR_new_uint_op(self.ctx, 0xffffffffffff),
+    );
+
+    const is_neg = m.MIR_new_reg_op(
+        self.ctx,
+        try self.REG(
+            "is_neg",
+            m.MIR_T_I64,
+        ),
+    );
+
+    const out_label = m.MIR_new_label(self.ctx);
+    self.AND(
+        is_neg,
+        inter,
+        m.MIR_new_uint_op(self.ctx, 1 << 47),
+    );
+
+    // If 48th bit is 1, means the i48 is negative
+    self.BEQ(
+        m.MIR_new_label_op(self.ctx, out_label),
+        is_neg,
+        m.MIR_new_uint_op(self.ctx, 0),
+    );
+
+    // Extend sign by filling upper bits with 1s
+    self.OR(
+        inter,
+        inter,
+        m.MIR_new_uint_op(self.ctx, @bitCast(~@as(i64, 0xFFFFFFFFFFFF))),
+    );
+
+    self.append(out_label);
+
+    self.MOV(dest, inter);
 }
 
 fn buildValueFromInteger(self: *Self, value: m.MIR_op_t, dest: m.MIR_op_t) void {
+    // Get rid of upper bits
+    self.AND(
+        dest,
+        value,
+        m.MIR_new_uint_op(self.ctx, @bitCast(@as(i64, 0xFFFFFFFFFFFF))),
+    );
+
     self.OR(
         dest,
         m.MIR_new_uint_op(self.ctx, Value.IntegerMask),
-        value,
+        dest,
     );
 }
 
@@ -1762,14 +1812,14 @@ fn generateNamedVariable(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
         null;
     const is_constant_fn = function_type != null and function_type.? != .Extern and function_type.? != .Anonymous;
 
-    const value = if (components.value) |v|
-        try self.generateNode(v)
+    const value = if (components.value) |val|
+        try self.generateNode(val)
     else
         null;
 
     switch (components.slot_type) {
         .Global => {
-            if (value) |v| {
+            if (value) |val| {
                 std.debug.assert(!is_constant_fn);
 
                 if (tags[components.assign_token.?] != .Equal) {
@@ -1779,11 +1829,11 @@ fn generateNamedVariable(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
                         tags[components.assign_token.?],
                         type_def.?.def_type,
                         global,
-                        v,
+                        val,
                         global,
                     );
                 } else {
-                    try self.buildSetGlobal(components.slot, v);
+                    try self.buildSetGlobal(components.slot, val);
                 }
 
                 return null;
@@ -1810,7 +1860,7 @@ fn generateNamedVariable(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
             }
         },
         .Local => {
-            if (value) |v| {
+            if (value) |val| {
                 if (tags[components.assign_token.?] != .Equal) {
                     const local = try self.buildGetLocal(components.slot);
 
@@ -1818,13 +1868,13 @@ fn generateNamedVariable(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
                         tags[components.assign_token.?],
                         type_def.?.def_type,
                         local,
-                        v,
+                        val,
                         local,
                     );
 
                     try self.buildSetLocal(components.slot, local);
                 } else {
-                    try self.buildSetLocal(components.slot, v);
+                    try self.buildSetLocal(components.slot, val);
                 }
 
                 return null;
@@ -1833,7 +1883,7 @@ fn generateNamedVariable(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
             return try self.buildGetLocal(components.slot);
         },
         .UpValue => {
-            if (value) |v| {
+            if (value) |val| {
                 if (tags[components.assign_token.?] != .Equal) {
                     const upvalue = m.MIR_new_reg_op(
                         self.ctx,
@@ -1853,7 +1903,7 @@ fn generateNamedVariable(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
                         tags[components.assign_token.?],
                         type_def.?.def_type,
                         upvalue,
-                        v,
+                        val,
                         upvalue,
                     );
                 } else {
@@ -1863,7 +1913,7 @@ fn generateNamedVariable(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
                         &[_]m.MIR_op_t{
                             m.MIR_new_reg_op(self.ctx, self.state.?.ctx_reg.?),
                             m.MIR_new_uint_op(self.ctx, components.slot),
-                            v,
+                            val,
                         },
                     );
                 }
@@ -2618,7 +2668,7 @@ fn buildBinary(
         .Plus, .PlusEqual => {
             switch (def_type) {
                 .Integer => {
-                    self.ADDS(dest, left, right);
+                    self.ADD(dest, left, right);
                     try self.wrap(.Integer, dest, dest);
                 },
                 .Double => {
@@ -2664,7 +2714,7 @@ fn buildBinary(
         .Minus, .MinusEqual => {
             switch (def_type) {
                 .Integer => {
-                    self.SUBS(dest, left, right);
+                    self.SUB(dest, left, right);
                     try self.wrap(.Integer, dest, dest);
                 },
                 .Double => {
@@ -2677,7 +2727,7 @@ fn buildBinary(
         .Star, .StarEqual => {
             switch (def_type) {
                 .Integer => {
-                    self.MULS(dest, left, right);
+                    self.MUL(dest, left, right);
                     try self.wrap(.Integer, dest, dest);
                 },
                 .Double => {
@@ -2690,7 +2740,7 @@ fn buildBinary(
         .Slash, .SlashEqual => {
             switch (def_type) {
                 .Integer => {
-                    self.DIVS(dest, left, right);
+                    self.DIV(dest, left, right);
                     try self.wrap(.Integer, dest, dest);
                 },
                 .Double => {
@@ -2703,7 +2753,7 @@ fn buildBinary(
         .Percent, .PercentEqual => {
             switch (def_type) {
                 .Integer => {
-                    self.MODS(dest, left, right);
+                    self.MOD(dest, left, right);
                     try self.wrap(.Integer, dest, dest);
                 },
                 .Double => {
@@ -2914,10 +2964,10 @@ fn generateComparison(self: *Self, components: Ast.Binary) Error!?m.MIR_op_t {
                 try self.wrap(.Bool, res, res);
             } else {
                 switch (components.operator) {
-                    .Greater => self.GTS(res, left, right),
-                    .Less => self.LTS(res, left, right),
-                    .GreaterEqual => self.GES(res, left, right),
-                    .LessEqual => self.LES(res, left, right),
+                    .Greater => self.GT(res, left, right),
+                    .Less => self.LT(res, left, right),
+                    .GreaterEqual => self.GE(res, left, right),
+                    .LessEqual => self.LE(res, left, right),
                     else => unreachable,
                 }
 
@@ -4438,7 +4488,7 @@ fn generateUnary(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
     switch (components.operator) {
         .Bnot => {
             try self.unwrap(.Integer, left, result);
-            self.NOTS(result, result);
+            self.NOT(result, result);
             try self.wrap(.Integer, result, result);
         },
         .Bang => {
@@ -4473,7 +4523,7 @@ fn generateUnary(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
             try self.unwrap(.Integer, left, result);
 
             if (left_type_def.?.def_type == .Integer) {
-                self.NEGS(result, result);
+                self.NEG(result, result);
             } else {
                 self.DNEG(result, result);
             }
@@ -5328,7 +5378,7 @@ fn buildBuzzValueToZigValue(self: *Self, buzz_type: *o.ObjTypeDef, zig_type: Zig
                 // Convert it back to an int
                 self.D2I(dest, tmp_float);
             } else {
-                self.buildValueToInteger(buzz_value, dest);
+                try self.buildValueToInteger(buzz_value, dest);
             }
         },
         // TODO: double can't be truncated like ints, we need a D2F instruction
@@ -6546,6 +6596,36 @@ inline fn BEQ(self: *Self, label: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_
     );
 }
 
+inline fn BLT(self: *Self, label: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t) void {
+    self.append(
+        m.MIR_new_insn_arr(
+            self.ctx,
+            @intFromEnum(m.MIR_Instruction.BLT),
+            3,
+            &[_]m.MIR_op_t{
+                label,
+                left,
+                right,
+            },
+        ),
+    );
+}
+
+inline fn BGT(self: *Self, label: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t) void {
+    self.append(
+        m.MIR_new_insn_arr(
+            self.ctx,
+            @intFromEnum(m.MIR_Instruction.BGT),
+            3,
+            &[_]m.MIR_op_t{
+                label,
+                left,
+                right,
+            },
+        ),
+    );
+}
+
 inline fn BNE(self: *Self, label: m.MIR_insn_t, left: m.MIR_op_t, right: m.MIR_op_t) void {
     self.append(
         m.MIR_new_insn_arr(
@@ -6961,11 +7041,11 @@ inline fn D2I(self: *Self, dest: m.MIR_op_t, value: m.MIR_op_t) void {
     );
 }
 
-inline fn NEGS(self: *Self, dest: m.MIR_op_t, value: m.MIR_op_t) void {
+inline fn NEG(self: *Self, dest: m.MIR_op_t, value: m.MIR_op_t) void {
     self.append(
         m.MIR_new_insn_arr(
             self.ctx,
-            @intFromEnum(m.MIR_Instruction.NEGS),
+            @intFromEnum(m.MIR_Instruction.NEG),
             2,
             &[_]m.MIR_op_t{
                 dest,
@@ -7093,6 +7173,10 @@ fn outputModule(self: *Self, name: []const u8, module: m.MIR_module_t) void {
     );
 }
 
-pub fn fmod(lhs: f64, rhs: f64) Value {
-    return Value.fromFloat(@mod(lhs, rhs));
+pub fn fmod(lhs: v.Double, rhs: v.Double) Value {
+    return Value.fromDouble(@mod(lhs, rhs));
+}
+
+pub fn dumpInt(value: u64) void {
+    io.print("\nvalue: {} {b}\n", .{ value, value });
 }

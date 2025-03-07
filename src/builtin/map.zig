@@ -1,26 +1,15 @@
 const std = @import("std");
-const _obj = @import("../obj.zig");
-const ObjString = _obj.ObjString;
-const ObjMap = _obj.ObjMap;
-const ObjList = _obj.ObjList;
-const ObjTypeDef = _obj.ObjTypeDef;
-const ObjClosure = _obj.ObjClosure;
-const ObjObjectInstance = _obj.ObjObjectInstance;
-const NativeCtx = _obj.NativeCtx;
+const o = @import("../obj.zig");
 const VM = @import("../vm.zig").VM;
-const _value = @import("../value.zig");
+const v = @import("../value.zig");
 const buzz_api = @import("../buzz_api.zig");
-const Value = _value.Value;
-const floatToInteger = _value.floatToInteger;
-const eql = _value.eql;
-const toString = _value.toString;
 
-fn cloneRaw(ctx: *NativeCtx, mutable: bool) void {
-    const self = ObjMap.cast(ctx.vm.peek(0).obj()).?;
+fn cloneRaw(ctx: *o.NativeCtx, mutable: bool) void {
+    const self = o.ObjMap.cast(ctx.vm.peek(0).obj()).?;
 
     var new_map = ctx.vm.gc.allocateObject(
-        ObjMap,
-        ObjMap.init(
+        o.ObjMap,
+        o.ObjMap.init(
             ctx.vm.gc.allocator,
             self.type_def.cloneMutable(&ctx.vm.gc.type_registry, mutable) catch {
                 ctx.vm.panic("Out of memory");
@@ -43,26 +32,26 @@ fn cloneRaw(ctx: *NativeCtx, mutable: bool) void {
     ctx.vm.push(new_map.toValue());
 }
 
-pub fn cloneMutable(ctx: *NativeCtx) callconv(.c) c_int {
+pub fn cloneMutable(ctx: *o.NativeCtx) callconv(.c) c_int {
     cloneRaw(ctx, true);
 
     return 1;
 }
 
-pub fn cloneImmutable(ctx: *NativeCtx) callconv(.c) c_int {
+pub fn cloneImmutable(ctx: *o.NativeCtx) callconv(.c) c_int {
     cloneRaw(ctx, false);
 
     return 1;
 }
 
-pub fn reduce(ctx: *NativeCtx) callconv(.c) c_int {
-    const self = ObjMap.cast(ctx.vm.peek(2).obj()).?;
+pub fn reduce(ctx: *o.NativeCtx) callconv(.c) c_int {
+    const self = o.ObjMap.cast(ctx.vm.peek(2).obj()).?;
     const closure = ctx.vm.peek(1);
     var accumulator = ctx.vm.peek(0);
 
     var it = self.map.iterator();
     while (it.next()) |kv| {
-        var args = [_]*const Value{ kv.key_ptr, kv.value_ptr, &accumulator };
+        var args = [_]*const v.Value{ kv.key_ptr, kv.value_ptr, &accumulator };
 
         buzz_api.bz_call(
             ctx.vm,
@@ -80,13 +69,13 @@ pub fn reduce(ctx: *NativeCtx) callconv(.c) c_int {
     return 1;
 }
 
-pub fn filter(ctx: *NativeCtx) callconv(.c) c_int {
-    const self = ObjMap.cast(ctx.vm.peek(1).obj()).?;
+pub fn filter(ctx: *o.NativeCtx) callconv(.c) c_int {
+    const self = o.ObjMap.cast(ctx.vm.peek(1).obj()).?;
     const closure = ctx.vm.peek(0);
 
-    var new_map: *ObjMap = ctx.vm.gc.allocateObject(
-        ObjMap,
-        ObjMap.init(
+    var new_map: *o.ObjMap = ctx.vm.gc.allocateObject(
+        o.ObjMap,
+        o.ObjMap.init(
             ctx.vm.gc.allocator,
             self.type_def,
         ) catch {
@@ -100,7 +89,7 @@ pub fn filter(ctx: *NativeCtx) callconv(.c) c_int {
 
     var it = self.map.iterator();
     while (it.next()) |kv| {
-        var args = [_]*const Value{ kv.key_ptr, kv.value_ptr };
+        var args = [_]*const v.Value{ kv.key_ptr, kv.value_ptr };
 
         buzz_api.bz_call(
             ctx.vm,
@@ -123,13 +112,13 @@ pub fn filter(ctx: *NativeCtx) callconv(.c) c_int {
     return 1;
 }
 
-pub fn forEach(ctx: *NativeCtx) callconv(.c) c_int {
-    const self = ObjMap.cast(ctx.vm.peek(1).obj()).?;
+pub fn forEach(ctx: *o.NativeCtx) callconv(.c) c_int {
+    const self = o.ObjMap.cast(ctx.vm.peek(1).obj()).?;
     const closure = ctx.vm.peek(0);
 
     var it = self.map.iterator();
     while (it.next()) |kv| {
-        var args = [_]*const Value{ kv.key_ptr, kv.value_ptr };
+        var args = [_]*const v.Value{ kv.key_ptr, kv.value_ptr };
 
         buzz_api.bz_call(
             ctx.vm,
@@ -143,24 +132,24 @@ pub fn forEach(ctx: *NativeCtx) callconv(.c) c_int {
     return 0;
 }
 
-pub fn map(ctx: *NativeCtx) callconv(.c) c_int {
-    const self = ObjMap.cast(ctx.vm.peek(1).obj()).?;
+pub fn map(ctx: *o.NativeCtx) callconv(.c) c_int {
+    const self = o.ObjMap.cast(ctx.vm.peek(1).obj()).?;
     const closure = ctx.vm.peek(0);
 
-    const mapped_type = ObjClosure.cast(closure.obj()).?.function.type_def.resolved_type.?.Function
+    const mapped_type = o.ObjClosure.cast(closure.obj()).?.function.type_def.resolved_type.?.Function
         .return_type.resolved_type.?.ObjectInstance.of
         .resolved_type.?.Object;
 
-    var new_map: *ObjMap = ctx.vm.gc.allocateObject(
-        ObjMap,
-        ObjMap.init(
+    var new_map: *o.ObjMap = ctx.vm.gc.allocateObject(
+        o.ObjMap,
+        o.ObjMap.init(
             ctx.vm.gc.allocator,
             ctx.vm.gc.type_registry.getTypeDef(
                 .{
                     .optional = false,
                     .def_type = .Map,
                     .resolved_type = .{
-                        .Map = ObjMap.MapDef.init(
+                        .Map = o.ObjMap.MapDef.init(
                             mapped_type.fields.get("key").?.type_def,
                             mapped_type.fields.get("value").?.type_def,
                             self.type_def.resolved_type.?.Map.mutable,
@@ -182,7 +171,7 @@ pub fn map(ctx: *NativeCtx) callconv(.c) c_int {
 
     var it = self.map.iterator();
     while (it.next()) |kv| {
-        var args = [_]*const Value{ kv.key_ptr, kv.value_ptr };
+        var args = [_]*const v.Value{ kv.key_ptr, kv.value_ptr };
 
         buzz_api.bz_call(
             ctx.vm,
@@ -192,7 +181,7 @@ pub fn map(ctx: *NativeCtx) callconv(.c) c_int {
             null,
         );
 
-        const instance = ObjObjectInstance.cast(ctx.vm.pop().obj()).?;
+        const instance = o.ObjObjectInstance.cast(ctx.vm.pop().obj()).?;
         const object_def = instance.type_def.resolved_type.?.ObjectInstance.of
             .resolved_type.?.Object;
 
@@ -212,16 +201,16 @@ pub fn map(ctx: *NativeCtx) callconv(.c) c_int {
 }
 
 const SortContext = struct {
-    sort_closure: Value,
-    ctx: *NativeCtx,
-    map: *ObjMap,
+    sort_closure: v.Value,
+    ctx: *o.NativeCtx,
+    map: *o.ObjMap,
 
     pub fn lessThan(context: SortContext, lhs_index: usize, rhs_index: usize) bool {
         const map_keys = context.map.map.keys();
         const lhs = map_keys[lhs_index];
         const rhs = map_keys[rhs_index];
 
-        var args = [_]*const Value{ &lhs, &rhs };
+        var args = [_]*const v.Value{ &lhs, &rhs };
 
         buzz_api.bz_call(
             context.ctx.vm,
@@ -235,8 +224,8 @@ const SortContext = struct {
     }
 };
 
-pub fn sort(ctx: *NativeCtx) callconv(.c) c_int {
-    const self: *ObjMap = ObjMap.cast(ctx.vm.peek(1).obj()).?;
+pub fn sort(ctx: *o.NativeCtx) callconv(.c) c_int {
+    const self: *o.ObjMap = o.ObjMap.cast(ctx.vm.peek(1).obj()).?;
     const sort_closure = ctx.vm.peek(0);
 
     self.map.sort(
@@ -253,13 +242,13 @@ pub fn sort(ctx: *NativeCtx) callconv(.c) c_int {
     return 1;
 }
 
-pub fn diff(ctx: *NativeCtx) callconv(.c) c_int {
-    const lhs: *ObjMap = ObjMap.cast(ctx.vm.peek(1).obj()).?;
-    const rhs: *ObjMap = ObjMap.cast(ctx.vm.peek(0).obj()).?;
+pub fn diff(ctx: *o.NativeCtx) callconv(.c) c_int {
+    const lhs: *o.ObjMap = o.ObjMap.cast(ctx.vm.peek(1).obj()).?;
+    const rhs: *o.ObjMap = o.ObjMap.cast(ctx.vm.peek(0).obj()).?;
 
-    var new_map: *ObjMap = ctx.vm.gc.allocateObject(
-        ObjMap,
-        ObjMap.init(
+    var new_map: *o.ObjMap = ctx.vm.gc.allocateObject(
+        o.ObjMap,
+        o.ObjMap.init(
             ctx.vm.gc.allocator,
             lhs.type_def,
         ) catch {
@@ -291,13 +280,13 @@ pub fn diff(ctx: *NativeCtx) callconv(.c) c_int {
     return 1;
 }
 
-pub fn intersect(ctx: *NativeCtx) callconv(.c) c_int {
-    const lhs: *ObjMap = ObjMap.cast(ctx.vm.peek(1).obj()).?;
-    const rhs: *ObjMap = ObjMap.cast(ctx.vm.peek(0).obj()).?;
+pub fn intersect(ctx: *o.NativeCtx) callconv(.c) c_int {
+    const lhs: *o.ObjMap = o.ObjMap.cast(ctx.vm.peek(1).obj()).?;
+    const rhs: *o.ObjMap = o.ObjMap.cast(ctx.vm.peek(0).obj()).?;
 
-    var new_map: *ObjMap = ctx.vm.gc.allocateObject(
-        ObjMap,
-        ObjMap.init(
+    var new_map: *o.ObjMap = ctx.vm.gc.allocateObject(
+        o.ObjMap,
+        o.ObjMap.init(
             ctx.vm.gc.allocator,
             lhs.type_def,
         ) catch {
@@ -329,32 +318,32 @@ pub fn intersect(ctx: *NativeCtx) callconv(.c) c_int {
     return 1;
 }
 
-pub fn size(ctx: *NativeCtx) callconv(.c) c_int {
-    const self: *ObjMap = ObjMap.cast(ctx.vm.peek(0).obj()).?;
+pub fn size(ctx: *o.NativeCtx) callconv(.c) c_int {
+    const self: *o.ObjMap = o.ObjMap.cast(ctx.vm.peek(0).obj()).?;
 
-    ctx.vm.push(Value.fromInteger(@intCast(self.map.count())));
+    ctx.vm.push(v.Value.fromInteger(@intCast(self.map.count())));
 
     return 1;
 }
 
-pub fn remove(ctx: *NativeCtx) callconv(.c) c_int {
-    const self: *ObjMap = ObjMap.cast(ctx.vm.peek(1).obj()).?;
+pub fn remove(ctx: *o.NativeCtx) callconv(.c) c_int {
+    const self: *o.ObjMap = o.ObjMap.cast(ctx.vm.peek(1).obj()).?;
     const map_key = ctx.vm.peek(0);
 
     if (self.map.fetchOrderedRemove(map_key)) |removed| {
         ctx.vm.push(removed.value);
     } else {
-        ctx.vm.push(Value.Null);
+        ctx.vm.push(v.Value.Null);
     }
 
     return 1;
 }
 
-pub fn keys(ctx: *NativeCtx) callconv(.c) c_int {
-    const self: *ObjMap = ObjMap.cast(ctx.vm.peek(0).obj()).?;
+pub fn keys(ctx: *o.NativeCtx) callconv(.c) c_int {
+    const self: *o.ObjMap = o.ObjMap.cast(ctx.vm.peek(0).obj()).?;
 
     const map_keys = self.map.keys();
-    var result = std.ArrayListUnmanaged(Value){};
+    var result = std.ArrayListUnmanaged(v.Value){};
     for (map_keys) |key| {
         result.append(ctx.vm.gc.allocator, key) catch {
             ctx.vm.panic("Out of memory");
@@ -362,12 +351,12 @@ pub fn keys(ctx: *NativeCtx) callconv(.c) c_int {
         };
     }
 
-    var list_def_type: *ObjTypeDef = ctx.vm.gc.type_registry.getTypeDef(
+    var list_def_type: *o.ObjTypeDef = ctx.vm.gc.type_registry.getTypeDef(
         .{
             .def_type = .List,
             .optional = false,
             .resolved_type = .{
-                .List = ObjList.ListDef.init(
+                .List = o.ObjList.ListDef.init(
                     self.type_def.resolved_type.?.Map.key_type,
                     false,
                 ),
@@ -382,8 +371,8 @@ pub fn keys(ctx: *NativeCtx) callconv(.c) c_int {
     ctx.vm.push(list_def_type.toValue());
 
     var list = ctx.vm.gc.allocateObject(
-        ObjList,
-        ObjList.init(ctx.vm.gc.allocator, list_def_type) catch {
+        o.ObjList,
+        o.ObjList.init(ctx.vm.gc.allocator, list_def_type) catch {
             ctx.vm.panic("Out of memory");
             unreachable;
         },
@@ -401,22 +390,22 @@ pub fn keys(ctx: *NativeCtx) callconv(.c) c_int {
     return 1;
 }
 
-pub fn values(ctx: *NativeCtx) callconv(.c) c_int {
-    const self: *ObjMap = ObjMap.cast(ctx.vm.peek(0).obj()).?;
+pub fn values(ctx: *o.NativeCtx) callconv(.c) c_int {
+    const self: *o.ObjMap = o.ObjMap.cast(ctx.vm.peek(0).obj()).?;
 
-    const map_values: []Value = self.map.values();
-    var result = std.ArrayListUnmanaged(Value){};
+    const map_values: []v.Value = self.map.values();
+    var result = std.ArrayListUnmanaged(v.Value){};
     result.appendSlice(ctx.vm.gc.allocator, map_values) catch {
         ctx.vm.panic("Out of memory");
         unreachable;
     };
 
     const list_def_type = ctx.vm.gc.type_registry.getTypeDef(
-        ObjTypeDef{
+        o.ObjTypeDef{
             .def_type = .List,
             .optional = false,
             .resolved_type = .{
-                .List = ObjList.ListDef.init(
+                .List = o.ObjList.ListDef.init(
                     self.type_def.resolved_type.?.Map.value_type,
                     false,
                 ),
@@ -428,8 +417,8 @@ pub fn values(ctx: *NativeCtx) callconv(.c) c_int {
     };
 
     var list = ctx.vm.gc.allocateObject(
-        ObjList,
-        ObjList.init(ctx.vm.gc.allocator, list_def_type) catch {
+        o.ObjList,
+        o.ObjList.init(ctx.vm.gc.allocator, list_def_type) catch {
             ctx.vm.panic("Out of memory");
             unreachable;
         },

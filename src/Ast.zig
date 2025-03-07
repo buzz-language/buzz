@@ -484,10 +484,10 @@ pub const Slice = struct {
 
         const left = try self.toValue(components.left, gc);
         const left_integer = if (left.isInteger()) left.integer() else null;
-        const left_float = if (left.isFloat()) left.double() else null;
+        const left_float = if (left.isDouble()) left.double() else null;
         const right = try self.toValue(components.right, gc);
         const right_integer = if (right.isInteger()) right.integer() else null;
-        const right_float = if (right.isFloat()) right.double() else null;
+        const right_float = if (right.isDouble()) right.double() else null;
 
         switch (components.operator) {
             .Ampersand => return Value.fromInteger(left_integer.? & right_integer.?),
@@ -544,11 +544,11 @@ pub const Slice = struct {
                     if (right_float) |rf| {
                         return Value.fromBoolean(lf > rf);
                     } else {
-                        return Value.fromBoolean(lf > @as(f64, @floatFromInt(right_integer.?)));
+                        return Value.fromBoolean(lf > @as(v.Double, @floatFromInt(right_integer.?)));
                     }
                 } else {
                     if (right_float) |rf| {
-                        return Value.fromBoolean(@as(f64, @floatFromInt(left_integer.?)) > rf);
+                        return Value.fromBoolean(@as(v.Double, @floatFromInt(left_integer.?)) > rf);
                     } else {
                         return Value.fromBoolean(left_integer.? > right_integer.?);
                     }
@@ -561,11 +561,11 @@ pub const Slice = struct {
                     if (right_float) |rf| {
                         return Value.fromBoolean(lf < rf);
                     } else {
-                        return Value.fromBoolean(lf < @as(f64, @floatFromInt(right_integer.?)));
+                        return Value.fromBoolean(lf < @as(v.Double, @floatFromInt(right_integer.?)));
                     }
                 } else {
                     if (right_float) |rf| {
-                        return Value.fromBoolean(@as(f64, @floatFromInt(left_integer.?)) < rf);
+                        return Value.fromBoolean(@as(v.Double, @floatFromInt(left_integer.?)) < rf);
                     } else {
                         return Value.fromBoolean(left_integer.? < right_integer.?);
                     }
@@ -578,11 +578,11 @@ pub const Slice = struct {
                     if (right_float) |rf| {
                         return Value.fromBoolean(lf >= rf);
                     } else {
-                        return Value.fromBoolean(lf >= @as(f64, @floatFromInt(right_integer.?)));
+                        return Value.fromBoolean(lf >= @as(v.Double, @floatFromInt(right_integer.?)));
                     }
                 } else {
                     if (right_float) |rf| {
-                        return Value.fromBoolean(@as(f64, @floatFromInt(left_integer.?)) >= rf);
+                        return Value.fromBoolean(@as(v.Double, @floatFromInt(left_integer.?)) >= rf);
                     } else {
                         return Value.fromBoolean(left_integer.? >= right_integer.?);
                     }
@@ -595,11 +595,11 @@ pub const Slice = struct {
                     if (right_float) |rf| {
                         return Value.fromBoolean(lf <= rf);
                     } else {
-                        return Value.fromBoolean(lf <= @as(f64, @floatFromInt(right_integer.?)));
+                        return Value.fromBoolean(lf <= @as(v.Double, @floatFromInt(right_integer.?)));
                     }
                 } else {
                     if (right_float) |rf| {
-                        return Value.fromBoolean(@as(f64, @floatFromInt(left_integer.?)) <= rf);
+                        return Value.fromBoolean(@as(v.Double, @floatFromInt(left_integer.?)) <= rf);
                     } else {
                         return Value.fromBoolean(left_integer.? <= right_integer.?);
                     }
@@ -626,7 +626,7 @@ pub const Slice = struct {
 
                     return (try gc.copyString(try new_string.toOwnedSlice())).toValue();
                 } else if (right_float) |rf| {
-                    return Value.fromFloat(rf + left_float.?);
+                    return Value.fromDouble(rf + left_float.?);
                 } else if (right_integer) |ri| {
                     return Value.fromInteger(ri +% left_integer.?);
                 } else if (right_list) |rl| {
@@ -665,28 +665,28 @@ pub const Slice = struct {
             },
             .Minus => {
                 if (right_float) |rf| {
-                    return Value.fromFloat(rf - left_float.?);
+                    return Value.fromDouble(rf - left_float.?);
                 }
 
                 return Value.fromInteger(right_integer.? -% left_integer.?);
             },
             .Star => {
                 if (right_float) |rf| {
-                    return Value.fromFloat(rf * left_float.?);
+                    return Value.fromDouble(rf * left_float.?);
                 }
 
                 return Value.fromInteger(right_integer.? *% left_integer.?);
             },
             .Slash => {
                 if (right_float) |rf| {
-                    return Value.fromFloat(left_float.? / rf);
+                    return Value.fromDouble(left_float.? / rf);
                 }
 
                 return Value.fromInteger(@divTrunc(left_integer.?, right_integer.?));
             },
             .Percent => {
                 if (right_float) |rf| {
-                    return Value.fromFloat(@mod(left_float.?, rf));
+                    return Value.fromDouble(@mod(left_float.?, rf));
                 }
 
                 return Value.fromInteger(@mod(left_integer.?, right_integer.?));
@@ -721,7 +721,7 @@ pub const Slice = struct {
                 .Pattern => self.nodes.items(.components)[node].Pattern.toValue(),
                 .Void => Value.Void,
                 .Null => Value.Null,
-                .Double => Value.fromFloat(self.nodes.items(.components)[node].Double),
+                .Double => Value.fromDouble(self.nodes.items(.components)[node].Double),
                 .Integer => Value.fromInteger(self.nodes.items(.components)[node].Integer),
                 .Boolean => Value.fromBoolean(self.nodes.items(.components)[node].Boolean),
                 .As => try self.toValue(self.nodes.items(.components)[node].As.left, gc),
@@ -885,7 +885,7 @@ pub const Slice = struct {
                         .Minus => if (val.isInteger())
                             Value.fromInteger(-%val.integer())
                         else
-                            Value.fromFloat(-val.double()),
+                            Value.fromDouble(-val.double()),
                         else => unreachable,
                     };
                 },

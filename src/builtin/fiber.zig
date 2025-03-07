@@ -1,21 +1,18 @@
 const std = @import("std");
-const _obj = @import("../obj.zig");
-const ObjFiber = _obj.ObjFiber;
-const NativeCtx = _obj.NativeCtx;
+const o = @import("../obj.zig");
 const VM = @import("../vm.zig").VM;
-const _value = @import("../value.zig");
-const Value = _value.Value;
+const v = @import("../value.zig");
 
-pub fn over(ctx: *NativeCtx) callconv(.c) c_int {
-    const self = ObjFiber.cast(ctx.vm.peek(0).obj()).?;
+pub fn over(ctx: *o.NativeCtx) callconv(.c) c_int {
+    const self = o.ObjFiber.cast(ctx.vm.peek(0).obj()).?;
 
-    ctx.vm.push(Value.fromBoolean(self.fiber.status == .Over));
+    ctx.vm.push(v.Value.fromBoolean(self.fiber.status == .Over));
 
     return 1;
 }
 
-pub fn cancel(ctx: *NativeCtx) callconv(.c) c_int {
-    const self = ObjFiber.cast(ctx.vm.peek(0).obj()).?;
+pub fn cancel(ctx: *o.NativeCtx) callconv(.c) c_int {
+    const self = o.ObjFiber.cast(ctx.vm.peek(0).obj()).?;
 
     // Main fiber can't be cancelled
     if (self.fiber.parent_fiber == null) {
@@ -27,10 +24,10 @@ pub fn cancel(ctx: *NativeCtx) callconv(.c) c_int {
     return 0;
 }
 
-pub fn isMain(ctx: *NativeCtx) callconv(.c) c_int {
-    const self = ObjFiber.cast(ctx.vm.peek(0).obj()).?;
+pub fn isMain(ctx: *o.NativeCtx) callconv(.c) c_int {
+    const self = o.ObjFiber.cast(ctx.vm.peek(0).obj()).?;
 
-    ctx.vm.push(Value.fromBoolean(self.fiber.parent_fiber == null));
+    ctx.vm.push(v.Value.fromBoolean(self.fiber.parent_fiber == null));
 
     return 1;
 }

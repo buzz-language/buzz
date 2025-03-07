@@ -1,10 +1,22 @@
 import "std";
 
-test "Bitwise" {
+test "Bitwise (constant folded)" {
     std\assert(15 << 3 == 120, message: "<<");
     std\assert(15 >> 3 == 1, message: ">>");
     std\assert(15 ^ 3 == 12, message: "^");
     std\assert(15 | 3 == 15, message: "\\");
     std\assert(~15 == -16, message: "~");
     std\assert(12 & 23 == 4, message: "&");
+}
+
+test "Bitwise" {
+    final a = 15;
+    final b = 12;
+
+    std\assert(a << 3 == 120, message: "<<");
+    std\assert(a >> 3 == 1, message: ">>");
+    std\assert(a ^ 3 == 12, message: "^");
+    std\assert(a | 3 == a, message: "\\");
+    std\assert(~a == -16, message: "~");
+    std\assert(b & 23 == 4, message: "&");
 }

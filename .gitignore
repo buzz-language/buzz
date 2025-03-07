@@ -12,7 +12,7 @@ dist/
 *.so
 *.o
 
-tests/utils/*foreign.*
+tests/utils/libforeign.*
 buzz_history
 
 node_modules
