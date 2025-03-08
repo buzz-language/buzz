@@ -1329,6 +1329,7 @@ pub const Function = struct {
 
     pub const Entry = struct {
         main_slot: ?usize = null,
+        push_cli_args: bool = false,
         main_location: ?TokenIndex = null,
         test_slots: []const usize,
         test_locations: []const TokenIndex,

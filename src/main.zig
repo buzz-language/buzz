@@ -298,7 +298,7 @@ pub fn main() u8 {
         runFile(
             allocator,
             res.positionals[0][0],
-            res.positionals[0],
+            res.positionals[0][1..],
             flavor,
         ) catch {
             return 1;

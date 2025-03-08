@@ -2626,9 +2626,7 @@ fn generateFunction(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?
                         @intCast(main_slot),
                     );
 
-                    const has_cli_arg = node_type_def.resolved_type.?.Function.parameters.count() > 0;
-
-                    if (has_cli_arg) {
+                    if (components.entry.?.push_cli_args) {
                         try self.OP_GET_LOCAL(
                             components.entry.?.main_location.?,
                             0, // cli args are always local 0
@@ -2637,7 +2635,7 @@ fn generateFunction(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?
 
                     try self.OP_CALL(
                         components.entry.?.main_location.?,
-                        if (has_cli_arg)
+                        if (components.entry.?.push_cli_args)
                             1
                         else
                             0,

@@ -1033,6 +1033,7 @@ pub fn parse(self: *Self, source: []const u8, file_name: ?[]const u8, name: []co
                     global.matchNamespace(self.ast, self.namespace.?)))
             {
                 entry.main_slot = index;
+                entry.push_cli_args = global.type_def.resolved_type.?.Function.parameters.count() > 0;
                 entry.main_location = global.name[global.name.len - 1];
                 break;
             }
