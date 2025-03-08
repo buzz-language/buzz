@@ -209,8 +209,11 @@ const Document = struct {
                 const comp = components[node].Dot;
                 if (self.ast.nodes.items(.type_def)[comp.callee]) |callee_type_def| {
                     switch (callee_type_def.def_type) {
-                        .ObjectInstance => {
-                            const object_def = callee_type_def.resolved_type.?.ObjectInstance.of.resolved_type.?.Object;
+                        .ObjectInstance, .Object => {
+                            const object_def = if (callee_type_def.def_type == .ObjectInstance)
+                                callee_type_def.resolved_type.?.ObjectInstance.of.resolved_type.?.Object
+                            else
+                                callee_type_def.resolved_type.?.Object;
 
                             if (object_def.fields.get(self.ast.tokens.items(.lexeme)[comp.identifier])) |field| {
                                 try self.definitions.put(
