@@ -37,7 +37,10 @@ const Document = struct {
     node_under_position: std.AutoHashMapUnmanaged(lsp.types.Position, ?Ast.Node.Index) = .{},
 
     /// Cache for hover
-    node_hover: std.AutoArrayHashMapUnmanaged(Ast.Node.Index, []const u8) = .{},
+    node_hover: std.AutoHashMapUnmanaged(Ast.Node.Index, []const u8) = .{},
+
+    /// Cache for inlay hints
+    inlay_hints: std.ArrayListUnmanaged(lsp.types.InlayHint) = .{}, // I tried to make this a simple slice but the data was lost I don't know why
 
     pub fn init(parent_allocator: std.mem.Allocator, src: [*:0]const u8, uri: []const u8) !Document {
         var arena = std.heap.ArenaAllocator.init(parent_allocator);
@@ -47,7 +50,6 @@ const Document = struct {
         gc.type_registry = mem.TypeRegistry.init(&gc) catch return error.OutOfMemory;
         var imports = std.StringHashMapUnmanaged(Parser.ScriptImport){};
 
-        // FIXME: we're at least leaking their Reporter's `reports` slice
         var parser = Parser.init(
             &gc,
             &imports,
@@ -71,13 +73,17 @@ const Document = struct {
         else
             try parser.reporter.reports.toOwnedSlice(allocator);
 
-        return .{
+        var doc = Document{
             .arena = arena,
             .src = src,
             .uri = owned_uri,
             .ast = ast,
             .errors = errors,
         };
+
+        doc.computeInlayHints() catch return error.OutOfMemory;
+
+        return doc;
     }
 
     pub fn deinit(self: *Document) void {
@@ -281,6 +287,59 @@ const Document = struct {
 
         return null;
     }
+
+    const InlayHintsContext = struct {
+        document: *Document,
+
+        pub fn processNode(self: *InlayHintsContext, allocator: std.mem.Allocator, ast: Ast.Slice, node: Ast.Node.Index) (std.mem.Allocator.Error || std.fmt.BufPrintError)!bool {
+            switch (ast.nodes.items(.tag)[node]) {
+                .VarDeclaration => {
+                    const comp = ast.nodes.items(.components)[node].VarDeclaration;
+                    const type_def = ast.nodes.items(.type_def)[node];
+                    const name = ast.tokens.get(comp.name);
+
+                    // If type was omitted, provide it
+                    if (comp.type == null and type_def != null) {
+                        var inlay = std.ArrayListUnmanaged(u8){};
+                        var writer = inlay.writer(allocator);
+
+                        try writer.writeAll(": ");
+                        try type_def.?.toString(writer);
+
+                        try self.document.inlay_hints.append(
+                            allocator,
+                            .{
+                                .position = .{
+                                    .line = @intCast(name.line),
+                                    .character = @intCast(@max(1, name.column + name.lexeme.len) - 1),
+                                },
+                                .label = .{
+                                    .string = try inlay.toOwnedSlice(allocator),
+                                },
+                                .kind = .Type,
+                            },
+                        );
+                    }
+                },
+                else => {},
+            }
+
+            return false;
+        }
+    };
+
+    fn computeInlayHints(self: *Document) !void {
+        var ctx = InlayHintsContext{
+            .document = self,
+        };
+        const allocator = self.arena.allocator();
+
+        try self.ast.slice().walk(
+            allocator,
+            &ctx,
+            self.ast.root.?,
+        );
+    }
 };
 
 extern fn getpid() std.os.linux.pid_t;
@@ -413,6 +472,9 @@ const Handler = struct {
                 .documentSymbolProvider = .{
                     .DocumentSymbolOptions = .{},
                 },
+                .inlayHintProvider = .{
+                    .bool = true,
+                },
 
                 // Keeping those here so I don't forget about them
 
@@ -425,7 +487,6 @@ const Handler = struct {
                 .documentRangeFormattingProvider = null,
                 .documentOnTypeFormattingProvider = null,
                 .callHierarchyProvider = null,
-                .inlayHintProvider = null,
                 .signatureHelpProvider = null,
                 .workspace = null,
 
@@ -971,10 +1032,33 @@ const Handler = struct {
     }
 
     pub fn inlayHint(
-        _: Handler,
+        self: Handler,
         _: std.mem.Allocator,
-        _: lsp.types.InlayHintParams,
+        notification: lsp.types.InlayHintParams,
     ) !?[]lsp.types.InlayHint {
+        if (self.documents.getEntry(notification.textDocument.uri)) |kv| {
+            var document = kv.value_ptr.*;
+            const allocator = document.arena.allocator();
+
+            var result = std.ArrayListUnmanaged(lsp.types.InlayHint){};
+
+            for (document.inlay_hints.items) |hint| {
+                // If inlay position under the requested range
+                if ((hint.position.line > notification.range.start.line and
+                    hint.position.line < notification.range.end.line) or
+                    (hint.position.line == notification.range.start.line and hint.position.character >= notification.range.start.character) or
+                    (hint.position.line == notification.range.end.line and hint.position.character <= notification.range.end.character))
+                {
+                    try result.append(allocator, hint);
+                }
+            }
+
+            return if (result.items.len > 0)
+                try result.toOwnedSlice(allocator)
+            else
+                null;
+        }
+
         return null;
     }
 

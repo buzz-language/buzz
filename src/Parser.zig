@@ -9574,6 +9574,7 @@ fn forEachStatement(self: *Self) Error!Ast.Node.Index {
     const key_type = switch (iterable_type_def.def_type) {
         .List, .String => self.gc.type_registry.int_type,
         .Map => iterable_type_def.resolved_type.?.Map.key_type,
+        .Range => self.gc.type_registry.int_type,
         .Placeholder => placeholder: {
             const placeholder = try self.gc.type_registry.getTypeDef(
                 .{
