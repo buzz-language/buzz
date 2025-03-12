@@ -1336,8 +1336,20 @@ fn parsePrecedence(self: *Self, precedence: Precedence, hanging: bool) Error!Ast
 
         _ = try self.advance();
 
-        const infixRule = getRule(self.ast.tokens.items(.tag)[self.current_token.? - 1]).infix.?;
-        node = try infixRule(self, canAssign, node);
+        if (getRule(self.ast.tokens.items(.tag)[self.current_token.? - 1]).infix) |infixRule| {
+            node = try infixRule(self, canAssign, node);
+        } else {
+            const location = self.ast.tokens.get(self.current_token.? - 1);
+            self.reporter.reportErrorFmt(
+                .syntax,
+                location,
+                location,
+                "Unexpected token {s}",
+                .{
+                    @tagName(self.ast.tokens.items(.tag)[self.current_token.? - 1]),
+                },
+            );
+        }
     }
 
     // If nullable chain still there, stop it now at the end of the expression
