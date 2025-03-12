@@ -719,6 +719,15 @@ pub fn consume(self: *Self, tag: Token.Type, comptime message: []const u8) !void
         return;
     }
 
+    // Tolerate missing semicolon at end of REPL input
+    if (self.flavor == .Repl and
+        tag == .Semicolon and
+        self.scanner != null and
+        self.scanner.?.current.offset >= self.scanner.?.source.len)
+    {
+        return;
+    }
+
     // If in repl mode and unclosed brace, we dont print out the error
     switch (tag) {
         .RightBracket,
