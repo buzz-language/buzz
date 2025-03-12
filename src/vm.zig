@@ -19,7 +19,7 @@ const io = @import("io.zig");
 const dumpStack = disassembler.dumpStack;
 const jmp = if (!is_wasm) @import("jmp.zig").jmp else void;
 
-pub const ImportRegistry = std.AutoHashMap(*obj.ObjString, std.ArrayList(Value));
+pub const ImportRegistry = std.AutoHashMapUnmanaged(*obj.ObjString, std.ArrayList(Value));
 
 pub const RunFlavor = enum {
     Run,
@@ -420,7 +420,7 @@ pub const VM = struct {
     gc: *memory.GarbageCollector,
     current_fiber: *Fiber,
     current_ast: Ast.Slice,
-    globals: std.ArrayList(Value),
+    globals: std.ArrayListUnmanaged(Value) = .{},
     // FIXME: remove
     globals_count: usize = 0,
     import_registry: *ImportRegistry,
@@ -434,7 +434,6 @@ pub const VM = struct {
         return .{
             .gc = gc,
             .import_registry = import_registry,
-            .globals = std.ArrayList(Value).init(gc.allocator),
             .current_ast = undefined,
             .current_fiber = undefined,
             .flavor = flavor,
@@ -544,7 +543,7 @@ pub const VM = struct {
         return &self.current_fiber.frames.items[self.current_fiber.frame_count - 1];
     }
 
-    pub inline fn currentGlobals(self: *Self) *std.ArrayList(Value) {
+    pub inline fn currentGlobals(self: *Self) *std.ArrayListUnmanaged(Value) {
         return self.currentFrame().?.closure.globals;
     }
 
@@ -1009,7 +1008,7 @@ pub const VM = struct {
     fn OP_DEFINE_GLOBAL(self: *Self, _: *CallFrame, _: u32, _: Chunk.OpCode, arg: u24) void {
         const new_len = @max(arg + 1, self.globals.items.len);
 
-        self.globals.ensureTotalCapacity(new_len) catch {
+        self.globals.ensureTotalCapacity(self.gc.allocator, new_len) catch {
             self.panic("Out of memory");
             unreachable;
         };
@@ -2115,7 +2114,7 @@ pub const VM = struct {
 
         if (self.import_registry.get(fullpath)) |globals| {
             for (globals.items) |global| {
-                self.globals.append(global) catch {
+                self.globals.append(self.gc.allocator, global) catch {
                     self.panic("Out of memory");
                     unreachable;
                 };
@@ -2155,7 +2154,7 @@ pub const VM = struct {
                 var i = exported_count;
                 while (i > 0) : (i -= 1) {
                     const global = vm.peek(@intCast(i));
-                    self.globals.append(global) catch {
+                    self.globals.append(self.gc.allocator, global) catch {
                         self.panic("Out of memory");
                         unreachable;
                     };
@@ -2167,7 +2166,7 @@ pub const VM = struct {
                 }
             }
 
-            self.import_registry.put(fullpath, import_cache) catch {
+            self.import_registry.put(self.gc.allocator, fullpath, import_cache) catch {
                 self.panic("Out of memory");
                 unreachable;
             };

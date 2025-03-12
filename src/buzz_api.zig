@@ -591,7 +591,7 @@ export fn bz_newVM() *VM {
     gc.* = memory.GarbageCollector.init(allocator) catch @panic("Out of memory");
     gc.type_registry = memory.TypeRegistry.init(gc) catch @panic("Out of memory");
     const import_registry = allocator.create(ImportRegistry) catch @panic("Out of memory");
-    import_registry.* = ImportRegistry.init(allocator);
+    import_registry.* = .{};
 
     // FIXME: give reference to JIT?
     vm.* = VM.init(
@@ -605,7 +605,7 @@ export fn bz_newVM() *VM {
 
 export fn bz_deinitVM(self: *VM) callconv(.c) void {
     self.deinit();
-    self.import_registry.deinit();
+    self.import_registry.deinit(self.gc.allocator);
     self.gc.deinit();
 }
 

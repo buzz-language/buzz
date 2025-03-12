@@ -33,7 +33,7 @@ const allocator = gpa.allocator();
 
 pub export fn initRepl() *ReplCtx {
     const import_registry = allocator.create(ImportRegistry) catch unreachable;
-    import_registry.* = ImportRegistry.init(allocator);
+    import_registry.* = .{};
 
     const gc = allocator.create(GarbageCollector) catch unreachable;
     gc.* = GarbageCollector.init(allocator) catch unreachable;
@@ -97,7 +97,7 @@ pub export fn runLine(ctx: *ReplCtx) void {
 
     var previous_global_top = ctx.vm.globals_count;
     var previous_parser_globals = ctx.parser.globals.clone(ctx.parser.gc.allocator) catch unreachable;
-    var previous_globals = ctx.vm.globals.clone() catch unreachable;
+    var previous_globals = ctx.vm.globals.clone(ctx.parser.gc.allocator) catch unreachable;
     var previous_type_registry = ctx.vm.gc.type_registry.registry.clone() catch unreachable;
 
     const source_buffer = ctx.vm.gc.allocator.alloc(u8, 1024) catch unreachable;
@@ -130,7 +130,7 @@ pub export fn runLine(ctx: *ReplCtx) void {
         // previous_parser_globals.deinit();
         previous_parser_globals = ctx.parser.globals.clone(ctx.parser.gc.allocator) catch unreachable;
         // previous_globals.deinit();
-        previous_globals = ctx.vm.globals.clone() catch unreachable;
+        previous_globals = ctx.vm.globals.clone(ctx.parser.gc.allocator) catch unreachable;
         // previous_type_registry.deinit();
         previous_type_registry = ctx.vm.gc.type_registry.registry.clone() catch unreachable;
 

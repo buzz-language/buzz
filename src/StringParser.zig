@@ -16,11 +16,11 @@ current: ?u8 = null,
 // TODO: this memory is never freed: it end up as key of the `strings` hashmap
 //       and since not all of its keys come from here, we don't know which we can
 //       free when we deinit strings.
-current_chunk: std.ArrayList(u8),
+current_chunk: std.ArrayListUnmanaged(u8) = .{},
 offset: usize = 0,
 previous_interp: ?usize = null,
 chunk_count: usize = 0,
-elements: std.ArrayList(Ast.Node.Index),
+elements: std.ArrayListUnmanaged(Ast.Node.Index) = .{},
 line_offset: usize,
 column_offset: usize,
 
@@ -34,8 +34,6 @@ pub fn init(
     return Self{
         .parser = parser,
         .source = source,
-        .current_chunk = .init(parser.gc.allocator),
-        .elements = .init(parser.gc.allocator),
         .line_offset = line_offset,
         .column_offset = column_offset,
         .script_name = script_name,
@@ -74,7 +72,7 @@ pub fn parse(self: *Self) !Ast.Node.Index {
                     if (self.current_chunk.items.len > 0) {
                         try self.push(self.current_chunk.items);
                         // The previous `current_chunk` memory is owned by the parser
-                        self.current_chunk = .init(self.parser.gc.allocator);
+                        self.current_chunk = .{};
 
                         try self.inc();
                     }
@@ -84,7 +82,7 @@ pub fn parse(self: *Self) !Ast.Node.Index {
 
                 try self.inc();
             },
-            else => try self.current_chunk.append(char.?),
+            else => try self.current_chunk.append(self.parser.gc.allocator, char.?),
         }
     }
 
@@ -93,7 +91,7 @@ pub fn parse(self: *Self) !Ast.Node.Index {
         try self.push(self.current_chunk.items);
 
         // The previous `current_chunk` memory is owned by the parser
-        self.current_chunk = .init(self.parser.gc.allocator);
+        self.current_chunk = .{};
     }
 
     return try self.parser.ast.appendNode(
@@ -103,7 +101,7 @@ pub fn parse(self: *Self) !Ast.Node.Index {
             .end_location = self.parser.ast.nodes.items(.location)[self.elements.getLast()],
             .type_def = self.parser.gc.type_registry.str_type,
             .components = .{
-                .String = try self.elements.toOwnedSlice(),
+                .String = try self.elements.toOwnedSlice(self.parser.gc.allocator),
             },
         },
     );
@@ -111,6 +109,7 @@ pub fn parse(self: *Self) !Ast.Node.Index {
 
 fn push(self: *Self, chars: []const u8) !void {
     try self.elements.append(
+        self.parser.gc.allocator,
         try self.parser.ast.appendNode(
             .{
                 .tag = .StringLiteral,
@@ -147,7 +146,7 @@ fn interpolation(self: *Self) !void {
     try self.parser.advance();
 
     // Parse expression
-    try self.elements.append(try self.parser.expression(false));
+    try self.elements.append(self.parser.gc.allocator, try self.parser.expression(false));
 
     self.offset += self.parser.scanner.?.current.offset - 1;
     self.previous_interp = self.offset;
@@ -165,12 +164,12 @@ fn escape(self: *Self) !void {
         return;
     }
     switch (char.?) {
-        'n' => try self.current_chunk.append('\n'),
-        't' => try self.current_chunk.append('\t'),
-        'r' => try self.current_chunk.append('\r'),
-        '"' => try self.current_chunk.append('"'),
-        '\\' => try self.current_chunk.append('\\'),
-        '{' => try self.current_chunk.append('{'),
+        'n' => try self.current_chunk.append(self.parser.gc.allocator, '\n'),
+        't' => try self.current_chunk.append(self.parser.gc.allocator, '\t'),
+        'r' => try self.current_chunk.append(self.parser.gc.allocator, '\r'),
+        '"' => try self.current_chunk.append(self.parser.gc.allocator, '"'),
+        '\\' => try self.current_chunk.append(self.parser.gc.allocator, '\\'),
+        '{' => try self.current_chunk.append(self.parser.gc.allocator, '{'),
         else => try self.rawChar(),
     }
 }
@@ -186,7 +185,7 @@ fn rawChar(self: *Self) !void {
     const number: ?u8 = std.fmt.parseInt(u8, num_str, 10) catch null;
 
     if (number) |unumber| {
-        try self.current_chunk.append(unumber);
+        try self.current_chunk.append(self.parser.gc.allocator, unumber);
     } else {
         const location = self.parser.ast.tokens.get(self.parser.current_token.? - 1);
         self.parser.reporter.reportErrorAt(

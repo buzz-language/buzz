@@ -352,7 +352,7 @@ pub const Frame = struct {
     upvalue_count: u8 = 0,
     scope_depth: u32 = 0,
     /// Keep track of the node that introduced the scope (useful for labeled break/continue statements)
-    scopes: std.ArrayList(?Ast.Node.Index),
+    scopes: std.ArrayListUnmanaged(?Ast.Node.Index) = .{},
     /// If false, `return` was omitted or within a conditionned block (if, loop, etc.)
     /// We only count `return` emitted within the scope_depth 0 of the current function or unconditionned else statement
     function_node: Ast.Node.Index,
@@ -362,8 +362,8 @@ pub const Frame = struct {
     in_try: bool = false,
     in_block_expression: ?u32 = null,
 
-    pub fn deinit(self: *Frame) void {
-        self.scopes.deinit();
+    pub fn deinit(self: *Frame, allocator: std.mem.Allocator) void {
+        self.scopes.deinit(allocator);
         // self.generics ends up in AST node so we don't deinit it
     }
 
@@ -1106,7 +1106,6 @@ fn beginFrame(self: *Self, function_type: obj.ObjFunction.FunctionType, function
         .upvalues = [_]UpValue{undefined} ** 255,
         .enclosing = enclosing,
         .function_node = function_node,
-        .scopes = .init(self.gc.allocator),
     };
 
     if (function_type == .Extern) {
@@ -1232,7 +1231,7 @@ fn endFrame(self: *Self) Ast.Node.Index {
         }
     }
 
-    self.current.?.deinit();
+    self.current.?.deinit(self.gc.allocator);
 
     const current_node = self.current.?.function_node;
     self.current = self.current.?.enclosing;
@@ -1241,7 +1240,7 @@ fn endFrame(self: *Self) Ast.Node.Index {
 }
 
 fn beginScope(self: *Self, at: ?Ast.Node.Index) !void {
-    try self.current.?.scopes.append(at);
+    try self.current.?.scopes.append(self.gc.allocator, at);
     self.current.?.scope_depth += 1;
 }
 

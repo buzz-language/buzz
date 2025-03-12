@@ -1177,7 +1177,7 @@ pub const ObjClosure = struct {
 
     upvalues: []*ObjUpValue,
     // Pointer to the global with which the function was declared
-    globals: *std.ArrayList(Value),
+    globals: *std.ArrayListUnmanaged(Value),
 
     pub fn init(allocator: Allocator, vm: *VM, function: *ObjFunction) !Self {
         return Self{

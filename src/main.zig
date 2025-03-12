@@ -68,7 +68,7 @@ fn printBanner(out: anytype, full: bool) void {
 
 fn runFile(allocator: Allocator, file_name: []const u8, args: []const []const u8, flavor: RunFlavor) !void {
     var total_timer = if (!is_wasm) std.time.Timer.start() catch unreachable else {};
-    var import_registry = ImportRegistry.init(allocator);
+    var import_registry = ImportRegistry{};
     var gc = try GarbageCollector.init(allocator);
     gc.type_registry = try TypeRegistry.init(&gc);
     var imports = std.StringHashMapUnmanaged(Parser.ScriptImport){};

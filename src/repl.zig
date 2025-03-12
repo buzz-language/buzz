@@ -72,7 +72,7 @@ pub fn repl(allocator: std.mem.Allocator) !void {
     else
         false;
 
-    var import_registry = v.ImportRegistry.init(allocator);
+    var import_registry = v.ImportRegistry{};
     var gc = try memory.GarbageCollector.init(allocator);
     gc.type_registry = try memory.TypeRegistry.init(&gc);
     var imports = std.StringHashMapUnmanaged(Parser.ScriptImport){};
@@ -141,7 +141,7 @@ pub fn repl(allocator: std.mem.Allocator) !void {
 
     var previous_global_top = vm.globals_count;
     var previous_parser_globals = try parser.globals.clone(allocator);
-    var previous_globals = try vm.globals.clone();
+    var previous_globals = try vm.globals.clone(allocator);
     var previous_type_registry = try gc.type_registry.registry.clone();
     var previous_input: ?[]u8 = null;
     const stdin_buffer = if (builtin.os.tag == .windows)
@@ -239,7 +239,7 @@ pub fn repl(allocator: std.mem.Allocator) !void {
                 // previous_parser_globals.deinit();
                 previous_parser_globals = try parser.globals.clone(allocator);
                 // previous_globals.deinit();
-                previous_globals = try vm.globals.clone();
+                previous_globals = try vm.globals.clone(allocator);
                 // previous_type_registry.deinit();
                 previous_type_registry = try gc.type_registry.registry.clone();
 

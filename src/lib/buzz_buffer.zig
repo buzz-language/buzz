@@ -48,7 +48,7 @@ const Buffer = struct {
 
     pub const Error = error{WriteWhileReading};
 
-    buffer: std.ArrayList(u8),
+    buffer: std.ArrayListUnmanaged(u8) = .{},
     cursor: usize = 0,
 
     pub fn fromUserData(userdata: u64) *Self {
@@ -68,19 +68,17 @@ const Buffer = struct {
     }
 
     pub fn init(allocator: std.mem.Allocator, capacity: usize) !Self {
-        var self = Self{
-            .buffer = try std.ArrayList(u8).initCapacity(allocator, capacity),
-        };
+        var self = Self{};
 
         if (capacity > 0) {
-            try self.buffer.appendNTimes(0, capacity);
+            try self.buffer.appendNTimes(allocator, 0, capacity);
         }
 
         return self;
     }
 
     pub fn deinit(self: *Self) void {
-        self.buffer.deinit();
+        self.buffer.deinit(api.VM.allocator);
     }
 
     pub fn at(self: *Self, index: usize) u8 {
@@ -104,7 +102,7 @@ const Buffer = struct {
             return Error.WriteWhileReading;
         }
 
-        try self.buffer.appendSlice(bytes);
+        try self.buffer.appendSlice(api.VM.allocator, bytes);
     }
 
     pub fn setAt(self: *Self, index: usize, byte: u8) !void {
@@ -132,7 +130,7 @@ const Buffer = struct {
             return Error.WriteWhileReading;
         }
 
-        try self.buffer.append(if (value) 1 else 0);
+        try self.buffer.append(api.VM.allocator, if (value) 1 else 0);
     }
 
     pub fn readInteger(self: *Self) !?api.Integer {
@@ -155,7 +153,7 @@ const Buffer = struct {
             return Error.WriteWhileReading;
         }
 
-        var writer = self.buffer.writer();
+        var writer = self.buffer.writer(api.VM.allocator);
 
         // Flag so we know it an integer
         try writer.writeInt(api.Integer, integer, native_endian);
@@ -181,7 +179,7 @@ const Buffer = struct {
             return Error.WriteWhileReading;
         }
 
-        var writer = self.buffer.writer();
+        var writer = self.buffer.writer(api.VM.allocator);
 
         // Flag so we know it an integer
         try writer.writeInt(
@@ -211,7 +209,7 @@ const Buffer = struct {
             return Error.WriteWhileReading;
         }
 
-        var writer = self.buffer.writer();
+        var writer = self.buffer.writer(api.VM.allocator);
 
         try writer.writeInt(
             u64,
@@ -565,7 +563,7 @@ fn rawWriteZ(
 
         const len = zig_type.?.bz_zigTypeSize();
 
-        buffer.buffer.ensureTotalCapacityPrecise(buffer.buffer.items.len + len) catch {
+        buffer.buffer.ensureTotalCapacityPrecise(api.VM.allocator, buffer.buffer.items.len + len) catch {
             ctx.vm.bz_panic("Out of memory", "Out of memory".len);
             unreachable;
         };
@@ -649,7 +647,7 @@ fn rawWriteStruct(
         var len: usize = 0;
         const ptr = value.bz_foreignContainerSlice(&len);
 
-        buffer.buffer.ensureTotalCapacityPrecise(buffer.buffer.items.len + len) catch {
+        buffer.buffer.ensureTotalCapacityPrecise(api.VM.allocator, buffer.buffer.items.len + len) catch {
             vm.bz_panic("Out of memory", "Out of memory".len);
             unreachable;
         };
@@ -657,7 +655,7 @@ fn rawWriteStruct(
 
         std.debug.assert(buffer.buffer.capacity == buffer.buffer.items.len);
 
-        buffer.buffer.replaceRange(index, len, ptr[0..len]) catch {
+        buffer.buffer.replaceRange(api.VM.allocator, index, len, ptr[0..len]) catch {
             vm.bz_panic("Out of memory", "Out of memory".len);
             unreachable;
         };
