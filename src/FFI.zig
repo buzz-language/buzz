@@ -299,30 +299,31 @@ pub fn parse(self: *Self, parser: ?*Parser, source: Token, parsing_type_expr: bo
 }
 
 fn getZdef(self: *Self, decl_index: Ast.Node.Index) !?*Zdef {
-    const decl = self.state.?.ast.nodes.get(decl_index);
+    const decl_tag = self.state.?.ast.nodeTag(decl_index);
+    const decl_data = self.state.?.ast.nodeData(decl_index);
     const ast = self.state.?.ast;
 
-    return switch (decl.tag) {
+    return switch (decl_tag) {
         .fn_proto_simple,
         .fn_proto_multi,
         .fn_proto_one,
         .fn_proto,
-        => try self.fnProto(decl.tag, decl_index),
+        => try self.fnProto(decl_tag, decl_index),
 
         .identifier => try self.identifier(decl_index),
 
         .ptr_type_aligned,
         .ptr_type_sentinel,
         .ptr_type,
-        => try self.ptrType(decl.tag, decl_index),
+        => try self.ptrType(decl_tag, decl_index),
 
         .simple_var_decl => var_decl: {
             // Allow simple type if we're parsing type expr, or struct type
             if (self.state.?.parsing_type_expr) {
-                break :var_decl try self.getZdef(ast.simpleVarDecl(decl_index).ast.type_node);
+                break :var_decl try self.getZdef(ast.simpleVarDecl(decl_index).ast.type_node.unwrap().?);
             }
 
-            switch (ast.nodes.get(ast.simpleVarDecl(decl_index).ast.init_node).tag) {
+            switch (ast.nodeTag(ast.simpleVarDecl(decl_index).ast.init_node.unwrap().?)) {
                 .container_decl,
                 .container_decl_trailing,
                 .container_decl_two,
@@ -337,7 +338,7 @@ fn getZdef(self: *Self, decl_index: Ast.Node.Index) !?*Zdef {
                         ast.tokenSlice(
                             ast.simpleVarDecl(decl_index).ast.mut_token + 1,
                         ),
-                        ast.simpleVarDecl(decl_index).ast.init_node,
+                        ast.simpleVarDecl(decl_index).ast.init_node.unwrap().?,
                     );
 
                     try self.state.?.structs.put(name, zdef);
@@ -353,7 +354,7 @@ fn getZdef(self: *Self, decl_index: Ast.Node.Index) !?*Zdef {
                 self.state.?.source,
                 "Unsupported zig node `{}`: only C ABI compatible function signatures, structs and variables are supported",
                 .{
-                    decl.tag,
+                    decl_tag,
                 },
             );
             break :var_decl null;
@@ -363,7 +364,7 @@ fn getZdef(self: *Self, decl_index: Ast.Node.Index) !?*Zdef {
         .container_field_init => try self.containerField(decl_index),
 
         .optional_type => opt: {
-            const zdef = try self.getZdef(decl.data.lhs);
+            const zdef = try self.getZdef(decl_data.node);
 
             if (zdef) |uzdef| {
                 const opt_zdef = try self.gc.allocator.create(Zdef);
@@ -399,7 +400,7 @@ fn getZdef(self: *Self, decl_index: Ast.Node.Index) !?*Zdef {
                 self.state.?.source,
                 "Unsupported zig node `{}`: only C ABI compatible function signatures, structs and variables are supported",
                 .{
-                    decl.tag,
+                    decl_tag,
                 },
             );
             break :fail null;
@@ -408,10 +409,10 @@ fn getZdef(self: *Self, decl_index: Ast.Node.Index) !?*Zdef {
 }
 
 fn containerDecl(self: *Self, name: []const u8, decl_index: Ast.Node.Index) anyerror!*Zdef {
-    const container_node = self.state.?.ast.nodes.get(decl_index);
+    const container_node_tag = self.state.?.ast.nodeTag(decl_index);
 
     var buf: [2]Ast.Node.Index = undefined;
-    const container = switch (container_node.tag) {
+    const container = switch (container_node_tag) {
         .container_decl => self.state.?.ast.containerDecl(decl_index),
         .container_decl_trailing => self.state.?.ast.containerDecl(decl_index),
         .container_decl_two => self.state.?.ast.containerDeclTwo(&buf, decl_index),
@@ -642,14 +643,14 @@ fn structContainer(self: *Self, name: []const u8, container: Ast.full.ContainerD
 fn containerField(self: *Self, decl_index: Ast.Node.Index) anyerror!*Zdef {
     const container_field = self.state.?.ast.containerFieldInit(decl_index);
 
-    var zdef = (try self.getZdef(container_field.ast.type_expr)).?;
-    zdef.name = self.state.?.ast.tokenSlice(self.state.?.ast.nodes.get(decl_index).main_token);
+    var zdef = (try self.getZdef(container_field.ast.type_expr.unwrap().?)).?;
+    zdef.name = self.state.?.ast.tokenSlice(self.state.?.ast.nodeMainToken(decl_index));
 
     return zdef;
 }
 
 fn identifier(self: *Self, decl_index: Ast.Node.Index) anyerror!*Zdef {
-    const id = self.state.?.ast.tokenSlice(self.state.?.ast.nodes.get(decl_index).main_token);
+    const id = self.state.?.ast.tokenSlice(self.state.?.ast.nodeMainToken(decl_index));
 
     var type_def = if (basic_types.get(id)) |basic_type|
         basic_type
@@ -723,15 +724,16 @@ fn ptrType(self: *Self, tag: Ast.Node.Tag, decl_index: Ast.Node.Index) anyerror!
     };
 
     const child_type = (try self.getZdef(ptr_type.ast.child_type)).?;
-    const sentinel_node = self.state.?.ast.nodes.get(ptr_type.ast.sentinel);
+    const sentinel_node_tag = if (ptr_type.ast.sentinel.unwrap()) |sentinel| self.state.?.ast.nodeTag(sentinel) else null;
+    const sentinel_node_main_token = if (ptr_type.ast.sentinel.unwrap()) |sentinel| self.state.?.ast.nodeMainToken(sentinel) else null;
 
     // Is it a null terminated string?
     const zdef = try self.gc.allocator.create(Zdef);
     zdef.* = if (ptr_type.const_token != null and
         child_type.zig_type == .Int and
         child_type.zig_type.Int.bits == 8 and
-        sentinel_node.tag == .number_literal and
-        std.mem.eql(u8, self.state.?.ast.tokenSlice(sentinel_node.main_token), "0"))
+        sentinel_node_tag == .number_literal and
+        std.mem.eql(u8, self.state.?.ast.tokenSlice(sentinel_node_main_token.?), "0"))
         .{
             .type_def = self.gc.type_registry.str_type,
             .zig_type = ZigType{
@@ -795,7 +797,7 @@ fn fnProto(self: *Self, tag: Ast.Node.Tag, decl_index: Ast.Node.Index) anyerror!
         .fn_proto_multi => self.state.?.ast.fnProtoMulti(decl_index),
         else => unreachable,
     };
-    const return_type_zdef = try self.getZdef(fn_proto.ast.return_type);
+    const return_type_zdef = try self.getZdef(fn_proto.ast.return_type.unwrap().?);
 
     const name = if (fn_proto.name_token) |token| self.state.?.ast.tokenSlice(token) else null;
 
@@ -850,7 +852,10 @@ fn fnProto(self: *Self, tag: Ast.Node.Tag, decl_index: Ast.Node.Index) anyerror!
             );
         }
 
-        const param_zdef = try self.getZdef(param.type_expr);
+        const param_zdef = if (param.type_expr) |expr|
+            try self.getZdef(expr)
+        else
+            null;
         if (param_zdef == null) break;
 
         try function_def.parameters.put(
