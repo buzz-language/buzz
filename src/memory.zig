@@ -894,7 +894,7 @@ pub const GarbageCollector = struct {
         var it = vm.import_registry.iterator();
         while (it.next()) |kv| {
             try self.markObj(kv.key_ptr.*.toObj());
-            for (kv.value_ptr.*.items) |global| {
+            for (kv.value_ptr.*) |global| {
                 try self.markValue(global);
             }
         }

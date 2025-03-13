@@ -19,7 +19,7 @@ const io = @import("io.zig");
 const dumpStack = disassembler.dumpStack;
 const jmp = if (!is_wasm) @import("jmp.zig").jmp else void;
 
-pub const ImportRegistry = std.AutoHashMapUnmanaged(*obj.ObjString, std.ArrayList(Value));
+pub const ImportRegistry = std.AutoHashMapUnmanaged(*obj.ObjString, []const Value);
 
 pub const RunFlavor = enum {
     Run,
@@ -508,6 +508,11 @@ pub const VM = struct {
         self.current_fiber.stack_top -= 1;
         return self.current_fiber.stack_top[0];
     }
+
+    pub fn discard(self: *Self, n: usize) void {
+        self.current_fiber.stack_top -= n;
+    }
+
     pub fn peek(self: *Self, distance: u32) Value {
         return (self.current_fiber.stack_top - 1 - distance)[0];
     }
@@ -675,10 +680,14 @@ pub const VM = struct {
         OP_ADD_STRING,
         OP_ADD_LIST,
         OP_ADD_MAP,
-        OP_SUBTRACT,
-        OP_MULTIPLY,
-        OP_DIVIDE,
-        OP_MOD,
+        OP_SUBTRACT_I,
+        OP_SUBTRACT_F,
+        OP_MULTIPLY_I,
+        OP_MULTIPLY_F,
+        OP_DIVIDE_I,
+        OP_DIVIDE_F,
+        OP_MOD_I,
+        OP_MOD_F,
         OP_BNOT,
         OP_BAND,
         OP_BOR,
@@ -689,7 +698,8 @@ pub const VM = struct {
         OP_UNWRAP,
 
         OP_NOT,
-        OP_NEGATE,
+        OP_NEGATE_I,
+        OP_NEGATE_F,
 
         OP_SWAP,
         OP_JUMP,
@@ -862,7 +872,7 @@ pub const VM = struct {
     fn OP_NULL(self: *Self, _: *CallFrame, _: u32, _: Chunk.OpCode, _: u24) void {
         self.push(Value.Null);
 
-        const next_full_instruction: u32 = self.readInstruction();
+        const next_full_instruction = self.readInstruction();
         @call(
             dispatch_call_modifier,
             dispatch,
@@ -879,7 +889,7 @@ pub const VM = struct {
     fn OP_VOID(self: *Self, _: *CallFrame, _: u32, _: Chunk.OpCode, _: u24) void {
         self.push(Value.Void);
 
-        const next_full_instruction: u32 = self.readInstruction();
+        const next_full_instruction = self.readInstruction();
         @call(
             dispatch_call_modifier,
             dispatch,
@@ -896,7 +906,7 @@ pub const VM = struct {
     fn OP_TRUE(self: *Self, _: *CallFrame, _: u32, _: Chunk.OpCode, _: u24) void {
         self.push(Value.True);
 
-        const next_full_instruction: u32 = self.readInstruction();
+        const next_full_instruction = self.readInstruction();
         @call(
             dispatch_call_modifier,
             dispatch,
@@ -913,7 +923,7 @@ pub const VM = struct {
     fn OP_FALSE(self: *Self, _: *CallFrame, _: u32, _: Chunk.OpCode, _: u24) void {
         self.push(Value.False);
 
-        const next_full_instruction: u32 = self.readInstruction();
+        const next_full_instruction = self.readInstruction();
         @call(
             dispatch_call_modifier,
             dispatch,
@@ -930,7 +940,7 @@ pub const VM = struct {
     fn OP_POP(self: *Self, _: *CallFrame, _: u32, _: Chunk.OpCode, _: u24) void {
         _ = self.pop();
 
-        const next_full_instruction: u32 = self.readInstruction();
+        const next_full_instruction = self.readInstruction();
         @call(
             dispatch_call_modifier,
             dispatch,
@@ -947,7 +957,7 @@ pub const VM = struct {
     fn OP_COPY(self: *Self, _: *CallFrame, _: u32, _: Chunk.OpCode, arg: u24) void {
         self.copy(arg);
 
-        const next_full_instruction: u32 = self.readInstruction();
+        const next_full_instruction = self.readInstruction();
         @call(
             dispatch_call_modifier,
             dispatch,
@@ -969,7 +979,7 @@ pub const VM = struct {
             },
         );
 
-        const next_full_instruction: u32 = self.readInstruction();
+        const next_full_instruction = self.readInstruction();
         @call(
             dispatch_call_modifier,
             dispatch,
@@ -983,15 +993,15 @@ pub const VM = struct {
         );
     }
 
-    fn OP_SWAP(self: *Self, _: *CallFrame, _: u32, _: Chunk.OpCode, arg: u24) void {
-        const from = @as(u8, @intCast(arg));
-        const to = self.readByte();
+    fn OP_SWAP(self: *Self, _: *CallFrame, full_instruction: u32, _: Chunk.OpCode, _: u24) void {
+        const from: u8 = @intCast((0x00ffffff & full_instruction) >> 16);
+        const to: u8 = @intCast(0x0000ffff & full_instruction);
 
         const temp = (self.current_fiber.stack_top - to - 1)[0];
         (self.current_fiber.stack_top - to - 1)[0] = (self.current_fiber.stack_top - from - 1)[0];
         (self.current_fiber.stack_top - from - 1)[0] = temp;
 
-        const next_full_instruction: u32 = self.readInstruction();
+        const next_full_instruction = self.readInstruction();
         @call(
             dispatch_call_modifier,
             dispatch,
@@ -1020,7 +1030,7 @@ pub const VM = struct {
         self.globals_count = @max(self.globals_count, arg);
         _ = self.pop();
 
-        const next_full_instruction: u32 = self.readInstruction();
+        const next_full_instruction = self.readInstruction();
         @call(
             dispatch_call_modifier,
             dispatch,
@@ -1037,7 +1047,7 @@ pub const VM = struct {
     fn OP_GET_GLOBAL(self: *Self, _: *CallFrame, _: u32, _: Chunk.OpCode, arg: u24) void {
         self.push(self.currentGlobals().items[arg]);
 
-        const next_full_instruction: u32 = self.readInstruction();
+        const next_full_instruction = self.readInstruction();
         @call(
             dispatch_call_modifier,
             dispatch,
@@ -1054,7 +1064,7 @@ pub const VM = struct {
     fn OP_SET_GLOBAL(self: *Self, _: *CallFrame, _: u32, _: Chunk.OpCode, arg: u24) void {
         self.currentGlobals().items[arg] = self.peek(0);
 
-        const next_full_instruction: u32 = self.readInstruction();
+        const next_full_instruction = self.readInstruction();
         @call(
             dispatch_call_modifier,
             dispatch,
@@ -1071,7 +1081,7 @@ pub const VM = struct {
     fn OP_GET_LOCAL(self: *Self, current_frame: *CallFrame, _: u32, _: Chunk.OpCode, arg: u24) void {
         self.push(current_frame.slots[arg]);
 
-        const next_full_instruction: u32 = self.readInstruction();
+        const next_full_instruction = self.readInstruction();
         @call(
             dispatch_call_modifier,
             dispatch,
@@ -1088,7 +1098,7 @@ pub const VM = struct {
     fn OP_SET_LOCAL(self: *Self, current_frame: *CallFrame, _: u32, _: Chunk.OpCode, arg: u24) void {
         current_frame.slots[arg] = self.peek(0);
 
-        const next_full_instruction: u32 = self.readInstruction();
+        const next_full_instruction = self.readInstruction();
         @call(
             dispatch_call_modifier,
             dispatch,
@@ -1105,7 +1115,7 @@ pub const VM = struct {
     fn OP_GET_UPVALUE(self: *Self, current_frame: *CallFrame, _: u32, _: Chunk.OpCode, arg: u24) void {
         self.push(current_frame.closure.upvalues[arg].location.*);
 
-        const next_full_instruction: u32 = self.readInstruction();
+        const next_full_instruction = self.readInstruction();
         @call(
             dispatch_call_modifier,
             dispatch,
@@ -1122,7 +1132,7 @@ pub const VM = struct {
     fn OP_SET_UPVALUE(self: *Self, current_frame: *CallFrame, _: u32, _: Chunk.OpCode, arg: u24) void {
         current_frame.closure.upvalues[arg].location.* = self.peek(0);
 
-        const next_full_instruction: u32 = self.readInstruction();
+        const next_full_instruction = self.readInstruction();
         @call(
             dispatch_call_modifier,
             dispatch,
@@ -1139,7 +1149,7 @@ pub const VM = struct {
     fn OP_CONSTANT(self: *Self, _: *CallFrame, _: u32, _: Chunk.OpCode, arg: u24) void {
         self.push(self.readConstant(arg));
 
-        const next_full_instruction: u32 = self.readInstruction();
+        const next_full_instruction = self.readInstruction();
         @call(
             dispatch_call_modifier,
             dispatch,
@@ -1168,7 +1178,7 @@ pub const VM = struct {
         );
         self.gc.allocator.free(str);
 
-        const next_full_instruction: u32 = self.readInstruction();
+        const next_full_instruction = self.readInstruction();
         @call(
             dispatch_call_modifier,
             dispatch,
@@ -1182,16 +1192,35 @@ pub const VM = struct {
         );
     }
 
-    fn OP_NEGATE(self: *Self, _: *CallFrame, _: u32, _: Chunk.OpCode, _: u24) void {
-        const value = self.pop();
+    fn OP_NEGATE_I(self: *Self, _: *CallFrame, _: u32, _: Chunk.OpCode, _: u24) void {
+        self.push(
+            Value.fromInteger(
+                -%self.pop().integer(),
+            ),
+        );
 
-        if (value.isInteger()) {
-            self.push(Value.fromInteger(-%value.integer()));
-        } else {
-            self.push(Value.fromDouble(-value.double()));
-        }
+        const next_full_instruction = self.readInstruction();
+        @call(
+            dispatch_call_modifier,
+            dispatch,
+            .{
+                self,
+                self.currentFrame().?,
+                next_full_instruction,
+                getCode(next_full_instruction),
+                getArg(next_full_instruction),
+            },
+        );
+    }
 
-        const next_full_instruction: u32 = self.readInstruction();
+    fn OP_NEGATE_F(self: *Self, _: *CallFrame, _: u32, _: Chunk.OpCode, _: u24) void {
+        self.push(
+            Value.fromDouble(
+                -self.pop().double(),
+            ),
+        );
+
+        const next_full_instruction = self.readInstruction();
         @call(
             dispatch_call_modifier,
             dispatch,
@@ -1206,8 +1235,13 @@ pub const VM = struct {
     }
 
     fn OP_CLOSURE(self: *Self, current_frame: *CallFrame, _: u32, _: Chunk.OpCode, arg: u24) void {
-        const function: *obj.ObjFunction = self.readConstant(arg).obj().access(obj.ObjFunction, .Function, self.gc).?;
-        var closure: *obj.ObjClosure = self.gc.allocateObject(
+        const function = self.readConstant(arg).obj().access(
+            obj.ObjFunction,
+            .Function,
+            self.gc,
+        ).?;
+
+        var closure = self.gc.allocateObject(
             obj.ObjClosure,
             obj.ObjClosure.init(self.gc.allocator, self, function) catch {
                 self.panic("Out of memory");
@@ -1222,8 +1256,8 @@ pub const VM = struct {
 
         var i: usize = 0;
         while (i < function.upvalue_count) : (i += 1) {
-            const is_local: bool = self.readByte() == 1;
-            const index: u8 = self.readByte();
+            const is_local = self.readByte() == 1;
+            const index = self.readByte();
 
             if (is_local) {
                 closure.upvalues[i] = self.captureUpvalue(&(current_frame.slots[index])) catch {
@@ -1235,7 +1269,7 @@ pub const VM = struct {
             }
         }
 
-        const next_full_instruction: u32 = self.readInstruction();
+        const next_full_instruction = self.readInstruction();
         @call(
             dispatch_call_modifier,
             dispatch,
@@ -1253,7 +1287,7 @@ pub const VM = struct {
         self.closeUpValues(@ptrCast(self.current_fiber.stack_top - 1));
         _ = self.pop();
 
-        const next_full_instruction: u32 = self.readInstruction();
+        const next_full_instruction = self.readInstruction();
         @call(
             dispatch_call_modifier,
             dispatch,
@@ -1360,8 +1394,9 @@ pub const VM = struct {
     }
 
     fn OP_RESUME(self: *Self, _: *CallFrame, _: u32, _: Chunk.OpCode, _: u24) void {
-        const obj_fiber = self.pop().obj().access(obj.ObjFiber, .Fiber, self.gc).?;
-        obj_fiber.fiber.@"resume"(self) catch |err| {
+        self.pop().obj()
+            .access(obj.ObjFiber, .Fiber, self.gc).?
+            .fiber.@"resume"(self) catch |err| {
             switch (err) {
                 Error.RuntimeError => return,
                 else => {
@@ -1371,7 +1406,7 @@ pub const VM = struct {
             }
         };
 
-        const next_full_instruction: u32 = self.readInstruction();
+        const next_full_instruction = self.readInstruction();
         @call(
             dispatch_call_modifier,
             dispatch,
@@ -1386,8 +1421,9 @@ pub const VM = struct {
     }
 
     fn OP_RESOLVE(self: *Self, _: *CallFrame, _: u32, _: Chunk.OpCode, _: u24) void {
-        const obj_fiber = self.pop().obj().access(obj.ObjFiber, .Fiber, self.gc).?;
-        obj_fiber.fiber.resolve(self) catch |err| {
+        self.pop().obj()
+            .access(obj.ObjFiber, .Fiber, self.gc).?
+            .fiber.resolve(self) catch |err| {
             switch (err) {
                 Error.RuntimeError => return,
                 else => {
@@ -1397,7 +1433,7 @@ pub const VM = struct {
             }
         };
 
-        const next_full_instruction: u32 = self.readInstruction();
+        const next_full_instruction = self.readInstruction();
         @call(
             dispatch_call_modifier,
             dispatch,
@@ -1414,7 +1450,7 @@ pub const VM = struct {
     fn OP_YIELD(self: *Self, _: *CallFrame, _: u32, _: Chunk.OpCode, _: u24) void {
         self.current_fiber.yield(self);
 
-        const next_full_instruction: u32 = self.readInstruction();
+        const next_full_instruction = self.readInstruction();
         @call(
             dispatch_call_modifier,
             dispatch,
@@ -1449,7 +1485,7 @@ pub const VM = struct {
             }
         };
 
-        const next_full_instruction: u32 = self.readInstruction();
+        const next_full_instruction = self.readInstruction();
         @call(
             dispatch_call_modifier,
             dispatch,
@@ -1484,7 +1520,7 @@ pub const VM = struct {
             }
         };
 
-        const next_full_instruction: u32 = self.readInstruction();
+        const next_full_instruction = self.readInstruction();
         @call(
             dispatch_call_modifier,
             dispatch,
@@ -1503,7 +1539,7 @@ pub const VM = struct {
         const catch_count: u24 = @intCast(0x00ffffff & arg_instruction);
         const catch_value = if (catch_count > 0) self.pop() else null;
 
-        const instance: *obj.ObjObjectInstance = self.peek(arg_count).obj()
+        const instance = self.peek(arg_count).obj()
             .access(obj.ObjObjectInstance, .ObjectInstance, self.gc).?;
 
         std.debug.assert(instance.object != null);
@@ -1550,7 +1586,7 @@ pub const VM = struct {
             false,
         );
 
-        const next_full_instruction: u32 = self.readInstruction();
+        const next_full_instruction = self.readInstruction();
         @call(
             dispatch_call_modifier,
             dispatch,
@@ -1571,7 +1607,7 @@ pub const VM = struct {
             true,
         );
 
-        const next_full_instruction: u32 = self.readInstruction();
+        const next_full_instruction = self.readInstruction();
         @call(
             dispatch_call_modifier,
             dispatch,
@@ -1591,7 +1627,7 @@ pub const VM = struct {
         const catch_count: u24 = @intCast(0x00ffffff & arg_instruction);
         const catch_value = if (catch_count > 0) self.pop() else null;
 
-        const instance: *obj.ObjObjectInstance = self.peek(arg_count).obj()
+        const instance = self.peek(arg_count).obj()
             .access(obj.ObjObjectInstance, .ObjectInstance, self.gc).?;
 
         std.debug.assert(instance.object != null);
@@ -1612,7 +1648,7 @@ pub const VM = struct {
             }
         };
 
-        const next_full_instruction: u32 = self.readInstruction();
+        const next_full_instruction = self.readInstruction();
         @call(
             dispatch_call_modifier,
             dispatch,
@@ -1631,12 +1667,12 @@ pub const VM = struct {
             .obj().access(obj.ObjString, .String, self.gc).?
             .string;
 
-        const arg_instruction: u32 = self.readInstruction();
+        const arg_instruction = self.readInstruction();
         const arg_count: u8 = @intCast(arg_instruction >> 24);
         const catch_count: u24 = @intCast(0x00ffffff & arg_instruction);
         const catch_value = if (catch_count > 0) self.pop() else null;
 
-        const instance: *obj.ObjObjectInstance = self.peek(arg_count).obj()
+        const instance = self.peek(arg_count).obj()
             .access(obj.ObjObjectInstance, .ObjectInstance, self.gc).?;
 
         std.debug.assert(instance.object != null);
@@ -1662,7 +1698,7 @@ pub const VM = struct {
             }
         };
 
-        const next_full_instruction: u32 = self.readInstruction();
+        const next_full_instruction = self.readInstruction();
         @call(
             dispatch_call_modifier,
             dispatch,
@@ -1677,12 +1713,12 @@ pub const VM = struct {
     }
 
     fn OP_INSTANCE_TAIL_INVOKE(self: *Self, _: *CallFrame, _: u32, _: Chunk.OpCode, property_idx: u24) void {
-        const arg_instruction: u32 = self.readInstruction();
+        const arg_instruction = self.readInstruction();
         const arg_count: u8 = @intCast(arg_instruction >> 24);
         const catch_count: u24 = @intCast(0x00ffffff & arg_instruction);
         const catch_value = if (catch_count > 0) self.pop() else null;
 
-        const instance: *obj.ObjObjectInstance = self.peek(arg_count).obj()
+        const instance = self.peek(arg_count).obj()
             .access(obj.ObjObjectInstance, .ObjectInstance, self.gc).?;
 
         std.debug.assert(instance.object != null);
@@ -1703,7 +1739,7 @@ pub const VM = struct {
             }
         };
 
-        const next_full_instruction: u32 = self.readInstruction();
+        const next_full_instruction = self.readInstruction();
         @call(
             dispatch_call_modifier,
             dispatch,
@@ -1722,12 +1758,12 @@ pub const VM = struct {
             .obj().access(obj.ObjString, .String, self.gc).?
             .string;
 
-        const arg_instruction: u32 = self.readInstruction();
+        const arg_instruction = self.readInstruction();
         const arg_count: u8 = @intCast(arg_instruction >> 24);
         const catch_count: u24 = @intCast(0x00ffffff & arg_instruction);
         const catch_value = if (catch_count > 0) self.pop() else null;
 
-        const instance: *obj.ObjObjectInstance = self.peek(arg_count).obj()
+        const instance = self.peek(arg_count).obj()
             .access(obj.ObjObjectInstance, .ObjectInstance, self.gc).?;
 
         std.debug.assert(instance.object != null);
@@ -1753,7 +1789,7 @@ pub const VM = struct {
             }
         };
 
-        const next_full_instruction: u32 = self.readInstruction();
+        const next_full_instruction = self.readInstruction();
         @call(
             dispatch_call_modifier,
             dispatch,
@@ -1768,7 +1804,7 @@ pub const VM = struct {
     }
 
     fn OP_STRING_INVOKE(self: *Self, _: *CallFrame, _: u32, _: Chunk.OpCode, method_idx: u24) void {
-        const arg_instruction: u32 = self.readInstruction();
+        const arg_instruction = self.readInstruction();
         const arg_count: u8 = @intCast(arg_instruction >> 24);
         const catch_count: u24 = @intCast(0x00ffffff & arg_instruction);
         const catch_value = if (catch_count > 0) self.pop() else null;
@@ -1794,7 +1830,7 @@ pub const VM = struct {
             }
         };
 
-        const next_full_instruction: u32 = self.readInstruction();
+        const next_full_instruction = self.readInstruction();
         @call(
             dispatch_call_modifier,
             dispatch,
@@ -1809,7 +1845,7 @@ pub const VM = struct {
     }
 
     fn OP_RANGE_INVOKE(self: *Self, _: *CallFrame, _: u32, _: Chunk.OpCode, method_idx: u24) void {
-        const arg_instruction: u32 = self.readInstruction();
+        const arg_instruction = self.readInstruction();
         const arg_count: u8 = @intCast(arg_instruction >> 24);
         const catch_count: u24 = @intCast(0x00ffffff & arg_instruction);
         const catch_value = if (catch_count > 0) self.pop() else null;
@@ -1835,7 +1871,7 @@ pub const VM = struct {
             }
         };
 
-        const next_full_instruction: u32 = self.readInstruction();
+        const next_full_instruction = self.readInstruction();
         @call(
             dispatch_call_modifier,
             dispatch,
@@ -1850,7 +1886,7 @@ pub const VM = struct {
     }
 
     fn OP_PATTERN_INVOKE(self: *Self, _: *CallFrame, _: u32, _: Chunk.OpCode, method_idx: u24) void {
-        const arg_instruction: u32 = self.readInstruction();
+        const arg_instruction = self.readInstruction();
         const arg_count: u8 = @intCast(arg_instruction >> 24);
         const catch_count: u24 = @intCast(0x00ffffff & arg_instruction);
         const catch_value = if (catch_count > 0) self.pop() else null;
@@ -1876,7 +1912,7 @@ pub const VM = struct {
             }
         };
 
-        const next_full_instruction: u32 = self.readInstruction();
+        const next_full_instruction = self.readInstruction();
         @call(
             dispatch_call_modifier,
             dispatch,
@@ -1916,7 +1952,7 @@ pub const VM = struct {
             }
         };
 
-        const next_full_instruction: u32 = self.readInstruction();
+        const next_full_instruction = self.readInstruction();
         @call(
             dispatch_call_modifier,
             dispatch,
@@ -1931,7 +1967,7 @@ pub const VM = struct {
     }
 
     fn OP_LIST_INVOKE(self: *Self, _: *CallFrame, _: u32, _: Chunk.OpCode, method_idx: u24) void {
-        const arg_instruction: u32 = self.readInstruction();
+        const arg_instruction = self.readInstruction();
         const arg_count: u8 = @intCast(arg_instruction >> 24);
         const catch_count: u24 = @intCast(0x00ffffff & arg_instruction);
         const catch_value = if (catch_count > 0) self.pop() else null;
@@ -1957,7 +1993,7 @@ pub const VM = struct {
             }
         };
 
-        const next_full_instruction: u32 = self.readInstruction();
+        const next_full_instruction = self.readInstruction();
         @call(
             dispatch_call_modifier,
             dispatch,
@@ -1972,7 +2008,7 @@ pub const VM = struct {
     }
 
     fn OP_MAP_INVOKE(self: *Self, _: *CallFrame, _: u32, _: Chunk.OpCode, method_idx: u24) void {
-        const arg_instruction: u32 = self.readInstruction();
+        const arg_instruction = self.readInstruction();
         const arg_count: u8 = @intCast(arg_instruction >> 24);
         const catch_count: u24 = @intCast(0x00ffffff & arg_instruction);
         const catch_value = if (catch_count > 0) self.pop() else null;
@@ -1998,7 +2034,7 @@ pub const VM = struct {
             }
         };
 
-        const next_full_instruction: u32 = self.readInstruction();
+        const next_full_instruction = self.readInstruction();
         @call(
             dispatch_call_modifier,
             dispatch,
@@ -2016,7 +2052,7 @@ pub const VM = struct {
     inline fn returnFrame(self: *Self) bool {
         const result = self.pop();
 
-        const frame: *CallFrame = self.currentFrame().?;
+        const frame = self.currentFrame().?;
 
         self.closeUpValues(&frame.slots[0]);
 
@@ -2088,7 +2124,7 @@ pub const VM = struct {
             return;
         }
 
-        const next_full_instruction: u32 = self.readInstruction();
+        const next_full_instruction = self.readInstruction();
         @call(
             dispatch_call_modifier,
             dispatch,
@@ -2113,12 +2149,10 @@ pub const VM = struct {
         const closure = self.peek(0).obj().access(obj.ObjClosure, .Closure, self.gc).?;
 
         if (self.import_registry.get(fullpath)) |globals| {
-            for (globals.items) |global| {
-                self.globals.append(self.gc.allocator, global) catch {
-                    self.panic("Out of memory");
-                    unreachable;
-                };
-            }
+            self.globals.appendSlice(self.gc.allocator, globals) catch {
+                self.panic("Out of memory");
+                unreachable;
+            };
         } else {
             var vm = self.gc.allocator.create(VM) catch {
                 self.panic("Out of memory");
@@ -2150,6 +2184,7 @@ pub const VM = struct {
 
             // Copy them to this vm globals
             var import_cache = std.ArrayList(Value).init(self.gc.allocator);
+
             if (exported_count > 0) {
                 var i = exported_count;
                 while (i > 0) : (i -= 1) {
@@ -2166,17 +2201,23 @@ pub const VM = struct {
                 }
             }
 
-            self.import_registry.put(self.gc.allocator, fullpath, import_cache) catch {
+            self.import_registry.put(
+                self.gc.allocator,
+                fullpath,
+                import_cache.toOwnedSlice() catch {
+                    self.panic("Out of memory");
+                    unreachable;
+                },
+            ) catch {
                 self.panic("Out of memory");
                 unreachable;
             };
         }
 
         // Pop path and closure
-        _ = self.pop();
-        _ = self.pop();
+        self.discard(2);
 
-        const next_full_instruction: u32 = self.readInstruction();
+        const next_full_instruction = self.readInstruction();
         @call(
             dispatch_call_modifier,
             dispatch,
@@ -2195,7 +2236,7 @@ pub const VM = struct {
         // We will close scope up to this top if an error is thrown
         self.currentFrame().?.try_top = self.current_fiber.stack_top;
 
-        const next_full_instruction: u32 = self.readInstruction();
+        const next_full_instruction = self.readInstruction();
         @call(
             dispatch_call_modifier,
             dispatch,
@@ -2213,7 +2254,7 @@ pub const VM = struct {
         self.currentFrame().?.try_ip = null;
         self.currentFrame().?.try_top = null;
 
-        const next_full_instruction: u32 = self.readInstruction();
+        const next_full_instruction = self.readInstruction();
         @call(
             dispatch_call_modifier,
             dispatch,
@@ -2243,7 +2284,7 @@ pub const VM = struct {
             }
         };
 
-        const next_full_instruction: u32 = self.readInstruction();
+        const next_full_instruction = self.readInstruction();
         @call(
             dispatch_call_modifier,
             dispatch,
@@ -2258,7 +2299,7 @@ pub const VM = struct {
     }
 
     fn OP_LIST(self: *Self, _: *CallFrame, _: u32, _: Chunk.OpCode, arg: u24) void {
-        var list: *obj.ObjList = self.gc.allocateObject(
+        var list = self.gc.allocateObject(
             obj.ObjList,
             obj.ObjList.init(
                 self.gc.allocator,
@@ -2278,7 +2319,7 @@ pub const VM = struct {
 
         self.push(Value.fromObj(list.toObj()));
 
-        const next_full_instruction: u32 = self.readInstruction();
+        const next_full_instruction = self.readInstruction();
         @call(
             dispatch_call_modifier,
             dispatch,
@@ -2309,7 +2350,7 @@ pub const VM = struct {
             }).toObj()),
         );
 
-        const next_full_instruction: u32 = self.readInstruction();
+        const next_full_instruction = self.readInstruction();
         @call(
             dispatch_call_modifier,
             dispatch,
@@ -2338,7 +2379,7 @@ pub const VM = struct {
         // Pop items all at once
         self.current_fiber.stack_top -= item_count;
 
-        const next_full_instruction: u32 = self.readInstruction();
+        const next_full_instruction = self.readInstruction();
         @call(
             dispatch_call_modifier,
             dispatch,
@@ -2353,7 +2394,7 @@ pub const VM = struct {
     }
 
     fn OP_MAP(self: *Self, _: *CallFrame, _: u32, _: Chunk.OpCode, arg: u24) void {
-        var map: *obj.ObjMap = self.gc.allocateObject(
+        var map = self.gc.allocateObject(
             obj.ObjMap,
             obj.ObjMap.init(
                 self.gc.allocator,
@@ -2369,7 +2410,7 @@ pub const VM = struct {
 
         self.push(Value.fromObj(map.toObj()));
 
-        const next_full_instruction: u32 = self.readInstruction();
+        const next_full_instruction = self.readInstruction();
         @call(
             dispatch_call_modifier,
             dispatch,
@@ -2384,7 +2425,8 @@ pub const VM = struct {
     }
 
     fn OP_SET_MAP(self: *Self, _: *CallFrame, _: u32, _: Chunk.OpCode, entries_count: u24) void {
-        var map = self.peek(entries_count * 2).obj().access(obj.ObjMap, .Map, self.gc).?;
+        var map = self.peek(entries_count * 2).obj()
+            .access(obj.ObjMap, .Map, self.gc).?;
 
         var distance: i64 = @intCast((entries_count * 2) - 1);
         while (distance >= 0) : (distance -= 2) {
@@ -2400,7 +2442,7 @@ pub const VM = struct {
         // Pop entries all at once
         self.current_fiber.stack_top -= entries_count * 2;
 
-        const next_full_instruction: u32 = self.readInstruction();
+        const next_full_instruction = self.readInstruction();
         @call(
             dispatch_call_modifier,
             dispatch,
@@ -2415,7 +2457,8 @@ pub const VM = struct {
     }
 
     fn OP_GET_LIST_SUBSCRIPT(self: *Self, _: *CallFrame, _: u32, _: Chunk.OpCode, checked: u24) void {
-        const list = self.peek(1).obj().access(obj.ObjList, .List, self.gc).?;
+        const list = self.peek(1).obj()
+            .access(obj.ObjList, .List, self.gc).?;
         const index = self.peek(0).integer();
 
         if (checked == 0 and index < 0) {
@@ -2468,13 +2511,12 @@ pub const VM = struct {
             list.items.items[list_index];
 
         // Pop list and index
-        _ = self.pop();
-        _ = self.pop();
+        self.discard(2);
 
         // Push value
         self.push(list_item);
 
-        const next_full_instruction: u32 = self.readInstruction();
+        const next_full_instruction = self.readInstruction();
         @call(
             dispatch_call_modifier,
             dispatch,
@@ -2493,8 +2535,7 @@ pub const VM = struct {
         const index = self.peek(0);
 
         // Pop map and key
-        _ = self.pop();
-        _ = self.pop();
+        self.discard(2);
 
         if (map.map.get(index)) |value| {
             // Push value
@@ -2503,7 +2544,7 @@ pub const VM = struct {
             self.push(Value.Null);
         }
 
-        const next_full_instruction: u32 = self.readInstruction();
+        const next_full_instruction = self.readInstruction();
         @call(
             dispatch_call_modifier,
             dispatch,
@@ -2571,14 +2612,13 @@ pub const VM = struct {
                 }).toValue();
 
             // Pop str and index
-            _ = self.pop();
-            _ = self.pop();
+            self.discard(2);
 
             // Push value
             self.push(str_item);
         }
 
-        const next_full_instruction: u32 = self.readInstruction();
+        const next_full_instruction = self.readInstruction();
         @call(
             dispatch_call_modifier,
             dispatch,
@@ -2626,9 +2666,7 @@ pub const VM = struct {
             };
 
             // Pop everyting
-            _ = self.pop();
-            _ = self.pop();
-            _ = self.pop();
+            self.discard(3);
 
             // Push the value
             self.push(value);
@@ -2652,7 +2690,7 @@ pub const VM = struct {
             };
         }
 
-        const next_full_instruction: u32 = self.readInstruction();
+        const next_full_instruction = self.readInstruction();
         @call(
             dispatch_call_modifier,
             dispatch,
@@ -2677,14 +2715,12 @@ pub const VM = struct {
         };
 
         // Pop everyting
-        _ = self.pop();
-        _ = self.pop();
-        _ = self.pop();
+        self.discard(3);
 
         // Push the value
         self.push(value);
 
-        const next_full_instruction: u32 = self.readInstruction();
+        const next_full_instruction = self.readInstruction();
         @call(
             dispatch_call_modifier,
             dispatch,
@@ -2715,7 +2751,7 @@ pub const VM = struct {
         _ = self.pop();
         self.push(Value.fromObj(enum_case.toObj()));
 
-        const next_full_instruction: u32 = self.readInstruction();
+        const next_full_instruction = self.readInstruction();
         @call(
             dispatch_call_modifier,
             dispatch,
@@ -2735,7 +2771,7 @@ pub const VM = struct {
         _ = self.pop();
         self.push(enum_case.enum_ref.cases[enum_case.case]);
 
-        const next_full_instruction: u32 = self.readInstruction();
+        const next_full_instruction = self.readInstruction();
         @call(
             dispatch_call_modifier,
             dispatch,
@@ -2756,7 +2792,7 @@ pub const VM = struct {
         var found = false;
         for (enum_.cases, 0..) |case, index| {
             if (case.eql(case_value)) {
-                var enum_case: *obj.ObjEnumInstance = self.gc.allocateObject(obj.ObjEnumInstance, obj.ObjEnumInstance{
+                var enum_case = self.gc.allocateObject(obj.ObjEnumInstance, obj.ObjEnumInstance{
                     .enum_ref = enum_,
                     .case = @intCast(index),
                 }) catch {
@@ -2775,7 +2811,7 @@ pub const VM = struct {
             self.push(Value.Null);
         }
 
-        const next_full_instruction: u32 = self.readInstruction();
+        const next_full_instruction = self.readInstruction();
         @call(
             dispatch_call_modifier,
             dispatch,
@@ -2790,7 +2826,7 @@ pub const VM = struct {
     }
 
     fn OP_OBJECT(self: *Self, _: *CallFrame, _: u32, _: Chunk.OpCode, type_def_constant: u24) void {
-        var object: *obj.ObjObject = self.gc.allocateObject(
+        var object = self.gc.allocateObject(
             obj.ObjObject,
             obj.ObjObject.init(
                 self.gc.allocator,
@@ -2807,7 +2843,7 @@ pub const VM = struct {
 
         self.push(Value.fromObj(object.toObj()));
 
-        const next_full_instruction: u32 = self.readInstruction();
+        const next_full_instruction = self.readInstruction();
         @call(
             dispatch_call_modifier,
             dispatch,
@@ -2839,7 +2875,7 @@ pub const VM = struct {
 
         self.push(instance);
 
-        const next_full_instruction: u32 = self.readInstruction();
+        const next_full_instruction = self.readInstruction();
         @call(
             dispatch_call_modifier,
             dispatch,
@@ -2861,7 +2897,7 @@ pub const VM = struct {
         else
             null;
 
-        var obj_instance: *obj.ObjObjectInstance = self.gc.allocateObject(
+        var obj_instance = self.gc.allocateObject(
             obj.ObjObjectInstance,
             obj.ObjObjectInstance.init(
                 self,
@@ -2899,7 +2935,7 @@ pub const VM = struct {
 
         self.push(obj_instance.toValue());
 
-        const next_full_instruction: u32 = self.readInstruction();
+        const next_full_instruction = self.readInstruction();
         @call(
             dispatch_call_modifier,
             dispatch,
@@ -2927,7 +2963,7 @@ pub const VM = struct {
 
         _ = self.pop();
 
-        const next_full_instruction: u32 = self.readInstruction();
+        const next_full_instruction = self.readInstruction();
         @call(
             dispatch_call_modifier,
             dispatch,
@@ -2955,7 +2991,7 @@ pub const VM = struct {
 
         _ = self.pop();
 
-        const next_full_instruction: u32 = self.readInstruction();
+        const next_full_instruction = self.readInstruction();
         @call(
             dispatch_call_modifier,
             dispatch,
@@ -2975,7 +3011,7 @@ pub const VM = struct {
         _ = self.pop(); // Pop instance
         self.push(object.fields[property_idx]);
 
-        const next_full_instruction: u32 = self.readInstruction();
+        const next_full_instruction = self.readInstruction();
         @call(
             dispatch_call_modifier,
             dispatch,
@@ -3001,7 +3037,7 @@ pub const VM = struct {
         _ = self.pop(); // Pop instance
         self.push(struct_instance.getField(self, field_idx));
 
-        const next_full_instruction: u32 = self.readInstruction();
+        const next_full_instruction = self.readInstruction();
         @call(
             dispatch_call_modifier,
             dispatch,
@@ -3025,7 +3061,7 @@ pub const VM = struct {
                 .fields[property_idx],
         );
 
-        const next_full_instruction: u32 = self.readInstruction();
+        const next_full_instruction = self.readInstruction();
         @call(
             dispatch_call_modifier,
             dispatch,
@@ -3056,7 +3092,7 @@ pub const VM = struct {
             unreachable;
         };
 
-        const next_full_instruction: u32 = self.readInstruction();
+        const next_full_instruction = self.readInstruction();
         @call(
             dispatch_call_modifier,
             dispatch,
@@ -3095,7 +3131,7 @@ pub const VM = struct {
             unreachable;
         };
 
-        const next_full_instruction: u32 = self.readInstruction();
+        const next_full_instruction = self.readInstruction();
         @call(
             dispatch_call_modifier,
             dispatch,
@@ -3122,7 +3158,7 @@ pub const VM = struct {
             unreachable;
         };
 
-        const next_full_instruction: u32 = self.readInstruction();
+        const next_full_instruction = self.readInstruction();
         @call(
             dispatch_call_modifier,
             dispatch,
@@ -3148,7 +3184,7 @@ pub const VM = struct {
             unreachable;
         };
 
-        const next_full_instruction: u32 = self.readInstruction();
+        const next_full_instruction = self.readInstruction();
         @call(
             dispatch_call_modifier,
             dispatch,
@@ -3175,7 +3211,7 @@ pub const VM = struct {
             unreachable;
         };
 
-        const next_full_instruction: u32 = self.readInstruction();
+        const next_full_instruction = self.readInstruction();
         @call(
             dispatch_call_modifier,
             dispatch,
@@ -3202,7 +3238,7 @@ pub const VM = struct {
             unreachable;
         };
 
-        const next_full_instruction: u32 = self.readInstruction();
+        const next_full_instruction = self.readInstruction();
         @call(
             dispatch_call_modifier,
             dispatch,
@@ -3229,7 +3265,7 @@ pub const VM = struct {
             unreachable;
         };
 
-        const next_full_instruction: u32 = self.readInstruction();
+        const next_full_instruction = self.readInstruction();
         @call(
             dispatch_call_modifier,
             dispatch,
@@ -3255,7 +3291,7 @@ pub const VM = struct {
             unreachable;
         };
 
-        const next_full_instruction: u32 = self.readInstruction();
+        const next_full_instruction = self.readInstruction();
         @call(
             dispatch_call_modifier,
             dispatch,
@@ -3270,7 +3306,7 @@ pub const VM = struct {
     }
 
     fn OP_SET_OBJECT_PROPERTY(self: *Self, _: *CallFrame, _: u32, _: Chunk.OpCode, property_idx: u24) void {
-        const object: *obj.ObjObject = self.peek(1).obj().access(obj.ObjObject, .Object, self.gc).?;
+        const object = self.peek(1).obj().access(obj.ObjObject, .Object, self.gc).?;
 
         // Set new value
         object.setField(
@@ -3283,11 +3319,11 @@ pub const VM = struct {
         };
 
         // Get the new value from stack, pop the object and push value again
-        const value: Value = self.pop();
+        const value = self.pop();
         _ = self.pop();
         self.push(value);
 
-        const next_full_instruction: u32 = self.readInstruction();
+        const next_full_instruction = self.readInstruction();
         @call(
             dispatch_call_modifier,
             dispatch,
@@ -3320,11 +3356,11 @@ pub const VM = struct {
         };
 
         // Get the new value from stack, pop the instance and push value again
-        const value: Value = self.pop();
+        const value = self.pop();
         _ = self.pop();
         self.push(value);
 
-        const next_full_instruction: u32 = self.readInstruction();
+        const next_full_instruction = self.readInstruction();
         @call(
             dispatch_call_modifier,
             dispatch,
@@ -3356,11 +3392,11 @@ pub const VM = struct {
         };
 
         // Get the new value from stack, pop the instance and push value again
-        const value: Value = self.pop();
+        const value = self.pop();
         _ = self.pop();
         self.push(value);
 
-        const next_full_instruction: u32 = self.readInstruction();
+        const next_full_instruction = self.readInstruction();
         @call(
             dispatch_call_modifier,
             dispatch,
@@ -3377,7 +3413,7 @@ pub const VM = struct {
     fn OP_NOT(self: *Self, _: *CallFrame, _: u32, _: Chunk.OpCode, _: u24) void {
         self.push(Value.fromBoolean(!self.pop().boolean()));
 
-        const next_full_instruction: u32 = self.readInstruction();
+        const next_full_instruction = self.readInstruction();
         @call(
             dispatch_call_modifier,
             dispatch,
@@ -3396,7 +3432,7 @@ pub const VM = struct {
 
         self.push(Value.fromInteger(~value.integer()));
 
-        const next_full_instruction: u32 = self.readInstruction();
+        const next_full_instruction = self.readInstruction();
         @call(
             dispatch_call_modifier,
             dispatch,
@@ -3414,10 +3450,10 @@ pub const VM = struct {
         const right_value = self.pop();
         const left_value = self.pop();
 
-        const left_f: ?v.Double = if (left_value.isDouble()) left_value.double() else null;
-        const left_i: ?v.Integer = if (left_value.isInteger()) left_value.integer() else null;
-        const right_f: ?v.Double = if (right_value.isDouble()) right_value.double() else null;
-        const right_i: ?v.Integer = if (right_value.isInteger()) right_value.integer() else null;
+        const left_f = if (left_value.isDouble()) left_value.double() else null;
+        const left_i = if (left_value.isInteger()) left_value.integer() else null;
+        const right_f = if (right_value.isDouble()) right_value.double() else null;
+        const right_i = if (right_value.isInteger()) right_value.integer() else null;
 
         if (left_f) |lf| {
             if (right_f) |rf| {
@@ -3433,7 +3469,7 @@ pub const VM = struct {
             }
         }
 
-        const next_full_instruction: u32 = self.readInstruction();
+        const next_full_instruction = self.readInstruction();
         @call(
             dispatch_call_modifier,
             dispatch,
@@ -3451,10 +3487,10 @@ pub const VM = struct {
         const right_value = self.pop();
         const left_value = self.pop();
 
-        const left_f: ?v.Double = if (left_value.isDouble()) left_value.double() else null;
-        const left_i: ?v.Integer = if (left_value.isInteger()) left_value.integer() else null;
-        const right_f: ?v.Double = if (right_value.isDouble()) right_value.double() else null;
-        const right_i: ?v.Integer = if (right_value.isInteger()) right_value.integer() else null;
+        const left_f = if (left_value.isDouble()) left_value.double() else null;
+        const left_i = if (left_value.isInteger()) left_value.integer() else null;
+        const right_f = if (right_value.isDouble()) right_value.double() else null;
+        const right_i = if (right_value.isInteger()) right_value.integer() else null;
 
         if (left_f) |lf| {
             if (right_f) |rf| {
@@ -3470,7 +3506,7 @@ pub const VM = struct {
             }
         }
 
-        const next_full_instruction: u32 = self.readInstruction();
+        const next_full_instruction = self.readInstruction();
         @call(
             dispatch_call_modifier,
             dispatch,
@@ -3485,15 +3521,19 @@ pub const VM = struct {
     }
 
     fn OP_ADD_STRING(self: *Self, _: *CallFrame, _: u32, _: Chunk.OpCode, _: u24) void {
-        const right: *obj.ObjString = self.pop().obj().access(obj.ObjString, .String, self.gc).?;
-        const left: *obj.ObjString = self.pop().obj().access(obj.ObjString, .String, self.gc).?;
+        const right = self.pop().obj().access(obj.ObjString, .String, self.gc).?;
+        const left = self.pop().obj().access(obj.ObjString, .String, self.gc).?;
 
-        self.push(Value.fromObj((left.concat(self, right) catch {
-            self.panic("Out of memory");
-            unreachable;
-        }).toObj()));
+        self.push(
+            Value.fromObj(
+                (left.concat(self, right) catch {
+                    self.panic("Out of memory");
+                    unreachable;
+                }).toObj(),
+            ),
+        );
 
-        const next_full_instruction: u32 = self.readInstruction();
+        const next_full_instruction = self.readInstruction();
         @call(
             dispatch_call_modifier,
             dispatch,
@@ -3508,8 +3548,8 @@ pub const VM = struct {
     }
 
     fn OP_ADD_LIST(self: *Self, _: *CallFrame, _: u32, _: Chunk.OpCode, _: u24) void {
-        const right: *obj.ObjList = self.pop().obj().access(obj.ObjList, .List, self.gc).?;
-        const left: *obj.ObjList = self.pop().obj().access(obj.ObjList, .List, self.gc).?;
+        const right = self.pop().obj().access(obj.ObjList, .List, self.gc).?;
+        const left = self.pop().obj().access(obj.ObjList, .List, self.gc).?;
 
         var new_list = std.ArrayListUnmanaged(Value){};
         new_list.appendSlice(self.gc.allocator, left.items.items) catch {
@@ -3532,7 +3572,7 @@ pub const VM = struct {
             }).toValue(),
         );
 
-        const next_full_instruction: u32 = self.readInstruction();
+        const next_full_instruction = self.readInstruction();
         @call(
             dispatch_call_modifier,
             dispatch,
@@ -3547,8 +3587,8 @@ pub const VM = struct {
     }
 
     fn OP_ADD_MAP(self: *Self, _: *CallFrame, _: u32, _: Chunk.OpCode, _: u24) void {
-        const right: *obj.ObjMap = self.pop().obj().access(obj.ObjMap, .Map, self.gc).?;
-        const left: *obj.ObjMap = self.pop().obj().access(obj.ObjMap, .Map, self.gc).?;
+        const right = self.pop().obj().access(obj.ObjMap, .Map, self.gc).?;
+        const left = self.pop().obj().access(obj.ObjMap, .Map, self.gc).?;
 
         var new_map = left.map.clone(self.gc.allocator) catch {
             self.panic("Out of memory");
@@ -3577,7 +3617,7 @@ pub const VM = struct {
             }).toValue(),
         );
 
-        const next_full_instruction: u32 = self.readInstruction();
+        const next_full_instruction = self.readInstruction();
         @call(
             dispatch_call_modifier,
             dispatch,
@@ -3597,7 +3637,7 @@ pub const VM = struct {
 
         self.push(Value.fromInteger(left +% right));
 
-        const next_full_instruction: u32 = self.readInstruction();
+        const next_full_instruction = self.readInstruction();
         @call(
             dispatch_call_modifier,
             dispatch,
@@ -3617,7 +3657,7 @@ pub const VM = struct {
 
         self.push(Value.fromDouble(left + right));
 
-        const next_full_instruction: u32 = self.readInstruction();
+        const next_full_instruction = self.readInstruction();
         @call(
             dispatch_call_modifier,
             dispatch,
@@ -3631,22 +3671,13 @@ pub const VM = struct {
         );
     }
 
-    fn OP_SUBTRACT(self: *Self, _: *CallFrame, _: u32, _: Chunk.OpCode, _: u24) void {
-        const right: Value = self.pop();
-        const left: Value = self.pop();
+    fn OP_SUBTRACT_I(self: *Self, _: *CallFrame, _: u32, _: Chunk.OpCode, _: u24) void {
+        const right = self.pop();
+        const left = self.pop();
 
-        const right_f: ?v.Double = if (right.isDouble()) right.double() else null;
-        const left_f: ?v.Double = if (left.isDouble()) left.double() else null;
-        const right_i: ?v.Integer = if (right.isInteger()) right.integer() else null;
-        const left_i: ?v.Integer = if (left.isInteger()) left.integer() else null;
+        self.push(Value.fromInteger(left.integer() -% right.integer()));
 
-        if (right_f != null or left_f != null) {
-            self.push(Value.fromDouble((left_f orelse @as(v.Double, @floatFromInt(left_i.?))) - (right_f orelse @as(v.Double, @floatFromInt(right_i.?)))));
-        } else {
-            self.push(Value.fromInteger(left_i.? -% right_i.?));
-        }
-
-        const next_full_instruction: u32 = self.readInstruction();
+        const next_full_instruction = self.readInstruction();
         @call(
             dispatch_call_modifier,
             dispatch,
@@ -3660,22 +3691,13 @@ pub const VM = struct {
         );
     }
 
-    fn OP_MULTIPLY(self: *Self, _: *CallFrame, _: u32, _: Chunk.OpCode, _: u24) void {
-        const right: Value = self.pop();
-        const left: Value = self.pop();
+    fn OP_SUBTRACT_F(self: *Self, _: *CallFrame, _: u32, _: Chunk.OpCode, _: u24) void {
+        const right = self.pop();
+        const left = self.pop();
 
-        const right_f: ?v.Double = if (right.isDouble()) right.double() else null;
-        const left_f: ?v.Double = if (left.isDouble()) left.double() else null;
-        const right_i: ?v.Integer = if (right.isInteger()) right.integer() else null;
-        const left_i: ?v.Integer = if (left.isInteger()) left.integer() else null;
+        self.push(Value.fromDouble(left.double() - right.double()));
 
-        if (right_f != null or left_f != null) {
-            self.push(Value.fromDouble((left_f orelse @as(v.Double, @floatFromInt(left_i.?))) * (right_f orelse @as(v.Double, @floatFromInt(right_i.?)))));
-        } else {
-            self.push(Value.fromInteger(left_i.? *% right_i.?));
-        }
-
-        const next_full_instruction: u32 = self.readInstruction();
+        const next_full_instruction = self.readInstruction();
         @call(
             dispatch_call_modifier,
             dispatch,
@@ -3689,28 +3711,13 @@ pub const VM = struct {
         );
     }
 
-    fn OP_DIVIDE(self: *Self, _: *CallFrame, _: u32, _: Chunk.OpCode, _: u24) void {
-        const right: Value = self.pop();
-        const left: Value = self.pop();
+    fn OP_MULTIPLY_I(self: *Self, _: *CallFrame, _: u32, _: Chunk.OpCode, _: u24) void {
+        const right = self.pop();
+        const left = self.pop();
 
-        const right_f: ?v.Double = if (right.isDouble()) right.double() else null;
-        const left_f: ?v.Double = if (left.isDouble()) left.double() else null;
-        const right_i: ?v.Integer = if (right.isInteger()) right.integer() else null;
-        const left_i: ?v.Integer = if (left.isInteger()) left.integer() else null;
+        self.push(Value.fromInteger(left.integer() *% right.integer()));
 
-        if (left_f != null or right_f != null) {
-            self.push(
-                Value.fromDouble(
-                    (left_f orelse @as(v.Double, @floatFromInt(left_i.?))) / (right_f orelse @as(v.Double, @floatFromInt(right_i.?))),
-                ),
-            );
-        } else {
-            self.push(
-                Value.fromInteger(@divTrunc(left_i.?, right_i.?)),
-            );
-        }
-
-        const next_full_instruction: u32 = self.readInstruction();
+        const next_full_instruction = self.readInstruction();
         @call(
             dispatch_call_modifier,
             dispatch,
@@ -3724,33 +3731,107 @@ pub const VM = struct {
         );
     }
 
-    fn OP_MOD(self: *Self, _: *CallFrame, _: u32, _: Chunk.OpCode, _: u24) void {
-        const right: Value = self.pop();
-        const left: Value = self.pop();
+    fn OP_MULTIPLY_F(self: *Self, _: *CallFrame, _: u32, _: Chunk.OpCode, _: u24) void {
+        const right = self.pop();
+        const left = self.pop();
 
-        const right_f: ?v.Double = if (right.isDouble()) right.double() else null;
-        const left_f: ?v.Double = if (left.isDouble()) left.double() else null;
-        const right_i: ?v.Integer = if (right.isInteger()) right.integer() else null;
-        const left_i: ?v.Integer = if (left.isInteger()) left.integer() else null;
+        self.push(Value.fromDouble(left.double() * right.double()));
 
-        if (right_f != null or left_f != null) {
-            self.push(
-                Value.fromDouble(
-                    @mod(
-                        (left_f orelse @as(v.Double, @floatFromInt(left_i.?))),
-                        (right_f orelse @as(v.Double, @floatFromInt(right_i.?))),
-                    ),
-                ),
-            );
-        } else {
-            self.push(
-                Value.fromInteger(
-                    @mod(left_i.?, right_i.?),
-                ),
-            );
-        }
+        const next_full_instruction = self.readInstruction();
+        @call(
+            dispatch_call_modifier,
+            dispatch,
+            .{
+                self,
+                self.currentFrame().?,
+                next_full_instruction,
+                getCode(next_full_instruction),
+                getArg(next_full_instruction),
+            },
+        );
+    }
 
-        const next_full_instruction: u32 = self.readInstruction();
+    fn OP_DIVIDE_I(self: *Self, _: *CallFrame, _: u32, _: Chunk.OpCode, _: u24) void {
+        const right = self.pop();
+        const left = self.pop();
+
+        self.push(
+            Value.fromInteger(@divTrunc(left.integer(), right.integer())),
+        );
+
+        const next_full_instruction = self.readInstruction();
+        @call(
+            dispatch_call_modifier,
+            dispatch,
+            .{
+                self,
+                self.currentFrame().?,
+                next_full_instruction,
+                getCode(next_full_instruction),
+                getArg(next_full_instruction),
+            },
+        );
+    }
+
+    fn OP_DIVIDE_F(self: *Self, _: *CallFrame, _: u32, _: Chunk.OpCode, _: u24) void {
+        const right = self.pop();
+        const left = self.pop();
+
+        self.push(
+            Value.fromDouble(
+                left.double() / right.double(),
+            ),
+        );
+
+        const next_full_instruction = self.readInstruction();
+        @call(
+            dispatch_call_modifier,
+            dispatch,
+            .{
+                self,
+                self.currentFrame().?,
+                next_full_instruction,
+                getCode(next_full_instruction),
+                getArg(next_full_instruction),
+            },
+        );
+    }
+
+    fn OP_MOD_I(self: *Self, _: *CallFrame, _: u32, _: Chunk.OpCode, _: u24) void {
+        const right = self.pop();
+        const left = self.pop();
+
+        self.push(
+            Value.fromInteger(
+                @mod(left.integer(), right.integer()),
+            ),
+        );
+
+        const next_full_instruction = self.readInstruction();
+        @call(
+            dispatch_call_modifier,
+            dispatch,
+            .{
+                self,
+                self.currentFrame().?,
+                next_full_instruction,
+                getCode(next_full_instruction),
+                getArg(next_full_instruction),
+            },
+        );
+    }
+
+    fn OP_MOD_F(self: *Self, _: *CallFrame, _: u32, _: Chunk.OpCode, _: u24) void {
+        const right = self.pop();
+        const left = self.pop();
+
+        self.push(
+            Value.fromDouble(
+                @mod(left.double(), right.double()),
+            ),
+        );
+
+        const next_full_instruction = self.readInstruction();
         @call(
             dispatch_call_modifier,
             dispatch,
@@ -3770,7 +3851,7 @@ pub const VM = struct {
 
         self.push(Value.fromInteger(left.integer() & right.integer()));
 
-        const next_full_instruction: u32 = self.readInstruction();
+        const next_full_instruction = self.readInstruction();
         @call(
             dispatch_call_modifier,
             dispatch,
@@ -3790,7 +3871,7 @@ pub const VM = struct {
 
         self.push(Value.fromInteger(left.integer() | right.integer()));
 
-        const next_full_instruction: u32 = self.readInstruction();
+        const next_full_instruction = self.readInstruction();
         @call(
             dispatch_call_modifier,
             dispatch,
@@ -3810,7 +3891,7 @@ pub const VM = struct {
 
         self.push(Value.fromInteger(left.integer() ^ right.integer()));
 
-        const next_full_instruction: u32 = self.readInstruction();
+        const next_full_instruction = self.readInstruction();
         @call(
             dispatch_call_modifier,
             dispatch,
@@ -3842,7 +3923,7 @@ pub const VM = struct {
             }
         }
 
-        const next_full_instruction: u32 = self.readInstruction();
+        const next_full_instruction = self.readInstruction();
         @call(
             dispatch_call_modifier,
             dispatch,
@@ -3874,7 +3955,7 @@ pub const VM = struct {
             }
         }
 
-        const next_full_instruction: u32 = self.readInstruction();
+        const next_full_instruction = self.readInstruction();
         @call(
             dispatch_call_modifier,
             dispatch,
@@ -3891,7 +3972,7 @@ pub const VM = struct {
     fn OP_EQUAL(self: *Self, _: *CallFrame, _: u32, _: Chunk.OpCode, _: u24) void {
         self.push(Value.fromBoolean(self.pop().eql(self.pop())));
 
-        const next_full_instruction: u32 = self.readInstruction();
+        const next_full_instruction = self.readInstruction();
         @call(
             dispatch_call_modifier,
             dispatch,
@@ -3908,7 +3989,7 @@ pub const VM = struct {
     fn OP_IS(self: *Self, _: *CallFrame, _: u32, _: Chunk.OpCode, _: u24) void {
         self.push(Value.fromBoolean(self.pop().is(self.pop())));
 
-        const next_full_instruction: u32 = self.readInstruction();
+        const next_full_instruction = self.readInstruction();
         @call(
             dispatch_call_modifier,
             dispatch,
@@ -3925,7 +4006,7 @@ pub const VM = struct {
     fn OP_JUMP(self: *Self, current_frame: *CallFrame, _: u32, _: Chunk.OpCode, arg: u24) void {
         current_frame.ip += arg;
 
-        const next_full_instruction: u32 = self.readInstruction();
+        const next_full_instruction = self.readInstruction();
         @call(
             dispatch_call_modifier,
             dispatch,
@@ -3944,7 +4025,7 @@ pub const VM = struct {
             current_frame.ip += arg;
         }
 
-        const next_full_instruction: u32 = self.readInstruction();
+        const next_full_instruction = self.readInstruction();
         @call(
             dispatch_call_modifier,
             dispatch,
@@ -3963,7 +4044,7 @@ pub const VM = struct {
             current_frame.ip += arg;
         }
 
-        const next_full_instruction: u32 = self.readInstruction();
+        const next_full_instruction = self.readInstruction();
         @call(
             dispatch_call_modifier,
             dispatch,
@@ -3980,7 +4061,7 @@ pub const VM = struct {
     fn OP_LOOP(self: *Self, current_frame: *CallFrame, _: u32, _: Chunk.OpCode, arg: u24) void {
         current_frame.ip -= arg;
 
-        const next_full_instruction: u32 = self.readInstruction();
+        const next_full_instruction = self.readInstruction();
         @call(
             dispatch_call_modifier,
             dispatch,
@@ -3997,9 +4078,15 @@ pub const VM = struct {
     fn OP_STRING_FOREACH(self: *Self, _: *CallFrame, _: u32, _: Chunk.OpCode, _: u24) void {
         const key_slot: *Value = @ptrCast(self.current_fiber.stack_top - 3);
         const value_slot: *Value = @ptrCast(self.current_fiber.stack_top - 2);
-        const str: *obj.ObjString = self.peek(0).obj().access(obj.ObjString, .String, self.gc).?;
+        const str = self.peek(0).obj().access(obj.ObjString, .String, self.gc).?;
 
-        key_slot.* = if (str.next(self, if (key_slot.*.isNull()) null else key_slot.integer()) catch {
+        key_slot.* = if (str.next(
+            self,
+            if (key_slot.*.isNull())
+                null
+            else
+                key_slot.integer(),
+        ) catch {
             self.panic("Out of memory");
             unreachable;
         }) |new_index|
@@ -4009,13 +4096,17 @@ pub const VM = struct {
 
         // Set new value
         if (key_slot.*.isInteger()) {
-            value_slot.* = (self.gc.copyString(&([_]u8{str.string[@as(usize, @intCast(key_slot.integer()))]})) catch {
+            value_slot.* = (self.gc.copyString(
+                &([_]u8{
+                    str.string[@as(usize, @intCast(key_slot.integer()))],
+                }),
+            ) catch {
                 self.panic("Out of memory");
                 unreachable;
             }).toValue();
         }
 
-        const next_full_instruction: u32 = self.readInstruction();
+        const next_full_instruction = self.readInstruction();
         @call(
             dispatch_call_modifier,
             dispatch,
@@ -4051,7 +4142,7 @@ pub const VM = struct {
             value_slot.* = list.items.items[@as(usize, @intCast(key_slot.integer()))];
         }
 
-        const next_full_instruction: u32 = self.readInstruction();
+        const next_full_instruction = self.readInstruction();
         @call(
             dispatch_call_modifier,
             dispatch,
@@ -4085,7 +4176,7 @@ pub const VM = struct {
             value_slot.* = Value.fromInteger(range.low);
         }
 
-        const next_full_instruction: u32 = self.readInstruction();
+        const next_full_instruction = self.readInstruction();
         @call(
             dispatch_call_modifier,
             dispatch,
@@ -4114,7 +4205,7 @@ pub const VM = struct {
         };
         value_slot.* = (if (next_case) |new_case| Value.fromObj(new_case.toObj()) else Value.Null);
 
-        const next_full_instruction: u32 = self.readInstruction();
+        const next_full_instruction = self.readInstruction();
         @call(
             dispatch_call_modifier,
             dispatch,
@@ -4141,7 +4232,7 @@ pub const VM = struct {
             value_slot.* = map.map.get(unext_key) orelse Value.Null;
         }
 
-        const next_full_instruction: u32 = self.readInstruction();
+        const next_full_instruction = self.readInstruction();
         @call(
             dispatch_call_modifier,
             dispatch,
@@ -4168,7 +4259,7 @@ pub const VM = struct {
             };
         }
 
-        const next_full_instruction: u32 = self.readInstruction();
+        const next_full_instruction = self.readInstruction();
         @call(
             dispatch_call_modifier,
             dispatch,
@@ -4204,7 +4295,7 @@ pub const VM = struct {
             };
         }
 
-        const next_full_instruction: u32 = self.readInstruction();
+        const next_full_instruction = self.readInstruction();
         @call(
             dispatch_call_modifier,
             dispatch,
@@ -4224,7 +4315,7 @@ pub const VM = struct {
             unreachable;
         }).toValue());
 
-        const next_full_instruction: u32 = self.readInstruction();
+        const next_full_instruction = self.readInstruction();
         @call(
             dispatch_call_modifier,
             dispatch,
@@ -4311,7 +4402,7 @@ pub const VM = struct {
             self.jit.?.jit_time += timer.read();
         }
 
-        const next_full_instruction: u32 = self.readInstruction();
+        const next_full_instruction = self.readInstruction();
         @call(
             dispatch_call_modifier,
             dispatch,
@@ -4338,7 +4429,7 @@ pub const VM = struct {
             return;
         }
 
-        const next_full_instruction: u32 = self.readInstruction();
+        const next_full_instruction = self.readInstruction();
         @call(
             dispatch_call_modifier,
             dispatch,
@@ -4354,7 +4445,7 @@ pub const VM = struct {
 
     pub fn run(self: *Self) void {
         const next_current_frame: *CallFrame = self.currentFrame().?;
-        const next_full_instruction: u32 = self.readInstruction();
+        const next_full_instruction = self.readInstruction();
         const next_instruction: Chunk.OpCode = getCode(next_full_instruction);
         const next_arg: u24 = getArg(next_full_instruction);
 
@@ -4871,7 +4962,7 @@ pub const VM = struct {
     }
 
     fn bindMethod(self: *Self, method: ?*obj.ObjClosure, native: ?*obj.ObjNative) !void {
-        var bound: *obj.ObjBoundMethod = try self.gc.allocateObject(
+        var bound = try self.gc.allocateObject(
             obj.ObjBoundMethod,
             .{
                 .receiver = self.peek(0),

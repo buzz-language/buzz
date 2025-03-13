@@ -787,7 +787,14 @@ fn generateBinary(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*o
             });
         },
         .Minus => {
-            if (left_type.def_type != .Integer and left_type.def_type != .Double) {
+            _ = try self.generateNode(components.left, breaks);
+            _ = try self.generateNode(components.right, breaks);
+
+            if (left_type.def_type == .Integer) {
+                try self.OP_SUBTRACT_I(locations[node]);
+            } else if (left_type.def_type == .Double) {
+                try self.OP_SUBTRACT_F(locations[node]);
+            } else {
                 self.reporter.reportErrorAt(
                     .arithmetic_operand_type,
                     self.ast.tokens.get(locations[components.left]),
@@ -795,13 +802,16 @@ fn generateBinary(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*o
                     "Expected `int` or `double`.",
                 );
             }
-
-            _ = try self.generateNode(components.left, breaks);
-            _ = try self.generateNode(components.right, breaks);
-            try self.OP_SUBTRACT(locations[node]);
         },
         .Star => {
-            if (left_type.def_type != .Integer and left_type.def_type != .Double) {
+            _ = try self.generateNode(components.left, breaks);
+            _ = try self.generateNode(components.right, breaks);
+
+            if (left_type.def_type == .Integer) {
+                try self.OP_MULTIPLY_I(locations[node]);
+            } else if (left_type.def_type == .Double) {
+                try self.OP_MULTIPLY_F(locations[node]);
+            } else {
                 self.reporter.reportErrorAt(
                     .arithmetic_operand_type,
                     self.ast.tokens.get(locations[components.left]),
@@ -809,13 +819,16 @@ fn generateBinary(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*o
                     "Expected `int` or `double`.",
                 );
             }
-
-            _ = try self.generateNode(components.left, breaks);
-            _ = try self.generateNode(components.right, breaks);
-            try self.OP_MULTIPLY(locations[node]);
         },
         .Slash => {
-            if (left_type.def_type != .Integer and left_type.def_type != .Double) {
+            _ = try self.generateNode(components.left, breaks);
+            _ = try self.generateNode(components.right, breaks);
+
+            if (left_type.def_type == .Integer) {
+                try self.OP_DIVIDE_I(locations[node]);
+            } else if (left_type.def_type == .Double) {
+                try self.OP_DIVIDE_F(locations[node]);
+            } else {
                 self.reporter.reportErrorAt(
                     .arithmetic_operand_type,
                     self.ast.tokens.get(locations[components.left]),
@@ -823,13 +836,16 @@ fn generateBinary(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*o
                     "Expected `int` or `double`.",
                 );
             }
-
-            _ = try self.generateNode(components.left, breaks);
-            _ = try self.generateNode(components.right, breaks);
-            try self.OP_DIVIDE(locations[node]);
         },
         .Percent => {
-            if (left_type.def_type != .Integer and left_type.def_type != .Double) {
+            _ = try self.generateNode(components.left, breaks);
+            _ = try self.generateNode(components.right, breaks);
+
+            if (left_type.def_type == .Integer) {
+                try self.OP_MOD_I(locations[node]);
+            } else if (left_type.def_type == .Double) {
+                try self.OP_MOD_F(locations[node]);
+            } else {
                 self.reporter.reportErrorAt(
                     .arithmetic_operand_type,
                     self.ast.tokens.get(locations[components.left]),
@@ -837,10 +853,6 @@ fn generateBinary(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*o
                     "Expected `int` or `double`.",
                 );
             }
-
-            _ = try self.generateNode(components.left, breaks);
-            _ = try self.generateNode(components.right, breaks);
-            try self.OP_MOD(locations[node]);
         },
         .And => {
             if (left_type.def_type != .Bool) {
@@ -1768,15 +1780,31 @@ fn generateDot(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.
                             .String => try self.OP_ADD_STRING(locations[value]),
                             else => {},
                         },
-                        .MinusEqual => try self.OP_SUBTRACT(locations[value]),
-                        .StarEqual => try self.OP_MULTIPLY(locations[value]),
-                        .SlashEqual => try self.OP_DIVIDE(locations[value]),
+                        .MinusEqual => switch (type_defs[value].?.def_type) {
+                            .Integer => try self.OP_SUBTRACT_I(locations[value]),
+                            .Double => try self.OP_SUBTRACT_F(locations[value]),
+                            else => {},
+                        },
+                        .StarEqual => switch (type_defs[value].?.def_type) {
+                            .Integer => try self.OP_MULTIPLY_I(locations[value]),
+                            .Double => try self.OP_MULTIPLY_F(locations[value]),
+                            else => {},
+                        },
+                        .SlashEqual => switch (type_defs[value].?.def_type) {
+                            .Integer => try self.OP_DIVIDE_I(locations[value]),
+                            .Double => try self.OP_DIVIDE_F(locations[value]),
+                            else => {},
+                        },
                         .ShiftRightEqual => try self.OP_SHR(locations[value]),
                         .ShiftLeftEqual => try self.OP_SHL(locations[value]),
                         .XorEqual => try self.OP_XOR(locations[value]),
                         .BorEqual => try self.OP_BOR(locations[value]),
                         .AmpersandEqual => try self.OP_BAND(locations[value]),
-                        .PercentEqual => try self.OP_MOD(locations[value]),
+                        .PercentEqual => switch (type_defs[value].?.def_type) {
+                            .Integer => try self.OP_MOD_I(locations[value]),
+                            .Double => try self.OP_MOD_F(locations[value]),
+                            else => {},
+                        },
                         else => {},
                     }
 
@@ -3299,15 +3327,31 @@ fn generateNamedVariable(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Er
                 .String => try self.OP_ADD_STRING(locations[value]),
                 else => {},
             },
-            .MinusEqual => try self.OP_SUBTRACT(locations[value]),
-            .StarEqual => try self.OP_MULTIPLY(locations[value]),
-            .SlashEqual => try self.OP_DIVIDE(locations[value]),
+            .MinusEqual => switch (type_defs[value].?.def_type) {
+                .Integer => try self.OP_SUBTRACT_I(locations[value]),
+                .Double => try self.OP_SUBTRACT_F(locations[value]),
+                else => {},
+            },
+            .StarEqual => switch (type_defs[value].?.def_type) {
+                .Integer => try self.OP_MULTIPLY_I(locations[value]),
+                .Double => try self.OP_MULTIPLY_F(locations[value]),
+                else => {},
+            },
+            .SlashEqual => switch (type_defs[value].?.def_type) {
+                .Integer => try self.OP_DIVIDE_I(locations[value]),
+                .Double => try self.OP_DIVIDE_F(locations[value]),
+                else => {},
+            },
             .ShiftRightEqual => try self.OP_SHR(locations[value]),
             .ShiftLeftEqual => try self.OP_SHL(locations[value]),
             .XorEqual => try self.OP_XOR(locations[value]),
             .BorEqual => try self.OP_BOR(locations[value]),
             .AmpersandEqual => try self.OP_BAND(locations[value]),
-            .PercentEqual => try self.OP_MOD(locations[value]),
+            .PercentEqual => switch (type_defs[value].?.def_type) {
+                .Integer => try self.OP_MOD_I(locations[value]),
+                .Double => try self.OP_MOD_F(locations[value]),
+                else => {},
+            },
             else => {},
         }
 
@@ -4364,7 +4408,11 @@ fn generateUnary(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*ob
             try self.OP_NOT(location);
         },
         .Minus => {
-            if (expression_type_def.def_type != .Integer and expression_type_def.def_type != .Double) {
+            if (expression_type_def.def_type == .Integer) {
+                try self.OP_NEGATE_I(location);
+            } else if (expression_type_def.def_type == .Double) {
+                try self.OP_NEGATE_F(location);
+            } else {
                 self.reporter.reportErrorFmt(
                     .arithmetic_operand_type,
                     self.ast.tokens.get(expression_location),
@@ -4375,8 +4423,6 @@ fn generateUnary(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*ob
                     },
                 );
             }
-
-            try self.OP_NEGATE(location);
         },
         else => unreachable,
     }
@@ -4682,11 +4728,8 @@ pub fn populateEmptyCollectionType(self: *Self, value: Ast.Node.Index, target_ty
     }
 }
 
-fn OP_SWAP(self: *Self, location: Ast.TokenIndex, slotA: u24, slotB: u24) !void {
-    // TODO: both OP_SWAP args could fit in a 32 bit instruction
-    try self.emitCodeArg(location, .OP_SWAP, slotA);
-    // to where it should be
-    try self.emit(location, slotB);
+fn OP_SWAP(self: *Self, location: Ast.TokenIndex, slotA: u8, slotB: u8) !void {
+    try self.emitCodeArgs(location, .OP_SWAP, slotA, slotB);
 }
 
 fn OP_HOTSPOT(self: *Self, location: Ast.TokenIndex) !usize {
@@ -4749,8 +4792,12 @@ fn OP_ADD_MAP(self: *Self, location: Ast.TokenIndex) !void {
     try self.emitOpCode(location, .OP_ADD_MAP);
 }
 
-fn OP_SUBTRACT(self: *Self, location: Ast.TokenIndex) !void {
-    try self.emitOpCode(location, .OP_SUBTRACT);
+fn OP_SUBTRACT_I(self: *Self, location: Ast.TokenIndex) !void {
+    try self.emitOpCode(location, .OP_SUBTRACT_I);
+}
+
+fn OP_SUBTRACT_F(self: *Self, location: Ast.TokenIndex) !void {
+    try self.emitOpCode(location, .OP_SUBTRACT_F);
 }
 
 fn OP_MULTIPLY(self: *Self, location: Ast.TokenIndex) !void {
@@ -4761,12 +4808,32 @@ fn OP_DIVIDE(self: *Self, location: Ast.TokenIndex) !void {
     try self.emitOpCode(location, .OP_DIVIDE);
 }
 
+fn OP_MULTIPLY_I(self: *Self, location: Ast.TokenIndex) !void {
+    try self.emitOpCode(location, .OP_MULTIPLY_I);
+}
+
+fn OP_MULTIPLY_F(self: *Self, location: Ast.TokenIndex) !void {
+    try self.emitOpCode(location, .OP_MULTIPLY_F);
+}
+
+fn OP_DIVIDE_I(self: *Self, location: Ast.TokenIndex) !void {
+    try self.emitOpCode(location, .OP_DIVIDE_I);
+}
+
+fn OP_DIVIDE_F(self: *Self, location: Ast.TokenIndex) !void {
+    try self.emitOpCode(location, .OP_DIVIDE_F);
+}
+
 fn OP_NOT(self: *Self, location: Ast.TokenIndex) !void {
     try self.emitOpCode(location, .OP_NOT);
 }
 
-fn OP_NEGATE(self: *Self, location: Ast.TokenIndex) !void {
-    try self.emitOpCode(location, .OP_NEGATE);
+fn OP_NEGATE_I(self: *Self, location: Ast.TokenIndex) !void {
+    try self.emitOpCode(location, .OP_NEGATE_I);
+}
+
+fn OP_NEGATE_F(self: *Self, location: Ast.TokenIndex) !void {
+    try self.emitOpCode(location, .OP_NEGATE_F);
 }
 
 fn OP_BAND(self: *Self, location: Ast.TokenIndex) !void {
@@ -4793,8 +4860,12 @@ fn OP_SHR(self: *Self, location: Ast.TokenIndex) !void {
     try self.emitOpCode(location, .OP_SHR);
 }
 
-fn OP_MOD(self: *Self, location: Ast.TokenIndex) !void {
-    try self.emitOpCode(location, .OP_MOD);
+fn OP_MOD_I(self: *Self, location: Ast.TokenIndex) !void {
+    try self.emitOpCode(location, .OP_MOD_I);
+}
+
+fn OP_MOD_F(self: *Self, location: Ast.TokenIndex) !void {
+    try self.emitOpCode(location, .OP_MOD_F);
 }
 
 fn OP_UNWRAP(self: *Self, location: Ast.TokenIndex) !void {

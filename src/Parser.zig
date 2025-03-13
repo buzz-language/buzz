@@ -798,47 +798,6 @@ fn checkAhead(self: *Self, tag: Token.Type, n: usize) !bool {
     return self.ast.tokens.items(.tag)[self.current_token.? + n + 1] == tag;
 }
 
-// Check for a sequence ahead, a null in the sequence means continue until next token in the sequence is found
-// Don't use null if you're not sure the following token **must** be found, otherwise it'll check the whole source
-// Right now the null is only used to parse ahead a generic object type like `Person::<K, V, ...> identifier`
-fn checkSequenceAhead(self: *Self, sequence: []const ?Token.Type, limit: usize) !bool {
-    std.debug.assert(sequence.len > 0);
-
-    if (!self.check(sequence[0].?)) {
-        return false;
-    }
-
-    var i: usize = 0;
-    for (sequence[1..], 1..) |tag, n| {
-        // Avoid going to far
-        if (i > limit) {
-            return false;
-        }
-
-        if (tag) |tt| {
-            if (!try self.checkAhead(tt, i)) {
-                return false;
-            }
-
-            i += 1;
-        } else {
-            // Advance until next token
-            std.debug.assert(n < sequence.len - 1 and sequence[n + 1] != null); // There must be at least one more token in the sequence
-            const next_token = sequence[n + 1].?;
-
-            while (!try self.checkAhead(next_token, i)) : (i += 1) {
-                // Avoid looping forever if found EOF or Error
-                const last = self.ast.tokens.items(.tag)[self.ast.tokens.len - 1];
-                if (last == .Eof or last == .Error) {
-                    return false;
-                }
-            }
-        }
-    }
-
-    return true;
-}
-
 fn match(self: *Self, tag: Token.Type) !bool {
     if (!self.check(tag)) {
         return false;
