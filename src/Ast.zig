@@ -1317,7 +1317,7 @@ pub const Function = struct {
 
     upvalue_binding: std.AutoArrayHashMapUnmanaged(u8, bool),
 
-    // If the function is a ScritEntryPoint
+    // If the function is a ScriptEntryPoint
     entry: ?Entry = null,
 
     // Set when the function is first generated
