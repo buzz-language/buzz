@@ -301,6 +301,11 @@ pub fn build(b: *Build) !void {
         clap.module("clap"),
     );
 
+    const fuzz = if (!is_wasm)
+        buildFuzz(b, target, build_mode)
+    else
+        null;
+
     var lsp_exe = if (!is_wasm)
         b.addExecutable(.{
             .name = "buzz_lsp",
@@ -343,6 +348,7 @@ pub fn build(b: *Build) !void {
     );
 
     exe.root_module.sanitize_c = false;
+    if (!is_wasm) fuzz.?.root_module.sanitize_c = false;
     if (!is_wasm) lsp_exe.?.root_module.sanitize_c = false;
 
     const check = b.step("check", "Check if buzz compiles");
@@ -379,11 +385,13 @@ pub fn build(b: *Build) !void {
         exe.linkLibC();
         exe_check.linkLibC();
         if (!is_wasm) lsp_exe.?.linkLibC();
+        if (!is_wasm) fuzz.?.linkLibC();
     }
 
     exe.root_module.addImport("build_options", build_option_module);
     exe_check.root_module.addImport("build_options", build_option_module);
     if (!is_wasm) lsp_exe.?.root_module.addImport("build_options", build_option_module);
+    if (!is_wasm) fuzz.?.root_module.addImport("build_options", build_option_module);
 
     if (!is_wasm) {
         // Building buzz api library
@@ -411,15 +419,18 @@ pub fn build(b: *Build) !void {
             lib.linkLibrary(pcre);
             exe.linkLibrary(pcre);
             if (!is_wasm) lsp_exe.?.linkLibrary(pcre);
+            if (!is_wasm) fuzz.?.linkLibrary(pcre);
         }
 
         if (lib_mimalloc) |mimalloc| {
             lib.linkLibrary(mimalloc);
             exe.linkLibrary(mimalloc);
+            if (!is_wasm) fuzz.?.linkLibrary(mimalloc);
             if (!is_wasm) lsp_exe.?.linkLibrary(mimalloc);
             if (lib.root_module.resolved_target.?.result.os.tag == .windows) {
                 lib.linkSystemLibrary("bcrypt");
                 exe.linkSystemLibrary("bcrypt");
+                if (!is_wasm) fuzz.?.linkSystemLibrary("bcrypt");
                 if (!is_wasm) lsp_exe.?.linkSystemLibrary("bcrypt");
             }
         }
@@ -427,15 +438,18 @@ pub fn build(b: *Build) !void {
         if (lib_mir) |mir| {
             lib.linkLibrary(mir);
             exe.linkLibrary(mir);
+            if (!is_wasm) fuzz.?.linkLibrary(mir);
             if (!is_wasm) lsp_exe.?.linkLibrary(mir);
         }
 
         // So that JIT compiled function can reference buzz_api
         exe.linkLibrary(lib);
+        if (!is_wasm) fuzz.?.linkLibrary(lib);
         if (!is_wasm) lsp_exe.?.linkLibrary(lib);
         exe_check.linkLibrary(lib);
         if (lib_linenoise) |ln| {
             exe.linkLibrary(ln);
+            if (!is_wasm) fuzz.?.linkLibrary(ln);
             if (!is_wasm) lsp_exe.?.linkLibrary(ln);
             exe_check.linkLibrary(ln);
         }
@@ -443,6 +457,7 @@ pub fn build(b: *Build) !void {
         b.default_step.dependOn(&exe.step);
         if (!is_wasm) b.default_step.dependOn(&lsp_exe.?.step);
         b.default_step.dependOn(&lib.step);
+        if (!is_wasm) b.default_step.dependOn(&fuzz.?.step);
 
         // Building std libraries
         const Lib = struct {
@@ -773,4 +788,39 @@ pub fn buildMir(b: *Build, target: Build.ResolvedTarget, optimize: std.builtin.O
     }
 
     return lib;
+}
+
+pub fn buildFuzz(b: *Build, target: Build.ResolvedTarget, optimize: std.builtin.OptimizeMode) *Build.Step.Compile {
+    const afl = @import("zig_afl_kit");
+
+    // Define a step for generating fuzzing tooling:
+    const fuzz = b.step("fuzz", "Generate an instrumented executable for AFL++");
+
+    // Define an oblect file that contains your test function:
+    const afl_obj = b.addObject(.{
+        .name = "fuzz_obj",
+        .root_source_file = b.path("src/fuzz.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
+    // Required options:
+    // afl_obj.root_module.fuzz = true; // Enable when https://github.com/ziglang/zig/issues/20986 is fixed
+    afl_obj.root_module.stack_check = false; // not linking with compiler-rt
+    afl_obj.linkLibC(); // afl runtime depends on libc
+
+    // Generate an instrumented executable:
+    const afl_fuzz = afl.addInstrumentedExe(
+        b,
+        target,
+        optimize,
+        null,
+        true,
+        afl_obj,
+    ) orelse @panic("Could not create fuzz module");
+
+    // Install it
+    fuzz.dependOn(&b.addInstallBinFile(afl_fuzz, "fuzz_afl").step);
+
+    return afl_obj;
 }

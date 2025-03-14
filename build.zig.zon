@@ -12,6 +12,14 @@
             .url = "git+https://github.com/buzz-language/zig-lsp-kit.git#fe16f27f41ca5ad7ffb4e3d73e9e2a5ed42b0cc9",
             .hash = "zig_lsp_kit-0.0.0-SaK5ApS9AACj10m7vj2CNyiD1k8LdA5jmKMAaEwQ71RY",
         },
+        .zig_afl_kit = .{
+            .url = "git+https://github.com/buzz-language/zig-afl-kit#058e6a3ba312107306849754710efed50e34eeb0",
+            .hash = "zig_afl_kit-0.1.0-CgJG2wUdAACSqb8dm-xALec9UBSgFd2SkfVd10XF3Dj-",
+        },
+        .AFLplusplus = .{
+            .url = "git+https://github.com/buzz-language/AFLplusplus.git#b7186756397390529f9afe1040f837dc77cdfcfa",
+            .hash = "AFLplusplus-4.21.0-djWIeOVrAAA53LNFp5j1uDmZs52Qy-pTlxUdDwI8CC-N",
+        },
     },
     .paths = .{""},
 }
