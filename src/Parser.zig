@@ -8637,14 +8637,12 @@ fn readScript(self: *Self, file_name: []const u8) !?[2][]const u8 {
 
     defer file.?.close();
 
-    // TODO: put source strings in a ArenaAllocator that frees everything at the end of everything
     const source = try self.gc.allocator.alloc(
         u8,
         (file.?.stat() catch {
             return Error.ImportError;
         }).size,
     );
-    // defer self.gc.allocator.free(source);
 
     _ = file.?.readAll(source) catch {
         return Error.ImportError;

@@ -17,7 +17,7 @@ const dispatch_call_modifier: std.builtin.CallModifier = if (!is_wasm) .always_t
 const io = @import("io.zig");
 
 const dumpStack = disassembler.dumpStack;
-const jmp = if (!is_wasm) @import("jmp.zig").jmp else void;
+const jmp = if (!is_wasm) @import("jmp.zig") else void;
 
 pub const ImportRegistry = std.AutoHashMapUnmanaged(*obj.ObjString, []const Value);
 

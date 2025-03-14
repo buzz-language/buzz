@@ -2,7 +2,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const is_wasm = builtin.cpu.arch.isWasm();
 const BuildOptions = @import("build_options");
-const jmp = if (!is_wasm) @import("jmp.zig").jmp else void;
+const jmp = if (!is_wasm) @import("jmp.zig") else void;
 
 pub const os = if (is_wasm)
     @import("wasm.zig")

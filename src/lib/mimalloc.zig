@@ -5,7 +5,10 @@ const debug = std.debug;
 
 const Allocator = mem.Allocator;
 
-const mi = @cImport(@cInclude("mimalloc.h"));
+extern fn mi_malloc_aligned(size: usize, alignment: usize) ?*anyopaque;
+extern fn mi_usable_size(p: ?*const anyopaque) usize;
+extern fn mi_expand(p: ?*anyopaque, newsize: usize) ?*anyopaque;
+extern fn mi_free(p: ?*anyopaque) void;
 
 const MimAllocator = struct {
     fn alloc(
@@ -15,7 +18,7 @@ const MimAllocator = struct {
         _: usize,
     ) ?[*]u8 {
         return @ptrCast(
-            mi.mi_malloc_aligned(
+            mi_malloc_aligned(
                 len,
                 log2_align.toByteUnits(),
             ),
@@ -30,9 +33,9 @@ const MimAllocator = struct {
         _: usize,
     ) bool {
         if (new_len > buf.len) {
-            const available = mi.mi_usable_size(buf.ptr);
+            const available = mi_usable_size(buf.ptr);
             if (available > new_len) {
-                if (mi.mi_expand(buf.ptr, new_len)) |_| {
+                if (mi_expand(buf.ptr, new_len)) |_| {
                     return true;
                 }
             }
@@ -48,7 +51,7 @@ const MimAllocator = struct {
         _: mem.Alignment,
         _: usize,
     ) void {
-        mi.mi_free(buf.ptr);
+        mi_free(buf.ptr);
     }
 
     fn remap(
