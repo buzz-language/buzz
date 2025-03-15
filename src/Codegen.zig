@@ -1393,7 +1393,7 @@ fn generateCall(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj
             }
 
             for (not_handled.items) |error_type| {
-                const error_str = try error_type.toStringAlloc(self.gc.allocator);
+                const error_str = try error_type.toStringAlloc(self.gc.allocator, false);
                 defer self.gc.allocator.free(error_str);
 
                 self.reporter.reportErrorFmt(
@@ -2119,7 +2119,7 @@ fn generateExpression(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error
         expr_type_def.?.def_type != .Void;
 
     if (self.flavor != .Repl and lone_expr and expr_type_def.?.def_type != .Placeholder) {
-        const type_def_str = expr_type_def.?.toStringAlloc(self.gc.allocator) catch unreachable;
+        const type_def_str = expr_type_def.?.toStringAlloc(self.gc.allocator, false) catch unreachable;
         defer self.gc.allocator.free(type_def_str);
 
         self.reporter.warnFmt(
@@ -2873,7 +2873,7 @@ fn generateGenericResolve(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) E
             }
         },
         else => {
-            const type_def_str = type_def.toStringAlloc(self.gc.allocator) catch unreachable;
+            const type_def_str = type_def.toStringAlloc(self.gc.allocator, false) catch unreachable;
             defer self.gc.allocator.free(type_def_str);
 
             self.reporter.reportErrorFmt(
@@ -3481,7 +3481,7 @@ fn generateObjectDeclaration(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks
                     collect_def.yield_type.def_type != .Void or
                     collect_def.error_types != null)
                 {
-                    const collect_def_str = member_type_def.toStringAlloc(self.gc.allocator) catch @panic("Out of memory");
+                    const collect_def_str = member_type_def.toStringAlloc(self.gc.allocator, false) catch @panic("Out of memory");
                     defer self.gc.allocator.free(collect_def_str);
                     self.reporter.reportErrorFmt(
                         .collect_signature,
@@ -3502,7 +3502,7 @@ fn generateObjectDeclaration(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks
                     tostring_def.error_types != null or
                     tostring_def.generic_types.count() > 0)
                 {
-                    const tostring_def_str = member_type_def.toStringAlloc(self.gc.allocator) catch @panic("Out of memory");
+                    const tostring_def_str = member_type_def.toStringAlloc(self.gc.allocator, false) catch @panic("Out of memory");
                     defer self.gc.allocator.free(tostring_def_str);
                     self.reporter.reportErrorFmt(
                         .tostring_signature,
@@ -4054,7 +4054,7 @@ fn generateSubscript(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!
 
             if (components.value) |value| {
                 if (!type_defs[components.subscripted].?.isMutable()) {
-                    const callee_type_str = type_defs[components.subscripted].?.toStringAlloc(self.gc.allocator) catch unreachable;
+                    const callee_type_str = type_defs[components.subscripted].?.toStringAlloc(self.gc.allocator, false) catch unreachable;
                     defer self.gc.allocator.free(callee_type_str);
                     self.reporter.reportErrorFmt(
                         .not_mutable,
@@ -4097,7 +4097,7 @@ fn generateSubscript(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!
 
             if (components.value) |value| {
                 if (!type_defs[components.subscripted].?.isMutable()) {
-                    const callee_type_str = type_defs[components.subscripted].?.toStringAlloc(self.gc.allocator) catch unreachable;
+                    const callee_type_str = type_defs[components.subscripted].?.toStringAlloc(self.gc.allocator, false) catch unreachable;
                     defer self.gc.allocator.free(callee_type_str);
                     self.reporter.reportErrorFmt(
                         .not_mutable,
@@ -4252,7 +4252,7 @@ fn generateTry(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.
             }
 
             if (clause == null) {
-                const err_str = try kv.key_ptr.*.toStringAlloc(self.gc.allocator);
+                const err_str = try kv.key_ptr.*.toStringAlloc(self.gc.allocator, false);
                 defer self.gc.allocator.free(err_str);
 
                 self.reporter.reportWithOrigin(
@@ -4311,7 +4311,7 @@ fn generateThrow(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*ob
                 );
             } else {
                 // Not in a try-catch and function signature does not expect this error type
-                const error_str = try type_defs[components.expression].?.toStringAlloc(self.gc.allocator);
+                const error_str = try type_defs[components.expression].?.toStringAlloc(self.gc.allocator, false);
                 defer self.gc.allocator.free(error_str);
 
                 self.reporter.reportErrorFmt(
@@ -4385,7 +4385,7 @@ fn generateUnary(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*ob
                     self.ast.tokens.get(end_locations[components.expression]),
                     "Expected type `int`, got `{s}`",
                     .{
-                        try expression_type_def.toStringAlloc(self.gc.allocator),
+                        try expression_type_def.toStringAlloc(self.gc.allocator, false),
                     },
                 );
             }
@@ -4400,7 +4400,7 @@ fn generateUnary(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*ob
                     self.ast.tokens.get(end_locations[components.expression]),
                     "Expected type `bool`, got `{s}`",
                     .{
-                        try expression_type_def.toStringAlloc(self.gc.allocator),
+                        try expression_type_def.toStringAlloc(self.gc.allocator, false),
                     },
                 );
             }
@@ -4419,7 +4419,7 @@ fn generateUnary(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*ob
                     self.ast.tokens.get(end_locations[components.expression]),
                     "Expected type `int` or `double`, got `{s}`",
                     .{
-                        try expression_type_def.toStringAlloc(self.gc.allocator),
+                        try expression_type_def.toStringAlloc(self.gc.allocator, false),
                     },
                 );
             }

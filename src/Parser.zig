@@ -1172,7 +1172,7 @@ fn endFrame(self: *Self) Ast.Node.Index {
     if (function_type == .Script or function_type == .ScriptEntryPoint) {
         for (self.globals.items) |global| {
             if (!global.isReferenced(self.ast)) {
-                const type_def_str = global.type_def.toStringAlloc(self.gc.allocator) catch unreachable;
+                const type_def_str = global.type_def.toStringAlloc(self.gc.allocator, false) catch unreachable;
                 defer self.gc.allocator.free(type_def_str);
 
                 const location = self.ast.tokens.get(global.name[0]);
@@ -1881,7 +1881,7 @@ fn resolvePlaceholderWithRelation(
                     self.ast.tokens.get(child_placeholder.where_end),
                     "`{s}` can't be called",
                     .{
-                        try resolved_type.toStringAlloc(self.gc.allocator),
+                        try resolved_type.toStringAlloc(self.gc.allocator, false),
                     },
                 );
                 return;
@@ -1902,7 +1902,7 @@ fn resolvePlaceholderWithRelation(
                     self.ast.tokens.get(child_placeholder.where_end),
                     "`{s}` can't be called",
                     .{
-                        try resolved_type.toStringAlloc(self.gc.allocator),
+                        try resolved_type.toStringAlloc(self.gc.allocator, false),
                     },
                 );
                 return;
@@ -1940,7 +1940,7 @@ fn resolvePlaceholderWithRelation(
                     self.ast.tokens.get(child_placeholder.where_end),
                     "`{s}` can't be subscripted",
                     .{
-                        try resolved_type.toStringAlloc(self.gc.allocator),
+                        try resolved_type.toStringAlloc(self.gc.allocator, false),
                     },
                 );
                 return;
@@ -1972,7 +1972,7 @@ fn resolvePlaceholderWithRelation(
                     self.ast.tokens.get(child_placeholder.where_end),
                     "`{s}` can't be subscripted",
                     .{
-                        try resolved_type.toStringAlloc(self.gc.allocator),
+                        try resolved_type.toStringAlloc(self.gc.allocator, false),
                     },
                 );
                 return;
@@ -1998,7 +1998,7 @@ fn resolvePlaceholderWithRelation(
                     self.ast.tokens.get(child_placeholder.where_end),
                     "Bad key type for `{s}`",
                     .{
-                        try resolved_type.toStringAlloc(self.gc.allocator),
+                        try resolved_type.toStringAlloc(self.gc.allocator, false),
                     },
                 );
                 return;
@@ -2187,7 +2187,7 @@ fn resolvePlaceholderWithRelation(
                         self.ast.tokens.get(child_placeholder.where_end),
                         "`{s}` can't be field accessed",
                         .{
-                            try resolved_type.toStringAlloc(self.gc.allocator),
+                            try resolved_type.toStringAlloc(self.gc.allocator, false),
                         },
                     );
                     return;
@@ -3805,7 +3805,7 @@ fn subscript(self: *Self, can_assign: bool, subscripted: Ast.Node.Index) Error!A
                     subscripted,
                     "Type `{s}` is not subscriptable",
                     .{
-                        try type_def.toStringAlloc(self.gc.allocator),
+                        try type_def.toStringAlloc(self.gc.allocator, false),
                     },
                 ),
             }
@@ -5426,7 +5426,7 @@ fn dot(self: *Self, can_assign: bool, callee: Ast.Node.Index) Error!Ast.Node.Ind
                     callee,
                     "`{s}` is not field accessible",
                     .{
-                        try callee_type_def.?.toStringAlloc(self.gc.allocator),
+                        try callee_type_def.?.toStringAlloc(self.gc.allocator, false),
                     },
                 );
             },
@@ -6969,7 +6969,7 @@ fn funDeclaration(self: *Self) Error!Ast.Node.Index {
         }
 
         if (!signature_valid) {
-            const main_def_str = fun_typedef.toStringAlloc(self.gc.allocator) catch @panic("Out of memory");
+            const main_def_str = fun_typedef.toStringAlloc(self.gc.allocator, false) catch @panic("Out of memory");
             defer self.gc.allocator.free(main_def_str);
             self.reporter.reportErrorFmt(
                 .main_signature,

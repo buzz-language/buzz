@@ -1,11 +1,11 @@
 import "std";
 
 object A {
-    b: B
+    b: B,
 }
 
 object B {
-    a: A
+    a: A,
 }
 
 object Node {
