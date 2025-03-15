@@ -414,9 +414,6 @@ pub fn build(b: *Build) !void {
         }
 
         if (lib_mimalloc) |mimalloc| {
-            lib.addIncludePath(b.path("vendors/mimalloc/include"));
-            exe.addIncludePath(b.path("vendors/mimalloc/include"));
-            if (!is_wasm) lsp_exe.?.addIncludePath(b.path("vendors/mimalloc/include"));
             lib.linkLibrary(mimalloc);
             exe.linkLibrary(mimalloc);
             if (!is_wasm) lsp_exe.?.linkLibrary(mimalloc);
@@ -513,7 +510,6 @@ pub fn build(b: *Build) !void {
             }
 
             if (lib_mimalloc) |mimalloc| {
-                std_lib.addIncludePath(b.path("vendors/mimalloc/include"));
                 std_lib.linkLibrary(mimalloc);
                 if (std_lib.root_module.resolved_target.?.result.os.tag == .windows) {
                     std_lib.linkSystemLibrary("bcrypt");
@@ -545,7 +541,6 @@ pub fn build(b: *Build) !void {
         tests.linkLibrary(pcre);
     }
     if (lib_mimalloc) |mimalloc| {
-        tests.addIncludePath(b.path("vendors/mimalloc/include"));
         tests.linkLibrary(mimalloc);
         if (tests.root_module.resolved_target.?.result.os.tag == .windows) {
             tests.linkSystemLibrary("bcrypt");
