@@ -1173,7 +1173,12 @@ pub const ExternApi = enum {
             .setjmp => @as(
                 *anyopaque,
                 @ptrFromInt(
-                    @intFromPtr(&(if (builtin.os.tag == .macos or builtin.os.tag == .linux or builtin.os.tag == .windows) jmp._setjmp else jmp.setjmp)),
+                    @intFromPtr(
+                        &(if (builtin.os.tag == .macos or builtin.os.tag == .linux)
+                            jmp._setjmp
+                        else
+                            jmp.setjmp),
+                    ),
                 ),
             ),
             .exit => @as(*anyopaque, @ptrFromInt(@intFromPtr(&bz_exit))),
