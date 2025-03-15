@@ -5936,6 +5936,7 @@ fn function(
             .components = .{
                 .Function = .{
                     .id = Ast.Function.nextId(),
+                    .identifier = self.current_token.? - 1,
                     .upvalue_binding = .{},
                     .function_signature = function_signature,
                 },
@@ -7636,6 +7637,7 @@ fn objectDeclaration(self: *Self) Error!Ast.Node.Index {
                     .protocols = try protocol_nodes.toOwnedSlice(),
                     .generics = try generics.toOwnedSlice(),
                     .members = try members.toOwnedSlice(),
+                    .identifier = self.current_token.? - 1,
                 },
             },
         },
@@ -7808,6 +7810,7 @@ fn protocolDeclaration(self: *Self) Error!Ast.Node.Index {
                     .name = protocol_name,
                     .slot = @intCast(slot),
                     .methods = try methods.toOwnedSlice(),
+                    .identifier = self.current_token.? - 1,
                 },
             },
         },
@@ -8002,6 +8005,7 @@ fn enumDeclaration(self: *Self) Error!Ast.Node.Index {
                     .case_type = enum_case_type_node,
                     .slot = @intCast(slot),
                     .cases = cases_slice,
+                    .identifier = self.current_token.? - 1,
                 },
             },
         },
@@ -8173,6 +8177,7 @@ fn varDeclaration(
                     .final = final,
                     .slot = @intCast(slot),
                     .slot_type = if (self.current.?.scope_depth > 0) .Local else .Global,
+                    .identifier = self.current_token.? - 1,
                 },
             },
         },
@@ -8219,6 +8224,7 @@ fn implicitVarDeclaration(
                     .final = final,
                     .slot = @intCast(slot),
                     .slot_type = if (self.current.?.scope_depth > 0) .Local else .Global,
+                    .identifier = if (self.current.?.scope_depth > 0) null else self.current_token.? - 1,
                 },
             },
         },
@@ -8273,6 +8279,7 @@ fn testStatement(self: *Self) Error!Ast.Node.Index {
                     .final = true,
                     .slot = @intCast(slot),
                     .slot_type = .Global,
+                    .identifier = self.current_token.? - 1,
                 },
             },
         },
@@ -9190,6 +9197,7 @@ fn zdefStatement(self: *Self) Error!Ast.Node.Index {
                     .fn_ptr = fn_ptr,
                     .slot = @intCast(slot),
                     .zdef = zdef,
+                    .identifier = self.current_token.? - 1,
                 },
             );
         }

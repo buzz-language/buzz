@@ -2079,6 +2079,7 @@ fn generateEnum(self: *Self, node: Ast.Node.Index, _: ?*Breaks) Error!?*obj.ObjF
     try self.OP_DEFINE_GLOBAL(
         locations[node],
         @intCast(components.slot),
+        self.parser.ast.tokens.items(.lexeme)[components.identifier.?],
     );
 
     try self.patchOptJumps(node);
@@ -2779,6 +2780,7 @@ fn generateFunction(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?
 fn generateFunDeclaration(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.ObjFunction {
     const node_components = self.ast.nodes.items(.components);
     const components = node_components[node].FunDeclaration;
+    const function_component = node_components[components.function].Function;
 
     _ = try self.generateNode(components.function, breaks);
 
@@ -2786,6 +2788,7 @@ fn generateFunDeclaration(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) E
         try self.OP_DEFINE_GLOBAL(
             self.ast.nodes.items(.location)[node],
             @intCast(components.slot),
+            self.parser.ast.tokens.items(.lexeme)[function_component.identifier.?],
         );
     }
 
@@ -3454,7 +3457,11 @@ fn generateObjectDeclaration(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks
 
     // Put  object on the stack and define global with it
     try self.OP_OBJECT(location, object_type.toValue());
-    try self.OP_DEFINE_GLOBAL(location, @intCast(components.slot));
+    try self.OP_DEFINE_GLOBAL(
+        location,
+        @intCast(components.slot),
+        self.parser.ast.tokens.items(.lexeme)[components.identifier.?],
+    );
 
     // Put the object on the stack to set its fields
     try self.OP_GET_GLOBAL(location, @intCast(components.slot));
@@ -3767,7 +3774,11 @@ fn generateProtocolDeclaration(self: *Self, node: Ast.Node.Index, _: ?*Breaks) E
     const type_def = self.ast.nodes.items(.type_def)[node].?;
 
     try self.emitConstant(location, type_def.toValue());
-    try self.OP_DEFINE_GLOBAL(location, @intCast(components.slot));
+    try self.OP_DEFINE_GLOBAL(
+        location,
+        @intCast(components.slot),
+        self.parser.ast.tokens.items(.lexeme)[components.identifier.?],
+    );
 
     try self.patchOptJumps(node);
     try self.endScope(node);
@@ -4517,7 +4528,11 @@ fn generateVarDeclaration(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) E
     }
 
     if (components.slot_type == .Global) {
-        try self.OP_DEFINE_GLOBAL(location, @intCast(components.slot));
+        try self.OP_DEFINE_GLOBAL(
+            location,
+            @intCast(components.slot),
+            self.parser.ast.tokens.items(.lexeme)[components.identifier.?],
+        );
     }
 
     try self.patchOptJumps(node);
@@ -4695,7 +4710,11 @@ fn generateZdef(self: *Self, node: Ast.Node.Index, _: ?*Breaks) Error!?*obj.ObjF
             },
             else => unreachable,
         }
-        try self.OP_DEFINE_GLOBAL(location, @intCast(element.slot));
+        try self.OP_DEFINE_GLOBAL(
+            location,
+            @intCast(element.slot),
+            self.parser.ast.tokens.items(.lexeme)[element.identifier.?],
+        );
     }
 
     try self.patchOptJumps(node);
@@ -4956,7 +4975,12 @@ fn OP_HOTSPOT_CALL(self: *Self, location: Ast.TokenIndex) !void {
     try self.emitOpCode(location, .OP_HOTSPOT_CALL);
 }
 
-fn OP_DEFINE_GLOBAL(self: *Self, location: Ast.TokenIndex, slot: u24) !void {
+fn OP_DEFINE_GLOBAL(self: *Self, location: Ast.TokenIndex, slot: u24, name: []const u8) !void {
+    try self.emitCodeArg(
+        location,
+        .OP_CONSTANT,
+        try self.identifierConstant(name),
+    );
     try self.emitCodeArg(
         location,
         .OP_DEFINE_GLOBAL,

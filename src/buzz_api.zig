@@ -845,27 +845,9 @@ export fn bz_pushErrorEnum(self: *VM, qualified_name: [*]const u8, name_len: usi
 }
 
 export fn bz_getQualified(self: *VM, qualified_name: [*]const u8, len: usize) callconv(.c) v.Value {
-    for (self.globals.items) |global| {
-        if (global.isObj()) {
-            switch (global.obj().obj_type) {
-                .Enum => {
-                    const obj_enum = o.ObjEnum.cast(global.obj()).?;
-
-                    if (std.mem.eql(u8, qualified_name[0..len], obj_enum.type_def.resolved_type.?.Enum.qualified_name.string)) {
-                        return global;
-                    }
-                },
-                .Object => {
-                    const obj_object = o.ObjObject.cast(global.obj()).?;
-
-                    if (std.mem.eql(u8, qualified_name[0..len], obj_object.type_def.resolved_type.?.Object.qualified_name.string)) {
-                        return global;
-                    }
-                },
-                else => {},
-            }
-        }
-    }
+    var iter = self.global_names.iterator();
+    while (iter.next()) |entry| if (std.mem.eql(u8, qualified_name[0..len], entry.value_ptr.*))
+        return self.globals.items[entry.key_ptr.*];
 
     std.debug.panic("bz_getQualified no name: {s}", .{qualified_name[0..len]});
 }

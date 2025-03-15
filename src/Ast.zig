@@ -1261,6 +1261,7 @@ pub const Enum = struct {
     case_type: ?Node.Index,
     slot: Slot,
     cases: []const Case,
+    identifier: ?TokenIndex,
 
     pub const Case = struct {
         name: TokenIndex,
@@ -1319,6 +1320,9 @@ pub const Function = struct {
 
     // If the function is a ScriptEntryPoint
     entry: ?Entry = null,
+
+    // function identifier
+    identifier: ?TokenIndex = null,
 
     // Set when the function is first generated
     // The JIT compiler can then reference it when creating its closure
@@ -1428,6 +1432,7 @@ pub const ObjectDeclaration = struct {
     generics: []const TokenIndex,
     // List of either Function (methods) or VarDeclaration (properties)
     members: []const Member,
+    identifier: ?TokenIndex,
 
     pub const Member = struct {
         name: TokenIndex,
@@ -1452,6 +1457,7 @@ pub const ProtocolDeclaration = struct {
     name: TokenIndex,
     slot: Slot,
     methods: []const Method,
+    identifier: ?TokenIndex,
 
     pub const Method = struct {
         docblock: ?TokenIndex,
@@ -1517,6 +1523,7 @@ pub const VarDeclaration = struct {
     final: bool,
     slot: Slot,
     slot_type: SlotType,
+    identifier: ?TokenIndex,
 };
 
 pub const WhileDoUntil = struct {
@@ -1537,5 +1544,6 @@ pub const Zdef = struct {
         zdef: *const FFI.Zdef,
         slot: Slot,
         // TODO: add TokenIndex which should wrap portion of the zdef string relative to this element
+        identifier: ?TokenIndex,
     };
 };
