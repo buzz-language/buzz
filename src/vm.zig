@@ -421,7 +421,7 @@ pub const VM = struct {
     current_fiber: *Fiber,
     current_ast: Ast.Slice,
     globals: std.ArrayListUnmanaged(Value) = .{},
-    global_names: std.AutoArrayHashMap(u24, []const u8),
+    global_names: std.StringArrayHashMap(u24),
     // FIXME: remove
     globals_count: usize = 0,
     import_registry: *ImportRegistry,
@@ -434,7 +434,7 @@ pub const VM = struct {
     pub fn init(gc: *memory.GarbageCollector, import_registry: *ImportRegistry, flavor: RunFlavor) !Self {
         return .{
             .gc = gc,
-            .global_names = std.AutoArrayHashMap(u24, []const u8).init(gc.allocator),
+            .global_names = std.StringArrayHashMap(u24).init(gc.allocator),
             .import_registry = import_registry,
             .current_ast = undefined,
             .current_fiber = undefined,
@@ -1029,16 +1029,10 @@ pub const VM = struct {
         const name = self.pop().obj()
             .access(obj.ObjString, .String, self.gc).?
             .string;
-        self.global_names.put(arg, name) catch {
+        self.global_names.put(name, arg) catch {
             self.panic("Out of memory");
             unreachable;
         };
-        // const values = self.global_names.values();
-        // std.log.debug("self.global_names: keys: {any}", .{self.global_names.keys()});
-        // for (values) |value| {
-        //     std.log.debug("{s}", .{value});
-        // }
-        // std.log.debug("------------\n", .{});
 
         // We don't always define a new global at the end of the list
         self.globals.items.len = new_len;

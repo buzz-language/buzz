@@ -845,9 +845,7 @@ export fn bz_pushErrorEnum(self: *VM, qualified_name: [*]const u8, name_len: usi
 }
 
 export fn bz_getQualified(self: *VM, qualified_name: [*]const u8, len: usize) callconv(.c) v.Value {
-    var iter = self.global_names.iterator();
-    while (iter.next()) |entry| if (std.mem.eql(u8, qualified_name[0..len], entry.value_ptr.*))
-        return self.globals.items[entry.key_ptr.*];
+    if (self.global_names.get(qualified_name[0..len])) |value| return self.globals.items[value];
 
     std.debug.panic("bz_getQualified no name: {s}", .{qualified_name[0..len]});
 }

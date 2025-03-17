@@ -2079,7 +2079,7 @@ fn generateEnum(self: *Self, node: Ast.Node.Index, _: ?*Breaks) Error!?*obj.ObjF
     try self.OP_DEFINE_GLOBAL(
         locations[node],
         @intCast(components.slot),
-        self.parser.ast.tokens.items(.lexeme)[components.identifier.?],
+        self.parser.ast.tokens.items(.lexeme)[components.name],
     );
 
     try self.patchOptJumps(node);
@@ -2788,7 +2788,7 @@ fn generateFunDeclaration(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) E
         try self.OP_DEFINE_GLOBAL(
             self.ast.nodes.items(.location)[node],
             @intCast(components.slot),
-            self.parser.ast.tokens.items(.lexeme)[function_component.identifier.?],
+            self.parser.ast.tokens.items(.lexeme)[function_component.identifier],
         );
     }
 
@@ -3460,7 +3460,7 @@ fn generateObjectDeclaration(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks
     try self.OP_DEFINE_GLOBAL(
         location,
         @intCast(components.slot),
-        self.parser.ast.tokens.items(.lexeme)[components.identifier.?],
+        self.parser.ast.tokens.items(.lexeme)[components.name],
     );
 
     // Put the object on the stack to set its fields
@@ -3777,7 +3777,7 @@ fn generateProtocolDeclaration(self: *Self, node: Ast.Node.Index, _: ?*Breaks) E
     try self.OP_DEFINE_GLOBAL(
         location,
         @intCast(components.slot),
-        self.parser.ast.tokens.items(.lexeme)[components.identifier.?],
+        self.parser.ast.tokens.items(.lexeme)[components.name],
     );
 
     try self.patchOptJumps(node);
@@ -4531,7 +4531,7 @@ fn generateVarDeclaration(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) E
         try self.OP_DEFINE_GLOBAL(
             location,
             @intCast(components.slot),
-            self.parser.ast.tokens.items(.lexeme)[components.identifier.?],
+            self.parser.ast.tokens.items(.lexeme)[components.name],
         );
     }
 
