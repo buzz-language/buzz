@@ -833,20 +833,29 @@ fn matchOpEqual(self: *Self) !bool {
 }
 
 /// Insert token in ast and advance over it to avoid confusing the parser
-fn insertUtilityToken(self: *Self, token: Token) !Ast.TokenIndex {
+fn insertUtilityToken(self: *Self, token: Token, set_location: bool) !Ast.TokenIndex {
     const current_token = self.ast.tokens.get(self.current_token.?);
 
-    try self.ast.tokens.insert(
-        self.gc.allocator,
+    var utility_token = token;
+    if (set_location) {
+        utility_token.line = current_token.line;
+        utility_token.column = current_token.column;
+        utility_token.offset = current_token.offset;
+    }
+    utility_token.source = current_token.source;
+    utility_token.script_name = current_token.script_name;
+    utility_token.utility_token = true;
+
+    self.ast.tokens.set(
         self.current_token.?,
-        token,
+        utility_token,
     );
 
-    const utility_token = self.current_token.?;
+    const utility_token_idx = self.current_token.?;
 
     self.current_token = try self.ast.appendToken(current_token);
 
-    return utility_token;
+    return utility_token_idx;
 }
 
 // Skip tokens until we reach something that resembles a new statement
@@ -1115,13 +1124,13 @@ fn beginFrame(self: *Self, function_type: obj.ObjFunction.FunctionType, function
     var location = Token.identifier(
         switch (function_type) {
             .Method => "this",
-            .EntryPoint => "$args",
-            .ScriptEntryPoint => "$args",
+            .EntryPoint, .ScriptEntryPoint => "$args",
             else => "_",
         },
     );
     location.source = self.scanner.?.source;
     location.script_name = self.script_name;
+    location.utility_token = true;
 
     if (function_type == .Method) {
         const function_location = self.ast.tokens.get(
@@ -1133,7 +1142,7 @@ fn beginFrame(self: *Self, function_type: obj.ObjFunction.FunctionType, function
     }
 
     if (self.current_token != null) {
-        local.name = try self.insertUtilityToken(location);
+        local.name = try self.insertUtilityToken(location, false);
     } else {
         local.name = try self.ast.appendToken(location);
         _ = try self.advance();
@@ -3464,6 +3473,7 @@ fn parseObjType(self: *Self, generic_types: ?std.AutoArrayHashMapUnmanaged(*obj.
                         else => "invalid",
                     },
                 ),
+                true,
             );
         const property_name_lexeme = self.ast.tokens.items(.lexeme)[property_name];
 
@@ -4573,6 +4583,7 @@ fn anonymousObjectInit(self: *Self, _: bool) Error!Ast.Node.Index {
                             else => "invalid",
                         },
                     ),
+                    true,
                 );
 
             if (is_tuple) {
@@ -5730,7 +5741,7 @@ fn as(self: *Self, _: bool, left: Ast.Node.Index) Error!Ast.Node.Index {
 fn string(self: *Self, _: bool) Error!Ast.Node.Index {
     const string_token_index = self.current_token.? - 1;
     const string_token = self.ast.tokens.get(string_token_index);
-    const current_token = self.ast.tokens.get(self.current_token.?);
+    const current_token = self.current_token.?;
 
     var string_parser = StringParser.init(
         self,
@@ -5758,7 +5769,9 @@ fn string(self: *Self, _: bool) Error!Ast.Node.Index {
     self.ast.nodes.items(.end_location)[string_node] = self.current_token.? - 1;
 
     // Append again token just after the string so we don't confuse the parser
-    self.current_token = try self.ast.appendToken(current_token);
+    var utility_token = self.ast.tokens.get(current_token).clone();
+    utility_token.utility_token = true;
+    self.current_token = try self.ast.appendToken(utility_token);
 
     return string_node;
 }
@@ -9108,7 +9121,10 @@ fn zdefStatement(self: *Self) Error!Ast.Node.Index {
             var slot: usize = undefined;
 
             std.debug.assert(self.current.?.scope_depth == 0);
-            const zdef_name_token = try self.insertUtilityToken(Token.identifier(zdef.name));
+            const zdef_name_token = try self.insertUtilityToken(
+                Token.identifier(zdef.name),
+                true,
+            );
             slot = try self.declareVariable(
                 @intCast(node_slot),
                 zdef.type_def,
@@ -9520,7 +9536,7 @@ fn forEachStatement(self: *Self) Error!Ast.Node.Index {
         value = key;
 
         key = try self.implicitVarDeclaration(
-            try self.insertUtilityToken(Token.identifier("$key")),
+            try self.insertUtilityToken(Token.identifier("$key"), true),
             self.gc.type_registry.void_type,
             false,
             false,
@@ -9545,7 +9561,7 @@ fn forEachStatement(self: *Self) Error!Ast.Node.Index {
     // Local not usable by user but needed so that locals are correct
     const iterable_slot = try self.addLocal(
         @intCast(node_slot),
-        try self.insertUtilityToken(Token.identifier("$iterable")),
+        try self.insertUtilityToken(Token.identifier("$iterable"), true),
         undefined,
         true,
         false,

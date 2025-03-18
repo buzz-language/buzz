@@ -29,8 +29,10 @@ pub const Slice = struct {
     nodes: NodeList.Slice,
     root: ?Node.Index,
 
+    /// Do a breadth first walk of the AST, calling a callback for each node that can stop the walking from going deeper by returning true
     /// ctx should have:
     /// - `fn processNode(ctx: @TypeOf(ctx), allocator: std.mem.Allocator, ast: Ast.Slice, node: Node.Index) error{OutOfMemory}!bool: returns true to stop walking deeper
+    // FIXME: the context should have a error type we can reuse in processNode signature
     pub fn walk(self: Slice, allocator: std.mem.Allocator, ctx: anytype, root: Node.Index) !void {
         const tags = self.nodes.items(.tag);
         const components = self.nodes.items(.components);
@@ -926,6 +928,10 @@ pub inline fn appendNode(self: *Self, node: Node) !Node.Index {
 }
 
 pub inline fn appendToken(self: *Self, token: Token) !TokenIndex {
+    // if (token.tag == .Semicolon and self.tokens.items(.tag)[self.tokens.len - 1] == .Semicolon) {
+    //     unreachable;
+    // }
+
     try self.tokens.append(self.allocator, token);
 
     return @intCast(self.tokens.len - 1);
