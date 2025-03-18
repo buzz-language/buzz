@@ -81,7 +81,9 @@ const Document = struct {
             .errors = errors,
         };
 
-        doc.computeInlayHints() catch return error.OutOfMemory;
+        if (ast.root != null) {
+            doc.computeInlayHints() catch return error.OutOfMemory;
+        }
 
         return doc;
     }

@@ -237,7 +237,7 @@ pub fn parseTypeExpr(self: *Self, ztype: []const u8) !?*Zdef {
 
 pub fn parse(self: *Self, parser: ?*Parser, source: Token, parsing_type_expr: bool) !?[]*Zdef {
     // TODO: maybe an Arena allocator for those kinds of things that can live for the whole process lifetime
-    const duped = self.gc.allocator.dupeZ(u8, source.literal_string.?) catch @panic("Out of memory");
+    const duped = self.gc.allocator.dupeZ(u8, source.literal.String) catch @panic("Out of memory");
     // defer self.gc.allocator.free(duped);
 
     self.state = .{

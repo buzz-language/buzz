@@ -587,7 +587,7 @@ const rules = [_]ParseRule{
     .{}, // In
     .{ .infix = is, .precedence = .IsAs }, // Is
     .{ .prefix = literal }, // Integer
-    .{ .prefix = literal }, // FloatValue
+    .{ .prefix = literal }, // DoubleValue
     .{ .prefix = string }, // String
     .{ .prefix = variable }, // Identifier
     .{ .prefix = fun }, // Fun
@@ -669,7 +669,10 @@ pub fn advance(self: *Self) !void {
                     self.ast.tokens.get(self.current_token.? - 1),
                     "{s}",
                     .{
-                        new_token.literal_string orelse "Unknown Error",
+                        if (new_token.literal == .String)
+                            new_token.literal.String
+                        else
+                            "Unknown Error",
                     },
                 );
             }
@@ -699,7 +702,10 @@ fn advancePastEof(self: *Self) !void {
                     self.ast.tokens.get(self.current_token.? - 1),
                     "{s}",
                     .{
-                        new_token.literal_string orelse "Unknown error.",
+                        if (new_token.literal == .String)
+                            new_token.literal.String
+                        else
+                            "Unknown error.",
                     },
                 );
             }
@@ -789,7 +795,10 @@ fn checkAhead(self: *Self, tag: Token.Type, n: usize) !bool {
                 self.ast.tokens.get(self.current_token.? - 1),
                 "{s}",
                 .{
-                    token.literal_string orelse "Unknown error.",
+                    if (token.literal == .String)
+                        token.literal.String
+                    else
+                        "Unknown error.",
                 },
             );
         }
@@ -4032,14 +4041,14 @@ fn literal(self: *Self, _: bool) Error!Ast.Node.Index {
         .IntegerValue => {
             node.tag = .Integer;
             node.components = .{
-                .Integer = self.ast.tokens.items(.literal_integer)[node.location].?,
+                .Integer = self.ast.tokens.items(.literal)[node.location].Integer,
             };
             node.type_def = self.gc.type_registry.int_type;
         },
-        .FloatValue => {
+        .DoubleValue => {
             node.tag = .Double;
             node.components = .{
-                .Double = self.ast.tokens.items(.literal_float)[node.location].?,
+                .Double = self.ast.tokens.items(.literal)[node.location].Double,
             };
             node.type_def = self.gc.type_registry.float_type;
         },
@@ -5725,13 +5734,13 @@ fn string(self: *Self, _: bool) Error!Ast.Node.Index {
 
     var string_parser = StringParser.init(
         self,
-        string_token.literal_string.?,
+        string_token.literal.String,
         self.script_name,
         string_token.line,
         string_token.column,
     );
 
-    const string_node = if (string_token.literal_string.?.len > 0)
+    const string_node = if (string_token.literal.String.len > 0)
         try string_parser.parse()
     else
         try self.ast.appendNode(
@@ -6310,7 +6319,7 @@ fn function(
 
 fn pattern(self: *Self, _: bool) Error!Ast.Node.Index {
     const start_location = self.current_token.? - 1;
-    const source_slice = self.ast.tokens.items(.literal_string)[start_location].?;
+    const source_slice = self.ast.tokens.items(.literal)[start_location].String;
     // Replace escaped pattern delimiter with delimiter
     const source = try std.mem.replaceOwned(
         u8,
@@ -8672,7 +8681,7 @@ fn importScript(
                 location,
                 "`{s}` already imported",
                 .{
-                    location.literal_string.?,
+                    location.literal.String,
                 },
             );
         }
@@ -8981,7 +8990,7 @@ fn importStatement(self: *Self) Error!Ast.Node.Index {
 
     const path_token = self.current_token.? - 1;
     const path = self.ast.tokens.get(self.current_token.? - 1);
-    if (path.lexeme.len <= 1 or path.literal_string.?.len <= 0) {
+    if (path.lexeme.len <= 1 or path.literal.String.len <= 0) {
         self.reporter.reportErrorAt(
             .empty_import,
             path,
@@ -8989,7 +8998,7 @@ fn importStatement(self: *Self) Error!Ast.Node.Index {
             "Import path can't be empty",
         );
     }
-    const file_name: []const u8 = if (path.lexeme.len <= 1 or path.literal_string.?.len <= 0) invalid: {
+    const file_name: []const u8 = if (path.lexeme.len <= 1 or path.literal.String.len <= 0) invalid: {
         self.reporter.reportErrorAt(
             .empty_import,
             path,
@@ -9111,7 +9120,7 @@ fn zdefStatement(self: *Self) Error!Ast.Node.Index {
             // self.current_token.? - 1 = zdef_name_token;
             self.markInitialized();
 
-            const lib_name_str = self.ast.tokens.items(.literal_string)[lib_name].?;
+            const lib_name_str = self.ast.tokens.items(.literal)[lib_name].String;
 
             // If zig_type is struct, we just push the objtypedef itself on the stack
             // Otherwise we try to build a wrapper around the imported function
