@@ -47,7 +47,7 @@ pub fn scanToken(self: *Self) Allocator.Error!Token {
     self.current.start_column = self.current.column;
 
     if (self.isEOF()) {
-        return self.makeToken(.Eof, null, null, null);
+        return self.makeToken(.Eof, Token.NoLiteral);
     }
 
     const char: u8 = self.advance();
@@ -55,9 +55,7 @@ pub fn scanToken(self: *Self) Allocator.Error!Token {
         'a'...'z', 'A'...'Z' => self.identifier(),
         '_' => self.makeToken(
             .Identifier,
-            self.source[self.current.start..self.current.offset],
-            null,
-            null,
+            .{ .String = self.source[self.current.start..self.current.offset] },
         ),
         '0' => if (self.match('x'))
             self.hexa()
@@ -67,114 +65,99 @@ pub fn scanToken(self: *Self) Allocator.Error!Token {
             self.number(),
         '1'...'9' => self.number(),
 
-        '[' => self.makeToken(.LeftBracket, null, null, null),
-        ']' => self.makeToken(.RightBracket, null, null, null),
-        '(' => self.makeToken(.LeftParen, null, null, null),
-        ')' => self.makeToken(.RightParen, null, null, null),
-        '{' => self.makeToken(.LeftBrace, null, null, null),
-        '}' => self.makeToken(.RightBrace, null, null, null),
-        ',' => self.makeToken(.Comma, null, null, null),
-        ';' => self.makeToken(.Semicolon, null, null, null),
+        '[' => self.makeToken(.LeftBracket, Token.NoLiteral),
+        ']' => self.makeToken(.RightBracket, Token.NoLiteral),
+        '(' => self.makeToken(.LeftParen, Token.NoLiteral),
+        ')' => self.makeToken(.RightParen, Token.NoLiteral),
+        '{' => self.makeToken(.LeftBrace, Token.NoLiteral),
+        '}' => self.makeToken(.RightBrace, Token.NoLiteral),
+        ',' => self.makeToken(.Comma, Token.NoLiteral),
+        ';' => self.makeToken(.Semicolon, Token.NoLiteral),
         '.' => if (self.match('.'))
-            self.makeToken(.Spread, null, null, null)
+            self.makeToken(.Spread, Token.NoLiteral)
         else
-            self.makeToken(.Dot, null, null, null),
+            self.makeToken(.Dot, Token.NoLiteral),
         '>' => if (self.match('>'))
             if (self.match('='))
-                self.makeToken(.ShiftRightEqual, null, null, null)
+                self.makeToken(.ShiftRightEqual, Token.NoLiteral)
             else
-                self.makeToken(.ShiftRight, null, null, null)
+                self.makeToken(.ShiftRight, Token.NoLiteral)
         else if (self.match('='))
-            self.makeToken(.GreaterEqual, null, null, null)
+            self.makeToken(.GreaterEqual, Token.NoLiteral)
         else
-            self.makeToken(.Greater, null, null, null),
+            self.makeToken(.Greater, Token.NoLiteral),
         '<' => if (self.match('<'))
             if (self.match('='))
-                self.makeToken(.ShiftLeftEqual, null, null, null)
+                self.makeToken(.ShiftLeftEqual, Token.NoLiteral)
             else
-                self.makeToken(.ShiftLeft, null, null, null)
+                self.makeToken(.ShiftLeft, Token.NoLiteral)
         else if (self.match('='))
-            self.makeToken(.LessEqual, null, null, null)
+            self.makeToken(.LessEqual, Token.NoLiteral)
         else
-            self.makeToken(.Less, null, null, null),
+            self.makeToken(.Less, Token.NoLiteral),
         '~' => if (self.match('='))
-            self.makeToken(.BnotEqual, null, null, null)
+            self.makeToken(.BnotEqual, Token.NoLiteral)
         else
-            self.makeToken(.Bnot, null, null, null),
+            self.makeToken(.Bnot, Token.NoLiteral),
         '^' => if (self.match('='))
-            self.makeToken(.XorEqual, null, null, null)
+            self.makeToken(.XorEqual, Token.NoLiteral)
         else
-            self.makeToken(.Xor, null, null, null),
+            self.makeToken(.Xor, Token.NoLiteral),
         '|' => if (self.match('='))
-            self.makeToken(.BorEqual, null, null, null)
+            self.makeToken(.BorEqual, Token.NoLiteral)
         else
-            self.makeToken(.Bor, null, null, null),
+            self.makeToken(.Bor, Token.NoLiteral),
         '+' => if (self.match('='))
-            self.makeToken(.PlusEqual, null, null, null)
+            self.makeToken(.PlusEqual, Token.NoLiteral)
         else
-            self.makeToken(.Plus, null, null, null),
+            self.makeToken(.Plus, Token.NoLiteral),
         '-' => if (self.match('='))
-            self.makeToken(.MinusEqual, null, null, null)
+            self.makeToken(.MinusEqual, Token.NoLiteral)
         else if (self.match('>'))
-            self.makeToken(.Arrow, null, null, null)
+            self.makeToken(.Arrow, Token.NoLiteral)
         else
-            self.makeToken(.Minus, null, null, null),
+            self.makeToken(.Minus, Token.NoLiteral),
         '&' => if (self.match('='))
-            self.makeToken(.AmpersandEqual, null, null, null)
+            self.makeToken(.AmpersandEqual, Token.NoLiteral)
         else
-            self.makeToken(.Ampersand, null, null, null),
+            self.makeToken(.Ampersand, Token.NoLiteral),
         '*' => if (self.match('='))
-            self.makeToken(.StarEqual, null, null, null)
+            self.makeToken(.StarEqual, Token.NoLiteral)
         else
-            self.makeToken(.Star, null, null, null),
+            self.makeToken(.Star, Token.NoLiteral),
         '/' => if (self.match('='))
-            self.makeToken(.SlashEqual, null, null, null)
+            self.makeToken(.SlashEqual, Token.NoLiteral)
         else if (self.match('/'))
             try self.docblock()
         else
-            self.makeToken(.Slash, null, null, null),
+            self.makeToken(.Slash, Token.NoLiteral),
         '%' => if (self.match('='))
-            self.makeToken(.PercentEqual, null, null, null)
+            self.makeToken(.PercentEqual, Token.NoLiteral)
         else
-            self.makeToken(.Percent, null, null, null),
-        '?' => self.makeToken(if (self.match('?')) .QuestionQuestion else .Question, null, null, null),
+            self.makeToken(.Percent, Token.NoLiteral),
+        '?' => self.makeToken(if (self.match('?')) .QuestionQuestion else .Question, Token.NoLiteral),
         '!' => if (self.match('='))
-            self.makeToken(.BangEqual, null, null, null)
+            self.makeToken(.BangEqual, Token.NoLiteral)
         else if (self.match('>'))
-            self.makeToken(.BangGreater, null, null, null)
+            self.makeToken(.BangGreater, Token.NoLiteral)
         else
-            self.makeToken(.Bang, null, null, null),
+            self.makeToken(.Bang, Token.NoLiteral),
         ':' => if (self.match(':'))
-            self.makeToken(.DoubleColon, null, null, null)
+            self.makeToken(.DoubleColon, Token.NoLiteral)
         else
-            self.makeToken(.Colon, null, null, null),
+            self.makeToken(.Colon, Token.NoLiteral),
         '=' => if (self.match('>'))
-            self.makeToken(
-                .DoubleArrow,
-                null,
-                null,
-                null,
-            )
+            self.makeToken(.DoubleArrow, Token.NoLiteral)
         else
-            self.makeToken(
-                if (self.match('=')) .EqualEqual else .Equal,
-                null,
-                null,
-                null,
-            ),
+            self.makeToken(if (self.match('=')) .EqualEqual else .Equal, Token.NoLiteral),
         '"' => self.string(false),
         '`' => self.string(true),
         '\'' => self.byte(),
         '@' => self.atIdentifier(),
         '$' => self.pattern(),
-        '\\' => self.makeToken(.AntiSlash, null, null, null),
+        '\\' => self.makeToken(.AntiSlash, Token.NoLiteral),
 
-        else => self.makeToken(
-            .Error,
-            "Unexpected character.",
-            null,
-            null,
-        ),
+        else => self.makeToken(.Error, .{ .String = "Unexpected character." }),
     };
 }
 
@@ -262,9 +245,7 @@ fn docblock(self: *Self) !Token {
 
     return self.makeToken(
         .Docblock,
-        std.mem.trim(u8, block.items, " "),
-        null,
-        null,
+        .{ .String = std.mem.trim(u8, block.items, " ") },
     );
 }
 
@@ -274,7 +255,7 @@ fn atIdentifier(self: *Self) Token {
     self.current.start_column = self.current.column;
 
     if (self.advance() != '"') {
-        return self.makeToken(.Error, "Unterminated identifier.", null, null);
+        return self.makeToken(.Error, .{ .String = "Unterminated identifier." });
     }
 
     const string_token = self.string(false);
@@ -282,10 +263,8 @@ fn atIdentifier(self: *Self) Token {
     self.token_index += 1;
     return .{
         .tag = .Identifier,
-        .lexeme = string_token.literal_string.?,
-        .literal_string = string_token.literal_string.?,
-        .literal_float = null,
-        .literal_integer = null,
+        .lexeme = string_token.literal.String,
+        .literal = string_token.literal,
         .offset = self.current.start - 1,
         .line = self.line_offset + self.current.start_line,
         .column = self.column_offset + self.current.start_column,
@@ -304,12 +283,12 @@ fn identifier(self: *Self) Token {
 
     if (keywordOpt) |keyword| {
         if (keyword == .As and self.match('?')) {
-            return self.makeToken(.AsQuestion, null, null, null);
+            return self.makeToken(.AsQuestion, Token.NoLiteral);
         }
 
-        return self.makeToken(keyword, literal, null, null);
+        return self.makeToken(keyword, .{ .String = literal });
     } else {
-        return self.makeToken(.Identifier, literal, null, null);
+        return self.makeToken(.Identifier, .{ .String = literal });
     }
 }
 
@@ -322,12 +301,12 @@ fn number(self: *Self) Token {
     }
 
     if (self.source[self.current.offset - 1] == '_') {
-        return self.makeToken(.Error, "'_' must be between digits", null, null);
+        return self.makeToken(.Error, .{ .String = "'_' must be between digits" });
     }
 
-    var is_float: bool = false;
+    var is_double = false;
     if (self.peek() == '.' and isNumber(self.peekNext())) {
-        is_float = true;
+        is_double = true;
         _ = self.advance(); // Consume .
 
         peeked = self.peek();
@@ -339,38 +318,26 @@ fn number(self: *Self) Token {
     }
 
     if (self.source[self.current.offset - 1] == '_') {
-        return self.makeToken(.Error, "'_' must be between digits", null, null);
+        return self.makeToken(.Error, .{ .String = "'_' must be between digits" });
     }
 
-    const double = if (is_float)
+    const double = if (is_double)
         std.fmt.parseFloat(v.Double, self.source[self.current.start..self.current.offset]) catch {
-            return self.makeToken(
-                .Error,
-                "double overflow",
-                null,
-                null,
-            );
+            return self.makeToken(.Error, .{ .String = "double overflow" });
         }
     else
         null;
 
-    const int = if (!is_float)
+    const int = if (!is_double)
         std.fmt.parseInt(v.Integer, self.source[self.current.start..self.current.offset], 10) catch {
-            return self.makeToken(
-                .Error,
-                "int overflow",
-                null,
-                null,
-            );
+            return self.makeToken(.Error, .{ .String = "int overflow" });
         }
     else
         null;
 
     return self.makeToken(
-        if (is_float) .FloatValue else .IntegerValue,
-        null,
-        double,
-        int,
+        if (is_double) .DoubleValue else .IntegerValue,
+        if (is_double) .{ .Double = double.? } else .{ .Integer = int.? },
     );
 }
 
@@ -382,38 +349,23 @@ fn byte(self: *Self) Token {
         null;
 
     if (is_escape_sequence and literal_integer != '\\' and literal_integer != '\'') {
-        return self.makeToken(
-            .Error,
-            "Invalid escape sequence in char literal.",
-            null,
-            null,
-        );
+        return self.makeToken(.Error, .{ .String = "Invalid escape sequence in char literal." });
     }
 
     // Skip closing
     if (self.isEOF() or self.peek() != '\'') {
-        return self.makeToken(
-            .Error,
-            "Unterminated char literal.",
-            null,
-            null,
-        );
+        return self.makeToken(.Error, .{ .String = "Unterminated char literal." });
     } else {
         _ = self.advance();
     }
 
-    return self.makeToken(
-        .IntegerValue,
-        null,
-        null,
-        @intCast(literal_integer.?),
-    );
+    return self.makeToken(.IntegerValue, .{ .Integer = @intCast(literal_integer.?) });
 }
 
 fn binary(self: *Self) Token {
     var peeked: u8 = self.peek();
     if (peeked == '_') {
-        return self.makeToken(.Error, "'_' must be between digits", null, null);
+        return self.makeToken(.Error, .{ .String = "'_' must be between digits" });
     }
 
     while (peeked == '0' or peeked == '1' or peeked == '_') {
@@ -423,27 +375,22 @@ fn binary(self: *Self) Token {
     }
 
     if (self.source[self.current.offset - 1] == '_') {
-        return self.makeToken(.Error, "'_' must be between digits", null, null);
+        return self.makeToken(.Error, .{ .String = "'_' must be between digits" });
     }
 
     return self.makeToken(
         .IntegerValue,
-        null,
-        null,
-        std.fmt.parseInt(v.Integer, self.source[self.current.start + 2 .. self.current.offset], 2) catch {
-            return self.makeToken(
-                .Error,
-                "int overflow",
-                null,
-                null,
-            );
+        .{
+            .Integer = std.fmt.parseInt(v.Integer, self.source[self.current.start + 2 .. self.current.offset], 2) catch {
+                return self.makeToken(.Error, .{ .String = "int overflow" });
+            },
         },
     );
 }
 
 fn hexa(self: *Self) Token {
     if (self.peek() == '_') {
-        return self.makeToken(.Error, "'_' must be between digits", null, null);
+        return self.makeToken(.Error, .{ .String = "'_' must be between digits" });
     }
 
     _ = self.advance(); // Consume 'x'
@@ -455,32 +402,27 @@ fn hexa(self: *Self) Token {
     }
 
     if (self.source[self.current.offset - 1] == '_') {
-        return self.makeToken(.Error, "'_' must be between digits", null, null);
+        return self.makeToken(.Error, .{ .String = "'_' must be between digits" });
     }
 
     return self.makeToken(
         .IntegerValue,
-        null,
-        null,
-        std.fmt.parseInt(v.Integer, self.source[self.current.start + 2 .. self.current.offset], 16) catch {
-            return self.makeToken(
-                .Error,
-                "int overflow",
-                null,
-                null,
-            );
+        .{
+            .Integer = std.fmt.parseInt(v.Integer, self.source[self.current.start + 2 .. self.current.offset], 16) catch {
+                return self.makeToken(.Error, .{ .String = "int overflow" });
+            },
         },
     );
 }
 
 fn pattern(self: *Self) Token {
     if (self.advance() != '"') {
-        return self.makeToken(.Error, "Unterminated pattern.", null, null);
+        return self.makeToken(.Error, .{ .String = "Unterminated pattern." });
     }
 
     while ((self.peek() != '"' or self.peekNext() == '"') and !self.isEOF()) {
         if (self.peek() == '\n') {
-            return self.makeToken(.Error, "Unterminated pattern.", null, null);
+            return self.makeToken(.Error, .{ .String = "Unterminated pattern." });
         } else if (self.peek() == '\\' and self.peekNext() == '"') {
             // Escaped pattern delimiter, go past it
             _ = self.advance();
@@ -490,7 +432,7 @@ fn pattern(self: *Self) Token {
     }
 
     if (self.isEOF()) {
-        return self.makeToken(.Error, "Unterminated pattern.", null, null);
+        return self.makeToken(.Error, .{ .String = "Unterminated pattern." });
     } else {
         _ = self.advance();
     }
@@ -498,11 +440,9 @@ fn pattern(self: *Self) Token {
     return self.makeToken(
         .Pattern,
         if (self.current.offset - self.current.start > 0)
-            self.source[(self.current.start + 2)..(self.current.offset - 1)]
+            .{ .String = self.source[(self.current.start + 2)..(self.current.offset - 1)] }
         else
-            null,
-        null,
-        null,
+            Token.NoLiteral,
     );
 }
 
@@ -512,7 +452,7 @@ fn string(self: *Self, multiline: bool) Token {
     var interp_depth: usize = 0;
     while ((self.peek() != delimiter or in_interp) and !self.isEOF()) {
         if (self.peek() == '\n' and !multiline) {
-            return self.makeToken(.Error, "Unterminated string.", null, null);
+            return self.makeToken(.Error, .{ .String = "Unterminated string." });
         } else if (self.peek() == '{') {
             if (!in_interp) {
                 in_interp = true;
@@ -546,7 +486,7 @@ fn string(self: *Self, multiline: bool) Token {
     }
 
     if (self.isEOF()) {
-        return self.makeToken(.Error, "Unterminated string.", null, null);
+        return self.makeToken(.Error, .{ .String = "Unterminated string." });
     } else {
         _ = self.advance();
     }
@@ -554,11 +494,9 @@ fn string(self: *Self, multiline: bool) Token {
     return self.makeToken(
         .String,
         if (self.current.offset - self.current.start > 0)
-            self.source[(self.current.start + 1)..(self.current.offset - 1)]
+            .{ .String = self.source[(self.current.start + 1)..(self.current.offset - 1)] }
         else
-            null,
-        null,
-        null,
+            Token.NoLiteral,
     );
 }
 
@@ -612,14 +550,12 @@ fn match(self: *Self, expected: u8) bool {
     return true;
 }
 
-fn makeToken(self: *Self, tag: Token.Type, literal_string: ?[]const u8, literal_float: ?v.Double, literal_integer: ?v.Integer) Token {
+fn makeToken(self: *Self, tag: Token.Type, literal: Token.Literal) Token {
     self.token_index += 1;
     return Token{
         .tag = tag,
         .lexeme = self.source[self.current.start..self.current.offset],
-        .literal_string = literal_string,
-        .literal_float = literal_float,
-        .literal_integer = literal_integer,
+        .literal = literal,
         .offset = self.current.start,
         .line = self.line_offset + self.current.start_line,
         .column = self.column_offset + self.current.start_column,
@@ -769,7 +705,7 @@ pub fn highlight(self: *Self, out: anytype, true_color: bool) void {
                     .Spread,
                     => if (true_color) Color.punctuation else Color.bright_white,
                     .IntegerValue,
-                    .FloatValue,
+                    .DoubleValue,
                     => if (true_color) Color.number else Color.yellow,
                     .String, .Pattern => if (true_color) Color.string else Color.green,
                     .Identifier => "",

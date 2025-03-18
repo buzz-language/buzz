@@ -4,15 +4,30 @@ const v = @import("value.zig");
 
 const Self = @This();
 
+pub const LiteralTag = enum {
+    String,
+    Double,
+    Integer,
+    None,
+};
+
+pub const Literal = union(LiteralTag) {
+    String: []const u8,
+    Double: v.Double,
+    Integer: v.Integer,
+    None: void,
+};
+
+pub const NoLiteral = Literal{
+    .None = {},
+};
+
 // Since we can parse multiple file, we have to keep a reference to the source in which this token occured
 source: []const u8, // FIXME: probably stupid of me to keep this in every token struct
 script_name: []const u8,
 tag: Type,
 lexeme: []const u8,
-// Literal is either a string or a number
-literal_string: ?[]const u8 = null,
-literal_float: ?v.Double = null,
-literal_integer: ?v.Integer = null,
+literal: Literal = NoLiteral,
 line: usize,
 column: usize,
 offset: usize = 0,
@@ -34,7 +49,9 @@ pub fn identifier(name: []const u8) Self {
         .column = 0,
         .source = "",
         .script_name = "",
-        .literal_string = name,
+        .literal = .{
+            .String = name,
+        },
     };
 }
 
@@ -44,9 +61,7 @@ pub fn clone(self: Self) Self {
         .lexeme = self.lexeme,
         .source = self.source,
         .script_name = self.script_name,
-        .literal_string = self.literal_string,
-        .literal_float = self.literal_float,
-        .literal_integer = self.literal_integer,
+        .literal = self.literal,
         .line = self.line,
         .column = self.column,
     };
@@ -137,7 +152,7 @@ pub const Type = enum {
     In, // in
     Is, // is
     IntegerValue, // 123
-    FloatValue, // 123.2
+    DoubleValue, // 123.2
     String, // "hello"
     Identifier, // anIdentifier
     Fun, // fun
