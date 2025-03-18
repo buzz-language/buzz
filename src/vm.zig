@@ -421,7 +421,7 @@ pub const VM = struct {
     current_fiber: *Fiber,
     current_ast: Ast.Slice,
     globals: std.ArrayListUnmanaged(Value) = .{},
-    global_names: std.StringArrayHashMap(u24),
+    global_names: std.StringArrayHashMapUnmanaged(u24) = .empty,
     // FIXME: remove
     globals_count: usize = 0,
     import_registry: *ImportRegistry,
@@ -434,7 +434,6 @@ pub const VM = struct {
     pub fn init(gc: *memory.GarbageCollector, import_registry: *ImportRegistry, flavor: RunFlavor) !Self {
         return .{
             .gc = gc,
-            .global_names = std.StringArrayHashMap(u24).init(gc.allocator),
             .import_registry = import_registry,
             .current_ast = undefined,
             .current_fiber = undefined,
@@ -1029,7 +1028,7 @@ pub const VM = struct {
         const name = self.pop().obj()
             .access(obj.ObjString, .String, self.gc).?
             .string;
-        self.global_names.put(name, arg) catch {
+        self.global_names.put(self.gc.allocator, name, arg) catch {
             self.panic("Out of memory");
             unreachable;
         };
@@ -2158,10 +2157,30 @@ pub const VM = struct {
         const closure = self.peek(0).obj().access(obj.ObjClosure, .Closure, self.gc).?;
 
         if (self.import_registry.get(fullpath)) |globals| {
-            self.globals.appendSlice(self.gc.allocator, globals) catch {
-                self.panic("Out of memory");
-                unreachable;
-            };
+            for (globals) |global| {
+                self.globals.append(self.gc.allocator, global) catch {
+                    self.panic("Out of memory");
+                    unreachable;
+                };
+                const val: u24 = @truncate(self.globals.items.len - 1);
+                if (global.isObj()) {
+                    const name = switch (global.obj().obj_type) {
+                        .Enum => val: {
+                            const obj_enum = obj.ObjEnum.cast(global.obj()).?;
+                            break :val obj_enum.type_def.resolved_type.?.Enum.qualified_name.string;
+                        },
+                        .Object => val: {
+                            const obj_enum = obj.ObjObject.cast(global.obj()).?;
+                            break :val obj_enum.type_def.resolved_type.?.Object.qualified_name.string;
+                        },
+                        else => continue,
+                    };
+                    self.global_names.put(self.gc.allocator, name, val) catch {
+                        self.panic("Out of memory");
+                        unreachable;
+                    };
+                }
+            }
         } else {
             var vm = self.gc.allocator.create(VM) catch {
                 self.panic("Out of memory");
@@ -2202,6 +2221,24 @@ pub const VM = struct {
                         self.panic("Out of memory");
                         unreachable;
                     };
+                    const val: u24 = @truncate(self.globals.items.len - 1);
+                    if (global.isObj()) {
+                        const name = switch (global.obj().obj_type) {
+                            .Enum => val: {
+                                const obj_enum = obj.ObjEnum.cast(global.obj()).?;
+                                break :val obj_enum.type_def.resolved_type.?.Enum.qualified_name.string;
+                            },
+                            .Object => val: {
+                                const obj_enum = obj.ObjObject.cast(global.obj()).?;
+                                break :val obj_enum.type_def.resolved_type.?.Object.qualified_name.string;
+                            },
+                            else => null,
+                        };
+                        if (name) |n| self.global_names.put(self.gc.allocator, n, val) catch {
+                            self.panic("Out of memory");
+                            unreachable;
+                        };
+                    }
 
                     import_cache.append(global) catch {
                         self.panic("Out of memory");

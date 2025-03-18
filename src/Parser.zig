@@ -159,6 +159,7 @@ test_count: u64 = 0,
 current: ?*Frame = null,
 current_object: ?ObjectFrame = null,
 globals: std.ArrayListUnmanaged(Global),
+global_names: std.StringHashMapUnmanaged(u24),
 namespace: ?[]const Ast.TokenIndex = null,
 flavor: RunFlavor,
 ffi: FFI,
@@ -179,6 +180,7 @@ pub fn init(
         .script_imports = .{},
         .imported = imported,
         .globals = .{},
+        .global_names = .empty,
         .flavor = flavor,
         .reporter = Reporter{
             .allocator = gc.allocator,
@@ -195,6 +197,7 @@ pub fn deinit(self: *Self) void {
     //     self.gc.allocator.free(global.name);
     // }
     self.globals.deinit(self.gc.allocator);
+    self.global_names.deinit(self.gc.allocator);
     self.script_imports.deinit(self.gc.allocator);
     if (self.opt_jumps) |jumps| {
         jumps.deinit();
@@ -318,6 +321,7 @@ pub const Global = struct {
 
         const lexemes = ast.tokens.items(.lexeme);
 
+        // TODO could this also use the global_names hashmap instead?
         if (qualified.len > 0) {
             for (qualified[0 .. qualified.len - 1], 0..) |name_token, i| {
                 if (!std.mem.eql(u8, lexemes[name_token], lexemes[self.name[i]])) {
@@ -390,6 +394,7 @@ pub const ObjectFrame = struct {
 pub const ScriptImport = struct {
     function: Ast.Node.Index,
     globals: std.ArrayListUnmanaged(Global) = .{},
+    global_names: std.StringArrayHashMapUnmanaged(u24) = .empty,
     absolute_path: *obj.ObjString,
     imported_by: std.AutoHashMapUnmanaged(*Frame, void) = .{},
 };
@@ -8725,6 +8730,8 @@ fn importScript(
                 {},
             );
 
+            const lexemes = self.ast.tokens.items(.lexeme);
+
             for (parser.globals.items) |*global| {
                 if (global.exported) {
                     global.exported = false;
@@ -8749,6 +8756,11 @@ fn importScript(
                 }
 
                 try import.?.globals.append(self.gc.allocator, global.*);
+                try import.?.global_names.put(
+                    self.gc.allocator,
+                    lexemes[self.current_token.? - 1],
+                    @truncate(import.?.globals.items.len - 1),
+                );
             }
 
             try self.imports.put(
@@ -8813,6 +8825,11 @@ fn importScript(
             // TODO: we're forced to import all and hide some because globals are indexed and not looked up by name at runtime
             //       Only way to avoid this is to go back to named globals at runtime. Then again, is it worth it?
             try self.globals.append(self.gc.allocator, global);
+            try self.global_names.put(
+                self.gc.allocator,
+                lexemes[self.current_token.? - 1],
+                @truncate(self.globals.items.len - 1),
+            );
         }
     } else {
         // FIXME: here we must have messed up the token list because this crashes

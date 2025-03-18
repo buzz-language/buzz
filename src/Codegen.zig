@@ -2079,7 +2079,7 @@ fn generateEnum(self: *Self, node: Ast.Node.Index, _: ?*Breaks) Error!?*obj.ObjF
     try self.OP_DEFINE_GLOBAL(
         locations[node],
         @intCast(components.slot),
-        self.parser.ast.tokens.items(.lexeme)[components.name],
+        type_defs[node].?.resolved_type.?.Enum.qualified_name.string,
     );
 
     try self.patchOptJumps(node);
