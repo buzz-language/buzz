@@ -22,10 +22,11 @@ pub const NoLiteral = Literal{
     .None = {},
 };
 
-// Since we can parse multiple file, we have to keep a reference to the source in which this token occured
-source: []const u8, // FIXME: probably stupid of me to keep this in every token struct
-script_name: []const u8,
 tag: Type,
+/// When true, token inserted by the parser
+utility_token: bool = false,
+source: []const u8,
+script_name: []const u8,
 lexeme: []const u8,
 literal: Literal = NoLiteral,
 line: usize,

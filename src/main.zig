@@ -19,6 +19,7 @@ const JIT = if (!is_wasm) @import("Jit.zig") else void;
 const is_wasm = builtin.cpu.arch.isWasm();
 const repl = if (!is_wasm) @import("repl.zig").repl else void;
 const wasm_repl = @import("wasm_repl.zig");
+const Renderer = @import("renderer.zig").Renderer;
 const io = @import("io.zig");
 
 pub export const initRepl_export = wasm_repl.initRepl;
@@ -174,31 +175,17 @@ fn runFile(allocator: Allocator, file_name: []const u8, args: []const []const u8
                     },
                 );
             }
+        } else if (flavor == .Fmt) {
+            var arena = std.heap.ArenaAllocator.init(allocator);
+            defer arena.deinit();
+
+            try Renderer(std.fs.File.Writer).render(
+                arena.allocator(),
+                std.io.getStdOut().writer(),
+                ast,
+            );
         } else {
             io.print("Formatting and Ast dump is deactivated", .{});
-            // switch (flavor) {
-            //     .Run, .Test => unreachable,
-            //     .Fmt => {
-            //         var formatted = std.ArrayList(u8).init(allocator);
-            //         defer formatted.deinit();
-            //
-            //         try function_node.render(function_node, &formatted.writer(), 0);
-            //
-            //         io.print("{s}", .{formatted.items});
-            //     },
-            //     .Ast => {
-            //         var json = std.ArrayList(u8).init(allocator);
-            //         defer json.deinit();
-            //
-            //         try function_node.toJson(function_node, &json.writer());
-            //
-            //         var without_nl = try std.mem.replaceOwned(u8, allocator, json.items, "\n", " ");
-            //         defer allocator.free(without_nl);
-            //
-            //         _ = try std.io.getStdOut().write(without_nl);
-            //     },
-            //     else => {},
-            // }
         }
     } else {
         return Parser.CompileError.Recoverable;
@@ -217,6 +204,7 @@ pub fn main() u8 {
     const params = comptime clap.parseParamsComptime(
         \\-h, --help             Show help and exit
         \\-t, --test             Run test blocks in provided script
+        \\-f, --fmt              Reformat script, output the result to stdout
         \\-c, --check            Check script for error without running it
         \\-v, --version          Print version and exit
         \\-L, --library <str>... Add search path for external libraries
@@ -285,6 +273,8 @@ pub fn main() u8 {
         .Check
     else if (res.args.@"test" == 1)
         .Test
+    else if (res.args.fmt == 1)
+        .Fmt
     else if (res.positionals[0].len == 0)
         .Repl
     else
