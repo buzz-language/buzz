@@ -749,7 +749,7 @@ pub fn reportTypeCheck(
     var writer = &actual_message.writer();
 
     writer.print("{s}: got type `", .{message}) catch @panic("Unable to report error");
-    actual_type.toString(writer) catch @panic("Unable to report error");
+    actual_type.toString(writer, false) catch @panic("Unable to report error");
     writer.writeAll("`") catch @panic("Unable to report error");
 
     var expected_message = std.ArrayList(u8).init(self.allocator);
@@ -765,7 +765,7 @@ pub fn reportTypeCheck(
 
     writer.writeAll("expected `") catch @panic("Unable to report error");
 
-    expected_type.toString(writer) catch @panic("Unable to report error");
+    expected_type.toString(writer, false) catch @panic("Unable to report error");
     writer.writeAll("`") catch @panic("Unable to report error");
 
     var full_message = if (expected_location == null) actual_message else std.ArrayList(u8).init(self.allocator);

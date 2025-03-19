@@ -544,7 +544,7 @@ pub const DumpState = struct {
                 .Enum => {
                     const enumeration = obj.ObjEnum.cast(value.obj()).?;
                     const enum_type_def = enumeration.type_def.resolved_type.?.Enum;
-                    const enum_value_type_def = enumeration.type_def.resolved_type.?.Enum.enum_type.toStringAlloc(state.vm.gc.allocator) catch unreachable;
+                    const enum_value_type_def = enumeration.type_def.resolved_type.?.Enum.enum_type.toStringAlloc(state.vm.gc.allocator, true) catch unreachable;
                     defer state.vm.gc.allocator.free(enum_value_type_def);
 
                     out.print(
@@ -588,7 +588,7 @@ pub const DumpState = struct {
                     var it = object_def.fields.iterator();
                     while (it.next()) |kv| {
                         const field = kv.value_ptr.*;
-                        const field_type_str = field.type_def.toStringAlloc(state.vm.gc.allocator) catch unreachable;
+                        const field_type_str = field.type_def.toStringAlloc(state.vm.gc.allocator, true) catch unreachable;
                         defer state.vm.gc.allocator.free(field_type_str);
 
                         if (!field.method) {

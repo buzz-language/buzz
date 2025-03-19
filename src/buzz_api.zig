@@ -222,7 +222,7 @@ fn valueDump(value: v.Value, vm: *VM, seen: *std.AutoHashMap(*o.Obj, void), dept
                         const field = kv.value_ptr.*;
                         const field_type_str = field
                             .type_def
-                            .toStringAlloc(vm.gc.allocator) catch @panic("Out of memory");
+                            .toStringAlloc(vm.gc.allocator, false) catch @panic("Out of memory");
                         defer vm.gc.allocator.free(field_type_str);
 
                         if (!field.method) {

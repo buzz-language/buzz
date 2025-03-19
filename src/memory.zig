@@ -82,7 +82,7 @@ pub const TypeRegistry = struct {
 
     pub fn getTypeDef(self: *Self, type_def: o.ObjTypeDef) !*o.ObjTypeDef {
         self.type_def_key_buffer.shrinkRetainingCapacity(0);
-        try type_def.toString(&self.type_def_key_buffer.writer(self.gc.allocator));
+        try type_def.toString(&self.type_def_key_buffer.writer(self.gc.allocator), true);
 
         // We don't return a cached version of a placeholder since they all maintain a particular state (link)
         if (type_def.def_type != .Placeholder) {
@@ -118,7 +118,7 @@ pub const TypeRegistry = struct {
     }
 
     pub fn setTypeDef(self: *Self, type_def: *o.ObjTypeDef) !void {
-        const type_def_str = try type_def.toStringAlloc(self.gc.allocator);
+        const type_def_str = try type_def.toStringAlloc(self.gc.allocator, true);
 
         std.debug.assert(type_def.def_type != .Placeholder);
 
@@ -633,7 +633,7 @@ pub const GarbageCollector = struct {
             .Type => {
                 var obj_typedef = o.ObjTypeDef.cast(obj).?;
 
-                const str = try obj_typedef.toStringAlloc(self.allocator);
+                const str = try obj_typedef.toStringAlloc(self.allocator, true);
                 defer self.allocator.free(str);
 
                 if (self.type_registry.registry.get(str)) |registered_obj| {

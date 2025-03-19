@@ -116,7 +116,7 @@ pub const Obj = struct {
             .Type => {
                 const type_def = self.access(ObjTypeDef, .Type, vm.gc).?;
 
-                const type_str = type_def.toStringAlloc(vm.gc.allocator) catch return error.OutOfMemory;
+                const type_str = type_def.toStringAlloc(vm.gc.allocator, true) catch return error.OutOfMemory;
                 defer vm.gc.allocator.free(type_str);
 
                 return (vm.gc.copyString(type_str) catch return error.OutOfMemory).toValue();
@@ -535,7 +535,7 @@ pub const Obj = struct {
                     @intFromPtr(type_def),
                 });
 
-                try type_def.toString(writer);
+                try type_def.toString(writer, true);
 
                 try writer.writeAll("`");
             },
@@ -593,7 +593,7 @@ pub const Obj = struct {
                         try object_def
                             .fields.get(field_name).?
                             .type_def
-                            .toString(writer);
+                            .toString(writer, true);
 
                         try writer.print(" {s}, ", .{field_name});
                     }
@@ -633,7 +633,7 @@ pub const Obj = struct {
                     },
                 );
 
-                try list.type_def.resolved_type.?.List.item_type.toString(writer);
+                try list.type_def.resolved_type.?.List.item_type.toString(writer, true);
 
                 try writer.writeAll("]");
             },
@@ -651,11 +651,11 @@ pub const Obj = struct {
                     },
                 );
 
-                try map.type_def.resolved_type.?.Map.key_type.toString(writer);
+                try map.type_def.resolved_type.?.Map.key_type.toString(writer, true);
 
                 try writer.writeAll(", ");
 
-                try map.type_def.resolved_type.?.Map.value_type.toString(writer);
+                try map.type_def.resolved_type.?.Map.value_type.toString(writer, true);
 
                 try writer.writeAll("}");
             },
@@ -4903,16 +4903,16 @@ pub const ObjTypeDef = struct {
         // FIXME
     }
 
-    pub fn toStringAlloc(self: *const Self, allocator: Allocator) (Allocator.Error || std.fmt.BufPrintError)![]const u8 {
+    pub fn toStringAlloc(self: *const Self, allocator: Allocator, qualified: bool) (Allocator.Error || std.fmt.BufPrintError)![]const u8 {
         var str = std.ArrayList(u8).init(allocator);
 
-        try self.toString(&str.writer());
+        try self.toString(&str.writer(), qualified);
 
         return try str.toOwnedSlice();
     }
 
-    pub fn toString(self: *const Self, writer: anytype) (Allocator.Error || std.fmt.BufPrintError)!void {
-        try self.toStringRaw(writer, true);
+    pub fn toString(self: *const Self, writer: anytype, qualified: bool) (Allocator.Error || std.fmt.BufPrintError)!void {
+        try self.toStringRaw(writer, qualified);
     }
 
     pub fn toStringUnqualified(self: *const Self, writer: anytype) (Allocator.Error || std.fmt.BufPrintError)!void {
@@ -5141,7 +5141,7 @@ pub const ObjTypeDef = struct {
                         var it = function_def.generic_types.iterator();
                         while (it.next()) |kv| : (i = i + 1) {
                             if (function_def.resolved_generics != null and i < function_def.resolved_generics.?.len) {
-                                try function_def.resolved_generics.?[i].toString(writer);
+                                try function_def.resolved_generics.?[i].toString(writer, true);
                             } else {
                                 try writer.print("{s}", .{kv.key_ptr.*.string});
                             }

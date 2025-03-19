@@ -16,7 +16,7 @@ test "Optional graceful unwrapping with `?`" {
 }
 
 object Me {
-    list: [int]?
+    list: [int]?,
 }
 
 test "Optional chaining" {
@@ -47,7 +47,7 @@ test "Unwrap map subscript" {
 }
 
 object You {
-    name: str = "joe"
+    name: str = "joe",
 }
 
 test "Field access on map subscript" {

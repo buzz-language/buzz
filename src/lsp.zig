@@ -304,7 +304,7 @@ const Document = struct {
                         var writer = inlay.writer(allocator);
 
                         try writer.writeAll(": ");
-                        try type_def.?.toString(writer);
+                        try type_def.?.toString(writer, false);
 
                         try self.document.inlay_hints.append(
                             allocator,
@@ -713,7 +713,7 @@ const Handler = struct {
                         .{
                             .name = lexemes[components.VarDeclaration.name],
                             .detail = if (type_def) |td|
-                                try td.toStringAlloc(allocator)
+                                try td.toStringAlloc(allocator, false)
                             else
                                 null,
                             .kind = if (type_def != null and !type_def.?.isMutable() and components.VarDeclaration.final)
@@ -753,7 +753,7 @@ const Handler = struct {
                         .{
                             .name = lexemes[components.Enum.name],
                             .detail = if (type_def) |td|
-                                try td.toStringAlloc(allocator)
+                                try td.toStringAlloc(allocator, false)
                             else
                                 null,
                             .kind = .Enum,
@@ -775,7 +775,7 @@ const Handler = struct {
                                 allocator,
                                 .{
                                     .name = field.name,
-                                    .detail = try field.type_def.toStringAlloc(allocator),
+                                    .detail = try field.type_def.toStringAlloc(allocator, false),
                                     .kind = if (field.method)
                                         .Method
                                     else
@@ -792,7 +792,7 @@ const Handler = struct {
                         .{
                             .name = lexemes[components.ObjectDeclaration.name],
                             .detail = if (type_def) |td|
-                                try td.toStringAlloc(allocator)
+                                try td.toStringAlloc(allocator, false)
                             else
                                 null,
                             .kind = .Struct,
@@ -817,7 +817,7 @@ const Handler = struct {
                                 allocator,
                                 .{
                                     .name = kv.key_ptr.*,
-                                    .detail = try method.type_def.toStringAlloc(allocator),
+                                    .detail = try method.type_def.toStringAlloc(allocator, false),
                                     .kind = .Method,
                                     .range = range,
                                     .selectionRange = range,
@@ -831,7 +831,7 @@ const Handler = struct {
                         .{
                             .name = lexemes[components.ProtocolDeclaration.name],
                             .detail = if (type_def) |td|
-                                try td.toStringAlloc(allocator)
+                                try td.toStringAlloc(allocator, false)
                             else
                                 null,
                             .kind = .Interface,
@@ -867,7 +867,7 @@ const Handler = struct {
                                     lexemes[components.Function.test_message.?]
                                 else
                                     fun_def.name.string,
-                                .detail = try td.toStringAlloc(allocator),
+                                .detail = try td.toStringAlloc(allocator, false),
                                 .kind = .Function,
                                 .range = tokenToRange(location, end_location),
                                 .selectionRange = tokenToRange(location, end_location),
@@ -959,7 +959,7 @@ const Handler = struct {
                         }
 
                         try writer.writeAll("```buzz\n");
-                        td.toString(&writer) catch |err| {
+                        td.toString(&writer, false) catch |err| {
                             log.err("textDocument/hover: {!}", .{err});
                         };
                         try writer.writeAll("\n```");
