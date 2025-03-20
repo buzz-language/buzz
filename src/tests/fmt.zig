@@ -9,7 +9,7 @@ fn testFmt(
     comptime name: []const u8,
     comptime src: []const u8,
     comptime expected: []const u8,
-) !?Ast {
+) !void {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const allocator = arena.allocator();
@@ -26,25 +26,24 @@ fn testFmt(
 
     var result = std.ArrayList(u8).init(allocator);
 
-    if (parser.parse(src, name, name)) |ast| {
+    if (parser.parse(src, name, name) catch null) |ast| {
         try Renderer(std.ArrayList(u8).Writer).render(
             allocator,
             result.writer(),
             ast,
         );
 
-        std.testing.expectEqualSlices(
-            u8,
+        try std.testing.expectEqualStrings(
             expected,
-            src,
+            result.items,
         );
     } else {
-        std.testing.expect(false);
+        try std.testing.expect(false);
     }
 }
 
 test "fmt" {
-    testFmt(
+    try testFmt(
         "simple function",
         \\fun hello() > void *> void//bitch comment
         \\!> int, str {
@@ -55,6 +54,7 @@ test "fmt" {
         \\    !> int, str {
         \\    return "hello";
         \\}
+        \\
         ,
     );
 }
