@@ -7,7 +7,7 @@ object Person {
 
 test "Nullable object field has a default value at null" {
     final person = Person{
-        name = "Joe"
+        name = "Joe",
     };
 
     std\assert(person.age == null, message: "Nullable object field has a default value at null");

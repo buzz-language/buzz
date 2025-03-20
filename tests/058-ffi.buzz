@@ -2,11 +2,14 @@ import "std";
 import "buffer" as _;
 import "ffi";
 
-zdef("tests/utils/libforeign", `
-    fn acos(value: f64) f64;
-    fn fprint(msg: [*:0]const u8) void;
-    fn sum(values: [*]i32, len: i32) i32;
-`);
+zdef(
+    "tests/utils/libforeign",
+    `
+        fn acos(value: f64) f64;
+        fn fprint(msg: [*:0]const u8) void;
+        fn sum(values: [*]i32, len: i32) i32;
+    `
+);
 
 test "scalar type" {
     std\assert(acos(0.12) == 1.4505064444001086, message: "Could call FFI function with scalar arguments");
@@ -19,14 +22,14 @@ test "cstring" {
 test "pointer with Buffer" {
     final buffer = Buffer.init();
 
-    buffer.writeZ::<int>("i32", values: [1, 2, 3]);
-    buffer.writeZ::<int>("i32", values: [1, 2, 3]);
+    buffer.writeZ::<int>("i32", values: [ 1, 2, 3 ]);
+    buffer.writeZ::<int>("i32", values: [ 1, 2, 3 ]);
 
     try {
         // Arguably, the zig type parameter could a constant and be built at compile time
         // But: that would require a new type
         // Since we cache the result of the type parsing this is roughly equivalent
-        buffer.writeZ::<int>("u64", values: [1]);
+        buffer.writeZ::<int>("u64", values: [ 1 ]);
         std\assert(false, message: "Using bad buzz type triggers error");
     } catch (_: ffi\FFITypeMismatchError) {
         std\assert(true, message: "Using bad buzz type triggers error");
@@ -43,7 +46,7 @@ test "pointer with Buffer" {
     foreach (i in 0..buffer.len(align: i32align)) {
         readTotal = readTotal + buffer.readZAt::<int>(
             at: i,
-            zigType: "i32"
+            zigType: "i32",
         );
     }
 
@@ -54,16 +57,19 @@ test "pointer with Buffer" {
     std\assert(subTotal == 11, message: "Could get ptr at offset");
 }
 
-zdef("tests/utils/libforeign", `
-    const Data = extern struct {
-        id: i32,
-        msg: [*:0]const u8,
-        value: f64,
-    };
+zdef(
+    "tests/utils/libforeign",
+    `
+        const Data = extern struct {
+            id: i32,
+            msg: [*:0]const u8,
+            value: f64,
+        };
 
-    fn get_data_msg(data: *Data) [*:0]const u8;
-    fn set_data_id(data: *Data) void;
-`);
+        fn get_data_msg(data: *Data) [*:0]const u8;
+        fn set_data_id(data: *Data) void;
+    `
+);
 
 test "struct" {
     final data = Data{
@@ -95,7 +101,7 @@ test "write/read struct in buffer" {
 
     final buffer = Buffer.init();
 
-    buffer.writeStruct::<Data>(Data, values: [data]);
+    buffer.writeStruct::<Data>(Data, values: [ data ]);
 
     std\assert(buffer.toString().len() == ffi\sizeOfStruct(Data), message: "Could write struct to buffer");
 
@@ -103,26 +109,29 @@ test "write/read struct in buffer" {
 
     std\assert(
         read.msg == data.msg and read.id == data.id,
-        message: "Could read struct from buffer"
+        message: "Could read struct from buffer",
     );
 }
 
-zdef("tests/utils/libforeign", `
-    pub const Flag = extern struct {
-        id: i32,
-        value: bool,
-    };
+zdef(
+    "tests/utils/libforeign",
+    `
+        pub const Flag = extern struct {
+            id: i32,
+            value: bool,
+        };
 
-    pub const Misc = extern union {
-        id: i32,
-        data: Data,
-        flag: Flag,
-    };
+        pub const Misc = extern union {
+            id: i32,
+            data: Data,
+            flag: Flag,
+        };
 
-    fn get_misc_msg(misc: *Misc) [*:0]const u8;
-    fn get_misc_flag(misc: *Misc) bool;
-    fn set_misc_id(misc: *Misc, new_id: i32) void;
-`);
+        fn get_misc_msg(misc: *Misc) [*:0]const u8;
+        fn get_misc_flag(misc: *Misc) bool;
+        fn set_misc_id(misc: *Misc, new_id: i32) void;
+    `
+);
 
 // test "union" {
 //     final misc = Misc{

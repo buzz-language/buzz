@@ -6,9 +6,7 @@ object Payload::<K, V> {
 
 test "Objects generics" {
     final payload = Payload::<str, int>{
-        data = mut {
-            "one": 1
-        },
+        data = mut { "one": 1 },
     };
 
     payload.data["two"] = 2;

@@ -17,10 +17,8 @@ test "Named expr object properties" {
     };
 
     std\assert(
-        person.name == "joe"
-            and person.age == 24
-            and person.sex,
-        message: "Could use named variable as object property value"
+        person.name == "joe" and person.age == 24 and person.sex,
+        message: "Could use named variable as object property value",
     );
 }
 
@@ -37,11 +35,9 @@ test "Name expr function argument" {
     final age = 24;
 
     final person = hello(name, age, sex: true);
-    
+
     std\assert(
-        person.name == "joe"
-            and person.age == 24
-            and person.sex,
-        message: "Could use named variable as function arguments"
+        person.name == "joe" and person.age == 24 and person.sex,
+        message: "Could use named variable as function arguments",
     );
 }

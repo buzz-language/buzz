@@ -1,7 +1,7 @@
 import "std";
 
 test "foreach on list" {
-    final list = [1, 2, 3];
+    final list = [ 1, 2, 3 ];
 
     var sum = 0;
     foreach (item in list) {
@@ -12,7 +12,7 @@ test "foreach on list" {
 }
 
 test "list.next" {
-    final list = [1, 2, 3];
+    final list = [ 1, 2, 3 ];
 
     std\assert(list.next(null) == 0, message: "calling next native");
     std\assert(list.next(0) == 1, message: "calling next native");
@@ -22,7 +22,7 @@ test "foreach on map" {
     final map = {
         "one": 1,
         "two": 2,
-        "three": 3
+        "three": 3,
     };
 
     var sum = 0;
@@ -59,7 +59,7 @@ test "foreach on str" {
 
 test "Omit key in foreach" {
     var sum = 0;
-    foreach (n in [1, 2, 3]) {
+    foreach (n in [ 1, 2, 3 ]) {
         sum = sum + n;
     }
     std\assert(sum == 6, message: "Could omit list key");
@@ -71,7 +71,7 @@ test "Omit key in foreach" {
     std\assert(hello == "hello", message: "Could omit string key");
 
     sum = 0;
-    foreach (n in {"hello": 1, "world": 2}) {
+    foreach (n in { "hello": 1, "world": 2 }) {
         sum = sum + n;
     }
     std\assert(sum == 3, message: "Could omit map key");

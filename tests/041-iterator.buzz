@@ -14,7 +14,7 @@ fun fibonacci(n: int) > void *> int? {
 }
 
 test "finobacci generator" {
-    final suite = [0, 1, 1, 2, 3, 5, 8, 13, 21, 34];
+    final suite = [ 0, 1, 1, 2, 3, 5, 8, 13, 21, 34 ];
     var i = 0;
     foreach (n in &fibonacci(10)) {
         std\assert(suite[i] == n, message: "could iterate over fiber");

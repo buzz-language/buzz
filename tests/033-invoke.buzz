@@ -13,12 +13,12 @@ test "Chained invoke" {
     final a = A{
         list = [
             A{
-                list = [ A{ list = [<A>] } ]
+                list = [ A{ list = [<A>] } ],
             },
             A{
-                list = [<A>]
+                list = [<A>],
             },
-        ]
+        ],
     };
 
     _ = a.list[0].hello().list[0].hello();

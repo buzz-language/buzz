@@ -12,6 +12,6 @@ test "Multiline strings" {
 
     final json = serialize\jsonDecode(multi);
 
-    std\assert(json.q(["yes"]).integer() == 15, message: "multiline string is valid");
-    std\assert(json.q(["another"]).string() == "one", message: "multiline string is valid");
+    std\assert(json.q([ "yes" ]).integer() == 15, message: "multiline string is valid");
+    std\assert(json.q([ "another" ]).string() == "one", message: "multiline string is valid");
 }

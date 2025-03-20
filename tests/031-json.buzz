@@ -9,14 +9,14 @@ test "Json.encode" {
 
     std\assert(
         serialize\jsonEncode(serialize\Boxed.init(data)) == `\{"hello":"world","bye":42}`,
-        message: "valid encode"
+        message: "valid encode",
     );
 }
 
 test "Json.decode" {
     std\assert(
         serialize\jsonDecode(`[ -12, true, "hello" ]`).listValue()[2].string() == "hello",
-        message: "could decode simple JSON"
+        message: "could decode simple JSON",
     );
 }
 
@@ -28,11 +28,11 @@ test "Boxed.q" {
                 <str: any>,
                 "one": 1,
                 "two": 2,
-            }
-        }
+            },
+        },
     };
 
     final boxed = serialize\Boxed.init(data);
 
-    std\assert(boxed.q(["submap", "subsubmap", "one"]).integer() == 1, message: "Boxed.q");
+    std\assert(boxed.q([ "submap", "subsubmap", "one" ]).integer() == 1, message: "Boxed.q");
 }

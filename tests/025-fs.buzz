@@ -29,7 +29,7 @@ test "ls" {
 
     std\assert(containsREADME, message: "Could list element in current directory");
 
-    foreach (el in fs\list("/doesnotexist") catch ["wentwrong"]) {
+    foreach (el in fs\list("/doesnotexist") catch [ "wentwrong" ]) {
         std\assert(el == "wentwrong", message: "Trying to list a non existent directory raised an error");
     }
 
@@ -41,13 +41,13 @@ test "move" {
 
     std\assert(
         fs\list("src").indexOf("README.md") != null,
-        message: "Moved file to expected location"
+        message: "Moved file to expected location",
     );
 
     fs\move(source: "src/README.md", destination: "README.md");
 
     std\assert(
         fs\list(".").indexOf("README.md") != null,
-        message: "Moved file to expected location"
+        message: "Moved file to expected location",
     );
 }

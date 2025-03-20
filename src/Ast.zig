@@ -184,7 +184,10 @@ pub const Slice = struct {
                     }
                 },
                 .FunDeclaration => try node_queue.append(allocator, comp.FunDeclaration.function),
-                .GenericResolve => try node_queue.append(allocator, comp.GenericResolve),
+                .GenericResolve => {
+                    try node_queue.append(allocator, comp.GenericResolve.expression);
+                    try node_queue.appendSlice(allocator, comp.GenericResolve.resolved_types);
+                },
                 .GenericResolveType => try node_queue.appendSlice(allocator, comp.GenericResolveType),
                 .Grouping => try node_queue.append(allocator, comp.Grouping),
                 .If => {
@@ -714,7 +717,7 @@ pub const Slice = struct {
                 .SimpleType,
                 .UserType,
                 => self.nodes.items(.type_def)[node].?.toValue(),
-                .StringLiteral => self.nodes.items(.components)[node].StringLiteral.toValue(),
+                .StringLiteral => self.nodes.items(.components)[node].StringLiteral.literal.toValue(),
                 .TypeOfExpression => (try (try self.toValue(
                     self.nodes.items(.components)[node].TypeOfExpression,
                     gc,
@@ -759,7 +762,7 @@ pub const Slice = struct {
 
                     break :fc unwrapped;
                 },
-                .GenericResolve => try self.toValue(self.nodes.items(.components)[node].GenericResolve, gc),
+                .GenericResolve => try self.toValue(self.nodes.items(.components)[node].GenericResolve.expression, gc),
                 .If => @"if": {
                     const components = self.nodes.items(.components)[node].If;
                     break :@"if" if ((try self.toValue(components.condition, gc)).boolean())
@@ -937,6 +940,14 @@ pub inline fn appendToken(self: *Self, token: Token) !TokenIndex {
     return @intCast(self.tokens.len - 1);
 }
 
+pub fn swapNodes(self: *Self, from: Node.Index, to: Node.Index) void {
+    const from_node = self.nodes.get(from);
+    const to_node = self.nodes.get(to);
+
+    self.nodes.set(from, to_node);
+    self.nodes.set(to, from_node);
+}
+
 pub const Node = struct {
     tag: Tag,
     /// First token of this node
@@ -1059,9 +1070,9 @@ pub const Node = struct {
         Block: []const Node.Index,
         BlockExpression: []const Node.Index,
         Boolean: bool,
-        Break: ?Node.Index,
+        Break: BreakContinue,
         Call: Call,
-        Continue: ?Node.Index,
+        Continue: BreakContinue,
         Dot: Dot,
         DoUntil: WhileDoUntil,
         Enum: Enum,
@@ -1075,7 +1086,7 @@ pub const Node = struct {
         Function: Function,
         FunctionType: FunctionType,
         FunDeclaration: FunDeclaration,
-        GenericResolve: Node.Index,
+        GenericResolve: GenericResolve,
         GenericResolveType: []const Node.Index,
         GenericType: void,
         Grouping: Node.Index,
@@ -1102,7 +1113,7 @@ pub const Node = struct {
         // The type should be taken from the type_def field and not the token
         SimpleType: void,
         String: []const Node.Index,
-        StringLiteral: *obj.ObjString,
+        StringLiteral: StringLiteral,
         Subscript: Subscript,
         Throw: Throw,
         Try: Try,
@@ -1221,6 +1232,11 @@ pub const Binary = struct {
     operator: Token.Type,
 };
 
+pub const BreakContinue = struct {
+    label: ?TokenIndex,
+    destination: ?Node.Index,
+};
+
 pub const Call = struct {
     is_async: bool,
     callee: Node.Index,
@@ -1267,6 +1283,7 @@ pub const Enum = struct {
     case_type: ?Node.Index,
     slot: Slot,
     cases: []const Case,
+    values_omitted: bool,
 
     pub const Case = struct {
         name: TokenIndex,
@@ -1344,11 +1361,14 @@ pub const Function = struct {
 };
 
 pub const FunctionType = struct {
+    is_signature: bool,
     name: ?TokenIndex,
     return_type: ?Node.Index,
     yield_type: ?Node.Index,
     error_types: []const Node.Index,
     arguments: []const Argument,
+    /// If the struct is use as the function signature, this is a list of nodes otherwise its a list of tokens
+    /// Since `TokenIndex` and `Node.Index` are actually the same type, we don't make this any more complicated
     generic_types: []const TokenIndex,
     lambda: bool,
 
@@ -1357,6 +1377,11 @@ pub const FunctionType = struct {
         type: Node.Index,
         default: ?Node.Index,
     };
+};
+
+pub const GenericResolve = struct {
+    expression: Node.Index,
+    resolved_types: []const Node.Index,
 };
 
 pub const FunDeclaration = struct {
@@ -1475,6 +1500,11 @@ pub const Return = struct {
     unconditional: bool,
 };
 
+pub const StringLiteral = struct {
+    delimiter: u8,
+    literal: *obj.ObjString,
+};
+
 pub const Subscript = struct {
     subscripted: Node.Index,
     index: Node.Index,
@@ -1521,6 +1551,7 @@ pub const VarDeclaration = struct {
     value: ?Node.Index,
     type: ?Node.Index,
     final: bool,
+    omits_qualifier: bool,
     slot: Slot,
     slot_type: SlotType,
 };

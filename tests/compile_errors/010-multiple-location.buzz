@@ -6,7 +6,7 @@ object Some {
 }
 
 test "Badly initializing an object declared in another file" {
-    var _ = errors\CompileError{
+    _ = errors\CompileError{
         name = "wtf",
     };
 }

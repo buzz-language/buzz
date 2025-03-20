@@ -27,8 +27,8 @@ test "`is` operator" {
     std\assert(MyEnum.one is MyEnum, message: "`is` for an enum instance");
     std\assert(myFun is fun (id: int) > int, message: "`is` for a function");
 
-    std\assert([1,2,3] is [int], message: "`is` on a list");
-    std\assert({"one": 1} is {str: int}, message: "`is` on a map");
+    std\assert([ 1, 2, 3 ] is [int], message: "`is` on a list");
+    std\assert({ "one": 1 } is {str: int}, message: "`is` on a map");
     // TODO: should be `fun (MyObj) > bool`
     std\assert(MyObj{}.bound is fun () > bool, message: "`is` on bound method");
 }

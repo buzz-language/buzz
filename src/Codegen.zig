@@ -976,7 +976,7 @@ fn generateBreak(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*ob
         self.gc.allocator,
         .{
             .ip = try self.OP_JUMP(self.ast.nodes.items(.location)[node]),
-            .label_node = self.ast.nodes.items(.components)[node].Break,
+            .label_node = self.ast.nodes.items(.components)[node].Break.destination,
         },
     );
 
@@ -995,7 +995,7 @@ fn generateContinue(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?
                 self.ast.nodes.items(.location)[node],
                 .OP_LOOP,
             ),
-            .label_node = self.ast.nodes.items(.components)[node].Continue,
+            .label_node = self.ast.nodes.items(.components)[node].Continue.destination,
         },
     );
 
@@ -2797,7 +2797,7 @@ fn generateFunDeclaration(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) E
 
 fn generateGenericResolve(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.ObjFunction {
     const type_def = self.ast.nodes.items(.type_def)[node].?;
-    const expr = self.ast.nodes.items(.components)[node].GenericResolve;
+    const expr = self.ast.nodes.items(.components)[node].GenericResolve.expression;
     const node_location = self.ast.nodes.items(.location)[node];
     const node_end_location = self.ast.nodes.items(.end_location)[node];
 
@@ -2958,16 +2958,7 @@ fn generateIf(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.O
         }
     }
 
-    if (components.unwrapped_identifier != null) {
-        if (!type_defs[components.condition].?.optional) {
-            self.reporter.reportErrorAt(
-                .optional,
-                self.ast.tokens.get(locations[components.condition]),
-                self.ast.tokens.get(end_locations[components.condition]),
-                "Expected optional",
-            );
-        }
-    } else if (components.casted_type == null) {
+    if (components.casted_type == null and components.unwrapped_identifier == null) {
         if (type_defs[components.condition].?.def_type != .Bool) {
             self.reporter.reportErrorAt(
                 .if_condition_type,
@@ -2976,10 +2967,22 @@ fn generateIf(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.O
                 "`if` condition must be bool",
             );
         }
+    } else if (components.casted_type == null) {
+        if (!type_defs[components.condition].?.optional) {
+            self.reporter.reportErrorAt(
+                .optional,
+                self.ast.tokens.get(locations[components.condition]),
+                self.ast.tokens.get(end_locations[components.condition]),
+                "Expected optional",
+            );
+        }
     }
 
     // If condition is a constant expression, no need to generate branches
-    if (try self.ast.isConstant(self.gc.allocator, components.condition) and components.unwrapped_identifier == null and components.casted_type == null) {
+    if (try self.ast.isConstant(self.gc.allocator, components.condition) and
+        components.unwrapped_identifier == null and
+        components.casted_type == null)
+    {
         const condition = try self.ast.toValue(components.condition, self.gc);
 
         if (condition.boolean()) {
@@ -2996,15 +2999,15 @@ fn generateIf(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.O
 
     _ = try self.generateNode(components.condition, breaks);
     const condition_location = locations[components.condition];
-    if (components.unwrapped_identifier != null) {
+    if (components.casted_type) |casted_type| {
+        try self.OP_COPY(condition_location, 0);
+        try self.emitConstant(condition_location, type_defs[casted_type].?.toValue());
+        try self.OP_IS(condition_location);
+    } else if (components.unwrapped_identifier != null) {
         try self.OP_COPY(condition_location, 0);
         try self.OP_NULL(condition_location);
         try self.OP_EQUAL(condition_location);
         try self.OP_NOT(condition_location);
-    } else if (components.casted_type) |casted_type| {
-        try self.OP_COPY(condition_location, 0);
-        try self.emitConstant(condition_location, type_defs[casted_type].?.toValue());
-        try self.OP_IS(condition_location);
     }
 
     const else_jump: usize = try self.OP_JUMP_IF_FALSE(location);
@@ -3991,7 +3994,7 @@ fn generateString(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*o
 fn generateStringLiteral(self: *Self, node: Ast.Node.Index, _: ?*Breaks) Error!?*obj.ObjFunction {
     try self.emitConstant(
         self.ast.nodes.items(.location)[node],
-        self.ast.nodes.items(.components)[node].StringLiteral.toValue(),
+        self.ast.nodes.items(.components)[node].StringLiteral.literal.toValue(),
     );
 
     try self.patchOptJumps(node);

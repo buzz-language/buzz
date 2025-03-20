@@ -7,10 +7,8 @@ object Hey {
 
 test "List and Map as Object properties" {
     final hey = Hey{
-        ages = [1, 2, 3],
-        names = {
-            1: "hello"
-        },
+        ages = [ 1, 2, 3 ],
+        names = { 1: "hello" },
     };
 
     std\assert(hey.ages[0] == 1, message: "list access");

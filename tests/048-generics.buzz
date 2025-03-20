@@ -5,7 +5,7 @@ fun count::<T>(list: [T]) > int {
 }
 
 test "Simple generic" {
-    std\assert(count::<int>([1, 2, 3]) == 3, message: "could use generics");
+    std\assert(count::<int>([ 1, 2, 3 ]) == 3, message: "could use generics");
 }
 
 fun extractList::<T>(data: obj{ list: [T] }) > [T] {
@@ -13,7 +13,7 @@ fun extractList::<T>(data: obj{ list: [T] }) > [T] {
 }
 
 test "Generic within anonymous object" {
-    final list = [1, 2, 3];
+    final list = [ 1, 2, 3 ];
 
     std\assert(extractList::<int>(.{ list = list }) == list, message: "could use generic within anonymous object");
 }
@@ -51,8 +51,8 @@ fun countShuffleGenerics::<A, B>() > fun (a: [A], b: [B]) > int {
 }
 
 test "Generic in lambda function definition" {
-    final a = ["one", "two", "three"];
-    final b = [1, 2, 3];
+    final a = [ "one", "two", "three" ];
+    final b = [ 1, 2, 3 ];
 
     std\assert(countShuffleGenerics::<str, int>()(a, b: b) == 6, message: "could use generic in lambda function definition");
 }
@@ -72,7 +72,7 @@ fun fiber::<T>(data: [T]) > void *> T? {
 }
 
 test "Generic with fibers" {
-    final f = &fiber::<int>([1, 2, 3]);
+    final f = &fiber::<int>([ 1, 2, 3 ]);
 
     var sum = 0;
     while (!f.over()) {
@@ -82,11 +82,10 @@ test "Generic with fibers" {
     std\assert(sum == 6, message: "could use generic in fiber definition");
 }
 
-
 test "Generics in placeholders" {
     std\assert(
-        countAgain::<int>([1, 2, 3]) == 3,
-        message: "Could use generics with placeholders"
+        countAgain::<int>([ 1, 2, 3 ]) == 3,
+        message: "Could use generics with placeholders",
     );
 }
 
@@ -101,8 +100,8 @@ fun doubleGeneric::<A, B>(lambda: fun::<C, D>() > int) > int {
 test "Generic with generic lambda parameter" {
     std\assert(
         doubleGeneric::<str, int>(
-            fun::<E, F>() > int => 12
+            fun::<E, F>() > int => 12,
         ) == 12,
-        message: "could defined multiple generics"
+        message: "could defined multiple generics",
     );
 }

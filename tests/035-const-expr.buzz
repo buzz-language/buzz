@@ -1,6 +1,12 @@
 import "std";
 
-fun hello(name: mut [str] = ["John", "Doe"], address: mut {str: str} = { "street": "somewhere street", "town": "New York" }) > void {
+fun hello(
+    name: mut [str] = [ "John", "Doe" ],
+    address: mut {str: str} = {
+        "street": "somewhere street",
+        "town": "New York",
+    },
+) > void {
     std\assert(name.len() == 2, message: "default arg is clone of the default value");
     std\assert(address.size() == 2, message: "default arg is clone of the default value");
 
@@ -11,7 +17,7 @@ fun hello(name: mut [str] = ["John", "Doe"], address: mut {str: str} = { "street
 }
 
 object A {
-    list: mut [int] = mut [1, 2, 3],
+    list: mut [int] = mut [ 1, 2, 3 ],
     map: mut {str: int} = mut { "yo": 1 },
 }
 

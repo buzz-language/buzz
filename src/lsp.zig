@@ -9,6 +9,7 @@ const Parser = @import("Parser.zig");
 const Reporter = @import("Reporter.zig");
 const CodeGen = @import("Codegen.zig");
 const Token = @import("Token.zig");
+const Renderer = @import("renderer.zig").Renderer;
 
 const log = std.log.scoped(.buzz_lsp);
 
@@ -90,6 +91,31 @@ const Document = struct {
 
     pub fn deinit(self: *Document) void {
         self.arena.deinit();
+    }
+
+    pub fn wholeDocumentRange(self: *const Document) lsp.types.Range {
+        return .{
+            .start = .{
+                .line = 0,
+                .character = 0,
+            },
+            .end = .{
+                .line = @intCast(
+                    std.mem.count(
+                        u8,
+                        std.mem.span(self.src),
+                        "\n",
+                    ),
+                ),
+                .character = @intCast(
+                    std.mem.span(self.src)[std.mem.lastIndexOfScalar(
+                        u8,
+                        std.mem.span(self.src),
+                        '\n',
+                    ) orelse 0 ..].len,
+                ),
+            },
+        };
     }
 
     const NodeUnderPositionContext = struct {
@@ -477,6 +503,9 @@ const Handler = struct {
                 .inlayHintProvider = .{
                     .bool = true,
                 },
+                .documentFormattingProvider = .{
+                    .bool = true,
+                },
 
                 // Keeping those here so I don't forget about them
 
@@ -485,7 +514,6 @@ const Handler = struct {
                 .referencesProvider = null,
                 .documentHighlightProvider = null,
                 .workspaceSymbolProvider = null,
-                .documentFormattingProvider = null,
                 .documentRangeFormattingProvider = null,
                 .documentOnTypeFormattingProvider = null,
                 .callHierarchyProvider = null,
@@ -1018,10 +1046,38 @@ const Handler = struct {
     }
 
     pub fn formatting(
-        _: Handler,
+        self: Handler,
         _: std.mem.Allocator,
-        _: lsp.types.DocumentFormattingParams,
+        notification: lsp.types.DocumentFormattingParams,
     ) !?[]const lsp.types.TextEdit {
+        if (self.documents.get(notification.textDocument.uri)) |document| {
+            var result = std.ArrayList(u8).init(self.allocator);
+            Renderer(std.ArrayList(u8).Writer).render(
+                self.allocator,
+                result.writer(),
+                document.ast,
+            ) catch |err| {
+                log.err(
+                    "Could not format {s}: {!}",
+                    .{
+                        notification.textDocument.uri,
+                        err,
+                    },
+                );
+
+                return null;
+            };
+
+            var text_edit = std.ArrayList(lsp.types.TextEdit).init(self.allocator);
+            try text_edit.append(
+                .{
+                    .range = document.wholeDocumentRange(),
+                    .newText = result.items,
+                },
+            );
+
+            return try text_edit.toOwnedSlice();
+        }
         return null;
     }
 
