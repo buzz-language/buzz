@@ -50,8 +50,12 @@ pub export fn print(ctx: *api.NativeCtx) callconv(.c) c_int {
         return 0;
     }
 
-    _ = io.stdOutWriter.write(string.?[0..len]) catch return 0;
-    _ = io.stdOutWriter.write("\n") catch return 0;
+    _ = io.stdOutWriter.print(
+        "{s}\n",
+        .{
+            string.?[0..len],
+        },
+    ) catch return 0;
 
     return 0;
 }

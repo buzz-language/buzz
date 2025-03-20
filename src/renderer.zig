@@ -1123,5 +1123,3 @@ pub fn Renderer(comptime T: type) type {
         }
     };
 }
-
-const _ = @import("tests/fmt.zig");
