@@ -45,7 +45,7 @@ fn testFmt(
 test "fmt" {
     try testFmt(
         "simple function",
-        \\fun hello() > void *> void//bitch comment
+        \\fun hello() > void *> void// bitch comment
         \\!> int, str {
         \\return "hello";
         \\}
@@ -53,6 +53,36 @@ test "fmt" {
         \\fun hello() > void *> void // bitch comment
         \\    !> int, str {
         \\    return "hello";
+        \\}
+        \\
+        ,
+    );
+
+    try testFmt(
+        "arrow function",
+        \\fun arrow()// bitch comment
+        \\=> "hello";
+    ,
+        \\fun arrow() // bitch comment
+        \\    => "hello";
+        \\
+        ,
+    );
+
+    try testFmt(
+        "arrow function",
+        \\fun returnObj(_: obj{ yo: int, lo: bool}) > obj{ yo: int, lo: bool}{
+        \\    return .{yo = 12,
+        \\    // bitch comment
+        \\    lo = false};
+        \\}
+    ,
+        \\fun returnObj(_: obj{ yo: int, lo: bool }) > obj{ yo: int, lo: bool } {
+        \\    return .{
+        \\        yo = 12,
+        \\            // bitch comment
+        \\        lo = false,
+        \\    };
         \\}
         \\
         ,
