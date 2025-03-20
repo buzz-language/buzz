@@ -295,14 +295,14 @@ pub fn Renderer(comptime T: type) type {
         fn renderComments(self: *Self, token_source: []const u8, start: usize, end: usize) Error!bool {
             var index: usize = start;
             while (std.mem.indexOf(u8, token_source[index..end], "//")) |offset| {
-                const comment_start = index + offset;
+                const comment_start = index + offset + "//".len;
 
                 // If there is no newline, the comment ends with EOF
                 const newline_index = std.mem.indexOfScalar(u8, token_source[comment_start..end], '\n');
                 const newline = if (newline_index) |i| comment_start + i else null;
 
                 const untrimmed_comment = token_source[comment_start .. newline orelse token_source.len];
-                const trimmed_comment = std.mem.trimRight(
+                const trimmed_comment = std.mem.trim(
                     u8,
                     untrimmed_comment,
                     &std.ascii.whitespace,
@@ -332,7 +332,12 @@ pub fn Renderer(comptime T: type) type {
 
                 index = 1 + (newline orelse end - 1);
 
-                const comment_content = std.mem.trimLeft(u8, trimmed_comment["//".len..], &std.ascii.whitespace);
+                const comment_content = std.mem.trim(
+                    u8,
+                    trimmed_comment["//".len..],
+                    &std.ascii.whitespace,
+                );
+
                 if (self.ais.disabled_offset != null and std.mem.eql(u8, comment_content, "zig fmt: on")) {
                     // Write the source for which formatting was disabled directly
                     // to the underlying writer, fixing up invalid whitespace.
@@ -347,7 +352,7 @@ pub fn Renderer(comptime T: type) type {
                     self.ais.disabled_offset = index;
                 } else {
                     // Write the comment minus trailing whitespace.
-                    try self.ais.writer().print("{s}\n", .{trimmed_comment});
+                    try self.ais.writer().print("// {s}\n", .{trimmed_comment});
                 }
             }
 
