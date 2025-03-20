@@ -498,7 +498,7 @@ fn generateNode(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
         ),
         .StringLiteral => m.MIR_new_uint_op(
             self.ctx,
-            components[node].StringLiteral.toValue().val,
+            components[node].StringLiteral.literal.toValue().val,
         ),
         .Null => m.MIR_new_uint_op(
             self.ctx,
@@ -510,7 +510,7 @@ fn generateNode(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
         ),
         .String => try self.generateString(node),
         .Expression => try self.generateNode(components[node].Expression),
-        .GenericResolve => try self.generateNode(components[node].GenericResolve),
+        .GenericResolve => try self.generateNode(components[node].GenericResolve.expression),
         .Grouping => try self.generateNode(components[node].Grouping),
         .Function => try self.generateFunction(node),
         .FunDeclaration => try self.generateFunDeclaration(node),
@@ -2456,8 +2456,25 @@ fn generateIf(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
     else
         null;
 
-    // Is it `if (opt -> unwrapped)`?
-    if (components.unwrapped_identifier != null) {
+    if (components.casted_type) |casted_type| {
+        try self.buildExternApiCall(
+            .bz_valueIs,
+            condition,
+            &[_]m.MIR_op_t{
+                condition_value.?,
+                m.MIR_new_uint_op(
+                    self.ctx,
+                    @constCast(type_defs[casted_type].?).toValue().val,
+                ),
+            },
+        );
+
+        try self.unwrap(
+            .Bool,
+            condition,
+            condition,
+        );
+    } else if (components.unwrapped_identifier != null) {
         try self.buildExternApiCall(
             .bz_valueEqual,
             condition,
@@ -2492,24 +2509,6 @@ fn generateIf(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
         );
 
         self.append(out_label);
-    } else if (components.casted_type) |casted_type| {
-        try self.buildExternApiCall(
-            .bz_valueIs,
-            condition,
-            &[_]m.MIR_op_t{
-                condition_value.?,
-                m.MIR_new_uint_op(
-                    self.ctx,
-                    @constCast(type_defs[casted_type].?).toValue().val,
-                ),
-            },
-        );
-
-        try self.unwrap(
-            .Bool,
-            condition,
-            condition,
-        );
     } else if (constant_condition == null) {
         try self.unwrap(
             .Bool,
@@ -3239,7 +3238,7 @@ fn findBreakLabel(self: *Self, node: Ast.Node.Index) Break {
 fn generateBreak(self: *Self, break_node: Ast.Node.Index) Error!?m.MIR_op_t {
     try self.closeScope(break_node);
 
-    if (self.state.?.ast.nodes.items(.components)[break_node].Break) |label_node| {
+    if (self.state.?.ast.nodes.items(.components)[break_node].Break.destination) |label_node| {
         self.JMP(self.findBreakLabel(label_node).break_label);
     } else {
         self.JMP(self.state.?.break_label.?);
@@ -3251,7 +3250,7 @@ fn generateBreak(self: *Self, break_node: Ast.Node.Index) Error!?m.MIR_op_t {
 fn generateContinue(self: *Self, continue_node: Ast.Node.Index) Error!?m.MIR_op_t {
     try self.closeScope(continue_node);
 
-    if (self.state.?.ast.nodes.items(.components)[continue_node].Continue) |label_node| {
+    if (self.state.?.ast.nodes.items(.components)[continue_node].Continue.destination) |label_node| {
         self.JMP(self.findBreakLabel(label_node).continue_label);
     } else {
         self.JMP(self.state.?.continue_label.?);

@@ -70,13 +70,13 @@ test "Composite operators on scalar" {
 object P {
     static sinteger: int = 1;
     static sfloating: double = 1.0;
-    static slist: [int] = [1, 2, 3];
+    static slist: [int] = [ 1, 2, 3 ];
     static smap: {str: int} = { "one": 1 };
     static sstring: str = "hello";
 
     integer: int = 1,
     floating: double = 1.0,
-    list: [int] = [1, 2, 3],
+    list: [int] = [ 1, 2, 3 ],
     map: {str: int} = { "one": 1 },
     string: str = "hello",
 }

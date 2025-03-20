@@ -10,7 +10,7 @@ test "Optional force unwrapping with `!`" {
 }
 
 test "Optional graceful unwrapping with `?`" {
-    final optList: [int]? = [1, 2, 3];
+    final optList: [int]? = [ 1, 2, 3 ];
 
     std\assert(optList?.len() == 3, message: "could unwrap optList");
 }
@@ -21,7 +21,7 @@ object Me {
 
 test "Optional chaining" {
     final me: Me? = Me{
-        list = [1, 2, 3],
+        list = [ 1, 2, 3 ],
     };
 
     std\assert(me?.list?.len() == 3, message: "chaining optionals work");
@@ -52,15 +52,14 @@ object You {
 
 test "Field access on map subscript" {
     final map = {
-        "yo": You{}
+        "yo": You{},
     };
 
     std\assert(map["yo"]?.name == "joe", message: "could field access map subscript");
 }
 
 object A {
-    static instance: A? = null;
-
+    static instance: A?;
     msg: str,
 
     fun hello() > str {

@@ -1,14 +1,14 @@
 import "std";
 
 test "Basic types" {
-    final _: str = "hello world";
-    final _: double = 3.14;
-    final _: int = 3;
-    final _: bool = true;
+    _ = "hello world";
+    _ = 3.14;
+    _ = 3;
+    _ = true;
 }
 
 test "Underscore on number literals" {
-    final a: int = 100_000;
+    final a = 100_000;
 
     std\assert(a == 100000, message: "Could use an underscore on an int");
 

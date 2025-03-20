@@ -13,7 +13,7 @@ test "Anonymous objects" {
     _: obj{ name: str, age: int } = info;
 
     std\assert(info.name == "Joe" and info.age == 36, message: "Could declare, instanciate and acces anonymous objects");
-    std\assert(info is obj{ name: str, age: int },  message: "Type safety works with anonymous object");
+    std\assert(info is obj{ name: str, age: int }, message: "Type safety works with anonymous object");
 }
 
 test "Named variable init" {
@@ -27,7 +27,7 @@ test "Named variable init" {
 
 fun getPayload::<T>(data: T) > obj{ data: T } {
     return .{
-        data = data
+        data = data,
     };
 }
 

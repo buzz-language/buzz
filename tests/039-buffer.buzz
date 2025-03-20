@@ -10,17 +10,21 @@ test "Reading and writing in a buffer" {
     buffer.writeBoolean(true);
 
     final expected = [
-        11, 0, 0, 0, 0, 0,                                    // "hello world".len()
-        104, 101, 108, 108, 111, 32, 119, 111, 114, 108, 100, // "hello world"
-        158, 239, 167, 198, 75, 89, 147, 64,                  // 1238.324
-        1,                                                    // true
-    ];
+        // "hello world".len()
+        11, 0, 0, 0, 0, 0,
+        // "hello world"
+        104, 101, 108, 108, 111, 32, 119, 111, 114, 108, 100,
+        // 1238.324
+        158, 239, 167, 198, 75, 89, 147, 64,
+        // true
+        1 ];
+
     foreach (i, char in buffer.toString()) {
         std\assert(expected[i] == char.byte(0), message: "Buffer has expected content");
     }
 
     std\assert(buffer.len() == expected.len(), message: "wrote expected number of bytes");
-    
+
     final len = buffer.readInt() ?? -1;
     std\assert(len == 11, message: "could read number");
 

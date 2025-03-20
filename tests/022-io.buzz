@@ -8,7 +8,7 @@ test "Write & read a file" {
     file.write("Hello World");
 
     file.close();
-    
+
     // Now read it
     final fileB = io\File.open("./hello.txt", mode: io\FileMode.read);
 

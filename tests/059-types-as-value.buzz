@@ -2,6 +2,7 @@ import "std";
 import "debug";
 
 object A {}
+
 enum B {
     case,
 }
@@ -13,7 +14,7 @@ fun dumpType(myType: type) > void {
 protocol C {}
 
 test "Types as value" {
-    final _ = <A>;
+    _ = <A>;
     final another = <str>;
     final again = <str>;
 
@@ -36,12 +37,15 @@ test "type argument" {
     dumpType(typeof A);
 }
 
-zdef("tests/utils/libforeign", `
-    const Data = extern struct {
-        msg: [*:0]const u8,
-        id: i32,
-    };
-`);
+zdef(
+    "tests/utils/libforeign",
+    `
+        const Data = extern struct {
+            msg: [*:0]const u8,
+            id: i32,
+        };
+    `
+);
 
 test "necessary weirdness" {
     std\assert((<A>) == typeof A{}, message: "typeof Object == typeof Object instance");

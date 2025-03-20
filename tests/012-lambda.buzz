@@ -11,7 +11,12 @@ fun callThis(fn: fun (n: int) > int, arg: int) > int {
 }
 
 test "Function as arguments" {
-    std\assert((fun (n: int) > int { return n * n; })(10) == 100, message: "called anonymous function");
+    std\assert(
+        (fun (n: int) > int {
+            return n * n;
+        })(10) == 100,
+        message: "called anonymous function",
+    );
     std\assert((fun (n: int) > int => n * n)(10) == 100, message: "called lambda function");
     std\assert(callThis(fun (n: int) > int => n * 2, arg: 2) == 4, message: "called a function from a function");
 }

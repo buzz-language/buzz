@@ -1,7 +1,7 @@
 import "std";
 
 test "List checked subscript" {
-    final list = [1, 2, 3];
+    final list = [ 1, 2, 3 ];
     std\assert(list[?10] is int?);
     std\assert(list[?10] == null);
     std\assert(list[?0] == 1);

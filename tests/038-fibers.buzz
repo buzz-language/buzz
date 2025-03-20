@@ -10,9 +10,9 @@ test "fiber" {
         // resume returns null if nothing was yielded and/or fiber is over
         sum = sum + resume counter ?? 0;
     }
-    
+
     std\assert(counter.over(), message: "Fiber should be over now");
-    
+
     // resolve runs fiber until it's over and dismiss any yielded value along the way
     std\assert(resolve counter == "Counting is done!", message: "Fiber is over we get its return value");
     std\assert(sum == 45, message: "Sum is good");
@@ -22,7 +22,7 @@ test "fiber" {
     std\assert(std\currentFiber().isMain(), message: "We recognize main fiber");
 }
 
-// returns str, yields int
+/// returns str, yields int
 fun count(n: int) > str *> int? {
     std\assert(std\currentFiber() is fib<str, int?>, message: "Can get current fiber");
     std\assert(!std\currentFiber().isMain(), message: "Can know if fiber is main one");
@@ -61,7 +61,6 @@ test "Opened upvalue in fiber" {
     final upvalue = "world";
 
     final fiberFn = fun () > str => "hello {upvalue}";
-
     std\assert(resolve &fiberFn() == "hello world", message: "Fiber could use an opened upvalue");
 }
 
@@ -74,5 +73,5 @@ test "Wrapping call inside complex expressions" {
         "hello": fun () > str => "hello world",
     };
 
-    std\assert(resolve &map["hello"]?() == "hello world", message:"Could warp function call in a complex expression");
+    std\assert(resolve &map["hello"]?() == "hello world", message: "Could warp function call in a complex expression");
 }

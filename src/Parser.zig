@@ -1069,6 +1069,11 @@ pub fn parse(self: *Self, source: []const u8, file_name: ?[]const u8, name: []co
 
     self.ast.nodes.items(.components)[function_node].Function.entry = entry;
 
+    // Start root node at the first statement
+    self.ast.nodes.items(.location)[function_node] = self.ast.nodes.items(.location)[
+        self.ast.nodes.items(.components)[body_node].Block[0]
+    ];
+
     self.ast.root = if (self.reporter.last_error != null) null else self.endFrame();
 
     return if (self.reporter.last_error != null) null else self.ast;
@@ -1435,6 +1440,7 @@ fn declaration(self: *Self, docblock: ?Ast.TokenIndex) Error!?Ast.Node.Index {
         const final = self.current_token.? > 0 and self.ast.tokens.items(.tag)[self.current_token.? - 1] == .Final;
         try self.consume(.Identifier, "Expected identifier");
         const identifier = self.current_token.? - 1;
+        const dismiss_identifier = std.mem.eql(u8, "_", self.ast.tokens.items(.lexeme)[identifier]);
 
         // Type omitted?
         if (!(try self.match(.Colon))) {
@@ -1443,6 +1449,7 @@ fn declaration(self: *Self, docblock: ?Ast.TokenIndex) Error!?Ast.Node.Index {
                 null,
                 .Semicolon,
                 final,
+                dismiss_identifier,
                 true,
                 false,
             );
@@ -1450,6 +1457,8 @@ fn declaration(self: *Self, docblock: ?Ast.TokenIndex) Error!?Ast.Node.Index {
 
         // Mutable?
         const mutable = try self.match(.Mut);
+
+        // FIXME: shouldn't we call parseTypeDef??
 
         // Simple types
         for ([_]Token.Type{ .Pat, .Ud, .Str, .Int, .Double, .Bool, .Range, .Type, .Any }) |token| {
@@ -1459,6 +1468,7 @@ fn declaration(self: *Self, docblock: ?Ast.TokenIndex) Error!?Ast.Node.Index {
                     try self.simpleType(simpleTypeFromToken(token).?),
                     .Semicolon,
                     final,
+                    dismiss_identifier,
                     true,
                     false,
                 );
@@ -1472,6 +1482,7 @@ fn declaration(self: *Self, docblock: ?Ast.TokenIndex) Error!?Ast.Node.Index {
                 try self.parseFiberType(null),
                 .Semicolon,
                 final,
+                dismiss_identifier,
                 true,
                 false,
             )
@@ -1481,6 +1492,7 @@ fn declaration(self: *Self, docblock: ?Ast.TokenIndex) Error!?Ast.Node.Index {
                 try self.parseObjType(null),
                 .Semicolon,
                 final,
+                dismiss_identifier,
                 true,
                 false,
             )
@@ -1490,6 +1502,7 @@ fn declaration(self: *Self, docblock: ?Ast.TokenIndex) Error!?Ast.Node.Index {
                 try self.parseListType(null, mutable),
                 .Semicolon,
                 final,
+                dismiss_identifier,
                 true,
                 false,
             )
@@ -1499,6 +1512,7 @@ fn declaration(self: *Self, docblock: ?Ast.TokenIndex) Error!?Ast.Node.Index {
                 try self.parseMapType(null, mutable),
                 .Semicolon,
                 final,
+                dismiss_identifier,
                 true,
                 false,
             )
@@ -1508,6 +1522,7 @@ fn declaration(self: *Self, docblock: ?Ast.TokenIndex) Error!?Ast.Node.Index {
                 try self.parseFunctionType(null),
                 .Semicolon,
                 final,
+                dismiss_identifier,
                 true,
                 false,
             )
@@ -1516,6 +1531,7 @@ fn declaration(self: *Self, docblock: ?Ast.TokenIndex) Error!?Ast.Node.Index {
                 identifier,
                 final,
                 mutable,
+                dismiss_identifier,
             );
         }
 
@@ -2636,7 +2652,7 @@ fn parseTypeDef(
     instance: bool,
 ) Error!Ast.Node.Index {
     const mutable = try self.match(.Mut);
-    const mutable_token = self.current_token.?;
+    const mutable_token = if (mutable) self.current_token.? else null;
 
     if (try self.match(.Str)) {
         const optional = try self.match(.Question);
@@ -2644,7 +2660,7 @@ fn parseTypeDef(
         if (mutable) {
             self.reporter.report(
                 .mutable_forbidden,
-                self.ast.tokens.get(mutable_token),
+                self.ast.tokens.get(mutable_token.?),
                 self.ast.tokens.get(self.current_token.? - 1),
                 "`str` can't be mutable",
             );
@@ -2653,7 +2669,7 @@ fn parseTypeDef(
         return self.ast.appendNode(
             .{
                 .tag = .SimpleType,
-                .location = self.current_token.? - 1,
+                .location = if (mutable_token) |t| t else if (optional) self.current_token.? - 2 else self.current_token.? - 1,
                 .end_location = self.current_token.? - 1,
                 .type_def = try self.gc.type_registry.getTypeDef(
                     .{
@@ -2672,7 +2688,7 @@ fn parseTypeDef(
         if (mutable) {
             self.reporter.report(
                 .mutable_forbidden,
-                self.ast.tokens.get(mutable_token),
+                self.ast.tokens.get(mutable_token.?),
                 self.ast.tokens.get(self.current_token.? - 1),
                 "`pat` can't be mutable",
             );
@@ -2681,7 +2697,7 @@ fn parseTypeDef(
         return self.ast.appendNode(
             .{
                 .tag = .SimpleType,
-                .location = self.current_token.? - 1,
+                .location = if (mutable_token) |t| t else if (optional) self.current_token.? - 2 else self.current_token.? - 1,
                 .end_location = self.current_token.? - 1,
                 .type_def = try self.gc.type_registry.getTypeDef(
                     .{
@@ -2700,7 +2716,7 @@ fn parseTypeDef(
         if (mutable) {
             self.reporter.report(
                 .mutable_forbidden,
-                self.ast.tokens.get(mutable_token),
+                self.ast.tokens.get(mutable_token.?),
                 self.ast.tokens.get(self.current_token.? - 1),
                 "`ud` can't be mutable",
             );
@@ -2709,7 +2725,7 @@ fn parseTypeDef(
         return self.ast.appendNode(
             .{
                 .tag = .SimpleType,
-                .location = self.current_token.? - 1,
+                .location = if (mutable_token) |t| t else if (optional) self.current_token.? - 2 else self.current_token.? - 1,
                 .end_location = self.current_token.? - 1,
                 .type_def = try self.gc.type_registry.getTypeDef(
                     .{
@@ -2728,7 +2744,7 @@ fn parseTypeDef(
         if (mutable) {
             self.reporter.report(
                 .mutable_forbidden,
-                self.ast.tokens.get(mutable_token),
+                self.ast.tokens.get(mutable_token.?),
                 self.ast.tokens.get(self.current_token.? - 1),
                 "`type` can't be mutable",
             );
@@ -2737,7 +2753,7 @@ fn parseTypeDef(
         return self.ast.appendNode(
             .{
                 .tag = .SimpleType,
-                .location = self.current_token.? - 1,
+                .location = if (mutable_token) |t| t else if (optional) self.current_token.? - 2 else self.current_token.? - 1,
                 .end_location = self.current_token.? - 1,
                 .type_def = try self.gc.type_registry.getTypeDef(
                     .{
@@ -2754,7 +2770,7 @@ fn parseTypeDef(
         if (mutable) {
             self.reporter.report(
                 .mutable_forbidden,
-                self.ast.tokens.get(mutable_token),
+                self.ast.tokens.get(mutable_token.?),
                 self.ast.tokens.get(self.current_token.? - 1),
                 "`void` can't be mutable",
             );
@@ -2763,7 +2779,7 @@ fn parseTypeDef(
         return self.ast.appendNode(
             .{
                 .tag = .SimpleType,
-                .location = self.current_token.? - 1,
+                .location = if (mutable_token) |t| t else self.current_token.? - 1,
                 .end_location = self.current_token.? - 1,
                 .type_def = self.gc.type_registry.void_type,
                 .components = .{
@@ -2777,7 +2793,7 @@ fn parseTypeDef(
         if (mutable) {
             self.reporter.report(
                 .mutable_forbidden,
-                self.ast.tokens.get(mutable_token),
+                self.ast.tokens.get(mutable_token.?),
                 self.ast.tokens.get(self.current_token.? - 1),
                 "`int` can't be mutable",
             );
@@ -2786,7 +2802,7 @@ fn parseTypeDef(
         return self.ast.appendNode(
             .{
                 .tag = .SimpleType,
-                .location = self.current_token.? - 1,
+                .location = if (mutable_token) |t| t else if (optional) self.current_token.? - 2 else self.current_token.? - 1,
                 .end_location = self.current_token.? - 1,
                 .type_def = try self.gc.type_registry.getTypeDef(
                     .{
@@ -2805,7 +2821,7 @@ fn parseTypeDef(
         if (mutable) {
             self.reporter.report(
                 .mutable_forbidden,
-                self.ast.tokens.get(mutable_token),
+                self.ast.tokens.get(mutable_token.?),
                 self.ast.tokens.get(self.current_token.? - 1),
                 "`double` can't be mutable",
             );
@@ -2814,7 +2830,7 @@ fn parseTypeDef(
         return self.ast.appendNode(
             .{
                 .tag = .SimpleType,
-                .location = self.current_token.? - 1,
+                .location = if (mutable_token) |t| t else if (optional) self.current_token.? - 2 else self.current_token.? - 1,
                 .end_location = self.current_token.? - 1,
                 .type_def = try self.gc.type_registry.getTypeDef(
                     .{
@@ -2833,7 +2849,7 @@ fn parseTypeDef(
         if (mutable) {
             self.reporter.report(
                 .mutable_forbidden,
-                self.ast.tokens.get(mutable_token),
+                self.ast.tokens.get(mutable_token.?),
                 self.ast.tokens.get(self.current_token.? - 1),
                 "`bool` can't be mutable",
             );
@@ -2842,7 +2858,7 @@ fn parseTypeDef(
         return self.ast.appendNode(
             .{
                 .tag = .SimpleType,
-                .location = self.current_token.? - 1,
+                .location = if (mutable_token) |t| t else if (optional) self.current_token.? - 2 else self.current_token.? - 1,
                 .end_location = self.current_token.? - 1,
                 .type_def = try self.gc.type_registry.getTypeDef(
                     .{
@@ -2861,7 +2877,7 @@ fn parseTypeDef(
         if (mutable) {
             self.reporter.report(
                 .mutable_forbidden,
-                self.ast.tokens.get(mutable_token),
+                self.ast.tokens.get(mutable_token.?),
                 self.ast.tokens.get(self.current_token.? - 1),
                 "`rg` can't be mutable",
             );
@@ -2870,7 +2886,7 @@ fn parseTypeDef(
         return self.ast.appendNode(
             .{
                 .tag = .SimpleType,
-                .location = self.current_token.? - 1,
+                .location = if (mutable_token) |t| t else if (optional) self.current_token.? - 2 else self.current_token.? - 1,
                 .end_location = self.current_token.? - 1,
                 .type_def = try self.gc.type_registry.getTypeDef(
                     .{
@@ -2889,7 +2905,7 @@ fn parseTypeDef(
         return self.ast.appendNode(
             .{
                 .tag = .SimpleType,
-                .location = self.current_token.? - 1,
+                .location = if (mutable_token) |t| t else if (optional) self.current_token.? - 2 else self.current_token.? - 1,
                 .end_location = self.current_token.? - 1,
                 .type_def = try self.gc.type_registry.getTypeDef(
                     .{
@@ -2911,7 +2927,7 @@ fn parseTypeDef(
         return self.ast.appendNode(
             .{
                 .tag = .SimpleType,
-                .location = self.current_token.? - 1,
+                .location = if (mutable_token) |t| t else if (optional) self.current_token.? - 2 else self.current_token.? - 1,
                 .end_location = self.current_token.? - 1,
                 .type_def = try self.gc.type_registry.getTypeDef(
                     .{
@@ -2939,6 +2955,10 @@ fn parseTypeDef(
                 &self.gc.type_registry,
                 mutable,
             );
+
+            if (mutable) {
+                self.ast.nodes.items(.location)[type_def_node] -= 1;
+            }
         }
 
         return type_def_node;
@@ -2995,7 +3015,7 @@ fn parseTypeDef(
         return self.ast.appendNode(
             .{
                 .tag = .SimpleType,
-                .location = self.current_token.? - 1,
+                .location = if (mutable_token) |t| t else self.current_token.? - 1,
                 .end_location = self.current_token.? - 1,
                 .type_def = try self.gc.type_registry.getTypeDef(
                     .{
@@ -3059,7 +3079,7 @@ fn parseFiberType(self: *Self, generic_types: ?std.AutoArrayHashMapUnmanaged(*ob
 }
 
 fn parseListType(self: *Self, generic_types: ?std.AutoArrayHashMapUnmanaged(*obj.ObjString, *obj.ObjTypeDef), mutable: bool) Error!Ast.Node.Index {
-    const start_location = self.current_token.? - 1;
+    const start_location = if (mutable) self.current_token.? - 2 else self.current_token.? - 1;
     const item_type = try self.parseTypeDef(generic_types, true);
 
     try self.consume(.RightBracket, "Expected `]` after list type.");
@@ -3091,7 +3111,7 @@ fn parseListType(self: *Self, generic_types: ?std.AutoArrayHashMapUnmanaged(*obj
 }
 
 fn parseMapType(self: *Self, generic_types: ?std.AutoArrayHashMapUnmanaged(*obj.ObjString, *obj.ObjTypeDef), mutable: bool) Error!Ast.Node.Index {
-    const start_location = self.current_token.? - 1;
+    const start_location = if (mutable) self.current_token.? - 2 else self.current_token.? - 1;
 
     const key_type = try self.parseTypeDef(generic_types, true);
 
@@ -3251,84 +3271,84 @@ fn parseFunctionType(self: *Self, parent_generic_types: ?std.AutoArrayHashMapUnm
     var parameters = std.AutoArrayHashMapUnmanaged(*obj.ObjString, *obj.ObjTypeDef){};
     var defaults = std.AutoArrayHashMapUnmanaged(*obj.ObjString, Value){};
     var arity: usize = 0;
-    if (!self.check(.RightParen)) {
-        while (true) {
-            arity += 1;
-            if (arity > std.math.maxInt(u8)) {
-                self.reporter.reportErrorAt(
-                    .arguments_count,
-                    self.ast.tokens.get(start_location),
-                    self.ast.tokens.get(self.current_token.? - 1),
-                    "Can't have more than 255 arguments.",
-                );
-            }
-
-            try self.consume(.Identifier, "Expected argument name");
-
-            const arg_name_token = self.current_token.? - 1;
-            const arg_name = self.ast.tokens.items(.lexeme)[self.current_token.? - 1];
-
-            try self.consume(.Colon, "Expected `:`");
-
-            const arg_type = try self.parseTypeDef(
-                merged_generic_types,
-                true,
+    while (!self.check(.RightParen) and !self.check(.Eof)) {
+        arity += 1;
+        if (arity > std.math.maxInt(u8)) {
+            self.reporter.reportErrorAt(
+                .arguments_count,
+                self.ast.tokens.get(start_location),
+                self.ast.tokens.get(self.current_token.? - 1),
+                "Can't have more than 255 arguments.",
             );
-            const arg_type_def = self.ast.nodes.items(.type_def)[arg_type];
+        }
 
-            var default: ?Ast.Node.Index = null;
-            if (try self.match(.Equal)) {
-                const expr = try self.expression(false);
-                const expr_type_def = self.ast.nodes.items(.type_def)[expr];
+        try self.consume(.Identifier, "Expected argument name");
 
-                if (expr_type_def != null and expr_type_def.?.def_type == .Placeholder and arg_type_def.?.def_type == .Placeholder) {
-                    try obj.PlaceholderDef.link(
-                        self.gc.allocator,
-                        arg_type_def.?,
-                        expr_type_def.?,
-                        .Assignment,
-                    );
-                }
+        const arg_name_token = self.current_token.? - 1;
+        const arg_name = self.ast.tokens.items(.lexeme)[self.current_token.? - 1];
 
-                if (!try self.ast.slice().isConstant(self.gc.allocator, expr)) {
-                    self.reportErrorAtNode(
-                        .constant_default,
-                        expr,
-                        "Default parameters must be constant values.",
-                        .{},
-                    );
-                }
+        try self.consume(.Colon, "Expected `:`");
 
-                default = expr;
-            }
+        const arg_type = try self.parseTypeDef(
+            merged_generic_types,
+            true,
+        );
+        const arg_type_def = self.ast.nodes.items(.type_def)[arg_type];
 
-            try arguments.append(
-                .{
-                    .name = arg_name_token,
-                    .default = default,
-                    .type = arg_type,
-                },
-            );
-            if (if (default) |dflt|
-                try self.ast.slice().toValue(dflt, self.gc)
-            else if (arg_type_def.?.optional)
-                Value.Null
-            else
-                null) |dflt|
-            {
-                try defaults.put(
+        var default: ?Ast.Node.Index = null;
+        if (try self.match(.Equal)) {
+            const expr = try self.expression(false);
+            const expr_type_def = self.ast.nodes.items(.type_def)[expr];
+
+            if (expr_type_def != null and expr_type_def.?.def_type == .Placeholder and arg_type_def.?.def_type == .Placeholder) {
+                try obj.PlaceholderDef.link(
                     self.gc.allocator,
-                    try self.gc.copyString(arg_name),
-                    dflt,
+                    arg_type_def.?,
+                    expr_type_def.?,
+                    .Assignment,
                 );
             }
-            try parameters.put(
+
+            if (!try self.ast.slice().isConstant(self.gc.allocator, expr)) {
+                self.reportErrorAtNode(
+                    .constant_default,
+                    expr,
+                    "Default parameters must be constant values.",
+                    .{},
+                );
+            }
+
+            default = expr;
+        }
+
+        try arguments.append(
+            .{
+                .name = arg_name_token,
+                .default = default,
+                .type = arg_type,
+            },
+        );
+        if (if (default) |dflt|
+            try self.ast.slice().toValue(dflt, self.gc)
+        else if (arg_type_def.?.optional)
+            Value.Null
+        else
+            null) |dflt|
+        {
+            try defaults.put(
                 self.gc.allocator,
                 try self.gc.copyString(arg_name),
-                arg_type_def.?,
+                dflt,
             );
+        }
+        try parameters.put(
+            self.gc.allocator,
+            try self.gc.copyString(arg_name),
+            arg_type_def.?,
+        );
 
-            if (!try self.match(.Comma)) break;
+        if (!self.check(.RightParen)) {
+            try self.consume(.Comma, "Expected `,` after call argument");
         }
     }
 
@@ -3408,6 +3428,7 @@ fn parseFunctionType(self: *Self, parent_generic_types: ?std.AutoArrayHashMapUnm
             .type_def = try self.gc.type_registry.getTypeDef(function_typedef),
             .components = .{
                 .FunctionType = .{
+                    .is_signature = false,
                     .lambda = false,
                     .name = name_token,
                     .arguments = try arguments.toOwnedSlice(),
@@ -3466,10 +3487,10 @@ fn parseObjType(self: *Self, generic_types: ?std.AutoArrayHashMapUnmanaged(*obj.
             try self.insertUtilityToken(
                 Token.identifier(
                     switch (tuple_index) {
-                        0 => "0",
-                        1 => "1",
-                        2 => "2",
-                        3 => "3",
+                        0 => "@\"0\"",
+                        1 => "@\"1\"",
+                        2 => "@\"2\"",
+                        3 => "@\"3\"",
                         else => "invalid",
                     },
                 ),
@@ -3686,11 +3707,13 @@ fn parseUserType(self: *Self, instance: bool, mutable: bool) Error!Ast.Node.Inde
         );
     } else null;
 
+    std.debug.assert(!mutable or self.ast.tokens.items(.tag)[user_type_name[0] - 1] == .Mut);
+
     self.ast.nodes.set(
         node_slot,
         .{
             .tag = .UserType,
-            .location = user_type_name[0],
+            .location = if (mutable) user_type_name[0] - 1 else user_type_name[0],
             .end_location = self.current_token.? - 1,
             .type_def = if (instance)
                 try var_type.?.toInstance(
@@ -3712,7 +3735,10 @@ fn parseUserType(self: *Self, instance: bool, mutable: bool) Error!Ast.Node.Inde
 }
 
 fn parseGenericResolve(self: *Self, callee_type_def: *obj.ObjTypeDef, expr: ?Ast.Node.Index) Error!Ast.Node.Index {
-    const start_location = self.current_token.? - 1;
+    const start_location = if (expr) |e|
+        self.ast.nodes.items(.location)[e]
+    else
+        self.current_token.? - 1;
 
     var resolved_generics = std.ArrayList(Ast.Node.Index).init(self.gc.allocator);
     var resolved_generics_types = std.ArrayList(*obj.ObjTypeDef).init(self.gc.allocator);
@@ -3762,7 +3788,10 @@ fn parseGenericResolve(self: *Self, callee_type_def: *obj.ObjTypeDef, expr: ?Ast
                 null,
             ),
             .components = if (expr) |e| .{
-                .GenericResolve = e,
+                .GenericResolve = .{
+                    .expression = e,
+                    .resolved_types = try resolved_generics.toOwnedSlice(),
+                },
             } else .{
                 .GenericResolveType = try resolved_generics.toOwnedSlice(),
             },
@@ -3771,7 +3800,7 @@ fn parseGenericResolve(self: *Self, callee_type_def: *obj.ObjTypeDef, expr: ?Ast
 }
 
 fn subscript(self: *Self, can_assign: bool, subscripted: Ast.Node.Index) Error!Ast.Node.Index {
-    const start_location = self.current_token.? - 1;
+    const start_location = self.ast.nodes.items(.location)[subscripted];
 
     const subscript_type_def = self.ast.nodes.items(.type_def)[subscripted];
     const checked = try self.match(.Question);
@@ -3890,7 +3919,7 @@ fn expressionStatement(self: *Self, hanging: bool) Error!Ast.Node.Index {
             .tag = .Expression,
             .type_def = self.ast.nodes.items(.type_def)[expr],
             .location = self.ast.nodes.items(.location)[expr],
-            .end_location = self.ast.nodes.items(.end_location)[expr],
+            .end_location = self.current_token.? - 1,
             .components = .{
                 .Expression = expr,
             },
@@ -3902,13 +3931,13 @@ fn list(self: *Self, _: bool) Error!Ast.Node.Index {
     const start_location = self.current_token.? - 1;
 
     var items = std.ArrayList(Ast.Node.Index).init(self.gc.allocator);
-    const explicit_item_type: ?Ast.Node.Index = null;
+    var explicit_item_type: ?Ast.Node.Index = null;
     var item_type: ?*obj.ObjTypeDef = null;
 
     // A list expression can specify its type `[<int>, ...]`
     if (try self.match(.Less)) {
-        const item_type_node = try self.parseTypeDef(null, true);
-        item_type = self.ast.nodes.items(.type_def)[item_type_node];
+        explicit_item_type = try self.parseTypeDef(null, true);
+        item_type = self.ast.nodes.items(.type_def)[explicit_item_type.?];
 
         try self.consume(.Greater, "Expected `>` after list type.");
     }
@@ -4401,7 +4430,7 @@ fn map(self: *Self, _: bool) Error!Ast.Node.Index {
 }
 
 fn objectInit(self: *Self, _: bool, object: Ast.Node.Index) Error!Ast.Node.Index {
-    const start_location = self.current_token.? - 1;
+    const start_location = self.ast.nodes.items(.location)[object];
     const obj_type_def = self.ast.nodes.items(.type_def)[object];
     var properties = std.ArrayList(Ast.ObjectInit.Property).init(self.gc.allocator);
     var property_names = std.StringHashMap(Ast.Node.Index).init(self.gc.allocator);
@@ -4576,10 +4605,10 @@ fn anonymousObjectInit(self: *Self, _: bool) Error!Ast.Node.Index {
                 try self.insertUtilityToken(
                     Token.identifier(
                         switch (tuple_index) {
-                            0 => "0",
-                            1 => "1",
-                            2 => "2",
-                            3 => "3",
+                            0 => "@\"0\"",
+                            1 => "@\"1\"",
+                            2 => "@\"2\"",
+                            3 => "@\"3\"",
                             else => "invalid",
                         },
                     ),
@@ -5472,7 +5501,7 @@ fn unwrap(self: *Self, force: bool, unwrapped: Ast.Node.Index) Error!Ast.Node.In
     const node = self.ast.appendNode(
         .{
             .tag = if (force) .ForceUnwrap else .Unwrap,
-            .location = self.current_token.? - 1,
+            .location = self.ast.nodes.items(.location)[unwrapped],
             .end_location = self.current_token.? - 1,
             .type_def = try unwrapped_type_def.cloneNonOptional(&self.gc.type_registry),
             .components = if (force)
@@ -5605,12 +5634,12 @@ fn @"if"(self: *Self, is_statement: bool, loop_scope: ?LoopScope) Error!Ast.Node
         unwrapped_identifier = self.current_token.? - 1;
     } else if (try self.match(.As)) { // if (expr as casted)
         try self.consume(.Identifier, "Expected identifier");
-        const identifier = self.current_token.? - 1;
+        unwrapped_identifier = self.current_token.? - 1;
         try self.consume(.Colon, "Expected `:`");
         casted_type = try self.parseTypeDef(null, true);
         _ = try self.parseVariable(
             @intCast(node_slot),
-            identifier,
+            unwrapped_identifier,
             try self.ast.nodes.items(.type_def)[casted_type.?].?.toInstance(
                 &self.gc.type_registry,
                 condition_type_def.?.isMutable(),
@@ -5743,13 +5772,15 @@ fn string(self: *Self, _: bool) Error!Ast.Node.Index {
     const string_token = self.ast.tokens.get(string_token_index);
     const current_token = self.current_token.?;
 
-    var string_parser = StringParser.init(
-        self,
-        string_token.literal.String,
-        self.script_name,
-        string_token.line,
-        string_token.column,
-    );
+    var string_parser = StringParser{
+        .parser = self,
+        .delimiter = string_token.lexeme[0],
+        .source = string_token.literal.String,
+        .script_name = self.script_name,
+        .line_offset = string_token.line,
+        .column_offset = string_token.column,
+        .host_offset = self.ast.tokens.items(.offset)[string_token_index],
+    };
 
     const string_node = if (string_token.literal.String.len > 0)
         try string_parser.parse()
@@ -5766,7 +5797,7 @@ fn string(self: *Self, _: bool) Error!Ast.Node.Index {
             },
         );
     self.ast.nodes.items(.location)[string_node] = string_token_index;
-    self.ast.nodes.items(.end_location)[string_node] = self.current_token.? - 1;
+    self.ast.nodes.items(.end_location)[string_node] = self.current_token.?;
 
     // Append again token just after the string so we don't confuse the parser
     var utility_token = self.ast.tokens.get(current_token).clone();
@@ -5778,7 +5809,7 @@ fn string(self: *Self, _: bool) Error!Ast.Node.Index {
 
 fn namedVariable(self: *Self, name: []const Ast.TokenIndex, can_assign: bool) Error!Ast.Node.Index {
     const node_slot = try self.ast.nodes.addOne(self.ast.allocator);
-    const start_location = self.current_token.? - 1;
+    const start_location = name[0];
 
     var var_def: ?*obj.ObjTypeDef = null;
     var slot: usize = undefined;
@@ -5933,11 +5964,15 @@ fn function(
     const function_signature = try self.ast.appendNode(
         .{
             .tag = .FunctionType,
-            .location = self.current_token.? - 1,
+            .location = if (name != null)
+                self.current_token.? - 2 // -2 to start at the .Fun token
+            else
+                self.current_token.? - 1,
             .end_location = undefined,
             .type_def = null,
             .components = .{
                 .FunctionType = .{
+                    .is_signature = true,
                     .name = name,
                     .return_type = null,
                     .yield_type = null,
@@ -6070,101 +6105,101 @@ fn function(
 
         // Arguments
         var arity: usize = 0;
-        if (!self.check(.RightParen)) {
-            while (true) {
-                arity += 1;
-                if (arity > std.math.maxInt(u8)) {
-                    const location = self.ast.tokens.get(self.current_token.? - 1);
-                    self.reporter.reportErrorAt(
-                        .arguments_count,
-                        location,
-                        location,
-                        "Can't have more than 255 arguments.",
-                    );
-                }
-
-                try self.consume(.Identifier, "Expected argument name");
-                const identifier = self.current_token.? - 1;
-                try self.consume(.Colon, "Expected `:`");
-
-                const argument_type_node = try self.parseTypeDef(
-                    function_typedef.resolved_type.?.Function.generic_types,
-                    true,
+        while (!self.check(.RightParen) and !self.check(.Eof)) {
+            arity += 1;
+            if (arity > std.math.maxInt(u8)) {
+                const location = self.ast.tokens.get(self.current_token.? - 1);
+                self.reporter.reportErrorAt(
+                    .arguments_count,
+                    location,
+                    location,
+                    "Can't have more than 255 arguments.",
                 );
+            }
 
-                self.ast.nodes.items(.type_def)[argument_type_node] = self.ast.nodes.items(.type_def)[
-                    argument_type_node
-                ];
+            try self.consume(.Identifier, "Expected argument name");
+            const identifier = self.current_token.? - 1;
+            try self.consume(.Colon, "Expected `:`");
 
-                const argument_type = self.ast.nodes.items(.type_def)[argument_type_node].?;
+            const argument_type_node = try self.parseTypeDef(
+                function_typedef.resolved_type.?.Function.generic_types,
+                true,
+            );
 
-                const slot = try self.parseVariable(
-                    function_node,
-                    identifier,
-                    argument_type,
-                    true, // function arguments are final
-                    false,
-                    "Expected argument name",
-                );
+            self.ast.nodes.items(.type_def)[argument_type_node] = self.ast.nodes.items(.type_def)[
+                argument_type_node
+            ];
 
-                std.debug.assert(self.current.?.scope_depth > 0);
-                const local = self.current.?.locals[slot];
+            const argument_type = self.ast.nodes.items(.type_def)[argument_type_node].?;
 
-                try function_typedef.resolved_type.?.Function.parameters.put(
-                    self.gc.allocator,
-                    try self.gc.copyString(self.ast.tokens.items(.lexeme)[local.name]),
-                    local.type_def,
-                );
+            const slot = try self.parseVariable(
+                function_node,
+                identifier,
+                argument_type,
+                true, // function arguments are final
+                false,
+                "Expected argument name",
+            );
 
-                self.markInitialized();
+            std.debug.assert(self.current.?.scope_depth > 0);
+            const local = self.current.?.locals[slot];
 
-                // Default arguments
-                const default = switch (function_type) {
-                    .Function, .Method, .Anonymous, .Extern => value: {
-                        if (try self.match(.Equal)) {
-                            const expr = try self.expression(false);
-                            const expr_type_def = self.ast.nodes.items(.type_def)[expr];
+            try function_typedef.resolved_type.?.Function.parameters.put(
+                self.gc.allocator,
+                try self.gc.copyString(self.ast.tokens.items(.lexeme)[local.name]),
+                local.type_def,
+            );
 
-                            if (expr_type_def != null and expr_type_def.?.def_type == .Placeholder and argument_type.def_type == .Placeholder) {
-                                try obj.PlaceholderDef.link(
-                                    self.gc.allocator,
-                                    argument_type,
-                                    expr_type_def.?,
-                                    .Assignment,
-                                );
-                            }
+            self.markInitialized();
 
-                            break :value expr;
-                        } else if (argument_type.optional) {
-                            try function_typedef.resolved_type.?.Function.defaults.put(
+            // Default arguments
+            const default = switch (function_type) {
+                .Function, .Method, .Anonymous, .Extern => value: {
+                    if (try self.match(.Equal)) {
+                        const expr = try self.expression(false);
+                        const expr_type_def = self.ast.nodes.items(.type_def)[expr];
+
+                        if (expr_type_def != null and expr_type_def.?.def_type == .Placeholder and argument_type.def_type == .Placeholder) {
+                            try obj.PlaceholderDef.link(
                                 self.gc.allocator,
-                                try self.gc.copyString(self.ast.tokens.items(.lexeme)[local.name]),
-                                Value.Null,
+                                argument_type,
+                                expr_type_def.?,
+                                .Assignment,
                             );
                         }
 
-                        break :value null;
-                    },
-                    else => null,
-                };
+                        break :value expr;
+                    } else if (argument_type.optional) {
+                        try function_typedef.resolved_type.?.Function.defaults.put(
+                            self.gc.allocator,
+                            try self.gc.copyString(self.ast.tokens.items(.lexeme)[local.name]),
+                            Value.Null,
+                        );
+                    }
 
-                try arguments.append(
-                    .{
-                        .name = local.name,
-                        .type = argument_type_node,
-                        .default = default,
-                    },
+                    break :value null;
+                },
+                else => null,
+            };
+
+            try arguments.append(
+                .{
+                    .name = local.name,
+                    .type = argument_type_node,
+                    .default = default,
+                },
+            );
+
+            if (default) |dft| {
+                try function_typedef.resolved_type.?.Function.defaults.put(
+                    self.gc.allocator,
+                    try self.gc.copyString(self.ast.tokens.items(.lexeme)[local.name]),
+                    try self.ast.slice().toValue(dft, self.gc),
                 );
+            }
 
-                if (default) |dft| {
-                    try function_typedef.resolved_type.?.Function.defaults.put(
-                        self.gc.allocator,
-                        try self.gc.copyString(self.ast.tokens.items(.lexeme)[local.name]),
-                        try self.ast.slice().toValue(dft, self.gc),
-                    );
-                }
-
-                if (!try self.match(.Comma)) break;
+            if (!self.check(.RightParen)) {
+                try self.consume(.Comma, "Expected `,` after call argument");
             }
         }
 
@@ -6715,7 +6750,6 @@ fn yield(self: *Self, _: bool) Error!Ast.Node.Index {
 }
 
 fn range(self: *Self, _: bool, low: Ast.Node.Index) Error!Ast.Node.Index {
-    const start_location = self.current_token.? - 1;
     const high = try self.expression(false);
 
     self.markInitialized();
@@ -6723,7 +6757,7 @@ fn range(self: *Self, _: bool, low: Ast.Node.Index) Error!Ast.Node.Index {
     return try self.ast.appendNode(
         .{
             .tag = .Range,
-            .location = start_location,
+            .location = self.ast.nodes.items(.location)[low],
             .end_location = self.current_token.? - 1,
             .type_def = try self.gc.type_registry.getTypeDef(
                 .{
@@ -6763,8 +6797,12 @@ fn typeOfExpression(self: *Self, _: bool) Error!Ast.Node.Index {
 }
 
 fn mutableExpression(self: *Self, _: bool) Error!Ast.Node.Index {
+    const start_location = self.current_token.? - 1;
+
     const expr = try self.parsePrecedence(.Unary, false);
+
     self.ast.nodes.items(.type_def)[expr] = try self.ast.nodes.items(.type_def)[expr].?.cloneMutable(&self.gc.type_registry, true);
+    self.ast.nodes.items(.location)[expr] = start_location;
 
     switch (self.ast.nodes.items(.tag)[expr]) {
         .List, .Map, .ObjectInit => {},
@@ -7915,7 +7953,7 @@ fn enumDeclaration(self: *Self) Error!Ast.Node.Index {
 
     var cases = std.ArrayList(Ast.Enum.Case).init(self.gc.allocator);
     var def_cases = std.ArrayList([]const u8).init(self.gc.allocator);
-    var picked = std.ArrayList(bool).init(self.gc.allocator);
+    var values_omitted = true;
     var case_index: v.Integer = 0;
     while (!self.check(.RightBrace) and !self.check(.Eof)) : (case_index += 1) {
         if (case_index > std.math.maxInt(u24)) {
@@ -7947,7 +7985,7 @@ fn enumDeclaration(self: *Self) Error!Ast.Node.Index {
                     .value = try self.expression(false),
                 },
             );
-            try picked.append(true);
+            values_omitted = false;
         } else {
             if (enum_case_type.def_type == .Integer) {
                 try cases.append(
@@ -7979,15 +8017,16 @@ fn enumDeclaration(self: *Self) Error!Ast.Node.Index {
                                 .end_location = self.current_token.? - 1,
                                 .type_def = self.gc.type_registry.str_type,
                                 .components = .{
-                                    .StringLiteral = try self.gc.copyString(case_name),
+                                    .StringLiteral = .{
+                                        .delimiter = '"',
+                                        .literal = try self.gc.copyString(case_name),
+                                    },
                                 },
                             },
                         ),
                     },
                 );
             }
-
-            try picked.append(false);
         }
 
         try def_cases.append(case_name);
@@ -8020,6 +8059,7 @@ fn enumDeclaration(self: *Self) Error!Ast.Node.Index {
             .type_def = enum_type,
             .components = .{
                 .Enum = .{
+                    .values_omitted = values_omitted,
                     .name = enum_name,
                     .case_type = enum_case_type_node,
                     .slot = @intCast(slot),
@@ -8074,6 +8114,7 @@ fn varDeclaration(
     parsed_type: ?Ast.Node.Index,
     terminator: DeclarationTerminator,
     final: bool,
+    omits_qualifier: bool,
     should_assign: bool,
     type_provided_later: bool,
 ) Error!Ast.Node.Index {
@@ -8086,7 +8127,12 @@ fn varDeclaration(
     else
         self.gc.type_registry.any_type; // When var type omitted, will be replaced by the value type bellow
 
-    const start_location = self.current_token.? - 1;
+    const start_location = if (omits_qualifier)
+        identifier.?
+    else if (identifier) |id|
+        id - 1
+    else
+        self.current_token.? - 2;
 
     const slot: usize = try self.parseVariable(
         @intCast(node_slot),
@@ -8192,6 +8238,7 @@ fn varDeclaration(
                     .name = name,
                     .value = value,
                     .type = parsed_type,
+                    .omits_qualifier = omits_qualifier,
                     .final = final,
                     .slot = @intCast(slot),
                     .slot_type = if (self.current.?.scope_depth > 0) .Local else .Global,
@@ -8230,7 +8277,7 @@ fn implicitVarDeclaration(
         node_slot,
         .{
             .tag = .VarDeclaration,
-            .location = self.current_token.? - 1,
+            .location = name,
             .end_location = self.current_token.? - 1,
             .type_def = var_type,
             .components = .{
@@ -8239,6 +8286,7 @@ fn implicitVarDeclaration(
                     .value = null,
                     .type = null,
                     .final = final,
+                    .omits_qualifier = true,
                     .slot = @intCast(slot),
                     .slot_type = if (self.current.?.scope_depth > 0) .Local else .Global,
                 },
@@ -8283,16 +8331,13 @@ fn testStatement(self: *Self) Error!Ast.Node.Index {
     self.ast.nodes.set(
         node_slot,
         .{
-            .tag = .VarDeclaration,
+            .tag = .FunDeclaration,
             .location = start_location,
             .end_location = self.current_token.? - 1,
             .type_def = function_type_def,
             .components = .{
-                .VarDeclaration = .{
-                    .name = name_token,
-                    .value = function_node,
-                    .type = self.ast.nodes.items(.components)[function_node].Function.function_signature,
-                    .final = true,
+                .FunDeclaration = .{
+                    .function = function_node,
                     .slot = @intCast(slot),
                     .slot_type = .Global,
                 },
@@ -8729,6 +8774,11 @@ fn importScript(
         const previous_root = self.ast.root;
         const previous_tokens_len = self.ast.tokens.len;
         const previous_node_len = self.ast.nodes.len;
+
+        // The current token will be reinserted in place of the imported script Eof token
+        // We mark the original one as utility token so that fmt will ignore it
+        self.ast.tokens.items(.utility_token)[self.current_token.?] = true;
+        std.debug.assert(!token_before_import.utility_token);
 
         if (try parser.parse(source_and_path.?[0], source_and_path.?[1], file_name)) |ast| {
             self.ast = ast;
@@ -9239,7 +9289,7 @@ fn zdefStatement(self: *Self) Error!Ast.Node.Index {
 }
 
 // FIXME: this is almost the same as parseUserType!
-fn userVarDeclaration(self: *Self, identifier: Ast.TokenIndex, final: bool, mutable: bool) Error!Ast.Node.Index {
+fn userVarDeclaration(self: *Self, identifier: Ast.TokenIndex, final: bool, mutable: bool, omits_qualifier: bool) Error!Ast.Node.Index {
     const node_slot = try self.ast.nodes.addOne(self.gc.allocator);
     const start_location = self.current_token.? - 1;
     var var_type: ?*obj.ObjTypeDef = null;
@@ -9397,6 +9447,7 @@ fn userVarDeclaration(self: *Self, identifier: Ast.TokenIndex, final: bool, muta
         @intCast(node_slot),
         .Semicolon,
         final,
+        omits_qualifier,
         true,
         false,
     );
@@ -9424,6 +9475,7 @@ fn forStatement(self: *Self) Error!Ast.Node.Index {
                     null,
                 .Nothing,
                 false,
+                true,
                 true,
                 false,
             ),
@@ -9504,12 +9556,12 @@ fn forEachStatement(self: *Self) Error!Ast.Node.Index {
     try self.beginScope(null);
 
     try self.consume(.Identifier, "Expected identifier");
-    const key_identifier = self.current_token.? - 1;
     var key = try self.varDeclaration(
-        key_identifier,
+        self.current_token.? - 1,
         null,
         .Nothing,
         false,
+        true,
         false,
         true,
     );
@@ -9525,6 +9577,7 @@ fn forEachStatement(self: *Self) Error!Ast.Node.Index {
             null,
             .Nothing,
             false,
+            true,
             false,
             true,
         )
@@ -9546,14 +9599,15 @@ fn forEachStatement(self: *Self) Error!Ast.Node.Index {
         const kv_components = self.ast.nodes.items(.components);
         const value_slot = kv_components[key].VarDeclaration.slot;
         const key_slot = kv_components[value.?].VarDeclaration.slot;
-        const value_components = kv_components[key];
-        const key_components = kv_components[value.?];
-        kv_components[key] = key_components;
-        kv_components[value.?] = value_components;
 
         const value_local = self.current.?.locals[key_slot];
         self.current.?.locals[key_slot] = self.current.?.locals[value_slot];
         self.current.?.locals[value_slot] = value_local;
+
+        kv_components[key].VarDeclaration.slot = key_slot;
+        kv_components[value.?].VarDeclaration.slot = value_slot;
+
+        // self.ast.swapNodes(key, value.?);
     }
 
     try self.consume(.In, "Expected `in` after `foreach` variables.");
@@ -9932,7 +9986,7 @@ fn namespaceStatement(self: *Self) Error!Ast.Node.Index {
             .location = start_location,
             .end_location = self.current_token.? - 1,
             .components = .{
-                .Namespace = namespace.items,
+                .Namespace = self.namespace.?,
             },
         },
     );
@@ -10160,17 +10214,23 @@ fn breakContinueStatement(self: *Self, @"break": bool, loop_scope: ?LoopScope) E
                 null,
             .components = if (@"break")
                 .{
-                    .Break = if (label_scope) |scope|
-                        scope.node
-                    else
-                        null,
+                    .Break = .{
+                        .destination = if (label_scope) |scope|
+                            scope.node
+                        else
+                            null,
+                        .label = label,
+                    },
                 }
             else
                 .{
-                    .Continue = if (label_scope) |scope|
-                        scope.node
-                    else
-                        null,
+                    .Continue = .{
+                        .destination = if (label_scope) |scope|
+                            scope.node
+                        else
+                            null,
+                        .label = label,
+                    },
                 },
         },
     );

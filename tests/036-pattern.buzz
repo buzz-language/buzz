@@ -29,11 +29,11 @@ test "Escaped pattern delimiter" {
 test "replace" {
     std\assert(
         $"world".replace("All i want to say is hello world!", with: "mundo") == "All i want to say is hello mundo!",
-        message: "replace"
+        message: "replace",
     );
 
     std\assert(
         $"alright".replaceAll("he says: alright, alright, alright!", with: "check") == "he says: check, check, check!",
-        message: "replaceAll"
+        message: "replaceAll",
     );
 }

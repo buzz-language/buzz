@@ -13,7 +13,7 @@ test "Test std lib" {
         },
         afterEach: fun (t: Tester) {
             t.assert(true);
-        }
+        },
     );
 
     t.it(
@@ -24,21 +24,21 @@ test "Test std lib" {
             t.assertOfType::<int>(value);
 
             t.assertEqual::<int>(value, expected: 12, message: "Yeah!");
-        }
+        },
     );
 
     t.it(
         "Should compare list elements",
         fn: fun () {
-            t.assertAreNotEqual::<int>([1, 2, 3], message: "Testing failure");
-        }
+            t.assertAreNotEqual::<int>([ 1, 2, 3 ], message: "Testing failure");
+        },
     );
 
     t.it(
         "Should compare list elements",
         fn: fun () {
-            t.assertAreEqual::<int>([1, 1, 1], message: "List of 1s");
-        }
+            t.assertAreEqual::<int>([ 1, 1, 1 ], message: "List of 1s");
+        },
     );
 
     t.it(

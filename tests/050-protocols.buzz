@@ -53,8 +53,8 @@ test "Protocols" {
     var nameable: Nameable = bandit;
     nameable = joe;
 
-    final nameables: [mut Nameable] = [bandit, joe];
-    final newNames = ["Chili", "Nick"];
+    final nameables: [mut Nameable] = [ bandit, joe ];
+    final newNames = [ "Chili", "Nick" ];
     foreach (i, item in nameables) {
         item.rename(newNames[i]);
     }

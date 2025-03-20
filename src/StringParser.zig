@@ -16,6 +16,7 @@ current: ?u8 = null,
 // TODO: this memory is never freed: it end up as key of the `strings` hashmap
 //       and since not all of its keys come from here, we don't know which we can
 //       free when we deinit strings.
+delimiter: u8,
 current_chunk: std.ArrayListUnmanaged(u8) = .{},
 offset: usize = 0,
 previous_interp: ?usize = null,
@@ -23,22 +24,7 @@ chunk_count: usize = 0,
 elements: std.ArrayListUnmanaged(Ast.Node.Index) = .{},
 line_offset: usize,
 column_offset: usize,
-
-pub fn init(
-    parser: *Parser,
-    source: []const u8,
-    script_name: []const u8,
-    line_offset: usize,
-    column_offset: usize,
-) Self {
-    return Self{
-        .parser = parser,
-        .source = source,
-        .line_offset = line_offset,
-        .column_offset = column_offset,
-        .script_name = script_name,
-    };
-}
+host_offset: usize,
 
 fn advance(self: *Self) ?u8 {
     if (self.offset >= self.source.len) {
@@ -59,6 +45,7 @@ fn advance(self: *Self) ?u8 {
 }
 
 pub fn parse(self: *Self) !Ast.Node.Index {
+    const start_location = self.parser.current_token.? - 1;
     while (self.offset < self.source.len) {
         const char: ?u8 = self.advance();
         if (char == null) {
@@ -97,8 +84,8 @@ pub fn parse(self: *Self) !Ast.Node.Index {
     return try self.parser.ast.appendNode(
         .{
             .tag = .String,
-            .location = self.parser.ast.nodes.items(.location)[self.elements.items[0]],
-            .end_location = self.parser.ast.nodes.items(.location)[self.elements.getLast()],
+            .location = start_location,
+            .end_location = self.parser.current_token.? - 1,
             .type_def = self.parser.gc.type_registry.str_type,
             .components = .{
                 .String = try self.elements.toOwnedSlice(self.parser.gc.allocator),
@@ -117,7 +104,10 @@ fn push(self: *Self, chars: []const u8) !void {
                 .end_location = self.parser.current_token.? - 1,
                 .type_def = self.parser.gc.type_registry.str_type,
                 .components = .{
-                    .StringLiteral = try self.parser.gc.copyString(chars),
+                    .StringLiteral = .{
+                        .delimiter = self.delimiter,
+                        .literal = try self.parser.gc.copyString(chars),
+                    },
                 },
             },
         ),
@@ -130,6 +120,9 @@ fn inc(self: *Self) !void {
 
 fn interpolation(self: *Self) !void {
     const expr = self.source[self.offset..];
+
+    const previous_current_token = self.parser.current_token.?;
+    const previous_offset = self.offset + 1;
 
     var expr_scanner = Scanner.init(
         self.parser.gc.allocator,
@@ -150,6 +143,12 @@ fn interpolation(self: *Self) !void {
 
     self.offset += self.parser.scanner.?.current.offset - 1;
     self.previous_interp = self.offset;
+
+    // Fix location of tokens created by this parsing
+    for (previous_current_token + 1..self.parser.current_token.?) |i| {
+        self.parser.ast.tokens.items(.source)[i] = scanner.?.source;
+        self.parser.ast.tokens.items(.offset)[i] += self.host_offset + previous_offset;
+    }
 
     // Put back parser's scanner
     self.parser.scanner = scanner;

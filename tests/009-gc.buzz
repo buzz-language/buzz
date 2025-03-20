@@ -13,9 +13,9 @@ object Kill {
 
 test "GC, collecting unreferenced objects" {
     var i = 0;
-    final _ = Kill{}; // Should be kept longer
+    _ = Kill{}; // Should be kept longer
     while (i < 1000) {
-        final _ = Kill{ yo = i }; // Should be collected since not referenced anywhere
+        _ = Kill{ yo = i }; // Should be collected since not referenced anywhere
 
         i = i + 1;
     }

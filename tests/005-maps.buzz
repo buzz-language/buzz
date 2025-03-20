@@ -6,12 +6,12 @@ test "Maps" {
         "bye": 2,
     };
 
-    final _ = {1: true, 2: false};
+    _ = { 1: true, 2: false };
 
     std\assert(map["bye"] is int?, message: "yeah");
 
     std\assert(map["bye"] == 2, message: "map subscript");
-    std\assert(({1: true, 2: false})[2] == false, message: "map expression subscript");
+    std\assert(({ 1: true, 2: false })[2] == false, message: "map expression subscript");
 
     std\assert(map.remove("hello") == 1, message: "removed element");
     // std\assert(map["hello"] == null, message: "removed element");
@@ -19,18 +19,18 @@ test "Maps" {
 }
 
 test "map merge" {
-    final map = {"one": 1, "two": 22} + {"three": 3, "two": 2};
+    final map = { "one": 1, "two": 22 } + { "three": 3, "two": 2 };
 
     std\assert(map["two"] == 2, message: "map merge");
     std\assert(map.size() == 3, message: "map merge");
 }
 
 test "map.keys" {
-    std\assert({"one": 1, "two": 2, "three": 3}.keys().join(",") == "one,two,three", message: "map.keys");
+    std\assert({ "one": 1, "two": 2, "three": 3 }.keys().join(",") == "one,two,three", message: "map.keys");
 }
 
 test "map.values" {
-    std\assert({"one": 1, "two": 2, "three": 3}.values().join(",") == "1,2,3", message: "map.values");
+    std\assert({ "one": 1, "two": 2, "three": 3 }.values().join(",") == "1,2,3", message: "map.values");
 
     std\assert({<str: str>}.keys().len() == 0, message: "yo empty map");
 }

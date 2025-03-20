@@ -65,6 +65,7 @@ pub fn clone(self: Self) Self {
         .literal = self.literal,
         .line = self.line,
         .column = self.column,
+        .offset = self.offset,
     };
 }
 

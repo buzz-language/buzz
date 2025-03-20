@@ -1,18 +1,4 @@
 import "debug";
-// import "serialize";
-
-// TODO: put back one debug\ast is reactivated
-// test "Get AST" {
-//     str source = debug\ast(`
-//         import \"std\";
-//
-//         fun main([str] _) > void => std\print(\"hello world\");
-//     `, scriptName: "test");
-//
-//     Boxed jsonAST = jsonDecode(source);
-//
-//     std\print(jsonEncode(jsonAST));
-// }
 
 enum MyEnum {
     One,
@@ -45,7 +31,7 @@ object MyObject {
 }
 
 test "dump" {
-    final list = [1, 2, 3, 4];
+    final list = [ 1, 2, 3, 4 ];
     final map = {
         "one": 1,
         "two": 2,
@@ -56,7 +42,7 @@ test "dump" {
         name = "joe",
         age = 35,
         data = Data{
-            data = list
+            data = list,
         },
     };
 
