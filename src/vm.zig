@@ -421,6 +421,7 @@ pub const VM = struct {
     current_fiber: *Fiber,
     current_ast: Ast.Slice,
     globals: std.ArrayListUnmanaged(Value) = .{},
+    global_names: std.StringArrayHashMapUnmanaged(u24) = .empty,
     // FIXME: remove
     globals_count: usize = 0,
     import_registry: *ImportRegistry,
@@ -447,6 +448,7 @@ pub const VM = struct {
     pub fn deinit(self: *Self) void {
         // TODO: we can't free this because exported closure refer to it
         // self.globals.deinit();
+        // self.global_names.deinit();
         if (!is_wasm) {
             self.ffi.deinit();
         }
@@ -1023,12 +1025,18 @@ pub const VM = struct {
             unreachable;
         };
 
+        const name = self.pop().obj()
+            .access(obj.ObjString, .String, self.gc).?
+            .string;
+        self.global_names.put(self.gc.allocator, name, arg) catch {
+            self.panic("Out of memory");
+            unreachable;
+        };
+
         // We don't always define a new global at the end of the list
         self.globals.items.len = new_len;
-        self.globals.items[arg] = self.peek(0);
-
+        self.globals.items[arg] = self.pop();
         self.globals_count = @max(self.globals_count, arg);
-        _ = self.pop();
 
         const next_full_instruction = self.readInstruction();
         @call(
@@ -2149,10 +2157,30 @@ pub const VM = struct {
         const closure = self.peek(0).obj().access(obj.ObjClosure, .Closure, self.gc).?;
 
         if (self.import_registry.get(fullpath)) |globals| {
-            self.globals.appendSlice(self.gc.allocator, globals) catch {
-                self.panic("Out of memory");
-                unreachable;
-            };
+            for (globals) |global| {
+                self.globals.append(self.gc.allocator, global) catch {
+                    self.panic("Out of memory");
+                    unreachable;
+                };
+                const val: u24 = @truncate(self.globals.items.len - 1);
+                if (global.isObj()) {
+                    const name = switch (global.obj().obj_type) {
+                        .Enum => val: {
+                            const obj_enum = obj.ObjEnum.cast(global.obj()).?;
+                            break :val obj_enum.type_def.resolved_type.?.Enum.qualified_name.string;
+                        },
+                        .Object => val: {
+                            const obj_enum = obj.ObjObject.cast(global.obj()).?;
+                            break :val obj_enum.type_def.resolved_type.?.Object.qualified_name.string;
+                        },
+                        else => continue,
+                    };
+                    self.global_names.put(self.gc.allocator, name, val) catch {
+                        self.panic("Out of memory");
+                        unreachable;
+                    };
+                }
+            }
         } else {
             var vm = self.gc.allocator.create(VM) catch {
                 self.panic("Out of memory");
@@ -2193,6 +2221,24 @@ pub const VM = struct {
                         self.panic("Out of memory");
                         unreachable;
                     };
+                    const val: u24 = @truncate(self.globals.items.len - 1);
+                    if (global.isObj()) {
+                        const name = switch (global.obj().obj_type) {
+                            .Enum => val: {
+                                const obj_enum = obj.ObjEnum.cast(global.obj()).?;
+                                break :val obj_enum.type_def.resolved_type.?.Enum.qualified_name.string;
+                            },
+                            .Object => val: {
+                                const obj_enum = obj.ObjObject.cast(global.obj()).?;
+                                break :val obj_enum.type_def.resolved_type.?.Object.qualified_name.string;
+                            },
+                            else => null,
+                        };
+                        if (name) |n| self.global_names.put(self.gc.allocator, n, val) catch {
+                            self.panic("Out of memory");
+                            unreachable;
+                        };
+                    }
 
                     import_cache.append(global) catch {
                         self.panic("Out of memory");

@@ -1317,7 +1317,7 @@ pub const Function = struct {
 
     upvalue_binding: std.AutoArrayHashMapUnmanaged(u8, bool),
 
-    // If the function is a ScritEntryPoint
+    // If the function is a ScriptEntryPoint
     entry: ?Entry = null,
 
     // Set when the function is first generated
@@ -1537,5 +1537,6 @@ pub const Zdef = struct {
         zdef: *const FFI.Zdef,
         slot: Slot,
         // TODO: add TokenIndex which should wrap portion of the zdef string relative to this element
+        identifier: ?TokenIndex,
     };
 };
