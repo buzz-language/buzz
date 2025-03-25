@@ -394,7 +394,7 @@ pub const ObjectFrame = struct {
 pub const ScriptImport = struct {
     function: Ast.Node.Index,
     globals: std.ArrayListUnmanaged(Global) = .{},
-    global_names: std.StringArrayHashMapUnmanaged(u24) = .empty,
+    global_names: std.StringHashMapUnmanaged(u24) = .empty,
     absolute_path: *obj.ObjString,
     imported_by: std.AutoHashMapUnmanaged(*Frame, void) = .{},
 };
@@ -946,7 +946,6 @@ pub fn parse(self: *Self, source: []const u8, file_name: ?[]const u8, name: []co
                     .id = Ast.Function.nextId(),
                     .upvalue_binding = .{},
                     .body = body_node,
-                    .identifier = 0,
                 },
             },
         },
@@ -5942,7 +5941,6 @@ fn function(
             .components = .{
                 .Function = .{
                     .id = Ast.Function.nextId(),
-                    .identifier = self.current_token.? - 1,
                     .upvalue_binding = .{},
                     .function_signature = function_signature,
                 },

@@ -1320,9 +1320,6 @@ pub const Function = struct {
     // If the function is a ScriptEntryPoint
     entry: ?Entry = null,
 
-    // function identifier
-    identifier: TokenIndex,
-
     // Set when the function is first generated
     // The JIT compiler can then reference it when creating its closure
     native: ?*obj.ObjNative = null,

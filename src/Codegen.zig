@@ -2781,6 +2781,7 @@ fn generateFunDeclaration(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) E
     const node_components = self.ast.nodes.items(.components);
     const components = node_components[node].FunDeclaration;
     const function_component = node_components[components.function].Function;
+    const function_type = node_components[function_component.function_signature.?].FunctionType;
 
     _ = try self.generateNode(components.function, breaks);
 
@@ -2788,7 +2789,7 @@ fn generateFunDeclaration(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) E
         try self.OP_DEFINE_GLOBAL(
             self.ast.nodes.items(.location)[node],
             @intCast(components.slot),
-            self.parser.ast.tokens.items(.lexeme)[function_component.identifier],
+            self.parser.ast.tokens.items(.lexeme)[function_type.name.?],
         );
     }
 
