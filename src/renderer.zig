@@ -34,6 +34,8 @@ pub fn Renderer(comptime T: type) type {
             ProcessNotFound,
             NoDevice,
             Unexpected,
+            PermissionDenied,
+            MessageTooBig,
         };
 
         const RenderNode = *const fn (

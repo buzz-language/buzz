@@ -64,15 +64,11 @@ jobs:
       - name: Build test ffi lib
         run: zig build-lib -dynamic tests/utils/foreign.zig && mv libforeign.* tests/utils/
 
-      - name: Run tests
-        run: zig build test
+      - name: Run behavior tests Debug
+        run: zig build test && zig build test-behavior
       - name: Cleanup
         run: rm -rf zig-out zig-cache
 
-      - name: Run behavior tests Debug
-        run: zig build test-behavior
-      - name: Cleanup
-        run: rm -rf zig-out zig-cache
       - name: Run behavior tests Debug with JIT always on
         run: zig build -Djit_always_on test && zig build -Djit_always_on test-behavior
       - name: Cleanup
@@ -82,6 +78,7 @@ jobs:
         run: zig build -Doptimize=ReleaseSafe test && zig build -Doptimize=ReleaseSafe test-behavior
       - name: Cleanup
         run: rm -rf zig-out zig-cache
+
       - name: Run behavior tests ReleaseSafe with JIT always on
         run: zig build -Doptimize=ReleaseSafe -Djit_always_on test && zig build -Doptimize=ReleaseSafe -Djit_always_on test-behavior
       - name: Cleanup
@@ -91,6 +88,7 @@ jobs:
         run: zig build -Doptimize=ReleaseFast test && zig build -Doptimize=ReleaseFast test-behavior
       - name: Cleanup
         run: rm -rf zig-out zig-cache
+
       - name: Run behavior tests ReleaseFast with JIT always on
         run: zig build -Doptimize=ReleaseFast -Djit_always_on test && zig build -Doptimize=ReleaseFast -Djit_always_on test-behavior
       - name: Cleanup
@@ -109,15 +107,11 @@ jobs:
       - name: Build test ffi lib
         run: zig build-lib -dynamic tests/utils/foreign.zig && mv libforeign.* tests/utils/
 
-      - name: Run tests
-        run: zig build test
+      - name: Run behavior tests Debug
+        run: zig build test && zig build test-behavior
       - name: Cleanup
         run: rm -rf zig-out zig-cache
 
-      - name: Run behavior tests Debug
-        run: zig build test-behavior
-      - name: Cleanup
-        run: rm -rf zig-out zig-cache
       - name: Run behavior tests Debug with JIT always on
         run: zig build -Djit_always_on test && zig build -Djit_always_on test-behavior
       - name: Cleanup
@@ -127,6 +121,7 @@ jobs:
         run: zig build -Doptimize=ReleaseSafe test && zig build -Doptimize=ReleaseSafe test-behavior
       - name: Cleanup
         run: rm -rf zig-out zig-cache
+
       - name: Run behavior tests ReleaseSafe with JIT always on
         run: zig build -Doptimize=ReleaseSafe -Djit_always_on test && zig build -Doptimize=ReleaseSafe -Djit_always_on test-behavior
       - name: Cleanup
@@ -136,6 +131,7 @@ jobs:
         run: zig build -Doptimize=ReleaseFast test && zig build -Doptimize=ReleaseFast test-behavior
       - name: Cleanup
         run: rm -rf zig-out zig-cache
+
       - name: Run behavior tests ReleaseFast with JIT always on
         run: zig build -Doptimize=ReleaseFast -Djit_always_on test && zig build -Doptimize=ReleaseFast -Djit_always_on test-behavior
       - name: Cleanup

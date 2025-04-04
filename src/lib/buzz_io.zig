@@ -84,6 +84,9 @@ fn handleFileOpenError(ctx: *api.NativeCtx, err: anytype) void {
         error.NetworkNotFound,
         => ctx.vm.pushErrorEnum("errors.FileSystemError", @errorName(err)),
 
+        error.PermissionDenied,
+        => ctx.vm.pushErrorEnum("errors.ExecError", @errorName(err)),
+
         error.Unexpected => ctx.vm.pushError("errors.UnexpectedError", null),
     }
 }
@@ -447,11 +450,15 @@ pub export fn FileWrite(ctx: *api.NativeCtx) callconv(.c) c_int {
             error.OperationAborted,
             => ctx.vm.pushErrorEnum("errors.ReadWriteError", @errorName(err)),
 
-            error.InputOutput => ctx.vm.pushErrorEnum("errors.SocketError", "InputOutput"),
+            error.MessageTooBig,
+            error.InputOutput,
+            => ctx.vm.pushErrorEnum("errors.SocketError", "InputOutput"),
+
             error.InvalidArgument => ctx.vm.pushError("errors.InvalidArgumentError", null),
             error.Unexpected => ctx.vm.pushError("errors.UnexpectedError", null),
 
             error.ProcessNotFound,
+            error.PermissionDenied,
             => ctx.vm.pushErrorEnum("errors.ExecError", @errorName(err)),
         }
 

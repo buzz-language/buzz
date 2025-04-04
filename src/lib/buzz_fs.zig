@@ -21,6 +21,9 @@ fn handleMakeDirectoryError(ctx: *api.NativeCtx, err: anytype) void {
         error.NetworkNotFound,
         => ctx.vm.pushErrorEnum("errors.FileSystemError", @errorName(err)),
 
+        error.PermissionDenied,
+        => ctx.vm.pushErrorEnum("errors.ExecError", @errorName(err)),
+
         error.Unexpected => ctx.vm.pushError("errors.UnexpectedError", null),
     }
 }
@@ -117,6 +120,9 @@ fn handleMoveError(ctx: *api.NativeCtx, err: anytype) void {
         error.NetworkNotFound,
         => ctx.vm.pushErrorEnum("errors.FileSystemError", @errorName(err)),
 
+        error.PermissionDenied,
+        => ctx.vm.pushErrorEnum("errors.ExecError", @errorName(err)),
+
         error.Unexpected => ctx.vm.pushError("errors.UnexpectedError", null),
     }
 }
@@ -148,6 +154,9 @@ fn handleRealpathError(ctx: *api.NativeCtx, err: anytype) void {
         error.FileNotFound,
         error.NetworkNotFound,
         => ctx.vm.pushErrorEnum("errors.FileSystemError", @errorName(err)),
+
+        error.PermissionDenied,
+        => ctx.vm.pushErrorEnum("errors.ExecError", @errorName(err)),
 
         error.Unexpected => ctx.vm.pushError("errors.UnexpectedError", null),
         error.OutOfMemory => {
@@ -245,6 +254,9 @@ fn handleOpenDirAbsoluteError(ctx: *api.NativeCtx, err: anytype) void {
         error.NetworkNotFound,
         => ctx.vm.pushErrorEnum("errors.FileSystemError", @errorName(err)),
 
+        error.PermissionDenied,
+        => ctx.vm.pushErrorEnum("errors.ExecError", @errorName(err)),
+
         error.Unexpected => ctx.vm.pushError("errors.UnexpectedError", null),
     }
 }
@@ -266,6 +278,9 @@ fn handleOpenDirError(ctx: *api.NativeCtx, err: anytype) void {
         error.FileNotFound,
         error.NetworkNotFound,
         => ctx.vm.pushErrorEnum("errors.FileSystemError", @errorName(err)),
+
+        error.PermissionDenied,
+        => ctx.vm.pushErrorEnum("errors.ExecError", @errorName(err)),
 
         error.Unexpected => ctx.vm.pushError("errors.UnexpectedError", null),
     }
