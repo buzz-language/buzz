@@ -326,6 +326,9 @@ fn handleConnectUnixError(ctx: *api.NativeCtx, err: anytype) void {
         error.NameTooLong,
         => ctx.vm.pushErrorEnum("errors.SocketError", @errorName(err)),
 
+        error.AccessDenied,
+        => ctx.vm.pushErrorEnum("errors.FileSystemError", @errorName(err)),
+
         error.Unexpected => ctx.vm.pushError("errors.UnexpectedError", null),
     }
 }
@@ -653,6 +656,10 @@ pub export fn SocketWrite(ctx: *api.NativeCtx) callconv(.c) c_int {
             error.InvalidArgument => ctx.vm.pushError("errors.InvalidArgumentError", null),
             error.ProcessNotFound,
             => ctx.vm.pushErrorEnum("errors.ExecError", @errorName(err)),
+
+            error.PermissionDenied,
+            error.MessageTooBig,
+            => ctx.vm.pushErrorEnum("errors.SocketError", @errorName(err)),
         }
 
         return -1;

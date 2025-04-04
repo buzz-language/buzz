@@ -101,7 +101,7 @@ pub fn build(b: *Build) !void {
 
     // Check minimum zig version
     const current_zig = builtin.zig_version;
-    const min_zig = std.SemanticVersion.parse("0.15.0-dev.56+d0911786c") catch return;
+    const min_zig = std.SemanticVersion.parse("0.15.0-dev.190+bfbf4badd") catch return;
     if (current_zig.order(min_zig).compare(.lt)) {
         @panic(b.fmt("Your Zig version v{} does not meet the minimum build requirement of v{}", .{ current_zig, min_zig }));
     }
@@ -288,17 +288,19 @@ pub fn build(b: *Build) !void {
     });
     b.installArtifact(exe);
 
-    var behavior_exe = b.addExecutable(.{
+    const behavior_exe = if (!is_wasm) b.addExecutable(.{
         .name = "buzz_behavior",
         .root_source_file = b.path("src/behavior.zig"),
         .target = target,
         .optimize = build_mode,
-    });
-    b.installArtifact(behavior_exe);
+    }) else null;
+    if (behavior_exe) |bexe| b.installArtifact(bexe);
 
-    const run_behavior = b.addRunArtifact(behavior_exe);
-    run_behavior.step.dependOn(install_step);
-    b.step("test-behavior", "Test behavior").dependOn(&run_behavior.step);
+    if (behavior_exe) |bexe| {
+        const run_behavior = b.addRunArtifact(bexe);
+        run_behavior.step.dependOn(install_step);
+        b.step("test-behavior", "Test behavior").dependOn(&run_behavior.step);
+    }
 
     const clap = b.dependency(
         "clap",
@@ -355,7 +357,7 @@ pub fn build(b: *Build) !void {
     );
 
     exe.root_module.sanitize_c = false;
-    behavior_exe.root_module.sanitize_c = false;
+    if (behavior_exe) |bexe| bexe.root_module.sanitize_c = false;
     if (!is_wasm) lsp_exe.?.root_module.sanitize_c = false;
 
     const check = b.step("check", "Check if buzz compiles");
@@ -391,13 +393,13 @@ pub fn build(b: *Build) !void {
     if (build_options.needLibC()) {
         exe.linkLibC();
         exe_check.linkLibC();
-        behavior_exe.linkLibC();
+        if (behavior_exe) |bexe| bexe.linkLibC();
         if (!is_wasm) lsp_exe.?.linkLibC();
     }
 
     exe.root_module.addImport("build_options", build_option_module);
     exe_check.root_module.addImport("build_options", build_option_module);
-    behavior_exe.root_module.addImport("build_options", build_option_module);
+    if (behavior_exe) |bexe| bexe.root_module.addImport("build_options", build_option_module);
     if (!is_wasm) lsp_exe.?.root_module.addImport("build_options", build_option_module);
 
     if (!is_wasm) {
@@ -425,19 +427,19 @@ pub fn build(b: *Build) !void {
         if (lib_pcre2) |pcre| {
             lib.linkLibrary(pcre);
             exe.linkLibrary(pcre);
-            behavior_exe.linkLibrary(pcre);
+            if (behavior_exe) |bexe| bexe.linkLibrary(pcre);
             if (!is_wasm) lsp_exe.?.linkLibrary(pcre);
         }
 
         if (lib_mimalloc) |mimalloc| {
             lib.linkLibrary(mimalloc);
             exe.linkLibrary(mimalloc);
-            behavior_exe.linkLibrary(mimalloc);
+            if (behavior_exe) |bexe| bexe.linkLibrary(mimalloc);
             if (!is_wasm) lsp_exe.?.linkLibrary(mimalloc);
             if (lib.root_module.resolved_target.?.result.os.tag == .windows) {
                 lib.linkSystemLibrary("bcrypt");
                 exe.linkSystemLibrary("bcrypt");
-                behavior_exe.linkSystemLibrary("bcrypt");
+                if (behavior_exe) |bexe| bexe.linkSystemLibrary("bcrypt");
                 if (!is_wasm) lsp_exe.?.linkSystemLibrary("bcrypt");
             }
         }
@@ -445,18 +447,18 @@ pub fn build(b: *Build) !void {
         if (lib_mir) |mir| {
             lib.linkLibrary(mir);
             exe.linkLibrary(mir);
-            behavior_exe.linkLibrary(mir);
+            if (behavior_exe) |bexe| bexe.linkLibrary(mir);
             if (!is_wasm) lsp_exe.?.linkLibrary(mir);
         }
 
         // So that JIT compiled function can reference buzz_api
         exe.linkLibrary(lib);
-        behavior_exe.linkLibrary(lib);
+        if (behavior_exe) |bexe| bexe.linkLibrary(lib);
         if (!is_wasm) lsp_exe.?.linkLibrary(lib);
         exe_check.linkLibrary(lib);
         if (lib_linenoise) |ln| {
             exe.linkLibrary(ln);
-            behavior_exe.linkLibrary(ln);
+            if (behavior_exe) |bexe| bexe.linkLibrary(ln);
             if (!is_wasm) lsp_exe.?.linkLibrary(ln);
             exe_check.linkLibrary(ln);
         }

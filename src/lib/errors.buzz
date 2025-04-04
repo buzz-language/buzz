@@ -80,6 +80,7 @@ export enum SocketError {
     InvalidIPAddressFormat,
     InvalidIpv4Mapping,
     InvalidProtocolOption,
+    MessageTooBig,
     NameServerFailure,
     NetworkSubsystemFailed,
     NetworkUnreachable,
