@@ -1554,6 +1554,7 @@ pub const VarDeclaration = struct {
     omits_qualifier: bool,
     slot: Slot,
     slot_type: SlotType,
+    implicit: bool,
 };
 
 pub const WhileDoUntil = struct {

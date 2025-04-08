@@ -329,7 +329,7 @@ const Document = struct {
                     const name = ast.tokens.get(comp.name);
 
                     // If type was omitted, provide it
-                    if (comp.type == null and type_def != null) {
+                    if (!comp.implicit and comp.type == null and type_def != null) {
                         var inlay = std.ArrayListUnmanaged(u8){};
                         var writer = inlay.writer(allocator);
 
