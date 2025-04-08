@@ -284,6 +284,8 @@ const Document = struct {
                         .ObjectInstance => type_def.resolved_type.?.ObjectInstance.of.resolved_type.?.Object.location,
                         .Enum => type_def.resolved_type.?.Enum.location,
                         .EnumInstance => type_def.resolved_type.?.EnumInstance.of.resolved_type.?.Enum.location,
+                        .Protocol => type_def.resolved_type.?.Protocol.location,
+                        .ProtocolInstance => type_def.resolved_type.?.ProtocolInstance.of.resolved_type.?.Protocol.location,
                         else => null,
                     }) |location| {
                         try self.definitions.put(
