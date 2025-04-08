@@ -1074,6 +1074,10 @@ pub fn parse(self: *Self, source: []const u8, file_name: ?[]const u8, name: []co
         self.ast.nodes.items(.components)[body_node].Block[0]
     ];
 
+    self.ast.nodes.items(.end_location)[function_node] = self.ast.nodes.items(.end_location)[
+        self.ast.nodes.items(.components)[body_node].Block[0]
+    ];
+
     self.ast.root = if (self.reporter.last_error != null) null else self.endFrame();
 
     return if (self.reporter.last_error != null) null else self.ast;
@@ -1671,7 +1675,14 @@ fn resolveReferrer(self: *Self, referrer: Ast.Node.Index, definition: Ast.Node.I
     }
 }
 
-fn addGlobal(self: *Self, node: Ast.Node.Index, name: Ast.TokenIndex, global_type: *obj.ObjTypeDef, final: bool, mutable: bool) Error!usize {
+fn addGlobal(
+    self: *Self,
+    node: Ast.Node.Index,
+    name: Ast.TokenIndex,
+    global_type: *obj.ObjTypeDef,
+    final: bool,
+    mutable: bool,
+) Error!usize {
     const lexemes = self.ast.tokens.items(.lexeme);
     // Search for an existing placeholder global with the same name
     for (self.globals.items, 0..) |*global, index| {
@@ -7679,6 +7690,8 @@ fn objectDeclaration(self: *Self) Error!Ast.Node.Index {
         true,
     );
 
+    self.globals.items[slot].node = @intCast(node_slot);
+
     std.debug.assert(!object_type.optional);
 
     self.markInitialized();
@@ -7703,7 +7716,10 @@ fn objectDeclaration(self: *Self) Error!Ast.Node.Index {
         },
     );
 
-    std.debug.assert(object_placeholder.resolved_type.?.Object.placeholders.count() == 0 or object_placeholder.resolved_type.?.Object.static_placeholders.count() == 0);
+    std.debug.assert(
+        object_placeholder.resolved_type.?.Object.placeholders.count() == 0 or
+            object_placeholder.resolved_type.?.Object.static_placeholders.count() == 0,
+    );
 
     self.current_object = null;
 
@@ -7852,6 +7868,8 @@ fn protocolDeclaration(self: *Self) Error!Ast.Node.Index {
         false,
         true,
     );
+
+    self.globals.items[slot].node = @intCast(node_slot);
 
     std.debug.assert(!protocol_type.optional);
 
