@@ -35,6 +35,13 @@ pub const RunFlavor = enum {
             else => true,
         };
     }
+
+    pub inline fn resolveDynLib(self: RunFlavor) bool {
+        return switch (self) {
+            .Fmt, .Check, .Ast => false,
+            else => true,
+        };
+    }
 };
 
 pub const CallFrame = struct {

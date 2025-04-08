@@ -6343,6 +6343,8 @@ fn function(
             // Search for a dylib/so/dll with the same name as the current script
             if (native_opt) |native| {
                 self.ast.nodes.items(.components)[function_node].Function.native = native;
+            } else if (!self.flavor.resolveDynLib()) {
+                self.ast.nodes.items(.components)[function_node].Function.native = undefined;
             } else {
                 return error.BuzzNoDll;
             }
@@ -8933,7 +8935,18 @@ fn importStaticLibSymbol(self: *Self, file_name: []const u8, symbol: []const u8)
 }
 
 // TODO: when to close the lib?
-fn importLibSymbol(self: *Self, location: Ast.TokenIndex, end_location: Ast.TokenIndex, full_file_name: []const u8, symbol: []const u8) !?*obj.ObjNative {
+fn importLibSymbol(
+    self: *Self,
+    location: Ast.TokenIndex,
+    end_location: Ast.TokenIndex,
+    full_file_name: []const u8,
+    symbol: []const u8,
+) !?*obj.ObjNative {
+    // Don't bother if we're not actually running the script
+    if (!self.flavor.resolveDynLib()) {
+        return undefined;
+    }
+
     // Remove .buzz extension, this occurs if this is the script being run or if the script was imported like so `import lib/std.buzz`
     // We consider that any other extension is silly from the part of the user
     const file_name = if (std.mem.endsWith(u8, full_file_name, ".buzz"))
@@ -9190,7 +9203,7 @@ fn zdefStatement(self: *Self) Error!Ast.Node.Index {
 
             // If zig_type is struct, we just push the objtypedef itself on the stack
             // Otherwise we try to build a wrapper around the imported function
-            if (zdef.zig_type == .Fn) {
+            if (zdef.zig_type == .Fn and self.flavor.resolveDynLib()) {
                 // Load the lib
                 const paths = try self.searchZdefLibPaths(lib_name_str);
                 defer {

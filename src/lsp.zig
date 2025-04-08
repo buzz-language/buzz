@@ -67,9 +67,11 @@ const Document = struct {
         const owned_uri = try allocator.dupe(u8, uri);
 
         // If there's parsing error `parse` does not return the AST, but we can still use it however incomplete
-        const ast = (parser.parse(std.mem.span(src), null, owned_uri) catch parser.ast) orelse parser.ast;
+        const ast = (parser.parse(std.mem.span(src), null, owned_uri) catch parser.ast) orelse
+            parser.ast;
 
-        const errors = if (parser.reporter.reports.items.len == 0 and (codegen.generate(ast.slice()) catch undefined) == null)
+        const errors = if (parser.reporter.reports.items.len == 0 and
+            (codegen.generate(ast.slice()) catch undefined) == null)
             try codegen.reporter.reports.toOwnedSlice(allocator)
         else
             try parser.reporter.reports.toOwnedSlice(allocator);

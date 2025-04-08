@@ -168,15 +168,6 @@ pub fn generate(self: *Self, ast: Ast.Slice) Error!?*obj.ObjFunction {
     self.reporter.last_error = null;
     self.reporter.panic_mode = false;
 
-    // if (BuildOptions.debug) {
-    //     var out = std.ArrayList(u8).init(self.gc.allocator);
-    //     defer out.deinit();
-
-    //     try root.node.toJson(&root.node, &out.writer());
-
-    //     try io.stdOutWriter.print("\n{s}", .{out.items});
-    // }
-
     const function = self.generateNode(self.ast.root.?, null);
 
     return if (self.reporter.last_error != null) null else function;
@@ -4669,36 +4660,38 @@ fn generateZdef(self: *Self, node: Ast.Node.Index, _: ?*Breaks) Error!?*obj.ObjF
     const components = self.ast.nodes.items(.components)[node].Zdef;
     const location = self.ast.nodes.items(.location)[node];
 
-    for (components.elements) |*element| {
-        // Generate ObjNative wrapper of actual zdef
-        switch (element.zdef.type_def.def_type) {
-            .Function => {
-                if (element.obj_native == null) {
+    if (self.flavor.resolveDynLib()) {
+        for (components.elements) |*element| {
+            // Generate ObjNative wrapper of actual zdef
+            switch (element.zdef.type_def.def_type) {
+                .Function => {
+                    if (element.obj_native == null) {
+                        var timer = if (!is_wasm) std.time.Timer.start() catch unreachable else {};
+
+                        element.obj_native = try self.jit.?.compileZdef(self.ast, element.*);
+
+                        if (!is_wasm) {
+                            self.jit.?.jit_time += timer.read();
+                        }
+
+                        try self.emitConstant(location, element.obj_native.?.toValue());
+                    }
+                },
+                .ForeignContainer => {
                     var timer = if (!is_wasm) std.time.Timer.start() catch unreachable else {};
 
-                    element.obj_native = try self.jit.?.compileZdef(self.ast, element.*);
+                    try self.jit.?.compileZdefContainer(self.ast, element.*);
 
                     if (!is_wasm) {
                         self.jit.?.jit_time += timer.read();
                     }
 
-                    try self.emitConstant(location, element.obj_native.?.toValue());
-                }
-            },
-            .ForeignContainer => {
-                var timer = if (!is_wasm) std.time.Timer.start() catch unreachable else {};
-
-                try self.jit.?.compileZdefContainer(self.ast, element.*);
-
-                if (!is_wasm) {
-                    self.jit.?.jit_time += timer.read();
-                }
-
-                try self.emitConstant(location, element.zdef.type_def.toValue());
-            },
-            else => unreachable,
+                    try self.emitConstant(location, element.zdef.type_def.toValue());
+                },
+                else => unreachable,
+            }
+            try self.OP_DEFINE_GLOBAL(location, @intCast(element.slot));
         }
-        try self.OP_DEFINE_GLOBAL(location, @intCast(element.slot));
     }
 
     try self.patchOptJumps(node);

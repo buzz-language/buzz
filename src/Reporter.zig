@@ -861,9 +861,10 @@ pub fn reportPlaceholder(self: *Self, ast: Ast.Slice, placeholder: PlaceholderDe
             self.reportErrorFmt(
                 .runtime,
                 ast.tokens.get(placeholder.where),
+                ast.tokens.get(placeholder.where),
                 "Unresolved placeholder with resolved parent `{s}` relation {s}\n",
                 .{
-                    parent.toStringAlloc(self.allocator) catch unreachable,
+                    parent.toStringAlloc(self.allocator, false) catch unreachable,
                     @tagName(placeholder.parent_relation.?),
                 },
             );
