@@ -91,7 +91,7 @@ object Game {
 
     // Return list of free spots
     fun freeSpots() > [obj{ x: int, y: int }] {
-        var spots: mut [obj{ x: int, y: int }] = mut [];
+        final spots: mut [obj{ x: int, y: int }] = mut [];
 
         foreach (x, row in this.board) {
             foreach (y, value in row) {

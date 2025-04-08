@@ -263,7 +263,7 @@ fn atIdentifier(self: *Self) Token {
     self.token_index += 1;
     return .{
         .tag = .Identifier,
-        .lexeme = self.source[self.current.start - 1 .. self.current.offset],
+        .lexeme = string_token.literal.String,
         .literal = string_token.literal,
         .offset = self.current.start - 1,
         .line = self.line_offset + self.current.start_line,

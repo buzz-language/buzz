@@ -3487,10 +3487,10 @@ fn parseObjType(self: *Self, generic_types: ?std.AutoArrayHashMapUnmanaged(*obj.
             try self.insertUtilityToken(
                 Token.identifier(
                     switch (tuple_index) {
-                        0 => "@\"0\"",
-                        1 => "@\"1\"",
-                        2 => "@\"2\"",
-                        3 => "@\"3\"",
+                        0 => "0",
+                        1 => "1",
+                        2 => "2",
+                        3 => "3",
                         else => "invalid",
                     },
                 ),
@@ -4605,10 +4605,10 @@ fn anonymousObjectInit(self: *Self, _: bool) Error!Ast.Node.Index {
                 try self.insertUtilityToken(
                     Token.identifier(
                         switch (tuple_index) {
-                            0 => "@\"0\"",
-                            1 => "@\"1\"",
-                            2 => "@\"2\"",
-                            3 => "@\"3\"",
+                            0 => "0",
+                            1 => "1",
+                            2 => "2",
+                            3 => "3",
                             else => "invalid",
                         },
                     ),

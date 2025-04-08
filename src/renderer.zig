@@ -249,12 +249,47 @@ pub fn Renderer(comptime T: type) type {
 
         fn renderToken(self: *Self, token: Ast.TokenIndex, space: Space) Error!void {
             const lexeme = self.ast.tokens.items(.lexeme)[token];
-            try self.ais.writer().writeAll(lexeme);
+
+            if (self.ast.tokens.items(.tag)[token] == .Identifier and isAtIdentifier(lexeme)) {
+                try self.ais.writer().print(
+                    "@\"{s}\"",
+                    .{
+                        lexeme,
+                    },
+                );
+            } else {
+                try self.ais.writer().writeAll(lexeme);
+            }
+
             try self.renderSpace(
                 token,
                 lexeme.len,
                 space,
             );
+        }
+
+        fn isAtIdentifier(lexeme: []const u8) bool {
+            // Is a keyword or does not start with a letter and is not a lone `_`
+            if (Token.keywords.get(lexeme) != null or
+                ((lexeme[0] < 'a' or lexeme[0] > 'z') and
+                    (lexeme[0] < 'A' or lexeme[0] > 'Z') and
+                    (lexeme.len > 1 or lexeme[0] != '_')))
+            {
+                return true;
+            }
+
+            for (lexeme) |c| {
+                switch (c) {
+                    'a'...'z',
+                    'A'...'Z',
+                    '0'...'9',
+                    '_',
+                    => {},
+                    else => return true,
+                }
+            }
+
+            return false;
         }
 
         fn renderSpace(self: *Self, token: Ast.TokenIndex, lexeme_len: usize, space: Space) Error!void {
