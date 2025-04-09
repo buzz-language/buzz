@@ -5,11 +5,11 @@ object Person {
 }
 
 final integer = 42;
-final doubleing = 42.42;
+final float = 42.42;
 
 test "Inferring variable declaration type" {
     std\assert(integer is int, message: "Could infer global variable declaration type");
-    std\assert(doubleing is double, message: "Could infer global constant declaration type");
+    std\assert(float is double, message: "Could infer global constant declaration type");
 
     final string = "hello";
 

@@ -29,7 +29,7 @@ export object Boxed {
     }
 
     /// When wrapped data is a double
-    fun doubleing() > double? {
+    fun float() > double? {
         return this.data as? double;
     }
 
@@ -70,7 +70,7 @@ export object Boxed {
     /// @return wrapped data number value or `0` if not an integer
     fun integerValue() > int => this.integer() ?? 0
     /// @return wrapped data number value or `0` if not a double
-    fun doubleingValue() > double => this.doubleing() ?? 0.0
+    fun floatValue() > double => this.float() ?? 0.0
     /// @return wrapped data map value or empty map if not a map
     fun mapValue() > {str: Boxed} => this.map() ?? {<str: Boxed>}
     /// @return wrapped data list value or empty list if not a list
@@ -271,8 +271,8 @@ object JsonParser {
         }
 
         if (isDouble) {
-            if (std\parseDouble(number) -> doubleing) {
-                return doubleing;
+            if (std\parseDouble(number) -> float) {
+                return float;
             }
         } else if (std\parseInt(number) -> integer) {
             return integer;
@@ -318,8 +318,8 @@ export fun jsonEncode(data: Boxed) > str !> CircularReference, NotSerializable {
         return "{boolean}";
     } else if (data.integer() -> integer) {
         return "{integer}";
-    } else if (data.doubleing() -> doubleing) {
-        return "{doubleing}";
+    } else if (data.float() -> float) {
+        return "{float}";
     } else if (data.map() -> map) {
         var json = "\{";
         final size = map.size();
