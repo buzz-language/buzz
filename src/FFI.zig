@@ -3,7 +3,6 @@ const Ast = std.zig.Ast;
 
 const BuzzAst = @import("Ast.zig");
 const o = @import("obj.zig");
-const Token = @import("Token.zig");
 const m = @import("memory.zig");
 const v = @import("value.zig");
 const Parser = @import("Parser.zig");
@@ -181,11 +180,11 @@ pub const Zdef = struct {
 
 pub const State = struct {
     script: []const u8,
-    source: Token,
+    source: Ast.TokenIndex,
     ast: Ast,
     buzz_ast: ?BuzzAst.Slice = null,
     parser: ?*Parser,
-    parsing_type_expr: bool = false,
+    type_expr: ?[]const u8 = null,
     structs: std.StringHashMap(*Zdef),
 };
 
@@ -221,8 +220,8 @@ pub fn parseTypeExpr(self: *Self, ztype: []const u8) !?*Zdef {
 
     const zdef = try self.parse(
         null,
-        Token.identifier(full.items),
-        true,
+        0,
+        full.items,
     );
 
     std.debug.assert(zdef == null or zdef.?.len == 1);
@@ -235,9 +234,12 @@ pub fn parseTypeExpr(self: *Self, ztype: []const u8) !?*Zdef {
     return if (zdef) |z| z[0] else null;
 }
 
-pub fn parse(self: *Self, parser: ?*Parser, source: Token, parsing_type_expr: bool) !?[]*Zdef {
+pub fn parse(self: *Self, parser: ?*Parser, source: Ast.TokenIndex, type_expr: ?[]const u8) !?[]*Zdef {
     // TODO: maybe an Arena allocator for those kinds of things that can live for the whole process lifetime
-    const duped = self.gc.allocator.dupeZ(u8, source.literal.String) catch @panic("Out of memory");
+    const duped = self.gc.allocator.dupeZ(
+        u8,
+        type_expr orelse parser.?.ast.tokens.items(.literal)[source].String,
+    ) catch @panic("Out of memory");
     // defer self.gc.allocator.free(duped);
 
     self.state = .{
@@ -245,7 +247,7 @@ pub fn parse(self: *Self, parser: ?*Parser, source: Token, parsing_type_expr: bo
             try std.mem.replaceOwned(u8, self.gc.allocator, uparser.script_name, "/", ".")
         else
             "zdef",
-        .parsing_type_expr = parsing_type_expr,
+        .type_expr = type_expr,
         .source = source,
         .parser = parser,
         .buzz_ast = if (parser) |p|
@@ -277,10 +279,12 @@ pub fn parse(self: *Self, parser: ?*Parser, source: Token, parsing_type_expr: bo
     const root_decls = self.state.?.ast.rootDecls();
 
     if (root_decls.len == 0) {
+        const location = self.state.?.buzz_ast.?.tokens.get(self.state.?.source);
+
         self.reporter.report(
             .zdef,
-            self.state.?.source,
-            self.state.?.source,
+            location,
+            location,
             "At least one declaration is required in zdef",
         );
 
@@ -319,7 +323,7 @@ fn getZdef(self: *Self, decl_index: Ast.Node.Index) !?*Zdef {
 
         .simple_var_decl => var_decl: {
             // Allow simple type if we're parsing type expr, or struct type
-            if (self.state.?.parsing_type_expr) {
+            if (self.state.?.type_expr != null) {
                 break :var_decl try self.getZdef(ast.simpleVarDecl(decl_index).ast.type_node.unwrap().?);
             }
 
@@ -348,10 +352,11 @@ fn getZdef(self: *Self, decl_index: Ast.Node.Index) !?*Zdef {
                 else => {},
             }
 
+            const location = self.state.?.buzz_ast.?.tokens.get(self.state.?.source);
             self.reporter.reportErrorFmt(
                 .zdef,
-                self.state.?.source,
-                self.state.?.source,
+                location,
+                location,
                 "Unsupported zig node `{}`: only C ABI compatible function signatures, structs and variables are supported",
                 .{
                     decl_tag,
@@ -379,10 +384,12 @@ fn getZdef(self: *Self, decl_index: Ast.Node.Index) !?*Zdef {
                 };
 
                 if (uzdef.zig_type != .Pointer) {
+                    const location = self.state.?.buzz_ast.?.tokens.get(self.state.?.source);
+
                     self.reporter.reportErrorAt(
                         .zdef,
-                        self.state.?.source,
-                        self.state.?.source,
+                        location,
+                        location,
                         "Optionals only allowed on pointers",
                     );
                 }
@@ -394,10 +401,11 @@ fn getZdef(self: *Self, decl_index: Ast.Node.Index) !?*Zdef {
         },
 
         else => fail: {
+            const location = self.state.?.buzz_ast.?.tokens.get(self.state.?.source);
             self.reporter.reportErrorFmt(
                 .zdef,
-                self.state.?.source,
-                self.state.?.source,
+                location,
+                location,
                 "Unsupported zig node `{}`: only C ABI compatible function signatures, structs and variables are supported",
                 .{
                     decl_tag,
@@ -424,10 +432,11 @@ fn containerDecl(self: *Self, name: []const u8, decl_index: Ast.Node.Index) anye
 
     const main_token = self.state.?.ast.tokens.get(container.ast.main_token).tag;
     if ((container.layout_token == null or self.state.?.ast.tokens.get(container.layout_token.?).tag != .keyword_extern) and main_token != .keyword_opaque) {
+        const location = self.state.?.buzz_ast.?.tokens.get(self.state.?.source);
         self.reporter.reportErrorAt(
             .zdef,
-            self.state.?.source,
-            self.state.?.source,
+            location,
+            location,
             "Only `extern` structs are supported",
         );
     }
@@ -437,10 +446,11 @@ fn containerDecl(self: *Self, name: []const u8, decl_index: Ast.Node.Index) anye
         .keyword_union => self.unionContainer(name, container),
 
         else => unsupported: {
+            const location = self.state.?.buzz_ast.?.tokens.get(self.state.?.source);
             self.reporter.reportErrorFmt(
                 .zdef,
-                self.state.?.source,
-                self.state.?.source,
+                location,
+                location,
                 "Unsupported container {s}",
                 .{self.state.?.ast.tokenSlice(container.ast.main_token)},
             );
@@ -695,11 +705,12 @@ fn identifier(self: *Self, decl_index: Ast.Node.Index) anyerror!*Zdef {
     }
 
     if (type_def == null or zig_type == null) {
-        // TODO: search for struct names
+        const location = self.state.?.buzz_ast.?.tokens.get(self.state.?.source);
+
         self.reporter.reportErrorFmt(
             .zdef,
-            self.state.?.source,
-            self.state.?.source,
+            location,
+            location,
             "Unknown or unsupported type `{s}`",
             .{id},
         );
@@ -802,10 +813,11 @@ fn fnProto(self: *Self, tag: Ast.Node.Tag, decl_index: Ast.Node.Index) anyerror!
     const name = if (fn_proto.name_token) |token| self.state.?.ast.tokenSlice(token) else null;
 
     if (name == null) {
+        const location = self.state.?.buzz_ast.?.tokens.get(self.state.?.source);
         self.reporter.report(
             .zdef,
-            self.state.?.source,
-            self.state.?.source,
+            location,
+            location,
             "Functions must be named",
         );
     }
@@ -813,7 +825,9 @@ fn fnProto(self: *Self, tag: Ast.Node.Tag, decl_index: Ast.Node.Index) anyerror!
     var function_def = o.ObjFunction.FunctionDef{
         .id = o.ObjFunction.FunctionDef.nextId(),
         .name = try self.gc.copyString(name orelse "unknown"),
-        .script_name = try self.gc.copyString(self.state.?.source.script_name),
+        .script_name = try self.gc.copyString(
+            self.state.?.buzz_ast.?.tokens.items(.script_name)[self.state.?.source],
+        ),
         .return_type = if (return_type_zdef) |return_type|
             return_type.type_def
         else
@@ -844,10 +858,11 @@ fn fnProto(self: *Self, tag: Ast.Node.Tag, decl_index: Ast.Node.Index) anyerror!
             null;
 
         if (param_name == null) {
+            const location = self.state.?.buzz_ast.?.tokens.get(self.state.?.source);
             self.reporter.report(
                 .zdef,
-                self.state.?.source,
-                self.state.?.source,
+                location,
+                location,
                 "Please provide name to functions arguments",
             );
         }
@@ -896,10 +911,11 @@ fn reportZigError(self: *Self, err: Ast.Error) void {
 
     message.writer().print("zdef could not be parsed: {}", .{err.tag}) catch unreachable;
 
+    const location = self.state.?.buzz_ast.?.tokens.get(self.state.?.source);
     self.reporter.report(
         .zdef,
-        self.state.?.source,
-        self.state.?.source,
+        location,
+        location,
         message.items,
     );
 }

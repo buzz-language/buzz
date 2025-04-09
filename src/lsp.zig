@@ -198,12 +198,16 @@ const Document = struct {
         const allocator = self.arena.allocator();
 
         const components = self.ast.nodes.items(.components);
+        const ast_slice = self.ast.slice();
 
         switch (self.ast.nodes.items(.tag)[node]) {
             .NamedVariable => {
                 const def = components[node].NamedVariable.definition;
-                const location = self.ast.tokens.get(self.ast.nodes.items(.location)[def]);
-                const end_location = self.ast.tokens.get(self.ast.nodes.items(.end_location)[def]);
+                const location = self.ast.nodes.items(.location)[def];
+                const end_location = self.ast.nodes.items(.end_location)[def];
+                const lines = self.ast.tokens.items(.line);
+                const columns = self.ast.tokens.items(.column);
+                const script_names = self.ast.tokens.items(.script_name);
 
                 const tags = self.ast.nodes.items(.tag);
                 log.debug(
@@ -213,11 +217,11 @@ const Document = struct {
                         @tagName(tags[node]),
                         def,
                         @tagName(tags[def]),
-                        location.script_name,
-                        location.line,
-                        location.column,
-                        end_location.line,
-                        end_location.column,
+                        script_names[location],
+                        lines[location],
+                        columns[location],
+                        lines[end_location],
+                        columns[end_location],
                     },
                 );
 
@@ -229,9 +233,9 @@ const Document = struct {
                             lsp.types.DefinitionLink,
                             &.{
                                 .{
-                                    .targetUri = location.script_name,
-                                    .targetRange = tokenToRange(location, end_location),
-                                    .targetSelectionRange = tokenToRange(location, location),
+                                    .targetUri = script_names[location],
+                                    .targetRange = tokenToRange(ast_slice, location, end_location),
+                                    .targetSelectionRange = tokenToRange(ast_slice, location, location),
                                 },
                             },
                         ),
@@ -243,15 +247,16 @@ const Document = struct {
             },
             .Dot => {
                 const comp = components[node].Dot;
-                if (self.ast.nodes.items(.type_def)[comp.callee]) |callee_type_def| {
+                if (ast_slice.nodes.items(.type_def)[comp.callee]) |callee_type_def| {
                     switch (callee_type_def.def_type) {
+                        .EnumInstance => {},
                         .ObjectInstance, .Object => {
                             const object_def = if (callee_type_def.def_type == .ObjectInstance)
                                 callee_type_def.resolved_type.?.ObjectInstance.of.resolved_type.?.Object
                             else
                                 callee_type_def.resolved_type.?.Object;
 
-                            if (object_def.fields.get(self.ast.tokens.items(.lexeme)[comp.identifier])) |field| {
+                            if (object_def.fields.get(ast_slice.tokens.items(.lexeme)[comp.identifier])) |field| {
                                 try self.definitions.put(
                                     allocator,
                                     node,
@@ -260,9 +265,9 @@ const Document = struct {
                                             lsp.types.DefinitionLink,
                                             &.{
                                                 .{
-                                                    .targetUri = field.location.script_name,
-                                                    .targetRange = tokenToRange(field.location, field.location),
-                                                    .targetSelectionRange = tokenToRange(field.location, field.location),
+                                                    .targetUri = ast_slice.tokens.items(.script_name)[field.location],
+                                                    .targetRange = tokenToRange(ast_slice, field.location, field.location),
+                                                    .targetSelectionRange = tokenToRange(ast_slice, field.location, field.location),
                                                 },
                                             },
                                         ),
@@ -278,7 +283,7 @@ const Document = struct {
                 }
             },
             .UserType => {
-                if (self.ast.nodes.items(.type_def)[node]) |type_def| {
+                if (ast_slice.nodes.items(.type_def)[node]) |type_def| {
                     if (switch (type_def.def_type) {
                         .Object => type_def.resolved_type.?.Object.location,
                         .ObjectInstance => type_def.resolved_type.?.ObjectInstance.of.resolved_type.?.Object.location,
@@ -296,9 +301,9 @@ const Document = struct {
                                     lsp.types.DefinitionLink,
                                     &.{
                                         .{
-                                            .targetUri = location.script_name,
-                                            .targetRange = tokenToRange(location, location),
-                                            .targetSelectionRange = tokenToRange(location, location),
+                                            .targetUri = ast_slice.tokens.items(.script_name)[location],
+                                            .targetRange = tokenToRange(ast_slice, location, location),
+                                            .targetSelectionRange = tokenToRange(ast_slice, location, location),
                                         },
                                     },
                                 ),
@@ -409,19 +414,6 @@ pub fn main() !void {
     );
 
     try server.loop();
-}
-
-fn tokenToRange(location: Token, end_location: Token) lsp.types.Range {
-    return .{
-        .start = .{
-            .line = @intCast(location.line),
-            .character = @intCast(@max(1, location.column) - 1),
-        },
-        .end = .{
-            .line = @intCast(end_location.line),
-            .character = @intCast(@max(1, end_location.column) - 1),
-        },
-    };
 }
 
 const Handler = struct {
@@ -573,7 +565,16 @@ const Handler = struct {
                         try diags.append(
                             self.allocator,
                             .{
-                                .range = tokenToRange(item.location, item.end_location),
+                                .range = .{
+                                    .start = .{
+                                        .line = @intCast(item.location.line),
+                                        .character = @intCast(@max(1, item.location.column) - 1),
+                                    },
+                                    .end = .{
+                                        .line = @intCast(item.end_location.line),
+                                        .character = @intCast(@max(1, item.end_location.column) - 1),
+                                    },
+                                },
                                 .severity = switch (item.kind) {
                                     .@"error" => .Error,
                                     .warning => .Warning,
@@ -733,9 +734,7 @@ const Handler = struct {
         pub fn processNode(self: DocumentSymbolContext, _: std.mem.Allocator, ast: Ast.Slice, node: Ast.Node.Index) (std.mem.Allocator.Error || std.fmt.BufPrintError)!bool {
             const lexemes = ast.tokens.items(.lexeme);
             const locations = ast.nodes.items(.location);
-            const location = ast.tokens.get(locations[node]);
             const end_locations = ast.nodes.items(.end_location);
-            const end_location = ast.tokens.get(end_locations[node]);
             const components = ast.nodes.items(.components)[node];
             const type_def = ast.nodes.items(.type_def)[node];
             const allocator = self.document.arena.allocator();
@@ -754,8 +753,8 @@ const Handler = struct {
                                 .Constant
                             else
                                 .Variable,
-                            .range = tokenToRange(location, end_location),
-                            .selectionRange = tokenToRange(location, end_location),
+                            .range = tokenToRange(ast, locations[node], end_locations[node]),
+                            .selectionRange = tokenToRange(ast, locations[node], end_locations[node]),
                         },
                     );
                 },
@@ -764,11 +763,12 @@ const Handler = struct {
 
                     for (components.Enum.cases) |case| {
                         const range = tokenToRange(
-                            ast.tokens.get(case.name),
+                            ast,
+                            case.name,
                             if (case.value) |value|
-                                ast.tokens.get(end_locations[value])
+                                end_locations[value]
                             else
-                                ast.tokens.get(case.name),
+                                case.name,
                         );
 
                         try children.append(
@@ -791,8 +791,8 @@ const Handler = struct {
                             else
                                 null,
                             .kind = .Enum,
-                            .range = tokenToRange(location, end_location),
-                            .selectionRange = tokenToRange(location, end_location),
+                            .range = tokenToRange(ast, locations[node], end_locations[node]),
+                            .selectionRange = tokenToRange(ast, locations[node], end_locations[node]),
                             .children = try children.toOwnedSlice(allocator),
                         },
                     );
@@ -814,8 +814,8 @@ const Handler = struct {
                                         .Method
                                     else
                                         .Property,
-                                    .range = tokenToRange(field.location, field.location),
-                                    .selectionRange = tokenToRange(field.location, field.location),
+                                    .range = tokenToRange(ast, field.location, field.location),
+                                    .selectionRange = tokenToRange(ast, field.location, field.location),
                                 },
                             );
                         }
@@ -830,8 +830,8 @@ const Handler = struct {
                             else
                                 null,
                             .kind = .Struct,
-                            .range = tokenToRange(location, end_location),
-                            .selectionRange = tokenToRange(location, end_location),
+                            .range = tokenToRange(ast, locations[node], end_locations[node]),
+                            .selectionRange = tokenToRange(ast, locations[node], end_locations[node]),
                             .children = try children.toOwnedSlice(allocator),
                         },
                     );
@@ -845,7 +845,7 @@ const Handler = struct {
                             const method = kv.value_ptr.*;
 
                             const method_location = td.resolved_type.?.Protocol.methods_locations.get(kv.key_ptr.*).?;
-                            const range = tokenToRange(method_location, method_location);
+                            const range = tokenToRange(ast, method_location, method_location);
 
                             try children.append(
                                 allocator,
@@ -869,8 +869,8 @@ const Handler = struct {
                             else
                                 null,
                             .kind = .Interface,
-                            .range = tokenToRange(location, end_location),
-                            .selectionRange = tokenToRange(location, end_location),
+                            .range = tokenToRange(ast, locations[node], end_locations[node]),
+                            .selectionRange = tokenToRange(ast, locations[node], end_locations[node]),
                             .children = try children.toOwnedSlice(allocator),
                         },
                     );
@@ -903,8 +903,8 @@ const Handler = struct {
                                     fun_def.name.string,
                                 .detail = try td.toStringAlloc(allocator, false),
                                 .kind = .Function,
-                                .range = tokenToRange(location, end_location),
-                                .selectionRange = tokenToRange(location, end_location),
+                                .range = tokenToRange(ast, locations[node], end_locations[node]),
+                                .selectionRange = tokenToRange(ast, locations[node], end_locations[node]),
                             },
                         );
                     }
@@ -1144,3 +1144,19 @@ const Handler = struct {
         log.warn("received response from client with id '{s}' that has no handler!", .{id});
     }
 };
+
+fn tokenToRange(ast: Ast.Slice, location: Ast.TokenIndex, end_location: Ast.TokenIndex) lsp.types.Range {
+    const lines = ast.tokens.items(.line);
+    const columns = ast.tokens.items(.column);
+
+    return .{
+        .start = .{
+            .line = @intCast(lines[location]),
+            .character = @intCast(@max(1, columns[location]) - 1),
+        },
+        .end = .{
+            .line = @intCast(lines[end_location]),
+            .character = @intCast(@max(1, columns[end_location]) - 1),
+        },
+    };
+}

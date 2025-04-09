@@ -1560,7 +1560,7 @@ pub const ObjForeignContainer = struct {
             setter: *Setter,
         };
 
-        location: Token,
+        location: Ast.TokenIndex,
         name: *ObjString,
         qualified_name: *ObjString,
 
@@ -1702,19 +1702,19 @@ pub const ObjObject = struct {
             type_def: *ObjTypeDef,
         };
 
-        location: Token,
+        location: Ast.TokenIndex,
         name: *ObjString,
         qualified_name: *ObjString,
         methods: std.StringArrayHashMapUnmanaged(Method),
-        methods_locations: std.StringArrayHashMapUnmanaged(Token),
+        methods_locations: std.StringArrayHashMapUnmanaged(Ast.TokenIndex),
 
-        pub fn init(location: Token, name: *ObjString, qualified_name: *ObjString) ProtocolDefSelf {
+        pub fn init(location: Ast.TokenIndex, name: *ObjString, qualified_name: *ObjString) ProtocolDefSelf {
             return ProtocolDefSelf{
                 .name = name,
                 .location = location,
                 .qualified_name = qualified_name,
-                .methods = std.StringArrayHashMapUnmanaged(Method){},
-                .methods_locations = std.StringArrayHashMapUnmanaged(Token){},
+                .methods = .empty,
+                .methods_locations = .empty,
             };
         }
 
@@ -1739,7 +1739,7 @@ pub const ObjObject = struct {
 
         pub const Field = struct {
             name: []const u8,
-            location: Token,
+            location: Ast.TokenIndex,
             type_def: *ObjTypeDef,
             final: bool,
             method: bool,
@@ -1766,7 +1766,7 @@ pub const ObjObject = struct {
         };
 
         id: usize,
-        location: Token,
+        location: Ast.TokenIndex,
         name: *ObjString,
         qualified_name: *ObjString,
         fields: std.StringArrayHashMapUnmanaged(Field),
@@ -1787,7 +1787,7 @@ pub const ObjObject = struct {
         }
 
         pub fn init(
-            location: Token,
+            location: Ast.TokenIndex,
             name: *ObjString,
             qualified_name: *ObjString,
             anonymous: bool,
@@ -3793,7 +3793,7 @@ pub const ObjMap = struct {
 
                 // Calback return type
                 var entry_def = ObjObject.ObjectDef.init(
-                    Token.identifier("user callback"),
+                    0,
                     try parser.gc.copyString("anonymous"),
                     try parser.gc.copyString("anonymous"),
                     true,
@@ -3810,7 +3810,7 @@ pub const ObjMap = struct {
                         .static = false,
                         .has_default = false,
                         .mutable = false,
-                        .location = Token.identifier("key"),
+                        .location = 0,
                         .index = 0,
                     },
                 );
@@ -3825,7 +3825,7 @@ pub const ObjMap = struct {
                         .static = false,
                         .has_default = false,
                         .mutable = false,
-                        .location = Token.identifier("value"),
+                        .location = 0,
                         .index = 1,
                     },
                 );
@@ -4182,26 +4182,12 @@ pub const ObjEnum = struct {
 
         name: *ObjString,
         qualified_name: *ObjString,
-        location: Token,
+        location: Ast.TokenIndex,
         enum_type: *ObjTypeDef,
-        // TODO: should be a slice
         cases: [][]const u8,
+        cases_locations: []Ast.TokenIndex,
         // Circular reference but needed so that we can generate enum case at compile time
         value: ?*ObjEnum = null,
-
-        pub fn init(name: *ObjString, location: Token, qualified_name: *ObjString, enum_type: *ObjTypeDef, cases: [][]const u8) EnumDefSelf {
-            return EnumDefSelf{
-                .name = name,
-                .location = location,
-                .qualified_name = qualified_name,
-                .cases = cases,
-                .enum_type = enum_type,
-            };
-        }
-
-        pub fn deinit(self: *EnumDefSelf) void {
-            self.cases.deinit();
-        }
 
         pub fn mark(self: *EnumDefSelf, gc: *GarbageCollector) !void {
             try gc.markObj(self.name.toObj());

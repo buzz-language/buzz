@@ -532,6 +532,15 @@ pub fn Renderer(comptime T: type) type {
         }
 
         fn renderFunDeclaration(self: *Self, node: Ast.Node.Index, space: Space) Error!void {
+            // docblock
+            if (self.ast.nodes.items(.docblock)[node]) |docblock| {
+                try self.renderExpectedToken(
+                    docblock,
+                    .Docblock,
+                    .None,
+                );
+            }
+
             try self.renderNode(
                 self.ast.nodes.items(.components)[node].FunDeclaration.function,
                 space,
@@ -616,10 +625,6 @@ pub fn Renderer(comptime T: type) type {
                 }
 
                 return;
-            }
-
-            if (comp.docblock) |docblock| {
-                try self.renderExpectedToken(docblock, .Docblock, .None);
             }
 
             if (fun_def.function_type == .Extern) {
@@ -2653,6 +2658,15 @@ pub fn Renderer(comptime T: type) type {
             const fields = type_defs[node].?.resolved_type.?
                 .Object.fields;
 
+            // docblock
+            if (self.ast.nodes.items(.docblock)[node]) |docblock| {
+                try self.renderExpectedToken(
+                    docblock,
+                    .Docblock,
+                    .None,
+                );
+            }
+
             // object
             try self.renderExpectedToken(
                 locations[node],
@@ -2909,6 +2923,15 @@ pub fn Renderer(comptime T: type) type {
             const end_locations = self.ast.nodes.items(.end_location);
             const type_defs = self.ast.nodes.items(.type_def);
             const components = self.ast.nodes.items(.components)[node].ProtocolDeclaration;
+
+            // docblock
+            if (self.ast.nodes.items(.docblock)[node]) |docblock| {
+                try self.renderExpectedToken(
+                    docblock,
+                    .Docblock,
+                    .None,
+                );
+            }
 
             // protocol
             try self.renderExpectedToken(
@@ -3287,6 +3310,15 @@ pub fn Renderer(comptime T: type) type {
         fn renderVarDeclaration(self: *Self, node: Ast.Node.Index, space: Space) Error!void {
             const locations = self.ast.nodes.items(.location);
             const components = self.ast.nodes.items(.components)[node].VarDeclaration;
+
+            // docblock
+            if (self.ast.nodes.items(.docblock)[node]) |docblock| {
+                try self.renderExpectedToken(
+                    docblock,
+                    .Docblock,
+                    .None,
+                );
+            }
 
             // var/final
             if (!components.omits_qualifier) {

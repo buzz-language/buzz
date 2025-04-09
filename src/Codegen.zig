@@ -1615,8 +1615,8 @@ fn generateDot(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.
                             if (!field_type.eql(value_type_def)) {
                                 self.reporter.reportTypeCheck(
                                     .assignment_value_type,
-                                    callee_type.resolved_type.?.ForeignContainer.location,
-                                    callee_type.resolved_type.?.ForeignContainer.location,
+                                    self.ast.tokens.get(callee_type.resolved_type.?.ForeignContainer.location),
+                                    self.ast.tokens.get(callee_type.resolved_type.?.ForeignContainer.location),
                                     field_type,
                                     self.ast.tokens.get(locations[value]),
                                     self.ast.tokens.get(end_locations[value]),
@@ -1654,10 +1654,14 @@ fn generateDot(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.
                                     .not_mutable,
                                     self.ast.tokens.get(locations[components.callee]),
                                     self.ast.tokens.get(end_locations[components.callee]),
-                                    callee_type.resolved_type.?.ObjectInstance.of
-                                        .resolved_type.?.Object.location,
-                                    callee_type.resolved_type.?.ObjectInstance.of
-                                        .resolved_type.?.Object.location,
+                                    self.ast.tokens.get(
+                                        callee_type.resolved_type.?.ObjectInstance.of
+                                            .resolved_type.?.Object.location,
+                                    ),
+                                    self.ast.tokens.get(
+                                        callee_type.resolved_type.?.ObjectInstance.of
+                                            .resolved_type.?.Object.location,
+                                    ),
                                     "Instance of `{s}` is not mutable",
                                     .{
                                         callee_type.resolved_type.?.ObjectInstance.of
@@ -1673,8 +1677,8 @@ fn generateDot(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.
                             if (!field.?.type_def.eql(value_type_def)) {
                                 self.reporter.reportTypeCheck(
                                     .assignment_value_type,
-                                    field.?.location,
-                                    field.?.location,
+                                    self.ast.tokens.get(field.?.location),
+                                    self.ast.tokens.get(field.?.location),
                                     field.?.type_def,
                                     self.ast.tokens.get(locations[value]),
                                     self.ast.tokens.get(end_locations[value]),
@@ -3414,8 +3418,8 @@ fn generateObjectDeclaration(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks
                         {
                             self.reporter.reportTypeCheck(
                                 .protocol_conforming,
-                                protocol_def.location,
-                                protocol_def.location,
+                                self.ast.tokens.get(protocol_def.location),
+                                self.ast.tokens.get(protocol_def.location),
                                 mkv.value_ptr.*.type_def,
                                 self.ast.tokens.get(locations[member.method_or_default_value.?]),
                                 self.ast.tokens.get(end_locations[member.method_or_default_value.?]),
@@ -3432,8 +3436,16 @@ fn generateObjectDeclaration(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks
                         .protocol_conforming,
                         self.ast.tokens.get(location),
                         self.ast.tokens.get(end_locations[node]),
-                        protocol_def.methods_locations.get(mkv.value_ptr.*.type_def.resolved_type.?.Function.name.string).?,
-                        protocol_def.methods_locations.get(mkv.value_ptr.*.type_def.resolved_type.?.Function.name.string).?,
+                        self.ast.tokens.get(
+                            protocol_def.methods_locations.get(
+                                mkv.value_ptr.*.type_def.resolved_type.?.Function.name.string,
+                            ).?,
+                        ),
+                        self.ast.tokens.get(
+                            protocol_def.methods_locations.get(
+                                mkv.value_ptr.*.type_def.resolved_type.?.Function.name.string,
+                            ).?,
+                        ),
                         "Object declared as conforming to protocol `{s}` but doesn't implement method `{s}`",
                         .{
                             protocol_def.name.string,
@@ -3528,8 +3540,8 @@ fn generateObjectDeclaration(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks
                 } else if (!property_type.eql(default_type_def)) {
                     self.reporter.reportTypeCheck(
                         .property_default_value,
-                        object_def.location,
-                        object_def.location,
+                        self.ast.tokens.get(object_def.location),
+                        self.ast.tokens.get(object_def.location),
                         property_type,
                         self.ast.tokens.get(locations[default]),
                         self.ast.tokens.get(end_locations[default]),
@@ -3667,11 +3679,14 @@ fn generateObjectInit(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error
                     );
                 }
 
-                const err_location = if (node_type_def.def_type == .ObjectInstance)
-                    node_type_def.resolved_type.?.ObjectInstance.of
-                        .resolved_type.?.Object.fields.get(property_name).?.location
-                else
-                    object_location;
+                const err_location = self.ast.tokens.get(
+                    if (node_type_def.def_type == .ObjectInstance)
+                        node_type_def.resolved_type.?.ObjectInstance.of
+                            .resolved_type.?.Object.fields.get(property_name).?.location
+                    else
+                        object_location,
+                );
+
                 self.reporter.reportTypeCheck(
                     .property_type,
                     err_location,
@@ -3702,8 +3717,8 @@ fn generateObjectInit(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error
                 .property_does_not_exists,
                 self.ast.tokens.get(location),
                 self.ast.tokens.get(end_locations[node]),
-                object_location,
-                object_location,
+                self.ast.tokens.get(object_location),
+                self.ast.tokens.get(object_location),
                 "Property `{s}` does not exists",
                 .{property_name},
                 null,

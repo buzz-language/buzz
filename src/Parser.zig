@@ -382,7 +382,7 @@ pub const Frame = struct {
 };
 
 pub const ObjectFrame = struct {
-    name: Token,
+    name: Ast.TokenIndex,
     type_def: *obj.ObjTypeDef,
     generics: ?*std.AutoArrayHashMapUnmanaged(*obj.ObjString, *obj.ObjTypeDef) = null,
 };
@@ -663,10 +663,11 @@ pub fn advance(self: *Self) !void {
 
             if (new_token.tag == .Error) {
                 self.current_token = if (self.current_token) |ct| ct - 1 else 0;
+                const location = self.ast.tokens.get(self.current_token.? - 1);
                 self.reporter.reportErrorFmt(
                     .unknown,
-                    self.ast.tokens.get(self.current_token.? - 1),
-                    self.ast.tokens.get(self.current_token.? - 1),
+                    location,
+                    location,
                     "{s}",
                     .{
                         if (new_token.literal == .String)
@@ -3466,7 +3467,7 @@ fn parseObjType(self: *Self, generic_types: ?std.AutoArrayHashMapUnmanaged(*obj.
     try qualified_name.writer().print("{s}.anonymous", .{qualifier});
 
     const object_def = obj.ObjObject.ObjectDef.init(
-        self.ast.tokens.get(start_location),
+        start_location,
         try self.gc.copyString("anonymous"),
         try self.gc.copyString(qualified_name.items),
         true,
@@ -3567,7 +3568,7 @@ fn parseObjType(self: *Self, generic_types: ?std.AutoArrayHashMapUnmanaged(*obj.
             .{
                 .name = property_name_lexeme,
                 .type_def = self.ast.nodes.items(.type_def)[property_type].?,
-                .location = self.ast.tokens.get(property_name),
+                .location = property_name,
                 .final = final,
                 .static = false,
                 .method = false,
@@ -4553,7 +4554,7 @@ fn anonymousObjectInit(self: *Self, _: bool) Error!Ast.Node.Index {
     try qualified_name.writer().print("{s}.anonymous", .{qualifier});
 
     const object_def = obj.ObjObject.ObjectDef.init(
-        self.ast.tokens.get(start_location),
+        start_location,
         try self.gc.copyString("anonymous"),
         try self.gc.copyString(qualified_name.items),
         true,
@@ -4650,7 +4651,7 @@ fn anonymousObjectInit(self: *Self, _: bool) Error!Ast.Node.Index {
                 .{
                     .name = property_name_lexeme,
                     .type_def = self.ast.nodes.items(.type_def)[expr].?,
-                    .location = self.ast.tokens.get(property_name),
+                    .location = property_name,
                     .static = false,
                     .method = false,
                     .final = false,
@@ -4712,7 +4713,7 @@ fn anonymousObjectInit(self: *Self, _: bool) Error!Ast.Node.Index {
                 .{
                     .name = property_name_lexeme,
                     .type_def = self.ast.nodes.items(.type_def)[expr].?,
-                    .location = self.ast.tokens.get(property_name),
+                    .location = property_name,
                     .static = false,
                     .method = false,
                     .final = false,
@@ -4986,7 +4987,7 @@ fn dot(self: *Self, can_assign: bool, callee: Ast.Node.Index) Error!Ast.Node.Ind
                 // TODO: test with something else than a name
                 if (property_type == null and self.current_object != null and std.mem.eql(
                     u8,
-                    self.current_object.?.name.lexeme,
+                    self.ast.tokens.items(.lexeme)[self.current_object.?.name],
                     obj_def.name.string,
                 )) {
                     const placeholder = try self.gc.type_registry.getTypeDef(
@@ -5129,7 +5130,11 @@ fn dot(self: *Self, can_assign: bool, callee: Ast.Node.Index) Error!Ast.Node.Ind
                     null) orelse if (obj_def.placeholders.get(member_name)) |plc| plc.placeholder else null;
 
                 // Else create placeholder
-                if (property_type == null and self.current_object != null and std.mem.eql(u8, self.current_object.?.name.lexeme, obj_def.name.string)) {
+                if (property_type == null and self.current_object != null and std.mem.eql(
+                    u8,
+                    self.ast.tokens.items(.lexeme)[self.current_object.?.name],
+                    obj_def.name.string,
+                )) {
                     const placeholder = try self.gc.type_registry.getTypeDef(
                         .{
                             .optional = false,
@@ -7264,8 +7269,8 @@ fn objectDeclaration(self: *Self) Error!Ast.Node.Index {
                     .already_conforming_protocol,
                     self.ast.tokens.get(locations[protocol_node]),
                     self.ast.tokens.get(end_locations[protocol_node]),
-                    protocol.resolved_type.?.Protocol.location,
-                    protocol.resolved_type.?.Protocol.location,
+                    self.ast.tokens.get(protocol.resolved_type.?.Protocol.location),
+                    self.ast.tokens.get(protocol.resolved_type.?.Protocol.location),
                     "Already conforming to `{s}`.",
                     .{
                         protocol.resolved_type.?.Protocol.name.string,
@@ -7292,22 +7297,28 @@ fn objectDeclaration(self: *Self) Error!Ast.Node.Index {
     // Get object name
     try self.consume(.Identifier, "Expected object name.");
     const object_name_token = self.current_token.? - 1;
-    const object_name = self.ast.tokens.get(object_name_token).clone();
+    const object_name_lexeme = self.ast.tokens.items(.lexeme)[object_name_token];
 
     // Qualified name to avoid cross script collision
     const qualifier = try std.mem.replaceOwned(u8, self.gc.allocator, self.script_name, "/", "\\");
     defer self.gc.allocator.free(qualifier);
     var qualified_object_name = std.ArrayList(u8).init(self.gc.allocator);
     defer qualified_object_name.deinit();
-    try qualified_object_name.writer().print("{s}.{s}", .{ qualifier, object_name.lexeme });
+    try qualified_object_name.writer().print(
+        "{s}.{s}",
+        .{
+            qualifier,
+            self.ast.tokens.items(.lexeme)[object_name_token],
+        },
+    );
 
     // Create a placeholder for self-reference which will be resolved at the end when declaring the object
     const placeholder_index = try self.declarePlaceholder(object_name_token, null);
     const object_placeholder = self.globals.items[placeholder_index].type_def;
 
     var object_def = obj.ObjObject.ObjectDef.init(
-        object_name,
-        try self.gc.copyString(object_name.lexeme),
+        object_name_token,
+        try self.gc.copyString(object_name_lexeme),
         try self.gc.copyString(qualified_object_name.items),
         false,
     );
@@ -7324,7 +7335,7 @@ fn objectDeclaration(self: *Self) Error!Ast.Node.Index {
     };
 
     const object_frame = ObjectFrame{
-        .name = object_name,
+        .name = object_name_token,
         .type_def = object_placeholder,
         .generics = &object_type.resolved_type.?.Object.generic_types,
     };
@@ -7503,7 +7514,7 @@ fn objectDeclaration(self: *Self) Error!Ast.Node.Index {
                     .type_def = method_type_def.?,
                     .final = true,
                     .static = static,
-                    .location = self.ast.tokens.get(method_token),
+                    .location = method_token,
                     .method = true,
                     .has_default = false,
                     .mutable = mutable,
@@ -7529,24 +7540,24 @@ fn objectDeclaration(self: *Self) Error!Ast.Node.Index {
 
             try self.consume(.Identifier, "Expected property name.");
             const property_token = self.current_token.? - 1;
-            const property_name = self.ast.tokens.get(property_token);
+            const property_lexeme = self.ast.tokens.items(.lexeme)[property_token];
 
             try self.consume(.Colon, "Expected `:`");
             const property_type = try self.parseTypeDef(null, true);
             const property_type_def = self.ast.nodes.items(.type_def)[property_type];
 
-            if (fields.get(property_name.lexeme) != null) {
+            if (fields.get(property_lexeme) != null) {
                 self.reporter.reportErrorAt(
                     .property_already_exists,
-                    property_name,
-                    property_name,
+                    self.ast.tokens.get(property_token),
+                    self.ast.tokens.get(property_token),
                     "A member with that name already exists.",
                 );
             }
 
             // Does a placeholder exists for this name ?
             if (static) {
-                if (object_type.resolved_type.?.Object.static_placeholders.get(property_name.lexeme)) |placeholder| {
+                if (object_type.resolved_type.?.Object.static_placeholders.get(property_lexeme)) |placeholder| {
                     try self.resolvePlaceholder(placeholder.placeholder, property_type_def.?, false);
 
                     if (self.flavor == .Ast) {
@@ -7563,15 +7574,19 @@ fn objectDeclaration(self: *Self) Error!Ast.Node.Index {
                         io.print(
                             "resolved static property placeholder for `{s}`\n",
                             .{
-                                property_name.lexeme,
+                                property_lexeme,
                             },
                         );
                     }
-                    _ = object_type.resolved_type.?.Object.static_placeholders.remove(property_name.lexeme);
+                    _ = object_type.resolved_type.?.Object.static_placeholders.remove(property_lexeme);
                 }
             } else {
-                if (object_type.resolved_type.?.Object.placeholders.get(property_name.lexeme)) |placeholder| {
-                    try self.resolvePlaceholder(placeholder.placeholder, property_type_def.?, false);
+                if (object_type.resolved_type.?.Object.placeholders.get(property_lexeme)) |placeholder| {
+                    try self.resolvePlaceholder(
+                        placeholder.placeholder,
+                        property_type_def.?,
+                        false,
+                    );
 
                     if (self.flavor == .Ast) {
                         for (placeholder.referrers.items) |referrer| {
@@ -7587,11 +7602,11 @@ fn objectDeclaration(self: *Self) Error!Ast.Node.Index {
                         io.print(
                             "resolved property placeholder for `{s}`\n",
                             .{
-                                property_name.lexeme,
+                                property_lexeme,
                             },
                         );
                     }
-                    _ = object_type.resolved_type.?.Object.placeholders.remove(property_name.lexeme);
+                    _ = object_type.resolved_type.?.Object.placeholders.remove(property_lexeme);
                 }
             }
 
@@ -7633,13 +7648,13 @@ fn objectDeclaration(self: *Self) Error!Ast.Node.Index {
 
             try object_type.resolved_type.?.Object.fields.put(
                 self.gc.allocator,
-                property_name.lexeme,
+                property_lexeme,
                 .{
-                    .name = property_name.lexeme,
+                    .name = property_lexeme,
                     .type_def = self.ast.nodes.items(.type_def)[property_type].?,
                     .final = final,
                     .static = static,
-                    .location = property_name,
+                    .location = property_token,
                     .method = false,
                     .mutable = false, // makes only sense for methods
                     .has_default = default != null,
@@ -7665,9 +7680,9 @@ fn objectDeclaration(self: *Self) Error!Ast.Node.Index {
                     .property_type = property_type,
                 },
             );
-            try fields.put(property_name.lexeme, {});
+            try fields.put(property_lexeme, {});
             try properties_type.put(
-                property_name.lexeme,
+                property_lexeme,
                 self.ast.nodes.items(.type_def)[property_type].?,
             );
         }
@@ -7780,7 +7795,7 @@ fn protocolDeclaration(self: *Self) Error!Ast.Node.Index {
         .def_type = .Protocol,
         .resolved_type = .{
             .Protocol = obj.ObjObject.ProtocolDef.init(
-                self.ast.tokens.get(protocol_name),
+                protocol_name,
                 try self.gc.copyString(self.ast.tokens.items(.lexeme)[protocol_name]),
                 try self.gc.copyString(qualified_protocol_name.items),
             ),
@@ -7838,11 +7853,10 @@ fn protocolDeclaration(self: *Self) Error!Ast.Node.Index {
             },
         );
 
-        // FIXME: we should not need this, the VM has a reference to the AST
         try protocol_type.resolved_type.?.Protocol.methods_locations.put(
             self.gc.allocator,
             method_name,
-            self.ast.tokens.get(method_name_token),
+            method_name_token,
         );
 
         try fields.put(method_name, {});
@@ -7942,13 +7956,14 @@ fn enumDeclaration(self: *Self) Error!Ast.Node.Index {
         .{ qualifier, enum_name_lexeme },
     );
 
-    const enum_def = obj.ObjEnum.EnumDef.init(
-        try self.gc.copyString(enum_name_lexeme),
-        self.ast.tokens.get(enum_name),
-        try self.gc.copyString(qualified_name.items),
-        enum_case_type,
-        undefined,
-    );
+    const enum_def = obj.ObjEnum.EnumDef{
+        .name = try self.gc.copyString(enum_name_lexeme),
+        .location = enum_name,
+        .qualified_name = try self.gc.copyString(qualified_name.items),
+        .enum_type = enum_case_type,
+        .cases = undefined,
+        .cases_locations = undefined,
+    };
 
     const enum_resolved = obj.ObjTypeDef.TypeUnion{ .Enum = enum_def };
 
@@ -7973,6 +7988,7 @@ fn enumDeclaration(self: *Self) Error!Ast.Node.Index {
 
     var cases = std.ArrayList(Ast.Enum.Case).init(self.gc.allocator);
     var def_cases = std.ArrayList([]const u8).init(self.gc.allocator);
+    var cases_loc = std.ArrayList(Ast.TokenIndex).init(self.gc.allocator);
     var values_omitted = true;
     var case_index: v.Integer = 0;
     while (!self.check(.RightBrace) and !self.check(.Eof)) : (case_index += 1) {
@@ -8005,8 +8021,11 @@ fn enumDeclaration(self: *Self) Error!Ast.Node.Index {
                     .value = try self.expression(false),
                 },
             );
+            try cases_loc.append(case_name_token);
             values_omitted = false;
         } else {
+            try cases_loc.append(case_name_token);
+
             if (enum_case_type.def_type == .Integer) {
                 try cases.append(
                     .{
@@ -8057,6 +8076,7 @@ fn enumDeclaration(self: *Self) Error!Ast.Node.Index {
     }
 
     enum_type.resolved_type.?.Enum.cases = try def_cases.toOwnedSlice();
+    enum_type.resolved_type.?.Enum.cases_locations = try cases_loc.toOwnedSlice();
 
     try self.consume(.RightBrace, "Expected `}` after enum body.");
 
@@ -9187,11 +9207,7 @@ fn zdefStatement(self: *Self) Error!Ast.Node.Index {
     try self.consume(.Semicolon, "Expected `;`");
 
     const zdefs = if (!is_wasm)
-        (self.ffi.parse(
-            self,
-            self.ast.tokens.get(source),
-            false,
-        ) catch {
+        (self.ffi.parse(self, source, null) catch {
             return Error.CantCompile;
         }) orelse &[_]*FFI.Zdef{}
     else

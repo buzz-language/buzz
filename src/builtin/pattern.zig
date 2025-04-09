@@ -66,7 +66,7 @@ fn matchType(vm: *VM) !*o.ObjTypeDef {
     }
 
     var object_def = o.ObjObject.ObjectDef.init(
-        fake_token,
+        0,
         try vm.gc.copyString("match"),
         try vm.gc.copyString("builtin.match"),
         true,
@@ -78,7 +78,7 @@ fn matchType(vm: *VM) !*o.ObjTypeDef {
         .{
             .name = "capture",
             .index = 0,
-            .location = fake_token,
+            .location = 0,
             .type_def = vm.gc.type_registry.str_type,
             .final = true,
             .method = false,
@@ -94,7 +94,7 @@ fn matchType(vm: *VM) !*o.ObjTypeDef {
         .{
             .name = "start",
             .index = 2, // because fields will be sorted
-            .location = fake_token,
+            .location = 0,
             .type_def = vm.gc.type_registry.int_type,
             .final = true,
             .method = false,
@@ -110,7 +110,7 @@ fn matchType(vm: *VM) !*o.ObjTypeDef {
         .{
             .name = "end",
             .index = 1,
-            .location = fake_token,
+            .location = 0,
             .type_def = vm.gc.type_registry.int_type,
             .final = true,
             .method = false,

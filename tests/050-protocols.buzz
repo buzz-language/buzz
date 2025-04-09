@@ -25,6 +25,7 @@ object<Comparable, Nameable> Person {
     }
 }
 
+/// A friendly pet
 object<Nameable> Pet {
     name: str,
 
