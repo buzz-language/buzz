@@ -1071,13 +1071,16 @@ pub fn parse(self: *Self, source: []const u8, file_name: ?[]const u8, name: []co
     self.ast.nodes.items(.components)[function_node].Function.entry = entry;
 
     // Start root node at the first statement
-    self.ast.nodes.items(.location)[function_node] = self.ast.nodes.items(.location)[
-        self.ast.nodes.items(.components)[body_node].Block[0]
-    ];
+    const statements = self.ast.nodes.items(.components)[body_node].Block;
+    if (statements.len > 0) {
+        self.ast.nodes.items(.location)[function_node] = self.ast.nodes.items(.location)[
+            statements[0]
+        ];
 
-    self.ast.nodes.items(.end_location)[function_node] = self.ast.nodes.items(.end_location)[
-        self.ast.nodes.items(.components)[body_node].Block[0]
-    ];
+        self.ast.nodes.items(.end_location)[function_node] = self.ast.nodes.items(.end_location)[
+            statements[0]
+        ];
+    }
 
     self.ast.root = if (self.reporter.last_error != null) null else self.endFrame();
 
