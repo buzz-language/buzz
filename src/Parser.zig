@@ -747,24 +747,32 @@ pub fn consume(self: *Self, tag: Token.Type, comptime message: []const u8) !void
             } else {
                 self.reporter.reportErrorFmt(
                     .unclosed,
-                    self.ast.tokens.get(self.current_token.? - 1),
-                    self.ast.tokens.get(self.current_token.? - 1),
+                    self.ast.tokens.get(self.current_token.?),
+                    self.ast.tokens.get(self.current_token.?),
                     "{s}",
                     .{
                         message,
                     },
                 );
+
+                // We don't recover from this
+                return Error.CantCompile;
             }
         },
-        else => self.reporter.reportErrorFmt(
-            .syntax,
-            self.ast.tokens.get(self.current_token.? - 1),
-            self.ast.tokens.get(self.current_token.? - 1),
-            "{s}",
-            .{
-                message,
-            },
-        ),
+        else => {
+            self.reporter.reportErrorFmt(
+                .syntax,
+                self.ast.tokens.get(self.current_token.?),
+                self.ast.tokens.get(self.current_token.?),
+                "{s}",
+                .{
+                    message,
+                },
+            );
+
+            // We don't recover from this
+            return Error.CantCompile;
+        },
     }
 }
 
