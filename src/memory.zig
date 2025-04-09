@@ -177,7 +177,7 @@ pub const GarbageCollector = struct {
     next_gc: usize = if (builtin.mode == .Debug) 1024 else 1024 * BuildOptions.initial_gc,
     next_full_gc: usize = if (builtin.mode == .Debug) 1024 else 1024 * BuildOptions.initial_gc,
     last_gc: ?Mode = null,
-    objects: std.DoublyLinkedList(*o.Obj) = .{},
+    objects: std.DoublyLinkedList = .{},
     gray_stack: std.ArrayListUnmanaged(*o.Obj),
     active_vms: std.AutoHashMapUnmanaged(*v.VM, void),
     // o.Obj being collected, useful to avoid setting object instance dirty while running its collector method
@@ -401,12 +401,7 @@ pub const GarbageCollector = struct {
     }
 
     fn addObject(self: *Self, obj: *o.Obj) !void {
-        const new_node = try self.allocator.create(std.DoublyLinkedList(*o.Obj).Node);
-        new_node.* = .{
-            .data = obj,
-        };
-        obj.node = new_node;
-        self.objects.prepend(new_node);
+        self.objects.prepend(&obj.node);
     }
 
     pub fn allocateString(self: *Self, chars: []const u8) !*o.ObjString {
@@ -541,14 +536,13 @@ pub const GarbageCollector = struct {
         obj.marked = true;
 
         // Move marked obj to tail so we sweeping can stop going through objects when finding the first marked object
-        self.objects.remove(obj.node.?);
+        self.objects.remove(&obj.node);
         // Just to be safe, reset node before inserting it again
-        obj.node.?.* = .{
+        obj.node = .{
             .prev = null,
             .next = null,
-            .data = obj,
         };
-        self.objects.append(obj.node.?);
+        self.objects.append(&obj.node);
 
         try self.gray_stack.append(self.allocator, obj);
     }
@@ -609,8 +603,6 @@ pub const GarbageCollector = struct {
 
         self.obj_collected = obj;
         defer self.obj_collected = null;
-
-        self.allocator.destroy(obj.node.?);
 
         switch (obj.obj_type) {
             .String => {
@@ -938,15 +930,24 @@ pub const GarbageCollector = struct {
         const swept: usize = self.bytes_allocated;
 
         var obj_count: usize = 0;
-        var obj_node: ?*std.DoublyLinkedList(*o.Obj).Node = self.objects.first;
+        var obj_node = self.objects.first;
         var count: usize = 0;
         while (obj_node) |node| : (count += 1) {
-            if (node.data.marked) {
+            const obj: *o.Obj = @fieldParentPtr("node", node);
+            const marked = obj.marked;
+            if (marked) {
                 if (BuildOptions.gc_debug and mode == .Full) {
-                    io.print("UNMARKING @{}\n", .{@intFromPtr(node.data)});
+                    io.print(
+                        "UNMARKING @{}\n",
+                        .{
+                            @intFromPtr(
+                                @as(*o.Obj, @fieldParentPtr("node", node)),
+                            ),
+                        },
+                    );
                 }
                 // If not a full gc, we reset marked, this object is now 'old'
-                node.data.marked = if (mode == .Full) false else node.data.marked;
+                obj.marked = if (mode == .Full) false else marked;
 
                 // If a young collection we don't reset marked flags and since we move all marked object
                 // to the tail of the list, we can stop here, there's no more objects to collect
@@ -956,7 +957,7 @@ pub const GarbageCollector = struct {
 
                 obj_node = node.next;
             } else {
-                const unreached: *o.Obj = node.data;
+                const unreached: *o.Obj = obj;
                 obj_node = node.next;
 
                 self.objects.remove(node);
@@ -1005,7 +1006,7 @@ pub const GarbageCollector = struct {
                 .{
                     @tagName(mode),
                     std.fmt.fmtIntSizeDec(self.bytes_allocated),
-                    self.objects.len,
+                    self.objects.len(),
                 },
             );
         }
@@ -1051,7 +1052,7 @@ pub const GarbageCollector = struct {
                 "-- gc end, {}, {} objects, next_gc {}, next_full_gc {}\n",
                 .{
                     std.fmt.fmtIntSizeDec(self.bytes_allocated),
-                    self.objects.len,
+                    self.objects.len(),
                     std.fmt.fmtIntSizeDec(self.next_gc),
                     std.fmt.fmtIntSizeDec(self.next_full_gc),
                 },

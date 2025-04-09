@@ -30,7 +30,7 @@ A small/lightweight statically typed scripting language written in Zig
 
 ## How to build and install
 
-_Latest zig version supported: 0.15.0-dev.190+bfbf4badd_
+_Latest zig version supported: 0.15.0-dev.263+d8153fa74_
 
 ### Requirements
 - Since this is built with Zig, you should be able to build buzz on a wide variety of architectures even though this has only been tested on x86/M1.

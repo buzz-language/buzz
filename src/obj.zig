@@ -61,7 +61,7 @@ pub const Obj = struct {
     marked: bool = false,
     // True when old obj and was modified
     dirty: bool = false,
-    node: ?*std.DoublyLinkedList(*Obj).Node = null,
+    node: std.DoublyLinkedList.Node = .{},
 
     pub fn cast(obj: *Obj, comptime T: type, obj_type: ObjType) ?*T {
         if (obj.obj_type != obj_type) {
