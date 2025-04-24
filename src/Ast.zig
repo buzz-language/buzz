@@ -24,6 +24,12 @@ tokens: TokenList,
 nodes: NodeList,
 root: ?Node.Index = null,
 
+pub fn jsonStringify(self: Self, jw: anytype) !void {
+    if (self.root) |root| {
+        try self.nodes.get(root).jsonStringify(self.slice(), jw);
+    }
+}
+
 pub const Slice = struct {
     tokens: TokenList.Slice,
     nodes: NodeList.Slice,
@@ -32,7 +38,6 @@ pub const Slice = struct {
     /// Do a breadth first walk of the AST, calling a callback for each node that can stop the walking from going deeper by returning true
     /// ctx should have:
     /// - `fn processNode(ctx: @TypeOf(ctx), allocator: std.mem.Allocator, ast: Ast.Slice, node: Node.Index) error{OutOfMemory}!bool: returns true to stop walking deeper
-    // FIXME: the context should have a error type we can reuse in processNode signature
     pub fn walk(self: Slice, allocator: std.mem.Allocator, ctx: anytype, root: Node.Index) !void {
         const tags = self.nodes.items(.tag);
         const components = self.nodes.items(.components);
@@ -53,29 +58,23 @@ pub const Slice = struct {
             // Otherwise continue walking the tree
             const comp = components[node];
             switch (tags[node]) {
-                .AnonymousObjectType => {
-                    for (comp.AnonymousObjectType.fields) |field| {
-                        try node_queue.append(allocator, field.type);
-                    }
+                .AnonymousObjectType => for (comp.AnonymousObjectType.fields) |field| {
+                    try node_queue.append(allocator, field.type);
                 },
-                .Is => {
-                    try node_queue.appendSlice(
-                        allocator,
-                        &.{
-                            comp.Is.left,
-                            comp.Is.constant,
-                        },
-                    );
-                },
-                .As => {
-                    try node_queue.appendSlice(
-                        allocator,
-                        &.{
-                            comp.As.left,
-                            comp.As.constant,
-                        },
-                    );
-                },
+                .Is => try node_queue.appendSlice(
+                    allocator,
+                    &.{
+                        comp.Is.left,
+                        comp.Is.constant,
+                    },
+                ),
+                .As => try node_queue.appendSlice(
+                    allocator,
+                    &.{
+                        comp.As.left,
+                        comp.As.constant,
+                    },
+                ),
                 .AsyncCall => try node_queue.append(allocator, comp.AsyncCall),
                 .Binary => {
                     try node_queue.append(allocator, comp.Binary.left);
@@ -132,10 +131,8 @@ pub const Slice = struct {
                         }
                     }
                 },
-                .Export => {
-                    if (comp.Export.declaration) |decl| {
-                        try node_queue.append(allocator, decl);
-                    }
+                .Export => if (comp.Export.declaration) |decl| {
+                    try node_queue.append(allocator, decl);
                 },
                 .Expression => try node_queue.append(allocator, comp.Expression),
                 .FiberType => {
@@ -975,6 +972,1015 @@ pub const Node = struct {
 
     /// Wether its blacklisted or already compiled
     compilable: bool = true,
+
+    // FIXME: there's a smarter way to do this but I did not find it yet
+    pub fn jsonStringify(self: Node, ast: Self.Slice, jw: anytype) !void {
+        try jw.beginObject();
+
+        try jw.objectField("tag");
+        try jw.write(@tagName(self.tag));
+
+        try jw.objectField("location");
+        try ast.tokens.get(self.location).jsonStringify(jw);
+
+        try jw.objectField("end_location");
+        try ast.tokens.get(self.end_location).jsonStringify(jw);
+
+        try jw.objectField("docblock");
+        if (self.docblock) |docblock| {
+            try ast.tokens.get(docblock).jsonStringify(jw);
+        } else {
+            try jw.write(null);
+        }
+
+        try jw.objectField("type_def");
+        if (self.type_def) |td| {
+            const td_string = td.toStringAlloc(std.heap.page_allocator, true) catch unreachable;
+            defer std.heap.page_allocator.free(td_string);
+
+            try jw.write(td_string);
+        } else {
+            try jw.write(null);
+        }
+
+        try jw.objectField("components");
+        switch (self.tag) {
+            .GenericType, .Null, .SimpleType, .Void => try jw.write(null),
+            .AnonymousObjectType => {
+                try jw.beginObject();
+
+                try jw.objectField("fields");
+                try jw.beginArray();
+                for (self.components.AnonymousObjectType.fields) |field| {
+                    try jw.beginObject();
+
+                    try jw.objectField("name");
+                    try ast.tokens.get(field.name).jsonStringify(jw);
+
+                    try jw.objectField("type");
+                    try ast.nodes.get(field.type).jsonStringify(ast, jw);
+
+                    try jw.endObject();
+                }
+                try jw.endArray();
+
+                try jw.endObject();
+            },
+            .As, .Is => {
+                const components = if (self.tag == .As)
+                    self.components.As
+                else
+                    self.components.Is;
+
+                try jw.beginObject();
+
+                try jw.objectField("left");
+                try ast.nodes.get(components.left).jsonStringify(ast, jw);
+
+                try jw.objectField("constant");
+                try ast.nodes.get(components.constant).jsonStringify(ast, jw);
+
+                try jw.endObject();
+            },
+            .AsyncCall => try ast.nodes.get(self.components.AsyncCall).jsonStringify(ast, jw),
+            .Binary => {
+                try jw.beginObject();
+
+                try jw.objectField("left");
+                try ast.nodes.get(self.components.Binary.left).jsonStringify(ast, jw);
+
+                try jw.objectField("right");
+                try ast.nodes.get(self.components.Binary.right).jsonStringify(ast, jw);
+
+                try jw.objectField("operator");
+                try jw.write(@tagName(self.components.Binary.operator));
+
+                try jw.endObject();
+            },
+            .Block => {
+                try jw.beginArray();
+
+                for (self.components.Block) |stmt| {
+                    try ast.nodes.get(stmt).jsonStringify(ast, jw);
+                }
+
+                try jw.endArray();
+            },
+            .BlockExpression => {
+                try jw.beginArray();
+
+                for (self.components.BlockExpression) |stmt| {
+                    try ast.nodes.get(stmt).jsonStringify(ast, jw);
+                }
+
+                try jw.endArray();
+            },
+            .Boolean => try jw.write(self.components.Boolean),
+            .Break, .Continue => {
+                const components = if (self.tag == .Break)
+                    self.components.Break
+                else
+                    self.components.Continue;
+
+                try jw.beginObject();
+
+                try jw.objectField("label");
+                if (components.label) |label| {
+                    try ast.tokens.get(label).jsonStringify(jw);
+                } else {
+                    try jw.write(null);
+                }
+
+                try jw.objectField("destination");
+                if (components.destination) |destination| {
+                    try ast.nodes.get(destination).jsonStringify(ast, jw);
+                } else {
+                    try jw.write(null);
+                }
+
+                try jw.endObject();
+            },
+            .Call => {
+                const components = self.components.Call;
+                const invoked = ast.nodes.items(.tag)[components.callee] == .Dot and
+                    ast.nodes.items(.components)[components.callee].Dot.member_kind == .Call;
+                // and ast.nodes.items(.components)[components.callee].Dot.value_or_call_or_enum.Call == self;
+
+                try jw.beginObject();
+
+                if (!invoked) {
+                    try jw.objectField("callee");
+                    try ast.nodes.get(components.callee).jsonStringify(ast, jw);
+                }
+
+                try jw.objectField("is_async");
+                try jw.write(components.is_async);
+
+                try jw.objectField("callee_type_def");
+                const td_string = components.callee_type_def.toStringAlloc(std.heap.page_allocator, true) catch unreachable;
+                defer std.heap.page_allocator.free(td_string);
+
+                try jw.write(td_string);
+
+                try jw.objectField("catch_default");
+                if (components.catch_default) |cd| {
+                    try ast.nodes.get(cd).jsonStringify(ast, jw);
+                } else {
+                    try jw.write(null);
+                }
+
+                try jw.objectField("tail_call");
+                try jw.write(components.tail_call);
+
+                try jw.objectField("arguments");
+                try jw.beginArray();
+                for (components.arguments) |argument| {
+                    try jw.beginObject();
+
+                    try jw.objectField("name");
+                    if (argument.name) |name| {
+                        try ast.tokens.get(name).jsonStringify(jw);
+                    } else {
+                        try jw.write(null);
+                    }
+
+                    try jw.objectField("value");
+                    try ast.nodes.get(argument.value).jsonStringify(ast, jw);
+
+                    try jw.endObject();
+                }
+                try jw.endArray();
+
+                try jw.endObject();
+            },
+            .Dot => {
+                try jw.beginObject();
+
+                try jw.objectField("callee");
+                try ast.nodes.get(self.components.Dot.callee).jsonStringify(ast, jw);
+
+                try jw.objectField("identifier");
+                try ast.tokens.get(self.components.Dot.identifier).jsonStringify(jw);
+
+                try jw.objectField("generic_resolve");
+                if (self.components.Dot.generic_resolve) |gr| {
+                    try ast.nodes.get(gr).jsonStringify(ast, jw);
+                } else {
+                    try jw.write(null);
+                }
+
+                try jw.objectField("member_type_def");
+                const td_string = self.components.Dot.member_type_def.toStringAlloc(std.heap.page_allocator, true) catch unreachable;
+                defer std.heap.page_allocator.free(td_string);
+
+                try jw.write(td_string);
+
+                try jw.objectField("member");
+
+                try jw.endObject();
+            },
+            .While, .DoUntil => {
+                try jw.beginObject();
+
+                const components = if (self.tag == .While)
+                    self.components.While
+                else
+                    self.components.DoUntil;
+
+                try jw.objectField("condition");
+                try ast.nodes.get(components.condition).jsonStringify(ast, jw);
+
+                try jw.objectField("body");
+                try ast.nodes.get(components.body).jsonStringify(ast, jw);
+
+                try jw.objectField("label");
+                if (components.label) |label| {
+                    try ast.tokens.get(label).jsonStringify(jw);
+                } else {
+                    try jw.write(null);
+                }
+
+                try jw.endObject();
+            },
+            .Enum => {
+                try jw.beginObject();
+
+                try jw.objectField("name");
+                try ast.tokens.get(self.components.Enum.name).jsonStringify(jw);
+
+                try jw.objectField("case_type");
+                if (self.components.Enum.case_type) |case_type| {
+                    try ast.nodes.get(case_type).jsonStringify(ast, jw);
+                } else {
+                    try jw.write(null);
+                }
+
+                try jw.objectField("slot");
+                try jw.write(self.components.Enum.slot);
+
+                try jw.objectField("values_omitted");
+                try jw.write(self.components.Enum.values_omitted);
+
+                try jw.objectField("cases");
+                try jw.beginArray();
+                for (self.components.Enum.cases) |case| {
+                    try jw.beginObject();
+
+                    try jw.objectField("name");
+                    try ast.tokens.get(case.name).jsonStringify(jw);
+
+                    try jw.objectField("docblock");
+                    if (case.docblock) |db| {
+                        try ast.tokens.get(db).jsonStringify(jw);
+                    } else {
+                        try jw.write(null);
+                    }
+
+                    try jw.objectField("value");
+                    if (case.value) |value| {
+                        try ast.nodes.get(value).jsonStringify(ast, jw);
+                    } else {
+                        try jw.write(null);
+                    }
+
+                    try jw.endObject();
+                }
+                try jw.endArray();
+
+                try jw.endObject();
+            },
+            .Export => {
+                try jw.beginObject();
+
+                try jw.objectField("name");
+                if (self.components.Export.name) |name| {
+                    try jw.beginArray();
+                    for (name) |part| {
+                        try ast.tokens.get(part).jsonStringify(jw);
+                    }
+                    try jw.endArray();
+                } else {
+                    try jw.write(null);
+                }
+
+                try jw.objectField("alias");
+                if (self.components.Export.alias) |alias| {
+                    try ast.tokens.get(alias).jsonStringify(jw);
+                } else {
+                    try jw.write(null);
+                }
+
+                try jw.objectField("declaration");
+                if (self.components.Export.declaration) |declaration| {
+                    try ast.nodes.get(declaration).jsonStringify(ast, jw);
+                } else {
+                    try jw.write(null);
+                }
+
+                try jw.endObject();
+            },
+            .Expression => try ast.nodes.get(self.components.Expression).jsonStringify(ast, jw),
+            .FiberType => {
+                try jw.beginObject();
+
+                try jw.objectField("return_type");
+                try ast.nodes.get(self.components.FiberType.return_type).jsonStringify(ast, jw);
+
+                try jw.objectField("yield_type");
+                try ast.nodes.get(self.components.FiberType.yield_type).jsonStringify(ast, jw);
+
+                try jw.endObject();
+            },
+            .Double => try jw.write(self.components.Double),
+            .For => {
+                try jw.beginObject();
+
+                try jw.objectField("init_declarations");
+                try jw.beginArray();
+                for (self.components.For.init_declarations) |decl| {
+                    try ast.nodes.get(decl).jsonStringify(ast, jw);
+                }
+                try jw.endArray();
+
+                try jw.objectField("condition");
+                try ast.nodes.get(self.components.For.condition).jsonStringify(ast, jw);
+
+                try jw.objectField("post_loop");
+                try jw.beginArray();
+                for (self.components.For.post_loop) |expr| {
+                    try ast.nodes.get(expr).jsonStringify(ast, jw);
+                }
+                try jw.endArray();
+
+                try jw.objectField("body");
+                try ast.nodes.get(self.components.For.body).jsonStringify(ast, jw);
+
+                try jw.objectField("label");
+                if (self.components.For.label) |label| {
+                    try ast.tokens.get(label).jsonStringify(jw);
+                } else {
+                    try jw.write(null);
+                }
+
+                try jw.endObject();
+            },
+            .ForceUnwrap, .Unwrap => {
+                const components = if (self.tag == .ForceUnwrap)
+                    self.components.ForceUnwrap
+                else
+                    self.components.Unwrap;
+
+                try jw.beginObject();
+
+                try jw.objectField("unwrapped");
+                try ast.nodes.get(components.unwrapped).jsonStringify(ast, jw);
+
+                try jw.objectField("original_type");
+                const td_string = components.original_type.toStringAlloc(std.heap.page_allocator, true) catch unreachable;
+                defer std.heap.page_allocator.free(td_string);
+
+                try jw.write(td_string);
+
+                try jw.endObject();
+            },
+            .ForEach => {
+                try jw.beginObject();
+
+                try jw.objectField("iterable");
+                try ast.nodes.get(self.components.ForEach.iterable).jsonStringify(ast, jw);
+
+                try jw.objectField("key");
+                try ast.nodes.get(self.components.ForEach.key).jsonStringify(ast, jw);
+
+                try jw.objectField("value");
+                try ast.nodes.get(self.components.ForEach.value).jsonStringify(ast, jw);
+
+                try jw.objectField("body");
+                try ast.nodes.get(self.components.ForEach.body).jsonStringify(ast, jw);
+
+                try jw.objectField("label");
+                if (self.components.ForEach.label) |label| {
+                    try ast.tokens.get(label).jsonStringify(jw);
+                } else {
+                    try jw.write(null);
+                }
+
+                try jw.endObject();
+            },
+            .Function => {
+                try jw.beginObject();
+
+                try jw.objectField("id");
+                try jw.write(self.components.Function.id);
+
+                try jw.objectField("body");
+                if (self.components.Function.body) |body| {
+                    try ast.nodes.get(body).jsonStringify(ast, jw);
+                } else {
+                    try jw.write(null);
+                }
+
+                try jw.objectField("docblock");
+                if (self.components.Function.docblock) |docblock| {
+                    try ast.tokens.get(docblock).jsonStringify(jw);
+                } else {
+                    try jw.write(null);
+                }
+
+                try jw.objectField("test_message");
+                if (self.components.Function.test_message) |test_message| {
+                    try ast.tokens.get(test_message).jsonStringify(jw);
+                } else {
+                    try jw.write(null);
+                }
+
+                try jw.objectField("function_signature");
+                if (self.components.Function.function_signature) |function_signature| {
+                    try ast.nodes.get(function_signature).jsonStringify(ast, jw);
+                } else {
+                    try jw.write(null);
+                }
+
+                try jw.endObject();
+            },
+            .FunctionType => {
+                try jw.beginObject();
+
+                try jw.objectField("name");
+                if (self.components.FunctionType.name) |name| {
+                    try ast.tokens.get(name).jsonStringify(jw);
+                } else {
+                    try jw.write(null);
+                }
+
+                try jw.objectField("return_type");
+                if (self.components.FunctionType.return_type) |return_type| {
+                    try ast.nodes.get(return_type).jsonStringify(ast, jw);
+                } else {
+                    try jw.write(null);
+                }
+
+                try jw.objectField("yield_type");
+                if (self.components.FunctionType.yield_type) |yield_type| {
+                    try ast.nodes.get(yield_type).jsonStringify(ast, jw);
+                } else {
+                    try jw.write(null);
+                }
+
+                try jw.objectField("error_types");
+                try jw.beginArray();
+                for (self.components.FunctionType.error_types) |error_type| {
+                    try ast.nodes.get(error_type).jsonStringify(ast, jw);
+                }
+                try jw.endArray();
+
+                try jw.objectField("generic_types");
+                try jw.beginArray();
+                for (self.components.FunctionType.generic_types) |generic_type| {
+                    try ast.tokens.get(generic_type).jsonStringify(jw);
+                }
+                try jw.endArray();
+
+                try jw.objectField("arguments");
+                try jw.beginArray();
+                for (self.components.FunctionType.arguments) |argument| {
+                    try jw.beginObject();
+
+                    try jw.objectField("name");
+                    try ast.tokens.get(argument.name).jsonStringify(jw);
+
+                    try jw.objectField("type");
+                    try ast.nodes.get(argument.type).jsonStringify(ast, jw);
+
+                    try jw.objectField("default");
+                    if (argument.default) |default| {
+                        try ast.nodes.get(default).jsonStringify(ast, jw);
+                    } else {
+                        try jw.write(null);
+                    }
+
+                    try jw.endObject();
+                }
+                try jw.endArray();
+
+                try jw.endObject();
+            },
+            .FunDeclaration => {
+                try jw.beginObject();
+
+                try jw.objectField("function");
+                try ast.nodes.get(self.components.FunDeclaration.function).jsonStringify(ast, jw);
+
+                try jw.objectField("slot");
+                try jw.write(self.components.FunDeclaration.slot);
+
+                try jw.objectField("slot_type");
+                try jw.write(@tagName(self.components.FunDeclaration.slot_type));
+
+                try jw.endObject();
+            },
+            .GenericResolve => {
+                try jw.beginObject();
+
+                try jw.objectField("expression");
+                try ast.nodes.get(self.components.GenericResolve.expression).jsonStringify(ast, jw);
+
+                try jw.objectField("resolved_types");
+                try jw.beginArray();
+                for (self.components.GenericResolve.resolved_types) |rt| {
+                    try ast.nodes.get(rt).jsonStringify(ast, jw);
+                }
+                try jw.endArray();
+
+                try jw.endObject();
+            },
+            .GenericResolveType => {
+                try jw.beginArray();
+                for (self.components.GenericResolveType) |rt| {
+                    try ast.nodes.get(rt).jsonStringify(ast, jw);
+                }
+                try jw.endArray();
+            },
+            .Grouping => try ast.nodes.get(self.components.Grouping).jsonStringify(ast, jw),
+            .If => {
+                try jw.beginObject();
+
+                try jw.objectField("condition");
+                try ast.nodes.get(self.components.If.condition).jsonStringify(ast, jw);
+
+                try jw.objectField("unwrapped_identifier");
+                if (self.components.If.unwrapped_identifier) |identifier| {
+                    try ast.tokens.get(identifier).jsonStringify(jw);
+                } else {
+                    try jw.write(null);
+                }
+
+                try jw.objectField("casted_type");
+                if (self.components.If.casted_type) |ct| {
+                    try ast.tokens.get(ct).jsonStringify(jw);
+                } else {
+                    try jw.write(null);
+                }
+
+                try jw.objectField("body");
+                try ast.nodes.get(self.components.If.body).jsonStringify(ast, jw);
+
+                try jw.objectField("else_branch");
+                if (self.components.If.else_branch) |branch| {
+                    try ast.tokens.get(branch).jsonStringify(jw);
+                } else {
+                    try jw.write(null);
+                }
+
+                try jw.objectField("is_statement");
+                try jw.write(self.components.If.is_statement);
+
+                try jw.endObject();
+            },
+            .Import => {
+                try jw.beginObject();
+
+                try jw.objectField("imported_symbols");
+                try jw.beginArray();
+                for (self.components.Import.imported_symbols) |symbol| {
+                    try ast.tokens.get(symbol).jsonStringify(jw);
+                }
+                try jw.endArray();
+
+                try jw.objectField("prefix");
+                if (self.components.Import.prefix) |prefix| {
+                    try jw.beginArray();
+                    for (prefix) |symbol| {
+                        try ast.tokens.get(symbol).jsonStringify(jw);
+                    }
+                    try jw.endArray();
+                } else {
+                    try jw.write(null);
+                }
+
+                try jw.objectField("path");
+                try ast.tokens.get(self.components.Import.path).jsonStringify(jw);
+
+                try jw.endObject();
+            },
+            .Integer => try jw.write(self.components.Integer),
+            .List => {
+                try jw.beginObject();
+
+                try jw.objectField("explicit_item_type");
+                if (self.components.List.explicit_item_type) |item_type| {
+                    try ast.nodes.get(item_type).jsonStringify(ast, jw);
+                } else {
+                    try jw.write(null);
+                }
+
+                try jw.objectField("items");
+                try jw.beginArray();
+                for (self.components.List.items) |item| {
+                    try ast.nodes.get(item).jsonStringify(ast, jw);
+                }
+                try jw.endArray();
+
+                try jw.endObject();
+            },
+            .ListType => try ast.nodes.get(self.components.ListType).jsonStringify(ast, jw),
+            .Map => {
+                try jw.beginObject();
+
+                try jw.objectField("explicit_key_type");
+                if (self.components.Map.explicit_key_type) |key_type| {
+                    try ast.nodes.get(key_type).jsonStringify(ast, jw);
+                } else {
+                    try jw.write(null);
+                }
+
+                try jw.objectField("explicit_value_type");
+                if (self.components.Map.explicit_value_type) |value_type| {
+                    try ast.nodes.get(value_type).jsonStringify(ast, jw);
+                } else {
+                    try jw.write(null);
+                }
+
+                try jw.objectField("entries");
+                try jw.beginArray();
+                for (self.components.Map.entries) |entry| {
+                    try jw.beginObject();
+
+                    try jw.objectField("key");
+                    try ast.nodes.get(entry.key).jsonStringify(ast, jw);
+                    try jw.objectField("value");
+                    try ast.nodes.get(entry.value).jsonStringify(ast, jw);
+
+                    try jw.endObject();
+                }
+                try jw.endArray();
+
+                try jw.endObject();
+            },
+            .MapType => {
+                try jw.beginObject();
+
+                try jw.objectField("key");
+                try ast.nodes.get(self.components.MapType.key_type).jsonStringify(ast, jw);
+                try jw.objectField("value");
+                try ast.nodes.get(self.components.MapType.value_type).jsonStringify(ast, jw);
+
+                try jw.endObject();
+            },
+            .Namespace => {
+                try jw.beginArray();
+                for (self.components.Namespace) |token| {
+                    try ast.tokens.get(token).jsonStringify(jw);
+                }
+                try jw.endArray();
+            },
+            .NamedVariable => {
+                try jw.beginObject();
+
+                try jw.objectField("name");
+                try jw.beginArray();
+                for (self.components.NamedVariable.name) |token| {
+                    try ast.tokens.get(token).jsonStringify(jw);
+                }
+                try jw.endArray();
+
+                try jw.objectField("definition");
+                try ast.nodes.get(self.components.NamedVariable.definition).jsonStringify(ast, jw);
+
+                try jw.objectField("value");
+                if (self.components.NamedVariable.value) |value| {
+                    try ast.nodes.get(value).jsonStringify(ast, jw);
+                } else {
+                    try jw.write(null);
+                }
+
+                try jw.objectField("assign_token");
+                if (self.components.NamedVariable.assign_token) |assign_token| {
+                    try ast.tokens.get(assign_token).jsonStringify(jw);
+                } else {
+                    try jw.write(null);
+                }
+
+                try jw.endObject();
+            },
+            .ObjectDeclaration => {
+                try jw.beginObject();
+
+                try jw.objectField("name");
+                try ast.tokens.get(self.components.ObjectDeclaration.name).jsonStringify(jw);
+
+                try jw.objectField("slot");
+                try jw.write(self.components.ObjectDeclaration.slot);
+
+                try jw.objectField("protocols");
+                try jw.beginArray();
+                for (self.components.ObjectDeclaration.protocols) |protocol| {
+                    try ast.nodes.get(protocol).jsonStringify(ast, jw);
+                }
+                try jw.endArray();
+
+                try jw.objectField("generics");
+                try jw.beginArray();
+                for (self.components.ObjectDeclaration.generics) |generic| {
+                    try ast.tokens.get(generic).jsonStringify(jw);
+                }
+                try jw.endArray();
+
+                try jw.objectField("members");
+                try jw.beginArray();
+                for (self.components.ObjectDeclaration.members) |member| {
+                    try jw.beginObject();
+
+                    try jw.objectField("name");
+                    try ast.tokens.get(member.name).jsonStringify(jw);
+
+                    try jw.objectField("docblock");
+                    if (member.docblock) |db| {
+                        try ast.tokens.get(db).jsonStringify(jw);
+                    } else {
+                        try jw.write(null);
+                    }
+
+                    try jw.objectField("method");
+                    try jw.write(member.method);
+
+                    try jw.objectField("method_or_default_value");
+                    if (member.method_or_default_value) |val| {
+                        try ast.nodes.get(val).jsonStringify(ast, jw);
+                    } else {
+                        try jw.write(null);
+                    }
+
+                    try jw.objectField("property_type");
+                    if (member.property_type) |property_type| {
+                        try ast.nodes.get(property_type).jsonStringify(ast, jw);
+                    } else {
+                        try jw.write(null);
+                    }
+
+                    try jw.endObject();
+                }
+                try jw.endArray();
+
+                try jw.endObject();
+            },
+            .ObjectInit => {
+                try jw.beginObject();
+
+                try jw.objectField("object");
+                if (self.components.ObjectInit.object) |object| {
+                    try ast.nodes.get(object).jsonStringify(ast, jw);
+                } else {
+                    try jw.write(null);
+                }
+
+                try jw.objectField("members");
+                try jw.beginArray();
+                for (self.components.ObjectInit.properties) |property| {
+                    try jw.beginObject();
+
+                    try jw.objectField("name");
+                    try ast.tokens.get(property.name).jsonStringify(jw);
+
+                    try jw.objectField("value");
+                    try ast.nodes.get(property.value).jsonStringify(ast, jw);
+
+                    try jw.endObject();
+                }
+                try jw.endArray();
+
+                try jw.endObject();
+            },
+            .Out => try ast.nodes.get(self.components.Out).jsonStringify(ast, jw),
+            .Pattern => try jw.write(self.components.Pattern.source),
+            .ProtocolDeclaration => {
+                try jw.beginObject();
+
+                try jw.objectField("name");
+                try ast.tokens.get(self.components.ProtocolDeclaration.name).jsonStringify(jw);
+
+                try jw.objectField("slot");
+                try jw.write(self.components.ProtocolDeclaration.slot);
+
+                try jw.objectField("members");
+                try jw.beginArray();
+                for (self.components.ProtocolDeclaration.methods) |method| {
+                    try jw.beginObject();
+
+                    try jw.objectField("docblock");
+                    if (method.docblock) |db| {
+                        try ast.tokens.get(db).jsonStringify(jw);
+                    } else {
+                        try jw.write(null);
+                    }
+
+                    try jw.objectField("method");
+                    try ast.nodes.get(method.method).jsonStringify(ast, jw);
+
+                    try jw.endObject();
+                }
+                try jw.endArray();
+
+                try jw.endObject();
+            },
+            .Range => {
+                try jw.beginObject();
+
+                try jw.objectField("low");
+                try ast.nodes.get(self.components.Range.low).jsonStringify(ast, jw);
+
+                try jw.objectField("high");
+                try ast.nodes.get(self.components.Range.high).jsonStringify(ast, jw);
+
+                try jw.endObject();
+            },
+            .Resolve => try ast.nodes.get(self.components.Resolve).jsonStringify(ast, jw),
+            .Resume => try ast.nodes.get(self.components.Resume).jsonStringify(ast, jw),
+            .Return => {
+                try jw.beginObject();
+
+                try jw.objectField("value");
+                if (self.components.Return.value) |value| {
+                    try ast.nodes.get(value).jsonStringify(ast, jw);
+                } else {
+                    try jw.write(null);
+                }
+
+                try jw.objectField("unconditional");
+                try jw.write(self.components.Return.unconditional);
+
+                try jw.endObject();
+            },
+            .String => {
+                try jw.beginArray();
+
+                for (self.components.String) |part| {
+                    try ast.nodes.get(part).jsonStringify(ast, jw);
+                }
+
+                try jw.endArray();
+            },
+            .StringLiteral => {
+                try jw.beginObject();
+
+                try jw.objectField("delimiter");
+                try jw.write(&[_]u8{self.components.StringLiteral.delimiter});
+
+                try jw.objectField("literal");
+                try jw.write(self.components.StringLiteral.literal.string);
+
+                try jw.endObject();
+            },
+            .Subscript => {
+                try jw.beginObject();
+
+                try jw.objectField("subscripted");
+                try ast.nodes.get(self.components.Subscript.subscripted).jsonStringify(ast, jw);
+
+                try jw.objectField("index");
+                try ast.nodes.get(self.components.Subscript.index).jsonStringify(ast, jw);
+
+                try jw.objectField("value");
+                if (self.components.Subscript.value) |value| {
+                    try ast.nodes.get(value).jsonStringify(ast, jw);
+                } else {
+                    try jw.write(null);
+                }
+
+                try jw.objectField("checked");
+                try jw.write(self.components.Subscript.checked);
+
+                try jw.endObject();
+            },
+            .Throw => {
+                try jw.beginObject();
+
+                try jw.objectField("expression");
+                try ast.nodes.get(self.components.Throw.expression).jsonStringify(ast, jw);
+
+                try jw.objectField("unconditional");
+                try jw.write(self.components.Throw.unconditional);
+
+                try jw.endObject();
+            },
+            .Try => {
+                try jw.beginObject();
+
+                try jw.objectField("body");
+                try ast.nodes.get(self.components.Try.body).jsonStringify(ast, jw);
+
+                try jw.objectField("clauses");
+                try jw.beginArray();
+                for (self.components.Try.clauses) |clause| {
+                    try jw.beginObject();
+
+                    try jw.objectField("identifier");
+                    try ast.tokens.get(clause.identifier).jsonStringify(jw);
+
+                    try jw.objectField("type_def");
+                    try ast.nodes.get(clause.type_def).jsonStringify(ast, jw);
+
+                    try jw.objectField("body");
+                    try ast.nodes.get(clause.body).jsonStringify(ast, jw);
+
+                    try jw.endObject();
+                }
+                try jw.endArray();
+
+                try jw.objectField("unconditional_clause");
+                if (self.components.Try.unconditional_clause) |clause| {
+                    try ast.nodes.get(clause).jsonStringify(ast, jw);
+                } else {
+                    try jw.write(null);
+                }
+
+                try jw.endObject();
+            },
+            .TypeExpression => try ast.nodes.get(self.components.TypeExpression).jsonStringify(ast, jw),
+            .TypeOfExpression => try ast.nodes.get(self.components.TypeOfExpression).jsonStringify(ast, jw),
+            .Unary => {
+                try jw.beginObject();
+
+                try jw.objectField("operator");
+                try jw.write(@tagName(self.components.Unary.operator));
+
+                try jw.objectField("expression");
+                try ast.nodes.get(self.components.Unary.expression).jsonStringify(ast, jw);
+
+                try jw.endObject();
+            },
+            .UserType => {
+                try jw.beginObject();
+
+                try jw.objectField("clauses");
+                try jw.beginArray();
+                for (self.components.UserType.name) |name| {
+                    try ast.tokens.get(name).jsonStringify(jw);
+                }
+                try jw.endArray();
+
+                try jw.objectField("generic_resolve");
+                if (self.components.UserType.generic_resolve) |gr| {
+                    try ast.nodes.get(gr).jsonStringify(ast, jw);
+                } else {
+                    try jw.write(null);
+                }
+
+                try jw.endObject();
+            },
+            .VarDeclaration => {
+                try jw.beginObject();
+
+                try jw.objectField("name");
+                try ast.tokens.get(self.components.VarDeclaration.name).jsonStringify(jw);
+
+                try jw.objectField("value");
+                if (self.components.VarDeclaration.value) |value| {
+                    try ast.nodes.get(value).jsonStringify(ast, jw);
+                } else {
+                    try jw.write(null);
+                }
+
+                try jw.objectField("type");
+                if (self.components.VarDeclaration.type) |t| {
+                    try ast.nodes.get(t).jsonStringify(ast, jw);
+                } else {
+                    try jw.write(null);
+                }
+
+                try jw.objectField("final");
+                try jw.write(self.components.VarDeclaration.final);
+
+                try jw.objectField("omits_qualifier");
+                try jw.write(self.components.VarDeclaration.omits_qualifier);
+
+                try jw.objectField("implicit");
+                try jw.write(self.components.VarDeclaration.implicit);
+
+                try jw.objectField("slot");
+                try jw.write(self.components.VarDeclaration.slot);
+
+                try jw.objectField("slot_type");
+                try jw.write(@tagName(self.components.VarDeclaration.slot_type));
+
+                try jw.endObject();
+            },
+            .Yield => try ast.nodes.get(self.components.Yield).jsonStringify(ast, jw),
+            .Zdef => {
+                try jw.beginObject();
+
+                try jw.objectField("lib_name");
+                try ast.tokens.get(self.components.Zdef.lib_name).jsonStringify(jw);
+
+                try jw.objectField("source");
+                try ast.tokens.get(self.components.Zdef.source).jsonStringify(jw);
+
+                try jw.endObject();
+            },
+        }
+
+        try jw.endObject();
+    }
 
     pub fn deinit(self: *Node, allocator: std.mem.Allocator) void {
         if (self.ends_scope) |ends_scope| {

@@ -33,6 +33,34 @@ line: usize,
 column: usize,
 offset: usize = 0,
 
+// FIXME: there's a smarter way to do this but I did not find it yet
+pub fn jsonStringify(self: Self, jw: anytype) !void {
+    try jw.beginObject();
+
+    try jw.objectField("tag");
+    try jw.write(@tagName(self.tag));
+
+    try jw.objectField("script_name");
+    try jw.write(self.script_name);
+
+    try jw.objectField("lexeme");
+    try jw.write(self.lexeme);
+
+    try jw.objectField("line");
+    try jw.write(self.line);
+
+    try jw.objectField("column");
+    try jw.write(self.column);
+
+    try jw.objectField("offset");
+    try jw.write(self.offset);
+
+    try jw.objectField("utility_token");
+    try jw.write(self.utility_token);
+
+    try jw.endObject();
+}
+
 pub fn eql(self: Self, other: Self) bool {
     return self.tag == other.tag and
         self.line == other.line and

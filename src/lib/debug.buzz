@@ -2,10 +2,3 @@ namespace debug;
 
 /// Dump any value to stdout
 export extern fun dump(value: any) > void;
-
-// Parse `source` and return the abstract syntax tree in JSON
-// @param source the buzz source
-// @param script name (used to fetch eventual extern functions)
-// @return AST as JSON
-// TODO: reactivate
-// export extern fun ast(source: str, scriptName: str) > str !> CompileError;

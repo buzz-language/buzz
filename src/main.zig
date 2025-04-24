@@ -134,6 +134,16 @@ pub fn runFile(allocator: Allocator, file_name: []const u8, args: []const []cons
             timer.reset();
         }
 
+        if (BuildOptions.debug_ast) {
+            try std.json.stringify(
+                ast,
+                .{ .whitespace = .indent_2 },
+                std.io.getStdOut().writer(),
+            );
+
+            return;
+        }
+
         if (flavor == .Run or flavor == .Test) {
             const ast_slice = ast.slice();
 

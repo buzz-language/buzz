@@ -5995,7 +5995,10 @@ fn function(
                 self.current_token.? - 2 // -2 to start at the .Fun token
             else
                 self.current_token.? - 1,
-            .end_location = undefined,
+            .end_location = if (name != null)
+                self.current_token.? - 2 // -2 to start at the .Fun token
+            else
+                self.current_token.? - 1,
             .type_def = null,
             .components = .{
                 .FunctionType = .{
@@ -6003,9 +6006,9 @@ fn function(
                     .name = name,
                     .return_type = null,
                     .yield_type = null,
-                    .error_types = undefined,
-                    .arguments = undefined,
-                    .generic_types = undefined,
+                    .error_types = &.{},
+                    .arguments = &.{},
+                    .generic_types = &.{},
                     .lambda = false,
                 },
             },
