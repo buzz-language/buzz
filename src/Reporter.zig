@@ -20,7 +20,7 @@ error_prefix: ?[]const u8 = null,
 
 // When running LSP, we want to keep all emitted Reports to forward them to LSP client
 collect: bool = false,
-reports: std.ArrayListUnmanaged(Report) = .{},
+reports: std.ArrayList(Report) = .{},
 
 // Make sense only in LSP
 pub fn deinit(self: *Self) void {
@@ -227,10 +227,10 @@ pub const Report = struct {
             return reporter.reports.append(reporter.allocator, self);
         }
 
-        try self.report(reporter, io.stdErrWriter);
+        try self.report(reporter, io.stderrWriter);
     }
 
-    pub fn report(self: Report, reporter: *Self, out: anytype) !void {
+    pub fn report(self: Report, reporter: *Self, out: *std.Io.Writer) !void {
         assert(self.items.len > 0);
         var env_map = try std.process.getEnvMap(reporter.allocator);
         defer env_map.deinit();
@@ -290,7 +290,7 @@ pub const Report = struct {
         // Print items
 
         // Group items by files
-        var reported_files = std.StringArrayHashMap(std.ArrayList(ReportItem)).init(reporter.allocator);
+        var reported_files = std.StringArrayHashMap(std.array_list.Managed(ReportItem)).init(reporter.allocator);
         defer {
             var it = reported_files.iterator();
             while (it.next()) |kv| {
@@ -303,7 +303,7 @@ pub const Report = struct {
             if (reported_files.get(item.end_location.script_name) == null) {
                 try reported_files.put(
                     item.end_location.script_name,
-                    std.ArrayList(ReportItem).init(reporter.allocator),
+                    std.array_list.Managed(ReportItem).init(reporter.allocator),
                 );
             }
 
@@ -328,7 +328,7 @@ pub const Report = struct {
                 ReportItem.lessThan,
             );
 
-            var reported_lines = std.AutoArrayHashMap(usize, std.ArrayList(ReportItem)).init(reporter.allocator);
+            var reported_lines = std.AutoArrayHashMap(usize, std.array_list.Managed(ReportItem)).init(reporter.allocator);
             defer {
                 var it = reported_lines.iterator();
                 while (it.next()) |kv| {
@@ -341,7 +341,7 @@ pub const Report = struct {
                 if (reported_lines.get(item.end_location.line) == null) {
                     try reported_lines.put(
                         item.end_location.line,
-                        std.ArrayList(ReportItem).init(reporter.allocator),
+                        std.array_list.Managed(ReportItem).init(reporter.allocator),
                     );
                 }
 
@@ -446,7 +446,7 @@ pub const Report = struct {
                                 item.end_location.column - 1 - @min(column, item.end_location.column - 1)
                             else
                                 0;
-                            try out.writeByteNTimes(' ', indent);
+                            try out.splatByteAll(' ', indent);
 
                             if (self.options.color) {
                                 try out.print("\x1b[{d}m", .{item.kind.color()});
@@ -487,7 +487,7 @@ pub const Report = struct {
                             } else {
                                 try out.print("       ┆  ", .{});
                             }
-                            try out.writeByteNTimes(' ', if (item.end_location.column > 0)
+                            try out.splatByteAll(' ', if (item.end_location.column > 0)
                                 item.end_location.column - 1
                             else
                                 0);
@@ -562,7 +562,7 @@ pub fn warn(self: *Self, error_type: Error, location: Token, end_location: Token
                 break :items &items;
             }
 
-            var list = std.ArrayListUnmanaged(ReportItem)
+            var list = std.ArrayList(ReportItem)
                 .initCapacity(self.allocator, items.len) catch @panic("Could not report error");
             list.appendSlice(self.allocator, &items) catch @panic("Could not report error");
 
@@ -629,7 +629,7 @@ pub fn warnAt(self: *Self, error_type: Error, location: Token, end_location: Tok
 }
 
 pub fn reportErrorFmt(self: *Self, error_type: Error, location: Token, end_location: Token, comptime fmt: []const u8, args: anytype) void {
-    var message = std.ArrayList(u8).init(self.allocator);
+    var message = std.array_list.Managed(u8).init(self.allocator);
     defer {
         if (!self.collect) {
             message.deinit();
@@ -652,7 +652,7 @@ pub fn reportErrorFmt(self: *Self, error_type: Error, location: Token, end_locat
 }
 
 pub fn warnFmt(self: *Self, error_type: Error, location: Token, end_location: Token, comptime fmt: []const u8, args: anytype) void {
-    var message = std.ArrayList(u8).init(self.allocator);
+    var message = std.array_list.Managed(u8).init(self.allocator);
     defer {
         if (!self.collect) {
             message.deinit();
@@ -680,7 +680,7 @@ pub fn reportWithOrigin(
     args: anytype,
     declared_message: ?[]const u8,
 ) void {
-    var message = std.ArrayList(u8).init(self.allocator);
+    var message = std.array_list.Managed(u8).init(self.allocator);
     defer {
         if (!self.collect) {
             message.deinit();
@@ -714,7 +714,7 @@ pub fn reportWithOrigin(
                 break :items &items;
             }
 
-            var list = std.ArrayListUnmanaged(ReportItem)
+            var list = std.ArrayList(ReportItem)
                 .initCapacity(self.allocator, items.len) catch @panic("Could not report error");
             list.appendSlice(self.allocator, &items) catch @panic("Could not report error");
 
@@ -739,7 +739,7 @@ pub fn reportTypeCheck(
     actual_type: *ObjTypeDef,
     message: []const u8,
 ) void {
-    var actual_message = std.ArrayList(u8).init(self.allocator);
+    var actual_message = std.array_list.Managed(u8).init(self.allocator);
     defer {
         if (!self.collect) {
             actual_message.deinit();
@@ -752,7 +752,7 @@ pub fn reportTypeCheck(
     actual_type.toString(writer, false) catch @panic("Unable to report error");
     writer.writeAll("`") catch @panic("Unable to report error");
 
-    var expected_message = std.ArrayList(u8).init(self.allocator);
+    var expected_message = std.array_list.Managed(u8).init(self.allocator);
     defer {
         if (!self.collect) {
             expected_message.deinit();
@@ -768,7 +768,7 @@ pub fn reportTypeCheck(
     expected_type.toString(writer, false) catch @panic("Unable to report error");
     writer.writeAll("`") catch @panic("Unable to report error");
 
-    var full_message = if (expected_location == null) actual_message else std.ArrayList(u8).init(self.allocator);
+    var full_message = if (expected_location == null) actual_message else std.array_list.Managed(u8).init(self.allocator);
     defer {
         if (!self.collect and expected_location != null) {
             full_message.deinit();
@@ -810,7 +810,7 @@ pub fn reportTypeCheck(
                         break :items &items;
                     }
 
-                    var list = std.ArrayListUnmanaged(ReportItem)
+                    var list = std.ArrayList(ReportItem)
                         .initCapacity(self.allocator, items.len) catch @panic("Could not report error");
                     list.appendSlice(self.allocator, &items) catch @panic("Could not report error");
 
@@ -836,7 +836,7 @@ pub fn reportTypeCheck(
                         break :items &items;
                     }
 
-                    var list = std.ArrayListUnmanaged(ReportItem)
+                    var list = std.ArrayList(ReportItem)
                         .initCapacity(self.allocator, items.len) catch @panic("Could not report error");
                     list.appendSlice(self.allocator, &items) catch @panic("Could not report error");
 

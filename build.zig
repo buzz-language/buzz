@@ -101,9 +101,9 @@ pub fn build(b: *Build) !void {
 
     // Check minimum zig version
     const current_zig = builtin.zig_version;
-    const min_zig = std.SemanticVersion.parse("0.15.0-dev.263+d8153fa74") catch return;
+    const min_zig = std.SemanticVersion.parse("0.15.1") catch return;
     if (current_zig.order(min_zig).compare(.lt)) {
-        @panic(b.fmt("Your Zig version v{} does not meet the minimum build requirement of v{}", .{ current_zig, min_zig }));
+        @panic(b.fmt("Your Zig version v{f} does not meet the minimum build requirement of v{f}", .{ current_zig, min_zig }));
     }
 
     const build_mode = b.standardOptimizeOption(.{});
@@ -280,20 +280,34 @@ pub fn build(b: *Build) !void {
     else
         null;
 
-    var exe = b.addExecutable(.{
-        .name = "buzz",
-        .root_source_file = b.path("src/main.zig"),
-        .target = target,
-        .optimize = build_mode,
-    });
+    var exe = b.addExecutable(
+        .{
+            .name = "buzz",
+            .use_llvm = true,
+            .root_module = b.createModule(
+                .{
+                    .target = target,
+                    .optimize = build_mode,
+                    .root_source_file = b.path("src/main.zig"),
+                },
+            ),
+        },
+    );
     b.installArtifact(exe);
 
-    const behavior_exe = if (!is_wasm) b.addExecutable(.{
-        .name = "buzz_behavior",
-        .root_source_file = b.path("src/behavior.zig"),
-        .target = target,
-        .optimize = build_mode,
-    }) else null;
+    const behavior_exe = if (!is_wasm) b.addExecutable(
+        .{
+            .name = "buzz_behavior",
+            .use_llvm = true,
+            .root_module = b.createModule(
+                .{
+                    .root_source_file = b.path("src/behavior.zig"),
+                    .target = target,
+                    .optimize = build_mode,
+                },
+            ),
+        },
+    ) else null;
     if (behavior_exe) |bexe| b.installArtifact(bexe);
 
     if (behavior_exe) |bexe| {
@@ -316,12 +330,19 @@ pub fn build(b: *Build) !void {
     );
 
     var lsp_exe = if (!is_wasm)
-        b.addExecutable(.{
-            .name = "buzz_lsp",
-            .root_source_file = b.path("src/lsp.zig"),
-            .target = target,
-            .optimize = build_mode,
-        })
+        b.addExecutable(
+            .{
+                .name = "buzz_lsp",
+                .use_llvm = true,
+                .root_module = b.createModule(
+                    .{
+                        .root_source_file = b.path("src/lsp.zig"),
+                        .target = target,
+                        .optimize = build_mode,
+                    },
+                ),
+            },
+        )
     else
         null;
 
@@ -334,7 +355,7 @@ pub fn build(b: *Build) !void {
         );
 
         const lsp = b.dependency(
-            "zig_lsp_kit",
+            "lsp_kit",
             .{
                 .target = target,
                 .optimize = build_mode,
@@ -350,15 +371,20 @@ pub fn build(b: *Build) !void {
     var exe_check = b.addExecutable(
         .{
             .name = "buzz",
-            .root_source_file = b.path("src/main.zig"),
-            .target = target,
-            .optimize = build_mode,
+            .use_llvm = true,
+            .root_module = b.createModule(
+                .{
+                    .root_source_file = b.path("src/main.zig"),
+                    .target = target,
+                    .optimize = build_mode,
+                },
+            ),
         },
     );
 
-    exe.root_module.sanitize_c = false;
-    if (behavior_exe) |bexe| bexe.root_module.sanitize_c = false;
-    if (!is_wasm) lsp_exe.?.root_module.sanitize_c = false;
+    exe.root_module.sanitize_c = .off;
+    if (behavior_exe) |bexe| bexe.root_module.sanitize_c = .off;
+    if (!is_wasm) lsp_exe.?.root_module.sanitize_c = .off;
 
     const check = b.step("check", "Check if buzz compiles");
     check.dependOn(&exe_check.step);
@@ -404,12 +430,18 @@ pub fn build(b: *Build) !void {
 
     if (!is_wasm) {
         // Building buzz api library
-        var lib = b.addSharedLibrary(
+        var lib = b.addLibrary(
             .{
                 .name = "buzz",
-                .root_source_file = b.path("src/buzz_api.zig"),
-                .target = target,
-                .optimize = build_mode,
+                .linkage = .dynamic,
+                .use_llvm = true,
+                .root_module = b.createModule(
+                    .{
+                        .root_source_file = b.path("src/buzz_api.zig"),
+                        .target = target,
+                        .optimize = build_mode,
+                    },
+                ),
             },
         );
 
@@ -484,14 +516,15 @@ pub fn build(b: *Build) !void {
             .{ .name = "debug", .path = "src/lib/buzz_debug.zig" },
             .{ .name = "buffer", .path = "src/lib/buzz_buffer.zig" },
             .{ .name = "crypto", .path = "src/lib/buzz_crypto.zig" },
-            .{ .name = "http", .path = "src/lib/buzz_http.zig", .wasm_compatible = false },
+            // FIXME: API has changed
+            // .{ .name = "http", .path = "src/lib/buzz_http.zig", .wasm_compatible = false },
             .{ .name = "ffi", .path = "src/lib/buzz_ffi.zig", .wasm_compatible = false },
             .{ .name = "serialize", .path = "src/lib/buzz_serialize.zig" },
             .{ .name = "testing" },
             .{ .name = "errors" },
         };
 
-        var library_steps = std.ArrayList(*std.Build.Step.Compile).init(b.allocator);
+        var library_steps = std.ArrayList(*std.Build.Step.Compile){};
         for (libraries) |library| {
             // Copy buzz definitions
             const step = b.addInstallLibFile(
@@ -512,12 +545,20 @@ pub fn build(b: *Build) !void {
                 continue;
             }
 
-            var std_lib = b.addSharedLibrary(.{
-                .name = library.name,
-                .root_source_file = b.path(library.path.?),
-                .target = target,
-                .optimize = build_mode,
-            });
+            var std_lib = b.addLibrary(
+                .{
+                    .name = library.name,
+                    .linkage = .dynamic,
+                    .use_llvm = true,
+                    .root_module = b.createModule(
+                        .{
+                            .root_source_file = b.path(library.path.?),
+                            .target = target,
+                            .optimize = build_mode,
+                        },
+                    ),
+                },
+            );
 
             const artifact = b.addInstallArtifact(std_lib, .{});
             install_step.dependOn(&artifact.step);
@@ -548,15 +589,22 @@ pub fn build(b: *Build) !void {
 
             b.default_step.dependOn(&std_lib.step);
 
-            library_steps.append(std_lib) catch unreachable;
+            library_steps.append(b.allocator, std_lib) catch unreachable;
         }
     }
 
-    const tests = b.addTest(.{
-        .root_source_file = b.path("src/main.zig"),
-        .target = target,
-        .optimize = build_mode,
-    });
+    const tests = b.addTest(
+        .{
+            .use_llvm = true,
+            .root_module = b.createModule(
+                .{
+                    .root_source_file = b.path("src/main.zig"),
+                    .target = target,
+                    .optimize = build_mode,
+                },
+            ),
+        },
+    );
     if (build_options.needLibC()) {
         tests.linkLibC();
     }
@@ -603,11 +651,18 @@ pub fn buildPcre2(b: *Build, target: Build.ResolvedTarget, optimize: std.builtin
         "-DPCRE2_CODE_UNIT_WIDTH=8",
         "-DPCRE2_STATIC",
     };
-    const lib = b.addStaticLibrary(.{
-        .name = "pcre2",
-        .target = target,
-        .optimize = optimize,
-    });
+    const lib = b.addLibrary(
+        .{
+            .linkage = .static,
+            .name = "pcre2",
+            .root_module = b.createModule(
+                .{
+                    .target = target,
+                    .optimize = optimize,
+                },
+            ),
+        },
+    );
     lib.addIncludePath(b.path("vendors/pcre2/src"));
     lib.addIncludePath(copyFiles.getDirectory().path(b, "vendors/pcre2/src"));
     lib.addCSourceFiles(
@@ -656,11 +711,17 @@ pub fn buildPcre2(b: *Build, target: Build.ResolvedTarget, optimize: std.builtin
 }
 
 pub fn buildMimalloc(b: *Build, target: Build.ResolvedTarget, optimize: std.builtin.OptimizeMode) !*Build.Step.Compile {
-    const lib = b.addStaticLibrary(
+    const lib = b.addLibrary(
         .{
             .name = "mimalloc",
-            .target = target,
-            .optimize = optimize,
+            .linkage = .static,
+            .use_llvm = true,
+            .root_module = b.createModule(
+                .{
+                    .target = target,
+                    .optimize = optimize,
+                },
+            ),
         },
     );
 
@@ -700,11 +761,19 @@ pub fn buildMimalloc(b: *Build, target: Build.ResolvedTarget, optimize: std.buil
 }
 
 pub fn buildLinenoise(b: *Build, target: Build.ResolvedTarget, optimize: std.builtin.OptimizeMode) !*Build.Step.Compile {
-    const lib = b.addStaticLibrary(.{
-        .name = "linenoise",
-        .target = target,
-        .optimize = optimize,
-    });
+    const lib = b.addLibrary(
+        .{
+            .name = "linenoise",
+            .linkage = .static,
+            .use_llvm = true,
+            .root_module = b.createModule(
+                .{
+                    .target = target,
+                    .optimize = optimize,
+                },
+            ),
+        },
+    );
 
     lib.addIncludePath(b.path("vendors/linenoise"));
     lib.addCSourceFiles(
@@ -761,11 +830,17 @@ pub fn buildWasmReplDemo(b: *Build, exe: *Build.Step.Compile) void {
 }
 
 pub fn buildMir(b: *Build, target: Build.ResolvedTarget, optimize: std.builtin.OptimizeMode) !*Build.Step.Compile {
-    const lib = b.addStaticLibrary(
+    const lib = b.addLibrary(
         .{
             .name = "mir",
-            .target = target,
-            .optimize = optimize,
+            .linkage = .static,
+            .use_llvm = true,
+            .root_module = b.createModule(
+                .{
+                    .target = target,
+                    .optimize = optimize,
+                },
+            ),
         },
     );
 

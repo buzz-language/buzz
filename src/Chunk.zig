@@ -173,11 +173,11 @@ allocator: std.mem.Allocator,
 ast: Ast.Slice,
 // TODO: merge `code` and `lines` in a multiarray
 /// List of opcodes to execute
-code: std.ArrayListUnmanaged(u32),
+code: std.ArrayList(u32),
 /// List of locations
-lines: std.ArrayListUnmanaged(Ast.TokenIndex),
+lines: std.ArrayList(Ast.TokenIndex),
 /// List of constants defined in this chunk
-constants: std.ArrayListUnmanaged(Value),
+constants: std.ArrayList(Value),
 
 pub fn init(allocator: std.mem.Allocator, ast: Ast.Slice) Self {
     return Self{

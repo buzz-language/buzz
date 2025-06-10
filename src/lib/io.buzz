@@ -3,27 +3,27 @@ namespace io;
 import "errors";
 
 /// @private
-extern fun FileOpen(filename: str, mode: int) > int !> errors\FileSystemError, errors\UnexpectedError;
+extern fun FileOpen(filename: str, mode: int) > ud !> errors\FileSystemError, errors\UnexpectedError;
 /// @private
-extern fun FileClose(fd: int) > void;
+extern fun FileClose(file: ud) > void;
 /// @private
-extern fun FileReadAll(fd: int, maxSize: int?) > str !> errors\ReadWriteError, errors\FileSystemError, errors\UnexpectedError;
+extern fun FileReadAll(file: ud, maxSize: int?) > str !> errors\ReadWriteError, errors\FileSystemError, errors\UnexpectedError;
 /// @private
-extern fun FileReadLine(fd: int, maxSize: int?) > str? !> errors\ReadWriteError, errors\FileSystemError, errors\UnexpectedError;
+extern fun FileReadLine(file: ud, maxSize: int?) > str? !> errors\ReadWriteError, errors\FileSystemError, errors\UnexpectedError;
 /// @private
-extern fun FileRead(fd: int, n: int) > str? !> errors\ReadWriteError, errors\FileSystemError, errors\InvalidArgumentError, errors\UnexpectedError;
+extern fun FileRead(file: ud, n: int) > str? !> errors\ReadWriteError, errors\FileSystemError, errors\InvalidArgumentError, errors\UnexpectedError;
 /// @private
-extern fun FileWrite(fd: int, bytes: str) > void !> errors\FileSystemError, errors\ReadWriteError, errors\UnexpectedError;
+extern fun FileWrite(file: ud, bytes: str) > void !> errors\FileSystemError, errors\ReadWriteError, errors\UnexpectedError;
 /// @private
-extern fun getStdIn() > int;
+extern fun getStdIn() > ud;
 /// @private
-extern fun getStdOut() > int;
+extern fun getStdOut() > ud;
 /// @private
-extern fun getStdErr() > int;
+extern fun getStdErr() > ud;
 /// @private
-extern fun FileIsTTY(fd: int) > bool;
+extern fun FileIsTTY(file: ud) > bool;
 /// @private
-extern fun FileGetPoller(fd: int) > ud !> errors\FileSystemError, errors\ReadWriteError, errors\SocketError, errors\ExecError, error\UnexpectedError;
+extern fun FileGetPoller(file: ud) > ud !> errors\FileSystemError, errors\ReadWriteError, errors\SocketError, errors\ExecError, error\UnexpectedError;
 /// @private
 extern fun PollerPoll(poller: ud, timeout: int?) > str? !> errors\ReadWriteError;
 /// @private
@@ -39,61 +39,67 @@ export enum FileMode {
 /// Object to manipulate an opened file
 export object File {
     /// File descriptor
-    fd: int,
+    file: ud,
+
+    /// @private
+    released: bool = false,
 
     /// Open file
     /// @param filename Path of file to open
     /// @param mode Mode with which to open it
     /// @return opened file
-    static fun open(filename: str, mode: FileMode) > File !> errors\FileSystemError, errors\UnexpectedError {
-        return File {
-            fd = FileOpen(filename, mode: mode.value),
+    static fun open(filename: str, mode: FileMode) > mut File !> errors\FileSystemError, errors\UnexpectedError {
+        return mut File {
+            file = FileOpen(filename, mode: mode.value),
         };
     }
 
-    fun collect() > void {
+    mut fun collect() > void {
         this.close();
     }
 
     /// Close file
-    fun close() > void {
-        FileClose(this.fd);
+    mut fun close() > void {
+        if (!this.released) {
+            this.released = true;
+            FileClose(this.file);
+        }
     }
 
     /// Reads file until `EOF`
     /// @return Read data
-    fun readAll(maxSize: int?) > str !> errors\ReadWriteError, errors\FileSystemError, errors\UnexpectedError {
-        return FileReadAll(this.fd, maxSize);
+    mut fun readAll(maxSize: int?) > str !> errors\ReadWriteError, errors\FileSystemError, errors\UnexpectedError {
+        return FileReadAll(this.file, maxSize);
     }
 
     /// Reads next line, returns null if nothing to read
     /// @return Read data
-    fun readLine(maxSize: int?) > str? !> errors\ReadWriteError, errors\FileSystemError, errors\UnexpectedError {
-        return FileReadLine(this.fd, maxSize);
+    mut fun readLine(maxSize: int?) > str? !> errors\ReadWriteError, errors\FileSystemError, errors\UnexpectedError {
+        return FileReadLine(this.file, maxSize);
     }
 
     /// Reads `n` bytes, returns null if nothing to read
     /// @param n how many bytes to read
     /// @return Read data
-    fun read(n: int) > str? !> errors\ReadWriteError, errors\FileSystemError, errors\InvalidArgumentError, errors\UnexpectedError {
-        return FileRead(this.fd, n: n);
+    mut fun read(n: int) > str? !> errors\ReadWriteError, errors\FileSystemError, errors\InvalidArgumentError, errors\UnexpectedError {
+        return FileRead(this.file, n);
     }
 
     /// Write bytes
     /// @param bytes string to write
     fun write(bytes: str) > void !> errors\FileSystemError, errors\ReadWriteError, errors\UnexpectedError {
-        FileWrite(this.fd, bytes: bytes);
+        FileWrite(this.file, bytes: bytes);
     }
 
     /// @return true if file is TTY
     fun isTTY() > bool {
-        return FileIsTTY(this.fd);
+        return FileIsTTY(this.file);
     }
 
     /// @return FilePoller that can be used to poll incoming data on that file
     fun getPoller() > FilePoller !> errors\FileSystemError, errors\ReadWriteError, errors\SocketError, errors\ExecError, error\UnexpectedError {
         return FilePoller{
-            poller = FileGetPoller(this.fd),
+            poller = FileGetPoller(this.file),
         };
     }
 }
@@ -119,11 +125,11 @@ export object FilePoller {
 }
 
 /// stdin
-export final stdin = File{ fd = getStdIn() };
+export final stdin = File{ file = getStdIn() };
 /// stdout
-export final stdout = File{ fd = getStdOut() };
+export final stdout = File{ file = getStdOut() };
 /// stderr
-export final stderr = File{ fd = getStdErr() };
+export final stderr = File{ file = getStdErr() };
 
 /// Run a buzz file
 /// @param filename path to buzz file

@@ -10,7 +10,7 @@ else
     std.os;
 
 fn bin2hex(allocator: std.mem.Allocator, input: []const u8) std.ArrayList(u8) {
-    var result = std.ArrayList(u8).init(allocator);
+    var result = std.array_list.Managed(u8).init(allocator);
     var writer = result.writer();
 
     for (input) |byte| {

@@ -1,9 +1,10 @@
 const std = @import("std");
 const api = @import("buzz_api.zig");
 const builtin = @import("builtin");
+const io = @import("io.zig");
 
 pub export fn sleep(ctx: *api.NativeCtx) callconv(.c) c_int {
-    std.time.sleep(@as(u64, @intFromFloat(ctx.vm.bz_peek(0).double())) * 1_000_000);
+    std.Thread.sleep(@as(u64, @intFromFloat(ctx.vm.bz_peek(0).double())) * 1_000_000);
 
     return 0;
 }
@@ -87,7 +88,7 @@ pub export fn tmpFilename(ctx: *api.NativeCtx) callconv(.c) c_int {
 
     const prefix_slice = if (prefix_len == 0) "" else prefix.?[0..prefix_len];
 
-    var random_part = std.ArrayList(u8).init(api.VM.allocator);
+    var random_part = std.array_list.Managed(u8).init(api.VM.allocator);
     defer random_part.deinit();
     random_part.writer().print("{x}", .{std.crypto.random.int(api.Integer)}) catch {
         ctx.vm.bz_panic("Out of memory", "Out of memory".len);
@@ -102,11 +103,11 @@ pub export fn tmpFilename(ctx: *api.NativeCtx) callconv(.c) c_int {
         unreachable;
     };
     random_part_b64.expandToCapacity();
-    defer random_part_b64.deinit();
+    defer random_part_b64.deinit(api.VM.allocator);
 
     _ = std.base64.standard.Encoder.encode(random_part_b64.items, random_part.items);
 
-    var final = std.ArrayList(u8).init(api.VM.allocator);
+    var final = std.array_list.Managed(u8).init(api.VM.allocator);
     defer final.deinit();
 
     final.writer().print("{s}{s}-{s}", .{ sysTempDir(), prefix_slice, random_part_b64.items }) catch {
@@ -180,7 +181,7 @@ fn handleSpawnError(ctx: *api.NativeCtx, err: anytype) void {
 }
 
 pub export fn execute(ctx: *api.NativeCtx) callconv(.c) c_int {
-    var command = std.ArrayList([]const u8).init(api.VM.allocator);
+    var command = std.array_list.Managed([]const u8).init(api.VM.allocator);
     defer command.deinit();
 
     const argv = ctx.vm.bz_peek(0);
@@ -261,6 +262,7 @@ fn handleConnectError(ctx: *api.NativeCtx, err: anytype) void {
         error.WouldBlock,
         error.Canceled,
         error.OperationNotSupported,
+        error.ResolveConfParseFailed,
         => ctx.vm.pushErrorEnum("errors.SocketError", @errorName(err)),
 
         error.BadPathName,
@@ -414,33 +416,6 @@ pub export fn SocketClose(ctx: *api.NativeCtx) callconv(.c) c_int {
     return 0;
 }
 
-fn handleReadAllError(ctx: *api.NativeCtx, err: anytype) void {
-    switch (err) {
-        error.AccessDenied,
-        error.InputOutput,
-        error.IsDir,
-        error.WouldBlock,
-        => ctx.vm.pushErrorEnum("errors.FileSystemError", @errorName(err)),
-
-        error.BrokenPipe,
-        error.OperationAborted,
-        error.NotOpenForReading,
-        error.ConnectionTimedOut,
-        // error.StreamTooLong,
-        => ctx.vm.pushErrorEnum("errors.ReadWriteError", @errorName(err)),
-
-        error.ConnectionResetByPeer,
-        error.SystemResources,
-        => ctx.vm.pushErrorEnum("errors.SocketError", @errorName(err)),
-
-        error.Unexpected => ctx.vm.pushError("errors.UnexpectedError", null),
-        // error.OutOfMemory => {ctx.vm.bz_panic("Out of memory");unreachable;, f memory");unreachable;.len},
-
-        // TODO: bug in zig compiler that complains about StreamTooLong and OutOfMemory errors missing when not there, but complains also if they're there
-        else => unreachable,
-    }
-}
-
 pub export fn SocketRead(ctx: *api.NativeCtx) callconv(.c) c_int {
     const n: api.Integer = ctx.vm.bz_peek(0).integer();
     if (n < 0) {
@@ -457,33 +432,35 @@ pub export fn SocketRead(ctx: *api.NativeCtx) callconv(.c) c_int {
         );
 
     const stream: std.net.Stream = .{ .handle = handle };
-    const reader = stream.reader();
-
-    var buffer = api.VM.allocator.alloc(u8, @as(usize, @intCast(n))) catch {
-        ctx.vm.bz_panic("Out of memory", "Out of memory".len);
-        unreachable;
+    var reader_buffer = [_]u8{0};
+    var stream_reader = stream.reader(reader_buffer[0..]);
+    var reader = io.AllocatedReader{
+        .reader = stream_reader.interface(),
     };
 
-    // bz_stringToValue will copy it
-    defer api.VM.allocator.free(buffer);
-
-    const read = reader.readAll(buffer) catch |err| {
-        handleReadAllError(ctx, err);
-
-        return -1;
+    const content = reader.readN(api.VM.allocator, @intCast(n)) catch |err| {
+        switch (err) {
+            error.ReadFailed => {
+                ctx.vm.pushErrorEnum("errors.ReadWriteError", @errorName(err));
+                return -1;
+            },
+            error.OutOfMemory => {
+                ctx.vm.bz_panic("Out of memory", "Out of memory".len);
+                unreachable;
+            },
+        }
     };
 
-    if (read == 0) {
-        ctx.vm.bz_push(api.Value.Null);
-    } else {
-        ctx.vm.bz_push(
-            api.VM.bz_stringToValue(
-                ctx.vm,
-                if (buffer[0..read].len > 0) @as([*]const u8, @ptrCast(buffer[0..read])) else null,
-                read,
-            ),
-        );
-    }
+    ctx.vm.bz_push(
+        api.VM.bz_stringToValue(
+            ctx.vm,
+            if (content.len > 0)
+                @as([*]const u8, @ptrCast(content))
+            else
+                null,
+            content.len,
+        ),
+    );
 
     return 1;
 }
@@ -534,37 +511,34 @@ pub export fn SocketReadLine(ctx: *api.NativeCtx) callconv(.c) c_int {
     const max_size = ctx.vm.bz_peek(0);
 
     const stream: std.net.Stream = .{ .handle = handle };
-    const reader = stream.reader();
-
-    const buffer = reader.readUntilDelimiterAlloc(
-        api.VM.allocator,
-        '\n',
-        if (max_size.isNull())
-            std.math.maxInt(usize)
-        else
-            @intCast(max_size.integer()),
-    ) catch |err| {
-        if (err == error.StreamTooLong) {
-            ctx.vm.pushErrorEnum("errors.ReadWriteError", "StreamTooLong");
-        } else {
-            handleReadLineError(ctx, err);
-        }
-
-        return -1;
+    var reader_buffer = [_]u8{0};
+    var stream_reader = stream.reader(reader_buffer[0..]);
+    var reader = io.AllocatedReader{
+        .reader = stream_reader.interface(),
+        .max_size = if (max_size.isInteger()) @intCast(max_size.integer()) else null,
     };
 
-    // EOF?
-    if (buffer.len == 0) {
-        ctx.vm.bz_push(api.Value.Null);
+    if (reader.readUntilDelimiterOrEof(api.VM.allocator, '\n') catch |err| {
+        switch (err) {
+            error.ReadFailed => {
+                ctx.vm.pushErrorEnum("errors.ReadWriteError", @errorName(err));
+                return -1;
+            },
+            error.OutOfMemory => {
+                ctx.vm.bz_panic("Out of memory", "Out of memory".len);
+                unreachable;
+            },
+        }
+    }) |ubuffer| {
+        ctx.vm.bz_push(
+            api.VM.bz_stringToValue(
+                ctx.vm,
+                if (ubuffer.len > 0) @as([*]const u8, @ptrCast(ubuffer)) else null,
+                ubuffer.len,
+            ),
+        );
     } else {
-        ctx.vm.bz_push(api.VM.bz_stringToValue(
-            ctx.vm,
-            if (buffer.len > 0)
-                @as([*]const u8, @ptrCast(buffer))
-            else
-                null,
-            buffer.len,
-        ));
+        ctx.vm.bz_push(api.Value.Null);
     }
 
     return 1;
@@ -579,40 +553,34 @@ pub export fn SocketReadAll(ctx: *api.NativeCtx) callconv(.c) c_int {
         );
     const max_size = ctx.vm.bz_peek(0);
 
-    const stream: std.net.Stream = .{ .handle = handle };
-    const reader = stream.reader();
-
-    const buffer = reader.readAllAlloc(
-        api.VM.allocator,
-        if (max_size.isNull())
-            std.math.maxInt(usize)
-        else
-            @intCast(max_size.integer()),
-    ) catch |err| {
-        if (err == error.StreamTooLong) {
-            ctx.vm.pushErrorEnum("errors.ReadWriteError", "StreamTooLong");
-        } else {
-            handleReadAllError(ctx, err);
-        }
-
-        return -1;
+    const stream = std.net.Stream{ .handle = handle };
+    var reader_buffer = [_]u8{0};
+    var stream_reader = stream.reader(reader_buffer[0..]);
+    var reader = io.AllocatedReader{
+        .reader = stream_reader.interface(),
+        .max_size = if (max_size.isInteger()) @intCast(max_size.integer()) else null,
     };
 
-    // EOF?
-    if (buffer.len == 0) {
-        ctx.vm.bz_push(api.Value.Null);
-    } else {
-        ctx.vm.bz_push(
-            api.VM.bz_stringToValue(
-                ctx.vm,
-                if (buffer.len > 0)
-                    @as([*]const u8, @ptrCast(buffer))
-                else
-                    null,
-                buffer.len,
-            ),
-        );
-    }
+    const content = reader.readAll(api.VM.allocator) catch |err| {
+        switch (err) {
+            error.ReadFailed => {
+                ctx.vm.pushErrorEnum("errors.ReadWriteError", @errorName(err));
+                return -1;
+            },
+            error.OutOfMemory => {
+                ctx.vm.bz_panic("Out of memory", "Out of memory".len);
+                unreachable;
+            },
+        }
+    };
+
+    ctx.vm.bz_push(
+        api.VM.bz_stringToValue(
+            ctx.vm,
+            if (content.len > 0) @as([*]const u8, @ptrCast(content)) else null,
+            content.len,
+        ),
+    );
 
     return 1;
 }
@@ -636,29 +604,29 @@ pub export fn SocketWrite(ctx: *api.NativeCtx) callconv(.c) c_int {
 
     _ = stream.write(value.?[0..len]) catch |err| {
         switch (err) {
+            error.SocketNotConnected,
+            error.FileNotFound,
+            error.NameTooLong,
+            error.SymLinkLoop,
+            error.NotDir,
+            error.NetworkSubsystemFailed,
+            error.FileDescriptorNotASocket,
+            error.FastOpenAlreadyInProgress,
             error.AccessDenied,
-            error.InputOutput,
             error.SystemResources,
             error.WouldBlock,
-            error.DiskQuota,
-            error.FileTooBig,
-            error.NoSpaceLeft,
-            error.DeviceBusy,
-            error.NoDevice,
             => ctx.vm.pushErrorEnum("errors.FileSystemError", @errorName(err)),
-            error.OperationAborted,
             error.BrokenPipe,
             error.ConnectionResetByPeer,
-            error.NotOpenForWriting,
-            error.LockViolation,
             => ctx.vm.pushErrorEnum("errors.ReadWriteError", @errorName(err)),
-            error.Unexpected => ctx.vm.pushError("errors.UnexpectedError", null),
-            error.InvalidArgument => ctx.vm.pushError("errors.InvalidArgumentError", null),
-            error.ProcessNotFound,
-            => ctx.vm.pushErrorEnum("errors.ExecError", @errorName(err)),
-
-            error.PermissionDenied,
+            error.Unexpected,
+            => ctx.vm.pushError("errors.UnexpectedError", null),
+            error.AddressNotAvailable,
+            error.AddressFamilyNotSupported,
             error.MessageTooBig,
+            error.SocketNotBound,
+            error.ConnectionRefused,
+            error.NetworkUnreachable,
             => ctx.vm.pushErrorEnum("errors.SocketError", @errorName(err)),
         }
 
@@ -679,8 +647,7 @@ pub export fn SocketServerStart(ctx: *api.NativeCtx) callconv(.c) c_int {
         return -1;
     }
 
-    const reuse_address: bool = ctx.vm.bz_peek(1).boolean();
-    const reuse_port: bool = ctx.vm.bz_peek(0).boolean();
+    const reuse_address: bool = ctx.vm.bz_peek(0).boolean();
 
     const resolved_address = std.net.Address.parseIp(
         address,
@@ -694,7 +661,6 @@ pub export fn SocketServerStart(ctx: *api.NativeCtx) callconv(.c) c_int {
     const server = resolved_address.listen(
         .{
             .reuse_address = reuse_address,
-            .reuse_port = reuse_port,
         },
     ) catch |err| {
         switch (err) {

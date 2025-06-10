@@ -158,7 +158,7 @@ test_count: u64 = 0,
 // FIXME: use SinglyLinkedList instead of heap allocated ptrs
 current: ?*Frame = null,
 current_object: ?ObjectFrame = null,
-globals: std.ArrayListUnmanaged(Global),
+globals: std.ArrayList(Global),
 namespace: ?[]const Ast.TokenIndex = null,
 flavor: RunFlavor,
 ffi: FFI,
@@ -196,8 +196,8 @@ pub fn deinit(self: *Self) void {
     // }
     self.globals.deinit(self.gc.allocator);
     self.script_imports.deinit(self.gc.allocator);
-    if (self.opt_jumps) |jumps| {
-        jumps.deinit();
+    if (self.opt_jumps) |*jumps| {
+        jumps.deinit(self.gc.allocator);
     }
     self.ffi.deinit();
     self.reporter.deinit();
@@ -286,7 +286,7 @@ pub const Global = struct {
     type_def: *obj.ObjTypeDef,
     export_alias: ?Ast.TokenIndex = null,
     imported_from: ?[]const u8 = null,
-    placeholder_referrers: std.ArrayListUnmanaged(Ast.Node.Index) = .{},
+    placeholder_referrers: std.ArrayList(Ast.Node.Index) = .{},
 
     initialized: bool = false,
     exported: bool = false,
@@ -352,7 +352,7 @@ pub const Frame = struct {
     upvalue_count: u8 = 0,
     scope_depth: u32 = 0,
     /// Keep track of the node that introduced the scope (useful for labeled break/continue statements)
-    scopes: std.ArrayListUnmanaged(?Ast.Node.Index) = .{},
+    scopes: std.ArrayList(?Ast.Node.Index) = .{},
     /// If false, `return` was omitted or within a conditionned block (if, loop, etc.)
     /// We only count `return` emitted within the scope_depth 0 of the current function or unconditionned else statement
     function_node: Ast.Node.Index,
@@ -389,7 +389,7 @@ pub const ObjectFrame = struct {
 
 pub const ScriptImport = struct {
     function: Ast.Node.Index,
-    globals: std.ArrayListUnmanaged(Global) = .{},
+    globals: std.ArrayList(Global) = .{},
     absolute_path: *obj.ObjString,
     imported_by: std.AutoHashMapUnmanaged(*Frame, void) = .{},
 };
@@ -999,13 +999,12 @@ pub fn parse(self: *Self, source: []const u8, file_name: ?[]const u8, name: []co
             return null;
         }) |decl| {
             var statements = std.ArrayList(Ast.Node.Index).fromOwnedSlice(
-                self.gc.allocator,
                 @constCast(self.ast.nodes.items(.components)[body_node].Block),
             );
 
-            try statements.append(decl);
+            try statements.append(self.gc.allocator, decl);
 
-            self.ast.nodes.items(.components)[body_node].Block = try statements.toOwnedSlice();
+            self.ast.nodes.items(.components)[body_node].Block = try statements.toOwnedSlice(self.gc.allocator);
         } else {
             self.reporter.reportErrorAt(
                 .syntax,
@@ -1035,8 +1034,8 @@ pub fn parse(self: *Self, source: []const u8, file_name: ?[]const u8, name: []co
         }
     }
 
-    var test_slots = std.ArrayList(usize).init(self.gc.allocator);
-    var test_locations = std.ArrayList(Ast.TokenIndex).init(self.gc.allocator);
+    var test_slots = std.array_list.Managed(usize).init(self.gc.allocator);
+    var test_locations = std.array_list.Managed(Ast.TokenIndex).init(self.gc.allocator);
     // Create an entry point wich runs all `test`
     for (self.globals.items, 0..) |global, index| {
         if (global.type_def.def_type == .Function and global.type_def.resolved_type.?.Function.function_type == .Test) {
@@ -1245,7 +1244,7 @@ fn beginScope(self: *Self, at: ?Ast.Node.Index) !void {
 fn endScope(self: *Self) ![]Chunk.OpCode {
     const current = self.current.?;
     _ = current.scopes.pop();
-    var closing = std.ArrayListUnmanaged(Chunk.OpCode){};
+    var closing = std.ArrayList(Chunk.OpCode){};
     current.scope_depth -= 1;
 
     while (current.local_count > 0 and current.locals[current.local_count - 1].depth > current.scope_depth) {
@@ -1265,7 +1264,7 @@ fn endScope(self: *Self) ![]Chunk.OpCode {
 
 fn closeScope(self: *Self, upto_depth: usize) ![]Chunk.OpCode {
     const current = self.current.?;
-    var closing = std.ArrayList(Chunk.OpCode).init(self.gc.allocator);
+    var closing = std.array_list.Managed(Chunk.OpCode).init(self.gc.allocator);
 
     var local_count = current.local_count;
     while (local_count > 0 and current.locals[local_count - 1].depth > upto_depth - 1) {
@@ -1315,11 +1314,11 @@ fn parsePrecedence(self: *Self, precedence: Precedence, hanging: bool) Error!Ast
 
     while (@intFromEnum(getRule(self.ast.tokens.items(.tag)[self.current_token.?]).precedence) >= @intFromEnum(precedence)) {
         // Patch optional jumps
-        if (self.opt_jumps) |jumps| {
+        if (self.opt_jumps) |*jumps| {
             std.debug.assert(jumps.items.len > 0);
             // If precedence is less than the precedence that started the nullable chain, stop the chain there
             if (@intFromEnum(getRule(self.ast.tokens.items(.tag)[self.current_token.?]).precedence) < @intFromEnum(jumps.items[0])) {
-                jumps.deinit();
+                jumps.deinit(self.gc.allocator);
                 self.opt_jumps = null;
 
                 self.ast.nodes.items(.patch_opt_jumps)[node] = true;
@@ -1350,8 +1349,8 @@ fn parsePrecedence(self: *Self, precedence: Precedence, hanging: bool) Error!Ast
     }
 
     // If nullable chain still there, stop it now at the end of the expression
-    if (self.opt_jumps) |jumps| {
-        jumps.deinit();
+    if (self.opt_jumps) |*jumps| {
+        jumps.deinit(self.gc.allocator);
         self.opt_jumps = null;
 
         self.ast.nodes.items(.patch_opt_jumps)[node] = true;
@@ -1379,7 +1378,7 @@ fn parsePrecedence(self: *Self, precedence: Precedence, hanging: bool) Error!Ast
 fn block(self: *Self, loop_scope: ?LoopScope) Error!Ast.Node.Index {
     const start_location = self.current_token.? - 1;
 
-    var statements = std.ArrayList(Ast.Node.Index).init(self.gc.allocator);
+    var statements = std.array_list.Managed(Ast.Node.Index).init(self.gc.allocator);
     while (!self.check(.RightBrace) and !self.check(.Eof)) {
         if (try self.declarationOrStatement(loop_scope)) |declOrStmt| {
             try statements.append(declOrStmt);
@@ -1732,7 +1731,7 @@ fn addGlobal(
         return 0;
     }
 
-    var qualified_name = std.ArrayList(Ast.TokenIndex).init(self.gc.allocator);
+    var qualified_name = std.array_list.Managed(Ast.TokenIndex).init(self.gc.allocator);
     if (self.namespace) |namespace| {
         try qualified_name.appendSlice(namespace);
     }
@@ -3206,7 +3205,7 @@ fn parseFunctionType(self: *Self, parent_generic_types: ?std.AutoArrayHashMapUnm
         }
     }
 
-    var generic_types_list = std.ArrayListUnmanaged(Ast.Node.Index){};
+    var generic_types_list = std.ArrayList(Ast.Node.Index){};
     // To avoid duplicates
     var generic_types = std.AutoArrayHashMapUnmanaged(*obj.ObjString, *obj.ObjTypeDef){};
     if (try self.match(.DoubleColon)) {
@@ -3290,7 +3289,7 @@ fn parseFunctionType(self: *Self, parent_generic_types: ?std.AutoArrayHashMapUnm
 
     try self.consume(.LeftParen, "Expected `(` after function name.");
 
-    var arguments = std.ArrayList(Ast.FunctionType.Argument).init(self.gc.allocator);
+    var arguments = std.array_list.Managed(Ast.FunctionType.Argument).init(self.gc.allocator);
     var parameters = std.AutoArrayHashMapUnmanaged(*obj.ObjString, *obj.ObjTypeDef){};
     var defaults = std.AutoArrayHashMapUnmanaged(*obj.ObjString, Value){};
     var arity: usize = 0;
@@ -3388,8 +3387,8 @@ fn parseFunctionType(self: *Self, parent_generic_types: ?std.AutoArrayHashMapUnm
         yield_type = try self.parseTypeDef(null, true);
     }
 
-    var error_types_list = std.ArrayList(Ast.Node.Index).init(self.gc.allocator);
-    var error_types = std.ArrayList(*obj.ObjTypeDef).init(self.gc.allocator);
+    var error_types_list = std.array_list.Managed(Ast.Node.Index).init(self.gc.allocator);
+    var error_types = std.array_list.Managed(*obj.ObjTypeDef).init(self.gc.allocator);
     if (try self.match(.BangGreater)) {
         const expects_multiple_error_types = try self.match(.LeftParen);
 
@@ -3473,7 +3472,7 @@ fn parseObjType(self: *Self, generic_types: ?std.AutoArrayHashMapUnmanaged(*obj.
 
     const qualifier = try std.mem.replaceOwned(u8, self.gc.allocator, self.script_name, "/", ".");
     defer self.gc.allocator.free(qualifier);
-    var qualified_name = std.ArrayList(u8).init(self.gc.allocator);
+    var qualified_name = std.array_list.Managed(u8).init(self.gc.allocator);
     defer qualified_name.deinit();
     try qualified_name.writer().print("{s}.anonymous", .{qualifier});
 
@@ -3495,7 +3494,7 @@ fn parseObjType(self: *Self, generic_types: ?std.AutoArrayHashMapUnmanaged(*obj.
     // They can't self reference since their anonymous
     var field_names = std.StringHashMap(void).init(self.gc.allocator);
     defer field_names.deinit();
-    var fields = std.ArrayList(Ast.AnonymousObjectType.Field).init(self.gc.allocator);
+    var fields = std.array_list.Managed(Ast.AnonymousObjectType.Field).init(self.gc.allocator);
     var tuple_index: u8 = 0;
     var obj_is_tuple = false;
     var obj_is_not_tuple = false;
@@ -3670,8 +3669,8 @@ fn parseUserType(self: *Self, instance: bool, mutable: bool) Error!Ast.Node.Inde
     }
 
     // Concrete generic types list
-    var resolved_generics = std.ArrayList(*obj.ObjTypeDef).init(self.gc.allocator);
-    var generic_nodes = std.ArrayList(Ast.Node.Index).init(self.gc.allocator);
+    var resolved_generics = std.array_list.Managed(*obj.ObjTypeDef).init(self.gc.allocator);
+    var generic_nodes = std.array_list.Managed(Ast.Node.Index).init(self.gc.allocator);
     const generic_resolve = if (try self.match(.DoubleColon)) gn: {
         const generic_start = self.current_token.? - 1;
 
@@ -3763,8 +3762,8 @@ fn parseGenericResolve(self: *Self, callee_type_def: *obj.ObjTypeDef, expr: ?Ast
     else
         self.current_token.? - 1;
 
-    var resolved_generics = std.ArrayList(Ast.Node.Index).init(self.gc.allocator);
-    var resolved_generics_types = std.ArrayList(*obj.ObjTypeDef).init(self.gc.allocator);
+    var resolved_generics = std.array_list.Managed(Ast.Node.Index).init(self.gc.allocator);
+    var resolved_generics_types = std.array_list.Managed(*obj.ObjTypeDef).init(self.gc.allocator);
 
     try self.consume(.Less, "Expected `<` at start of generic types list");
 
@@ -3953,7 +3952,7 @@ fn expressionStatement(self: *Self, hanging: bool) Error!Ast.Node.Index {
 fn list(self: *Self, _: bool) Error!Ast.Node.Index {
     const start_location = self.current_token.? - 1;
 
-    var items = std.ArrayList(Ast.Node.Index).init(self.gc.allocator);
+    var items = std.array_list.Managed(Ast.Node.Index).init(self.gc.allocator);
     var explicit_item_type: ?Ast.Node.Index = null;
     var item_type: ?*obj.ObjTypeDef = null;
 
@@ -4141,7 +4140,7 @@ fn grouping(self: *Self, _: bool) Error!Ast.Node.Index {
 }
 
 fn argumentList(self: *Self) ![]Ast.Call.Argument {
-    var arguments = std.ArrayList(Ast.Call.Argument).init(self.gc.allocator);
+    var arguments = std.array_list.Managed(Ast.Call.Argument).init(self.gc.allocator);
 
     const start_location = self.current_token.? - 1;
 
@@ -4302,7 +4301,7 @@ fn map(self: *Self, _: bool) Error!Ast.Node.Index {
         try self.consume(.Greater, "Expected `>` after map type.");
     }
 
-    var entries = std.ArrayList(Ast.Map.Entry).init(self.gc.allocator);
+    var entries = std.array_list.Managed(Ast.Map.Entry).init(self.gc.allocator);
     if (key_type_node == null or try self.match(.Comma)) {
         var common_key_type: ?*obj.ObjTypeDef = null;
         var common_value_type: ?*obj.ObjTypeDef = null;
@@ -4455,7 +4454,7 @@ fn map(self: *Self, _: bool) Error!Ast.Node.Index {
 fn objectInit(self: *Self, _: bool, object: Ast.Node.Index) Error!Ast.Node.Index {
     const start_location = self.ast.nodes.items(.location)[object];
     const obj_type_def = self.ast.nodes.items(.type_def)[object];
-    var properties = std.ArrayList(Ast.ObjectInit.Property).init(self.gc.allocator);
+    var properties = std.array_list.Managed(Ast.ObjectInit.Property).init(self.gc.allocator);
     var property_names = std.StringHashMap(Ast.Node.Index).init(self.gc.allocator);
     defer property_names.deinit();
 
@@ -4560,7 +4559,7 @@ fn anonymousObjectInit(self: *Self, _: bool) Error!Ast.Node.Index {
 
     const qualifier = try std.mem.replaceOwned(u8, self.gc.allocator, self.script_name, "/", ".");
     defer self.gc.allocator.free(qualifier);
-    var qualified_name = std.ArrayList(u8).init(self.gc.allocator);
+    var qualified_name = std.array_list.Managed(u8).init(self.gc.allocator);
     defer qualified_name.deinit();
     try qualified_name.writer().print("{s}.anonymous", .{qualifier});
 
@@ -4581,7 +4580,7 @@ fn anonymousObjectInit(self: *Self, _: bool) Error!Ast.Node.Index {
 
     // Anonymous object can only have properties without default values (no methods, no static fields)
     // They can't self reference since their anonymous
-    var properties = std.ArrayList(Ast.ObjectInit.Property).init(self.gc.allocator);
+    var properties = std.array_list.Managed(Ast.ObjectInit.Property).init(self.gc.allocator);
     var property_names = std.StringHashMap(Ast.Node.Index).init(self.gc.allocator);
     defer property_names.deinit();
 
@@ -5551,9 +5550,10 @@ fn unwrap(self: *Self, force: bool, unwrapped: Ast.Node.Index) Error!Ast.Node.In
     );
 
     if (!force) {
-        self.opt_jumps = self.opt_jumps orelse .init(self.gc.allocator);
+        self.opt_jumps = self.opt_jumps orelse .{};
 
         try self.opt_jumps.?.append(
+            self.gc.allocator,
             getRule(
                 self.ast.tokens.items(.tag)[self.current_token.?],
             ).precedence,
@@ -5955,7 +5955,7 @@ fn qualifiedName(self: *Self) Error![]const Ast.TokenIndex {
     // Assumes one identifier has already been consumed
     std.debug.assert(self.ast.tokens.items(.tag)[self.current_token.? - 1] == .Identifier);
 
-    var name = std.ArrayList(Ast.TokenIndex).init(self.gc.allocator);
+    var name = std.array_list.Managed(Ast.TokenIndex).init(self.gc.allocator);
 
     try name.append(self.current_token.? - 1);
     while ((try self.match(.AntiSlash)) and !self.check(.Eof)) {
@@ -5984,9 +5984,9 @@ fn function(
     function_type: obj.ObjFunction.FunctionType,
     this: ?*obj.ObjTypeDef,
 ) Error!Ast.Node.Index {
-    var error_types = std.ArrayList(Ast.Node.Index).init(self.gc.allocator);
-    var arguments = std.ArrayList(Ast.FunctionType.Argument).init(self.gc.allocator);
-    var generic_types = std.ArrayList(Ast.TokenIndex).init(self.gc.allocator);
+    var error_types = std.array_list.Managed(Ast.Node.Index).init(self.gc.allocator);
+    var arguments = std.array_list.Managed(Ast.FunctionType.Argument).init(self.gc.allocator);
+    var generic_types = std.array_list.Managed(Ast.TokenIndex).init(self.gc.allocator);
 
     const function_signature = try self.ast.appendNode(
         .{
@@ -6285,7 +6285,7 @@ fn function(
 
     // Error set
     if (function_type.canHaveErrorSet() and (try self.match(.BangGreater))) {
-        var error_typedefs = std.ArrayList(*obj.ObjTypeDef).init(self.gc.allocator);
+        var error_typedefs = std.array_list.Managed(*obj.ObjTypeDef).init(self.gc.allocator);
 
         const end_token: Token.Type = if (function_type.canOmitBody()) .Semicolon else .LeftBrace;
 
@@ -6854,7 +6854,7 @@ fn blockExpression(self: *Self, _: bool) Error!Ast.Node.Index {
     try self.beginScope(null);
     self.current.?.in_block_expression = self.current.?.scope_depth;
 
-    var statements = std.ArrayList(Ast.Node.Index).init(self.gc.allocator);
+    var statements = std.array_list.Managed(Ast.Node.Index).init(self.gc.allocator);
 
     var out: ?Ast.Node.Index = null;
     while (!self.check(.RightBrace) and !self.check(.Eof)) {
@@ -7156,7 +7156,7 @@ fn exportStatement(self: *Self, docblock: ?Ast.TokenIndex) Error!Ast.Node.Index 
             // If we're exporting an imported global, overwrite its namespace
             const name = global.name[global.name.len - 1];
             // self.gc.allocator.free(global.name);
-            var new_global_name = std.ArrayList(Ast.TokenIndex).init(self.gc.allocator);
+            var new_global_name = std.array_list.Managed(Ast.TokenIndex).init(self.gc.allocator);
             try new_global_name.appendSlice(self.namespace orelse &[_]Ast.TokenIndex{});
             try new_global_name.append(name);
             global.name = try new_global_name.toOwnedSlice();
@@ -7254,7 +7254,7 @@ fn objectDeclaration(self: *Self) Error!Ast.Node.Index {
 
     // Conforms to protocols?
     var protocols = std.AutoHashMapUnmanaged(*obj.ObjTypeDef, void){};
-    var protocol_nodes = std.ArrayList(Ast.Node.Index).init(self.gc.allocator);
+    var protocol_nodes = std.array_list.Managed(Ast.Node.Index).init(self.gc.allocator);
     var protocol_count: usize = 0;
     if (try self.match(.Less)) {
         while (!self.check(.Greater) and !self.check(.Eof)) : (protocol_count += 1) {
@@ -7313,7 +7313,7 @@ fn objectDeclaration(self: *Self) Error!Ast.Node.Index {
     // Qualified name to avoid cross script collision
     const qualifier = try std.mem.replaceOwned(u8, self.gc.allocator, self.script_name, "/", "\\");
     defer self.gc.allocator.free(qualifier);
-    var qualified_object_name = std.ArrayList(u8).init(self.gc.allocator);
+    var qualified_object_name = std.array_list.Managed(u8).init(self.gc.allocator);
     defer qualified_object_name.deinit();
     try qualified_object_name.writer().print(
         "{s}.{s}",
@@ -7354,7 +7354,7 @@ fn objectDeclaration(self: *Self) Error!Ast.Node.Index {
     self.current_object = object_frame;
 
     // Parse generic types
-    var generics = std.ArrayList(Ast.TokenIndex).init(self.gc.allocator);
+    var generics = std.array_list.Managed(Ast.TokenIndex).init(self.gc.allocator);
     if (try self.match(.DoubleColon)) {
         try self.consume(.Less, "Expected generic types list after `::`");
         var i: usize = 0;
@@ -7417,7 +7417,7 @@ fn objectDeclaration(self: *Self) Error!Ast.Node.Index {
     // Body
     try self.consume(.LeftBrace, "Expected `{` before object body.");
 
-    var members = std.ArrayList(Ast.ObjectDeclaration.Member).init(self.gc.allocator);
+    var members = std.array_list.Managed(Ast.ObjectDeclaration.Member).init(self.gc.allocator);
 
     // To avoid using the same name twice
     var fields = std.StringArrayHashMap(void).init(self.gc.allocator);
@@ -7787,7 +7787,7 @@ fn protocolDeclaration(self: *Self) Error!Ast.Node.Index {
     // Qualified name to avoid cross script collision
     const qualifier = try std.mem.replaceOwned(u8, self.gc.allocator, self.script_name, "/", "\\");
     defer self.gc.allocator.free(qualifier);
-    var qualified_protocol_name = std.ArrayList(u8).init(self.gc.allocator);
+    var qualified_protocol_name = std.array_list.Managed(u8).init(self.gc.allocator);
     defer qualified_protocol_name.deinit();
     try qualified_protocol_name.writer().print(
         "{s}.{s}",
@@ -7820,7 +7820,7 @@ fn protocolDeclaration(self: *Self) Error!Ast.Node.Index {
 
     var fields = std.StringHashMap(void).init(self.gc.allocator);
     defer fields.deinit();
-    var methods = std.ArrayList(Ast.ProtocolDeclaration.Method).init(self.gc.allocator);
+    var methods = std.array_list.Managed(Ast.ProtocolDeclaration.Method).init(self.gc.allocator);
     while (!self.check(.RightBrace) and !self.check(.Eof)) {
         const docblock = if (try self.match(.Docblock))
             self.current_token.? - 1
@@ -7960,7 +7960,7 @@ fn enumDeclaration(self: *Self) Error!Ast.Node.Index {
     // Qualified name to avoid cross script collision
     const qualifier = try std.mem.replaceOwned(u8, self.gc.allocator, self.script_name, "/", ".");
     defer self.gc.allocator.free(qualifier);
-    var qualified_name = std.ArrayList(u8).init(self.gc.allocator);
+    var qualified_name = std.array_list.Managed(u8).init(self.gc.allocator);
     defer qualified_name.deinit();
     try qualified_name.writer().print(
         "{s}.{s}",
@@ -7997,9 +7997,9 @@ fn enumDeclaration(self: *Self) Error!Ast.Node.Index {
 
     try self.consume(.LeftBrace, "Expected `{` before enum body.");
 
-    var cases = std.ArrayList(Ast.Enum.Case).init(self.gc.allocator);
-    var def_cases = std.ArrayList([]const u8).init(self.gc.allocator);
-    var cases_loc = std.ArrayList(Ast.TokenIndex).init(self.gc.allocator);
+    var cases = std.array_list.Managed(Ast.Enum.Case).init(self.gc.allocator);
+    var def_cases = std.array_list.Managed([]const u8).init(self.gc.allocator);
+    var cases_loc = std.array_list.Managed(Ast.TokenIndex).init(self.gc.allocator);
     var values_omitted = true;
     var case_index: v.Integer = 0;
     while (!self.check(.RightBrace) and !self.check(.Eof)) : (case_index += 1) {
@@ -8126,7 +8126,7 @@ fn enumDeclaration(self: *Self) Error!Ast.Node.Index {
         obj.ObjEnum.init(enum_type),
     );
 
-    var obj_cases = std.ArrayList(Value).init(self.gc.allocator);
+    var obj_cases = std.array_list.Managed(Value).init(self.gc.allocator);
     for (cases_slice, 0..) |case, idx| {
         if (case.value != null and !(try self.ast.slice().isConstant(self.gc.allocator, case.value.?))) {
             self.reportErrorAtNode(
@@ -8402,7 +8402,7 @@ fn testStatement(self: *Self) Error!Ast.Node.Index {
 }
 
 fn searchPaths(self: *Self, file_name: []const u8) ![][]const u8 {
-    var paths = std.ArrayList([]const u8).init(self.gc.allocator);
+    var paths = std.array_list.Managed([]const u8).init(self.gc.allocator);
 
     for (search_paths) |path| {
         const filled = try std.mem.replaceOwned(
@@ -8447,7 +8447,7 @@ fn searchPaths(self: *Self, file_name: []const u8) ![][]const u8 {
 }
 
 fn searchLibPaths(self: *Self, file_name: []const u8) ![][]const u8 {
-    var paths = std.ArrayList([]const u8).init(self.gc.allocator);
+    var paths = std.array_list.Managed([]const u8).init(self.gc.allocator);
 
     for (lib_search_paths) |path| {
         const filled = try std.mem.replaceOwned(
@@ -8494,7 +8494,7 @@ fn searchLibPaths(self: *Self, file_name: []const u8) ![][]const u8 {
     }
 
     for (user_library_paths orelse &[_][]const u8{}) |path| {
-        var filled = std.ArrayList(u8).init(self.gc.allocator);
+        var filled = std.array_list.Managed(u8).init(self.gc.allocator);
 
         try filled.writer().print(
             "{s}{s}{s}.{s}",
@@ -8518,7 +8518,7 @@ fn searchLibPaths(self: *Self, file_name: []const u8) ![][]const u8 {
 
         try paths.append(try filled.toOwnedSlice());
 
-        var prefixed_filled = std.ArrayList(u8).init(self.gc.allocator);
+        var prefixed_filled = std.array_list.Managed(u8).init(self.gc.allocator);
 
         try prefixed_filled.writer().print(
             "{s}{s}lib{s}.{s}",
@@ -8547,7 +8547,7 @@ fn searchLibPaths(self: *Self, file_name: []const u8) ![][]const u8 {
 }
 
 fn searchZdefLibPaths(self: *Self, file_name: []const u8) ![][]const u8 {
-    var paths = std.ArrayList([]const u8).init(self.gc.allocator);
+    var paths = std.array_list.Managed([]const u8).init(self.gc.allocator);
 
     for (zdef_search_paths) |path| {
         const filled = try std.mem.replaceOwned(u8, self.gc.allocator, path, "?", file_name);
@@ -8580,7 +8580,7 @@ fn searchZdefLibPaths(self: *Self, file_name: []const u8) ![][]const u8 {
     }
 
     for (Self.user_library_paths orelse &[_][]const u8{}) |path| {
-        var filled = std.ArrayList(u8).init(self.gc.allocator);
+        var filled = std.array_list.Managed(u8).init(self.gc.allocator);
 
         try filled.writer().print(
             "{s}{s}{s}.{s}",
@@ -8604,7 +8604,7 @@ fn searchZdefLibPaths(self: *Self, file_name: []const u8) ![][]const u8 {
 
         try paths.append(try filled.toOwnedSlice());
 
-        var prefixed_filled = std.ArrayList(u8).init(self.gc.allocator);
+        var prefixed_filled = std.array_list.Managed(u8).init(self.gc.allocator);
 
         try prefixed_filled.writer().print(
             "{s}{s}lib{s}.{s}",
@@ -8732,7 +8732,7 @@ fn readScript(self: *Self, file_name: []const u8) !?[2][]const u8 {
     }
 
     if (file == null) {
-        var search_report = std.ArrayList(u8).init(self.gc.allocator);
+        var search_report = std.array_list.Managed(u8).init(self.gc.allocator);
         defer search_report.deinit();
         var writer = search_report.writer();
 
@@ -8854,7 +8854,7 @@ fn importScript(
 
                     if (global.export_alias) |export_alias| {
                         const previous_name = global.name;
-                        var new_name = std.ArrayList(Ast.TokenIndex).init(self.gc.allocator);
+                        var new_name = std.array_list.Managed(Ast.TokenIndex).init(self.gc.allocator);
                         try new_name.appendSlice(
                             if (global.name.len > 1)
                                 global.name[0 .. global.name.len - 1]
@@ -8918,7 +8918,7 @@ fn importScript(
                 }
 
                 // If requalified, overwrite namespace
-                var imported_name = std.ArrayList(Ast.TokenIndex).init(self.gc.allocator);
+                var imported_name = std.array_list.Managed(Ast.TokenIndex).init(self.gc.allocator);
                 try imported_name.appendSlice(
                     if (prefix != null and prefix.?.len == 1 and std.mem.eql(u8, lexemes[prefix.?[0]], "_"))
                         &[_]Ast.TokenIndex{} // With a `_` override, we erase the namespace
@@ -9053,7 +9053,7 @@ fn importLibSymbol(
         );
     }
 
-    var search_report = std.ArrayList(u8).init(self.gc.allocator);
+    var search_report = std.array_list.Managed(u8).init(self.gc.allocator);
     defer search_report.deinit();
     var writer = search_report.writer();
 
@@ -9083,7 +9083,7 @@ fn importStatement(self: *Self) Error!Ast.Node.Index {
     const start_location = self.current_token.? - 1;
 
     var imported_symbols = std.StringHashMap(Ast.TokenIndex).init(self.gc.allocator);
-    var symbols = std.ArrayList(Ast.TokenIndex).init(self.gc.allocator);
+    var symbols = std.array_list.Managed(Ast.TokenIndex).init(self.gc.allocator);
 
     while ((try self.match(.Identifier)) and !self.check(.Eof)) {
         const symbol = self.ast.tokens.items(.lexeme)[self.current_token.? - 1];
@@ -9224,7 +9224,7 @@ fn zdefStatement(self: *Self) Error!Ast.Node.Index {
     else
         &[_]*FFI.Zdef{};
 
-    var elements = std.ArrayList(Ast.Zdef.ZdefElement).init(self.gc.allocator);
+    var elements = std.array_list.Managed(Ast.Zdef.ZdefElement).init(self.gc.allocator);
     if (!is_wasm) {
         for (zdefs) |zdef| {
             var fn_ptr: ?*anyopaque = null;
@@ -9292,7 +9292,7 @@ fn zdefStatement(self: *Self) Error!Ast.Node.Index {
 
                     fn_ptr = opaque_symbol_method;
                 } else {
-                    var search_report = std.ArrayList(u8).init(self.gc.allocator);
+                    var search_report = std.array_list.Managed(u8).init(self.gc.allocator);
                     defer search_report.deinit();
                     var writer = search_report.writer();
 
@@ -9421,8 +9421,8 @@ fn userVarDeclaration(self: *Self, identifier: Ast.TokenIndex, final: bool, muta
 
         try self.consume(.Less, "Expected generic types list after `::`");
 
-        var resolved_generics = std.ArrayList(*obj.ObjTypeDef).init(self.gc.allocator);
-        var generic_nodes = std.ArrayList(Ast.Node.Index).init(self.gc.allocator);
+        var resolved_generics = std.array_list.Managed(*obj.ObjTypeDef).init(self.gc.allocator);
+        var generic_nodes = std.array_list.Managed(Ast.Node.Index).init(self.gc.allocator);
         var i: usize = 0;
         while (!self.check(.Greater) and !self.check(.Eof)) : (i += 1) {
             try generic_nodes.append(
@@ -9521,7 +9521,7 @@ fn forStatement(self: *Self) Error!Ast.Node.Index {
     try self.beginScope(null);
 
     // Should be either VarDeclaration or expression
-    var init_declarations = std.ArrayList(Ast.Node.Index).init(self.gc.allocator);
+    var init_declarations = std.array_list.Managed(Ast.Node.Index).init(self.gc.allocator);
     while (!self.check(.Semicolon) and !self.check(.Eof)) {
         try self.consume(.Identifier, "Expected identifier");
         const identifier = self.current_token.? - 1;
@@ -9554,7 +9554,7 @@ fn forStatement(self: *Self) Error!Ast.Node.Index {
 
     try self.consume(.Semicolon, "Expected `;` after for loop condition.");
 
-    var post_loop = std.ArrayList(Ast.Node.Index).init(self.gc.allocator);
+    var post_loop = std.array_list.Managed(Ast.Node.Index).init(self.gc.allocator);
     while (!self.check(.RightParen) and !self.check(.Eof)) {
         try post_loop.append(try self.expression(false));
 
@@ -10025,7 +10025,7 @@ fn namespaceStatement(self: *Self) Error!Ast.Node.Index {
         );
     }
 
-    var namespace = std.ArrayList(Ast.TokenIndex).init(self.gc.allocator);
+    var namespace = std.array_list.Managed(Ast.TokenIndex).init(self.gc.allocator);
     while (!self.check(.Semicolon) and !self.check(.Eof)) {
         try self.consume(.Identifier, "Expected namespace identifier");
 
@@ -10074,7 +10074,7 @@ fn tryStatement(self: *Self) Error!Ast.Node.Index {
     const body = try self.block(null);
     self.ast.nodes.items(.ends_scope)[body] = try self.endScope();
 
-    var clauses = std.ArrayList(Ast.Try.Clause).init(self.gc.allocator);
+    var clauses = std.array_list.Managed(Ast.Try.Clause).init(self.gc.allocator);
     var unconditional_clause: ?Ast.Node.Index = null;
     // either catch with no type of catch any
     while (try self.match(.Catch)) {

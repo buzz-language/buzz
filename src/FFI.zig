@@ -213,7 +213,7 @@ pub fn parseTypeExpr(self: *Self, ztype: []const u8) !?*Zdef {
         return zdef;
     }
 
-    var full = std.ArrayList(u8).init(self.gc.allocator);
+    var full = std.array_list.Managed(u8).init(self.gc.allocator);
     defer full.deinit();
 
     full.writer().print("const zig_type: {s};", .{ztype}) catch @panic("Out of memory");
@@ -291,7 +291,7 @@ pub fn parse(self: *Self, parser: ?*Parser, source: Ast.TokenIndex, type_expr: ?
         return null;
     }
 
-    var zdefs = std.ArrayList(*Zdef).init(self.gc.allocator);
+    var zdefs = std.array_list.Managed(*Zdef).init(self.gc.allocator);
 
     for (root_decls) |decl| {
         if (try self.getZdef(decl)) |zdef| {
@@ -468,10 +468,10 @@ fn containerDecl(self: *Self, name: []const u8, decl_index: Ast.Node.Index) anye
 }
 
 fn unionContainer(self: *Self, name: []const u8, container: Ast.full.ContainerDecl) anyerror!*Zdef {
-    var fields = std.ArrayList(ZigType.UnionField).init(self.gc.allocator);
+    var fields = std.array_list.Managed(ZigType.UnionField).init(self.gc.allocator);
     var get_set_fields = std.StringArrayHashMap(o.ObjForeignContainer.ContainerDef.Field).init(self.gc.allocator);
     var buzz_fields = std.StringArrayHashMap(*o.ObjTypeDef).init(self.gc.allocator);
-    var decls = std.ArrayList(ZigType.Declaration).init(self.gc.allocator);
+    var decls = std.array_list.Managed(ZigType.Declaration).init(self.gc.allocator);
     var next_field: ?*Zdef = null;
     for (container.ast.members, 0..) |member, idx| {
         const member_zdef = next_field orelse try self.getZdef(member);
@@ -520,7 +520,7 @@ fn unionContainer(self: *Self, name: []const u8, container: Ast.full.ContainerDe
         },
     };
 
-    var qualified_name = std.ArrayList(u8).init(self.gc.allocator);
+    var qualified_name = std.array_list.Managed(u8).init(self.gc.allocator);
     defer qualified_name.deinit();
 
     try qualified_name.writer().print(
@@ -557,10 +557,10 @@ fn unionContainer(self: *Self, name: []const u8, container: Ast.full.ContainerDe
 }
 
 fn structContainer(self: *Self, name: []const u8, container: Ast.full.ContainerDecl) anyerror!*Zdef {
-    var fields = std.ArrayList(ZigType.StructField).init(self.gc.allocator);
+    var fields = std.array_list.Managed(ZigType.StructField).init(self.gc.allocator);
     var get_set_fields = std.StringArrayHashMap(o.ObjForeignContainer.ContainerDef.Field).init(self.gc.allocator);
     var buzz_fields = std.StringArrayHashMap(*o.ObjTypeDef).init(self.gc.allocator);
-    var decls = std.ArrayList(ZigType.Declaration).init(self.gc.allocator);
+    var decls = std.array_list.Managed(ZigType.Declaration).init(self.gc.allocator);
     var offset: usize = 0;
     var next_field: ?*Zdef = null;
     for (container.ast.members, 0..) |member, idx| {
@@ -836,7 +836,7 @@ fn fnProto(self: *Self, tag: Ast.Node.Tag, decl_index: Ast.Node.Index) anyerror!
         .function_type = .Extern,
     };
 
-    var parameters_zig_types = std.ArrayList(ZigType.FnType.Param).init(self.gc.allocator);
+    var parameters_zig_types = std.array_list.Managed(ZigType.FnType.Param).init(self.gc.allocator);
     var zig_fn_type = ZigType.FnType{
         .calling_convention = .c,
         // How could it be something else?
@@ -906,7 +906,7 @@ fn fnProto(self: *Self, tag: Ast.Node.Tag, decl_index: Ast.Node.Index) anyerror!
 }
 
 fn reportZigError(self: *Self, err: Ast.Error) void {
-    var message = std.ArrayList(u8).init(self.gc.allocator);
+    var message = std.array_list.Managed(u8).init(self.gc.allocator);
     defer message.deinit();
 
     message.writer().print("zdef could not be parsed: {}", .{err.tag}) catch unreachable;

@@ -100,7 +100,7 @@ pub const Fiber = struct {
     instruction: u32,
     extra_instruction: ?u32,
 
-    frames: std.ArrayListUnmanaged(CallFrame),
+    frames: std.ArrayList(CallFrame),
     // FIXME: this is useless since we actually pop items from the frames list
     frame_count: usize = 0,
     recursive_count: u32 = 0,
@@ -133,7 +133,7 @@ pub const Fiber = struct {
             .parent_fiber = parent_fiber,
             .stack = try allocator.alloc(Value, BuildOptions.stack_size),
             .stack_top = undefined,
-            .frames = std.ArrayListUnmanaged(CallFrame){},
+            .frames = std.ArrayList(CallFrame){},
             .open_upvalues = null,
             .instruction = instruction,
             .extra_instruction = extra_instruction,
@@ -427,7 +427,7 @@ pub const VM = struct {
     gc: *memory.GarbageCollector,
     current_fiber: *Fiber,
     current_ast: Ast.Slice,
-    globals: std.ArrayListUnmanaged(Value) = .{},
+    globals: std.ArrayList(Value) = .{},
     // FIXME: remove
     globals_count: usize = 0,
     import_registry: *ImportRegistry,
@@ -555,7 +555,7 @@ pub const VM = struct {
         return &self.current_fiber.frames.items[self.current_fiber.frame_count - 1];
     }
 
-    pub inline fn currentGlobals(self: *Self) *std.ArrayListUnmanaged(Value) {
+    pub inline fn currentGlobals(self: *Self) *std.ArrayList(Value) {
         return self.currentFrame().?.closure.globals;
     }
 
@@ -2190,7 +2190,7 @@ pub const VM = struct {
             const exported_count = vm.peek(0).integer();
 
             // Copy them to this vm globals
-            var import_cache = std.ArrayList(Value).init(self.gc.allocator);
+            var import_cache = std.array_list.Managed(Value).init(self.gc.allocator);
 
             if (exported_count > 0) {
                 var i = exported_count;
@@ -3558,7 +3558,7 @@ pub const VM = struct {
         const right = self.pop().obj().access(obj.ObjList, .List, self.gc).?;
         const left = self.pop().obj().access(obj.ObjList, .List, self.gc).?;
 
-        var new_list = std.ArrayListUnmanaged(Value){};
+        var new_list = std.ArrayList(Value){};
         new_list.appendSlice(self.gc.allocator, left.items.items) catch {
             self.panic("Out of memory");
             unreachable;
@@ -4484,7 +4484,7 @@ pub const VM = struct {
 
     pub fn throw(self: *Self, code: Error, payload: Value, previous_stack: ?*std.ArrayList(CallFrame), previous_error_site: ?Ast.TokenIndex) Error!void {
         var initial_stack = if (previous_stack == null)
-            std.ArrayList(CallFrame).init(self.gc.allocator)
+            std.ArrayList(CallFrame){}
         else
             null;
 
@@ -4494,7 +4494,7 @@ pub const VM = struct {
             &initial_stack.?;
         defer {
             if (previous_stack == null) {
-                stack.deinit();
+                stack.deinit(self.gc.allocator);
             }
         }
 
@@ -4510,7 +4510,7 @@ pub const VM = struct {
             if (self.current_fiber.frame_count > 0) {
                 const function_type = frame.?.closure.function.type_def.resolved_type.?.Function.function_type;
                 if (function_type != .ScriptEntryPoint and function_type != .Repl) {
-                    try stack.append(frame.?.*);
+                    try stack.append(self.gc.allocator, frame.?.*);
                 }
 
                 // Are we in a try-catch?
@@ -4604,7 +4604,7 @@ pub const VM = struct {
     }
 
     fn reportRuntimeError(self: *Self, message: []const u8, error_site: ?Ast.TokenIndex, stack: []const CallFrame) void {
-        var notes = std.ArrayList(Reporter.Note).init(self.gc.allocator);
+        var notes = std.array_list.Managed(Reporter.Note).init(self.gc.allocator);
         defer {
             for (notes.items) |note| {
                 self.gc.allocator.free(note.message);
@@ -4614,7 +4614,7 @@ pub const VM = struct {
 
         for (stack, 0..) |frame, i| {
             const next = if (i < stack.len - 1) stack[i + 1] else null;
-            var msg = std.ArrayList(u8).init(self.gc.allocator);
+            var msg = std.array_list.Managed(u8).init(self.gc.allocator);
             var writer = msg.writer();
 
             if (next) |unext| {

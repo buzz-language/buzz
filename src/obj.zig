@@ -511,7 +511,7 @@ pub const Obj = struct {
         }
     }
 
-    pub fn toString(obj: *Obj, writer: *const std.ArrayList(u8).Writer) (Allocator.Error || std.fmt.BufPrintError)!void {
+    pub fn toString(obj: *Obj, writer: *const std.array_list.Managed(u8).Writer) (Allocator.Error || std.fmt.BufPrintError)!void {
         return switch (obj.obj_type) {
             .String => {
                 const str = ObjString.cast(obj).?.string;
@@ -984,7 +984,7 @@ pub const ObjString = struct {
     }
 
     pub fn concat(self: *Self, vm: *VM, other: *Self) !*Self {
-        var new_string: std.ArrayList(u8) = std.ArrayList(u8).init(vm.gc.allocator);
+        var new_string = std.array_list.Managed(u8).init(vm.gc.allocator);
         try new_string.appendSlice(self.string);
         try new_string.appendSlice(other.string);
 
@@ -1177,7 +1177,7 @@ pub const ObjClosure = struct {
 
     upvalues: []*ObjUpValue,
     // Pointer to the global with which the function was declared
-    globals: *std.ArrayListUnmanaged(Value),
+    globals: *std.ArrayList(Value),
 
     pub fn init(allocator: Allocator, vm: *VM, function: *ObjFunction) !Self {
         return Self{
@@ -1762,7 +1762,7 @@ pub const ObjObject = struct {
 
         pub const Placeholder = struct {
             placeholder: *ObjTypeDef,
-            referrers: std.ArrayListUnmanaged(Ast.Node.Index) = .{},
+            referrers: std.ArrayList(Ast.Node.Index) = .{},
         };
 
         id: usize,
@@ -1932,13 +1932,13 @@ pub const ObjList = struct {
     type_def: *ObjTypeDef,
 
     /// List items
-    items: std.ArrayListUnmanaged(Value),
+    items: std.ArrayList(Value),
 
     methods: []?*ObjNative,
 
     pub fn init(allocator: Allocator, type_def: *ObjTypeDef) !Self {
         const self = Self{
-            .items = std.ArrayListUnmanaged(Value){},
+            .items = std.ArrayList(Value){},
             .type_def = type_def,
             .methods = try allocator.alloc(
                 ?*ObjNative,
@@ -4651,7 +4651,7 @@ pub const ObjTypeDef = struct {
             .Function => function: {
                 const old_fun_def = self.resolved_type.?.Function;
 
-                var error_types: ?std.ArrayListUnmanaged(*ObjTypeDef) = null;
+                var error_types: ?std.ArrayList(*ObjTypeDef) = null;
                 if (old_fun_def.error_types) |old_error_types| {
                     error_types = .{};
                     for (old_error_types) |error_type| {
@@ -4772,7 +4772,7 @@ pub const ObjTypeDef = struct {
             // Destroyed copied placeholder link
             optional.resolved_type.?.Placeholder.parent = null;
             optional.resolved_type.?.Placeholder.parent_relation = null;
-            optional.resolved_type.?.Placeholder.children = std.ArrayListUnmanaged(*ObjTypeDef){};
+            optional.resolved_type.?.Placeholder.children = std.ArrayList(*ObjTypeDef){};
 
             // Make actual link
             try PlaceholderDef.link(
@@ -4798,7 +4798,7 @@ pub const ObjTypeDef = struct {
             // Destroyed copied placeholder link
             non_optional.resolved_type.?.Placeholder.parent = null;
             non_optional.resolved_type.?.Placeholder.parent_relation = null;
-            non_optional.resolved_type.?.Placeholder.children = std.ArrayListUnmanaged(*ObjTypeDef){};
+            non_optional.resolved_type.?.Placeholder.children = std.ArrayList(*ObjTypeDef){};
 
             // Make actual link
             try PlaceholderDef.link(
@@ -4890,7 +4890,7 @@ pub const ObjTypeDef = struct {
     }
 
     pub fn toStringAlloc(self: *const Self, allocator: Allocator, qualified: bool) (Allocator.Error || std.fmt.BufPrintError)![]const u8 {
-        var str = std.ArrayList(u8).init(allocator);
+        var str = std.array_list.Managed(u8).init(allocator);
 
         try self.toString(&str.writer(), qualified);
 
@@ -4907,7 +4907,13 @@ pub const ObjTypeDef = struct {
 
     fn toStringRaw(self: *const Self, writer: anytype, qualified: bool) (Allocator.Error || std.fmt.BufPrintError)!void {
         switch (self.def_type) {
-            .Generic => try writer.print("generic type #{}-{}", .{ self.resolved_type.?.Generic.origin, self.resolved_type.?.Generic.index }),
+            .Generic => try writer.print(
+                "generic type #{}-{}",
+                .{
+                    self.resolved_type.?.Generic.origin,
+                    self.resolved_type.?.Generic.index,
+                },
+            ),
             .UserData => try writer.writeAll("ud"),
             .Bool => try writer.writeAll("bool"),
             .Integer => try writer.writeAll("int"),
@@ -5587,7 +5593,7 @@ pub const PlaceholderDef = struct {
     /// What's the relation with the parent?
     parent_relation: ?PlaceholderRelation = null,
     /// Children adds themselves here
-    children: std.ArrayListUnmanaged(*ObjTypeDef),
+    children: std.ArrayList(*ObjTypeDef),
     mutable: ?bool,
 
     /// If the placeholder is a function return, we need to remember eventual generic types defined in that call
@@ -5597,7 +5603,7 @@ pub const PlaceholderDef = struct {
         return Self{
             .where = where,
             .where_end = where_end,
-            .children = std.ArrayListUnmanaged(*ObjTypeDef){},
+            .children = std.ArrayList(*ObjTypeDef){},
             .mutable = mutable,
         };
     }

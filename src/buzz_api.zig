@@ -535,7 +535,7 @@ export fn bz_listConcat(list: v.Value, other_list: v.Value, vm: *VM) callconv(.c
     const left: *o.ObjList = o.ObjList.cast(list.obj()).?;
     const right: *o.ObjList = o.ObjList.cast(other_list.obj()).?;
 
-    var new_list = std.ArrayListUnmanaged(v.Value){};
+    var new_list = std.ArrayList(v.Value){};
     new_list.appendSlice(vm.gc.allocator, left.items.items) catch @panic("Could not concatenate lists");
     new_list.appendSlice(vm.gc.allocator, right.items.items) catch @panic("Could not concatenate lists");
 
@@ -1504,7 +1504,7 @@ export fn bz_zigTypeAlignment(self: *ZigType) callconv(.c) u16 {
 }
 
 export fn bz_zigTypeToCString(self: *ZigType, vm: *VM) callconv(.c) [*:0]const u8 {
-    var out = std.ArrayList(u8).init(vm.gc.allocator);
+    var out = std.array_list.Managed(u8).init(vm.gc.allocator);
 
     out.writer().print("{}\x00", .{self.*}) catch {
         vm.panic("Out of memory");
@@ -1572,7 +1572,10 @@ export fn bz_readZigValueFromBuffer(
     buf: [*]u8,
     len: usize,
 ) callconv(.c) v.Value {
-    var buffer = std.ArrayList(u8).fromOwnedSlice(vm.gc.allocator, buf[0..len]);
+    var buffer = std.array_list.Managed(u8).fromOwnedSlice(
+        vm.gc.allocator,
+        buf[0..len],
+    );
     buffer.capacity = len;
 
     // All those cases are necessary because bytesAsValue require arrays and not slices
@@ -1727,7 +1730,10 @@ export fn bz_writeZigValueToBuffer(
     buf: [*]u8,
     capacity: usize,
 ) callconv(.c) void {
-    var buffer = std.ArrayList(u8).fromOwnedSlice(vm.gc.allocator, buf[0..capacity]);
+    var buffer = std.array_list.Managed(u8).fromOwnedSlice(
+        vm.gc.allocator,
+        buf[0..capacity],
+    );
     buffer.capacity = capacity;
 
     switch (ztype.*) {

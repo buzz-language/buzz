@@ -50,7 +50,7 @@ pub export fn print(ctx: *api.NativeCtx) callconv(.c) c_int {
         return 0;
     }
 
-    _ = io.stdOutWriter.print(
+    io.stdoutWriter.print(
         "{s}\n",
         .{
             string.?[0..len],
@@ -203,14 +203,14 @@ pub export fn assert(ctx: *api.NativeCtx) callconv(.c) c_int {
         if (message_value.isObj()) {
             var len: usize = 0;
             const message = api.Value.bz_valueToString(message_value, &len).?;
-            io.stdOutWriter.print(
+            io.stdoutWriter.print(
                 "Assert failed: {s}\n",
                 .{
                     message[0..len],
                 },
             ) catch unreachable;
         } else {
-            io.stdOutWriter.print("Assert failed\n", .{}) catch unreachable;
+            io.stdoutWriter.print("Assert failed\n", .{}) catch unreachable;
         }
 
         if (!is_wasm) {

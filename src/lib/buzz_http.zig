@@ -53,7 +53,7 @@ pub export fn HttpClientSend(ctx: *api.NativeCtx) callconv(.c) c_int {
     }
 
     const header_values = ctx.vm.bz_peek(0);
-    var headers = std.ArrayList(http.Header).init(api.VM.allocator);
+    var headers = std.array_list.Managed(http.Header).init(api.VM.allocator);
     var next_header_key = api.Value.Null;
     var next_header_value = header_values.bz_mapNext(&next_header_key);
     while (next_header_key.val != api.Value.Null.val) : (next_header_value = header_values.bz_mapNext(&next_header_key)) {
@@ -87,7 +87,7 @@ pub export fn HttpClientSend(ctx: *api.NativeCtx) callconv(.c) c_int {
         unreachable;
     };
 
-    request.* = client.open(
+    request.* = client.request(
         method,
         std.Uri.parse(uri.?[0..uri_len]) catch {
             ctx.vm.pushErrorEnum("http.HttpError", "MalformedUri");
@@ -173,7 +173,7 @@ pub export fn HttpRequestRead(ctx: *api.NativeCtx) callconv(.c) c_int {
         ),
     );
 
-    var body_raw = std.ArrayList(u8).init(api.VM.allocator);
+    var body_raw = std.array_list.Managed(u8).init(api.VM.allocator);
     defer body_raw.deinit();
 
     request.reader().readAllArrayList(&body_raw, std.math.maxInt(usize)) catch |err| {

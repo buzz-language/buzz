@@ -56,14 +56,14 @@ const Break = struct {
     label_node: ?Ast.Node.Index = null,
 };
 
-const Breaks = std.ArrayListUnmanaged(Break);
+const Breaks = std.ArrayList(Break);
 
 current: ?*Frame = null,
 ast: Ast.Slice = undefined,
 gc: *GarbageCollector,
 flavor: RunFlavor,
 /// Jump to patch at end of current expression with a optional unwrapping in the middle of it
-opt_jumps: std.ArrayListUnmanaged(std.ArrayListUnmanaged(usize)) = .{},
+opt_jumps: std.ArrayList(std.ArrayList(usize)) = .{},
 /// Used to generate error messages
 parser: *Parser,
 jit: ?*JIT,
@@ -1211,7 +1211,7 @@ fn generateCall(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj
     }
 
     // Argument order reference
-    var arguments_order_ref = std.ArrayList([]const u8).init(self.gc.allocator);
+    var arguments_order_ref = std.array_list.Managed([]const u8).init(self.gc.allocator);
     defer arguments_order_ref.deinit();
     for (components.arguments) |arg| {
         try arguments_order_ref.append(
@@ -1241,7 +1241,7 @@ fn generateCall(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj
     }
 
     if (missing_arguments.count() > 0) {
-        var missing = std.ArrayList(u8).init(self.gc.allocator);
+        var missing = std.array_list.Managed(u8).init(self.gc.allocator);
         const missing_writer = missing.writer();
         for (missing_arguments.keys(), 0..) |key, i| {
             try missing_writer.print(
@@ -1342,7 +1342,7 @@ fn generateCall(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj
     } else if (error_types) |errors| {
         if (self.current.?.enclosing != null and self.current.?.function.?.type_def.resolved_type.?.Function.function_type != .Test) {
             var handles_any = false;
-            var not_handled = std.ArrayList(*obj.ObjTypeDef).init(self.gc.allocator);
+            var not_handled = std.array_list.Managed(*obj.ObjTypeDef).init(self.gc.allocator);
             defer not_handled.deinit();
             for (errors) |error_type| {
                 if (error_type.def_type == .Void) {
@@ -4185,7 +4185,7 @@ fn generateTry(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.
     // Jump reached if no error was raised
     const no_error_jump = try self.OP_JUMP(self.ast.nodes.items(.end_location)[components.body]);
 
-    var exit_jumps = std.ArrayList(usize).init(self.gc.allocator);
+    var exit_jumps = std.array_list.Managed(usize).init(self.gc.allocator);
     defer exit_jumps.deinit();
 
     self.patchTryOrJit(try_jump);

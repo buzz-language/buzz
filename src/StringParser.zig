@@ -17,11 +17,11 @@ current: ?u8 = null,
 //       and since not all of its keys come from here, we don't know which we can
 //       free when we deinit strings.
 delimiter: u8,
-current_chunk: std.ArrayListUnmanaged(u8) = .{},
+current_chunk: std.ArrayList(u8) = .{},
 offset: usize = 0,
 previous_interp: ?usize = null,
 chunk_count: usize = 0,
-elements: std.ArrayListUnmanaged(Ast.Node.Index) = .{},
+elements: std.ArrayList(Ast.Node.Index) = .{},
 line_offset: usize,
 column_offset: usize,
 host_offset: usize,

@@ -4,30 +4,58 @@ extern fn writeToStderr(string_ptr: [*]const u8, string_length: usize) callconv(
 extern fn writeToStdout(string_ptr: [*]const u8, string_length: usize) callconv(.c) void;
 extern fn readFromStdin(buffer_ptr: [*]const u8, buffer_length: usize) callconv(.c) isize;
 
-pub fn stdErrWrite(_: void, bytes: []const u8) std.posix.WriteError!usize {
-    writeToStderr(bytes.ptr, bytes.len);
+pub const WasmStderrWriter = struct {
+    pub fn drain(w: *std.Io.Writer, data: []const []const u8, splat: usize) std.Io.Writer.Error!usize {
+        if (w.buffer.len > 0) {
+            writeToStderr(w.buffer.ptr, w.buffer.len);
+        }
 
-    return bytes.len;
-}
+        var written: usize = 0;
+        for (data[0 .. data.len - 1]) |element| {
+            writeToStderr(element.ptr, element.len);
+            written += element.len;
+        }
 
-pub fn stdOutWrite(_: void, bytes: []const u8) std.posix.WriteError!usize {
-    writeToStderr(bytes.ptr, bytes.len);
+        const last = data[data.len - 1];
+        for (0..splat) |_| {
+            writeToStderr(last.ptr, last.len);
+            written += last.len;
+        }
 
-    return bytes.len;
-}
-
-pub fn stdInRead(_: void, buffer: []u8) std.posix.ReadError!usize {
-    if (buffer.len == 0) {
-        return 0;
+        return written;
     }
+};
 
-    return @intCast(
-        readFromStdin(
-            buffer.ptr,
-            buffer.len,
-        ),
-    );
-}
+pub const WasmStdoutWriter = struct {
+    pub fn drain(w: *std.Io.Writer, data: []const []const u8, splat: usize) std.Io.Writer.Error!usize {
+        if (w.buffer.len > 0) {
+            writeToStdout(w.buffer.ptr, w.buffer.len);
+        }
+
+        var written: usize = 0;
+        for (data[0 .. data.len - 1]) |element| {
+            writeToStdout(element.ptr, element.len);
+            written += element.len;
+        }
+
+        const last = data[data.len - 1];
+        for (0..splat) |_| {
+            writeToStdout(last.ptr, last.len);
+        }
+
+        return written + last.len * splat;
+    }
+};
+
+pub const WasmStdinReader = struct {
+    pub fn stream(_: *std.Io.Reader, w: *std.Io.Writer, _: std.Io.Limit) std.Io.Reader.StreamError!usize {
+        const dest = try w.writableSliceGreedy(1);
+
+        return @intCast(
+            readFromStdin(dest.ptr, dest.len),
+        );
+    }
+};
 
 pub const io = struct {
     pub fn getStdInHandle() std.posix.fd_t {

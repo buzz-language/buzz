@@ -10,10 +10,9 @@ const Reporter = @import("Reporter.zig");
 const CodeGen = @import("Codegen.zig");
 const Token = @import("Token.zig");
 const Renderer = @import("renderer.zig").Renderer;
+const WriteableArrayList = @import("writeable_array_list.zig").WriteableArrayList;
 
 const log = std.log.scoped(.buzz_lsp);
-
-const Lsp = lsp.server.Server(Handler);
 
 const Document = struct {
     pub const Definition = struct {
@@ -29,7 +28,7 @@ const Document = struct {
     errors: []const Reporter.Report,
 
     /// Symbols collected in the document
-    symbols: std.ArrayListUnmanaged(lsp.types.DocumentSymbol) = .{},
+    symbols: std.ArrayList(lsp.types.DocumentSymbol) = .{},
 
     /// Cache for previous gotoDefinition
     definitions: std.AutoHashMapUnmanaged(Ast.Node.Index, ?Definition) = .{},
@@ -41,7 +40,7 @@ const Document = struct {
     node_hover: std.AutoHashMapUnmanaged(Ast.Node.Index, []const u8) = .{},
 
     /// Cache for inlay hints
-    inlay_hints: std.ArrayListUnmanaged(lsp.types.InlayHint) = .{}, // I tried to make this a simple slice but the data was lost I don't know why
+    inlay_hints: std.ArrayList(lsp.types.InlayHint) = .{}, // I tried to make this a simple slice but the data was lost I don't know why
 
     pub fn init(parent_allocator: std.mem.Allocator, src: [*:0]const u8, uri: []const u8) !Document {
         var arena = std.heap.ArenaAllocator.init(parent_allocator);
@@ -167,7 +166,7 @@ const Document = struct {
             };
 
             self.ast.slice().walk(allocator, &node_ctx, self.ast.root.?) catch |err| {
-                log.err("nodeUnderPosition: {!}", .{err});
+                log.err("nodeUnderPosition: {any}", .{err});
             };
 
             if (node_ctx.result) |res| {
@@ -337,7 +336,7 @@ const Document = struct {
 
                     // If type was omitted, provide it
                     if (!comp.implicit and comp.type == null and type_def != null) {
-                        var inlay = std.ArrayListUnmanaged(u8){};
+                        var inlay = std.ArrayList(u8){};
                         var writer = inlay.writer(allocator);
 
                         try writer.writeAll(": ");
@@ -396,40 +395,37 @@ pub fn main() !void {
 
     log.debug("Buzz LSP started with PID {}", .{getpid()});
 
-    var transport = lsp.Transport.init(
-        std.io.getStdIn().reader(),
-        std.io.getStdOut().writer(),
+    var read_buffer = [_]u8{undefined};
+    var stdio_transport = lsp.Transport.Stdio.init(
+        read_buffer[0..],
+        std.fs.File.stdin(),
+        std.fs.File.stdout(),
     );
-    transport.message_tracing = false;
 
-    var server: Lsp = undefined;
-    var handler: Handler = .{
+    var handler = Handler{
         .allocator = allocator,
-        .server = &server,
+        .transport = &stdio_transport.transport,
     };
-    server = try Lsp.init(
-        allocator,
-        &transport,
-        &handler,
-    );
 
-    try server.loop();
+    try lsp.basic_server.run(
+        allocator,
+        &stdio_transport.transport,
+        &handler,
+        log.err,
+    );
 }
 
 const Handler = struct {
     allocator: std.mem.Allocator,
-    server: *Lsp,
+    transport: *lsp.Transport,
     documents: std.StringHashMapUnmanaged(Document) = .{},
     offset_encoding: lsp.offsets.Encoding = .@"utf-16",
 
     pub fn initialize(
         self: *Handler,
         allocator: std.mem.Allocator,
-        params: lsp.types.InitializeParams,
-        offset_encoding: lsp.offsets.Encoding,
-    ) !lsp.types.InitializeResult {
-        self.offset_encoding = offset_encoding;
-
+        params: lsp.types.getRequestMetadata("initialize").?.Params.?,
+    ) !lsp.types.getRequestMetadata("initialize").?.Result {
         log.info(
             "client (PID {}) {s}-{s} sent initialize request",
             .{
@@ -439,10 +435,10 @@ const Handler = struct {
             },
         );
 
-        var version = std.ArrayList(u8).init(allocator);
+        var version = std.array_list.Managed(u8).init(allocator);
 
         try version.writer().print(
-            "{}-{s}",
+            "{f}-{s}",
             .{
                 BuildOptions.version,
                 BuildOptions.sha,
@@ -558,7 +554,7 @@ const Handler = struct {
         gop.value_ptr.* = doc;
 
         if (doc.errors.len > 0) {
-            var diags = std.ArrayListUnmanaged(lsp.types.Diagnostic){};
+            var diags = std.ArrayList(lsp.types.Diagnostic){};
             for (doc.errors) |report| {
                 for (report.items) |item| {
                     if (std.mem.eql(u8, item.location.script_name, doc.uri)) {
@@ -591,9 +587,12 @@ const Handler = struct {
         }
 
         self.allocator.free(
-            try self.server.sendToClientNotification(
+            try self.transport.writeNotification(
+                self.allocator,
                 "textDocument/publishDiagnostics",
+                lsp.types.PublishDiagnosticsParams,
                 res,
+                .{},
             ),
         );
     }
@@ -691,7 +690,7 @@ const Handler = struct {
                         return error.InternalError;
                     };
 
-                    var new_text = std.ArrayList(u8).init(self.allocator);
+                    var new_text = std.array_list.Managed(u8).init(self.allocator);
                     errdefer new_text.deinit();
 
                     try new_text.appendSlice(old_text[0..start_idx]);
@@ -759,7 +758,7 @@ const Handler = struct {
                     );
                 },
                 .Enum => {
-                    var children = std.ArrayListUnmanaged(lsp.types.DocumentSymbol){};
+                    var children = std.ArrayList(lsp.types.DocumentSymbol){};
 
                     for (components.Enum.cases) |case| {
                         const range = tokenToRange(
@@ -798,7 +797,7 @@ const Handler = struct {
                     );
                 },
                 .ObjectDeclaration => {
-                    var children = std.ArrayListUnmanaged(lsp.types.DocumentSymbol){};
+                    var children = std.ArrayList(lsp.types.DocumentSymbol){};
 
                     if (type_def) |td| {
                         var it = td.resolved_type.?.Object.fields.iterator();
@@ -837,7 +836,7 @@ const Handler = struct {
                     );
                 },
                 .ProtocolDeclaration => {
-                    var children = std.ArrayListUnmanaged(lsp.types.DocumentSymbol){};
+                    var children = std.ArrayList(lsp.types.DocumentSymbol){};
 
                     if (type_def) |td| {
                         var it = td.resolved_type.?.Protocol.methods.iterator();
@@ -916,11 +915,11 @@ const Handler = struct {
         }
     };
 
-    pub fn documentSymbol(
+    pub fn @"textDocument/documentSymbol"(
         self: Handler,
         _: std.mem.Allocator,
-        notification: lsp.types.DocumentSymbolParams,
-    ) !lsp.server.ResultType("textDocument/documentSymbol") {
+        notification: lsp.types.getRequestMetadata("textDocument/documentSymbol").?.Params.?,
+    ) !lsp.types.getRequestMetadata("textDocument/documentSymbol").?.Result {
         if (self.documents.getEntry(notification.textDocument.uri)) |kv| {
             if (kv.value_ptr.ast.root) |root| {
                 if (kv.value_ptr.symbols.items.len == 0) {
@@ -931,7 +930,7 @@ const Handler = struct {
                     };
 
                     document.ast.slice().walk(self.allocator, ctx, root) catch |err| {
-                        log.err("textDocument/documentSymbol: {!}", .{err});
+                        log.err("textDocument/documentSymbol: {any}", .{err});
 
                         document.symbols = .{};
                     };
@@ -947,11 +946,11 @@ const Handler = struct {
         return null;
     }
 
-    pub fn completion(
+    pub fn @"textDocument/completion"(
         _: Handler,
         _: std.mem.Allocator,
-        _: lsp.types.CompletionParams,
-    ) !lsp.server.ResultType("textDocument/completion") {
+        _: lsp.types.getRequestMetadata("textDocument/completion").?.Params.?,
+    ) !lsp.types.getRequestMetadata("textDocument/completion").?.Result {
         return .{
             .CompletionList = .{
                 .isIncomplete = false,
@@ -960,12 +959,11 @@ const Handler = struct {
         };
     }
 
-    pub fn hover(
+    pub fn @"textDocument/hover"(
         self: Handler,
         _: std.mem.Allocator,
-        notification: lsp.types.HoverParams,
-        _: lsp.offsets.Encoding,
-    ) !?lsp.types.Hover {
+        notification: lsp.types.getRequestMetadata("textDocument/hover").?.Params.?,
+    ) !lsp.types.getRequestMetadata("textDocument/hover").?.Result {
         if (self.documents.getEntry(notification.textDocument.uri)) |kv| {
             var document = kv.value_ptr.*;
             const allocator = document.arena.allocator();
@@ -977,7 +975,7 @@ const Handler = struct {
                     const markupEntry = try document.node_hover.getOrPut(allocator, origin);
 
                     if (!markupEntry.found_existing) {
-                        var markup = std.ArrayList(u8).init(allocator);
+                        var markup = std.array_list.Managed(u8).init(allocator);
                         const writer = markup.writer();
 
                         const def = try document.definition(origin);
@@ -994,7 +992,7 @@ const Handler = struct {
 
                         try writer.writeAll("```buzz\n");
                         td.toString(&writer, false) catch |err| {
-                            log.err("textDocument/hover: {!}", .{err});
+                            log.err("textDocument/hover: {any}", .{err});
                         };
                         try writer.writeAll("\n```");
 
@@ -1015,11 +1013,11 @@ const Handler = struct {
         return null;
     }
 
-    pub fn gotoDefinition(
+    pub fn @"textDocument/definition"(
         self: Handler,
         _: std.mem.Allocator,
-        notification: lsp.types.DefinitionParams,
-    ) !lsp.server.ResultType("textDocument/definition") {
+        notification: lsp.types.getRequestMetadata("textDocument/definition").?.Params.?,
+    ) !lsp.types.getRequestMetadata("textDocument/definition").?.Result {
         if (self.documents.getEntry(notification.textDocument.uri)) |kv| {
             var document = kv.value_ptr.*;
 
@@ -1041,28 +1039,29 @@ const Handler = struct {
         return null;
     }
 
-    pub fn references(
+    pub fn @"textDocument/references"(
         _: Handler,
         _: std.mem.Allocator,
-        _: lsp.types.ReferenceParams,
-    ) !?[]lsp.types.Location {
+        _: lsp.types.getRequestMetadata("textDocument/references").?.Params.?,
+    ) !lsp.types.getRequestMetadata("textDocument/references").?.Result {
         return null;
     }
 
-    pub fn formatting(
+    pub fn @"textDocument/formatting"(
         self: Handler,
         _: std.mem.Allocator,
-        notification: lsp.types.DocumentFormattingParams,
-    ) !?[]const lsp.types.TextEdit {
+        notification: lsp.types.getRequestMetadata("textDocument/formatting").?.Params.?,
+    ) !lsp.types.getRequestMetadata("textDocument/formatting").?.Result {
         if (self.documents.get(notification.textDocument.uri)) |document| {
-            var result = std.ArrayList(u8).init(self.allocator);
-            Renderer(std.ArrayList(u8).Writer).render(
+            var result = WriteableArrayList(u8).init(self.allocator);
+
+            Renderer.render(
                 self.allocator,
-                result.writer(),
+                &result.writer,
                 document.ast,
             ) catch |err| {
                 log.err(
-                    "Could not format {s}: {!}",
+                    "Could not format {s}: {any}",
                     .{
                         notification.textDocument.uri,
                         err,
@@ -1072,11 +1071,11 @@ const Handler = struct {
                 return null;
             };
 
-            var text_edit = std.ArrayList(lsp.types.TextEdit).init(self.allocator);
+            var text_edit = std.array_list.Managed(lsp.types.TextEdit).init(self.allocator);
             try text_edit.append(
                 .{
                     .range = document.wholeDocumentRange(),
-                    .newText = result.items,
+                    .newText = result.list.items,
                 },
             );
 
@@ -1085,24 +1084,24 @@ const Handler = struct {
         return null;
     }
 
-    pub fn semanticTokensFull(
+    pub fn @"textDocument/semanticTokens/full"(
         _: Handler,
         _: std.mem.Allocator,
-        _: lsp.types.SemanticTokensParams,
-    ) !?lsp.types.SemanticTokens {
+        _: lsp.types.getRequestMetadata("textDocument/semanticTokens/full").?.Params.?,
+    ) !lsp.types.getRequestMetadata("textDocument/semanticTokens/full").?.Result {
         return null;
     }
 
-    pub fn inlayHint(
+    pub fn @"textDocument/inlayHint"(
         self: Handler,
         _: std.mem.Allocator,
-        notification: lsp.types.InlayHintParams,
-    ) !?[]lsp.types.InlayHint {
+        notification: lsp.types.getRequestMetadata("textDocument/inlayHint").?.Params.?,
+    ) !lsp.types.getRequestMetadata("textDocument/inlayHint").?.Result {
         if (self.documents.getEntry(notification.textDocument.uri)) |kv| {
             var document = kv.value_ptr.*;
             const allocator = document.arena.allocator();
 
-            var result = std.ArrayListUnmanaged(lsp.types.InlayHint){};
+            var result = std.ArrayList(lsp.types.InlayHint){};
 
             for (document.inlay_hints.items) |hint| {
                 // If inlay position under the requested range
@@ -1126,17 +1125,20 @@ const Handler = struct {
 
     /// Handle a response that we have received from the client.
     /// Doesn't usually happen unless we explicitly send a request to the client.
-    pub fn response(_: Handler, resp: lsp.server.Message.Response) !void {
-        const id: []const u8 = switch (resp.id) {
-            .string => |id| id,
-            .number => |id| {
-                log.warn("received response from client with id '{d}' that has no handler!", .{id});
-                return;
-            },
-        };
+    pub fn onResponse(_: Handler, _: std.mem.Allocator, resp: lsp.JsonRPCMessage.Response) !void {
+        const id: []const u8 = if (resp.id) |id|
+            switch (id) {
+                .string => id.string,
+                .number => |nid| {
+                    log.warn("received response from client with id '{d}' that has no handler!", .{nid});
+                    return;
+                },
+            }
+        else
+            "N/A";
 
-        if (resp.data == .@"error") {
-            const err = resp.data.@"error";
+        if (resp.result_or_error == .@"error") {
+            const err = resp.result_or_error.@"error";
             log.err("Error response for '{s}': {}, {s}", .{ id, err.code, err.message });
             return;
         }

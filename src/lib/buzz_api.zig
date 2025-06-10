@@ -9,7 +9,7 @@ pub const os = if (is_wasm)
 else
     std.os;
 
-pub const Native = fn (ctx: *NativeCtx) callconv(.C) c_int;
+pub const Native = fn (ctx: *NativeCtx) callconv(.c) c_int;
 pub const NativeFn = *const Native;
 
 pub const Double = f64;

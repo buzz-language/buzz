@@ -107,7 +107,7 @@ pub fn repeat(ctx: *o.NativeCtx) callconv(.c) c_int {
     const str = o.ObjString.cast(ctx.vm.peek(1).obj()).?;
     const n = ctx.vm.peek(0).integer();
 
-    var new_string: std.ArrayList(u8) = std.ArrayList(u8).init(ctx.vm.gc.allocator);
+    var new_string = std.array_list.Managed(u8).init(ctx.vm.gc.allocator);
     var i: usize = 0;
     while (i < n) : (i += 1) {
         new_string.appendSlice(str.string) catch {
@@ -442,7 +442,7 @@ pub fn hex(ctx: *o.NativeCtx) callconv(.c) c_int {
         return 1;
     }
 
-    var result = std.ArrayList(u8).init(ctx.vm.gc.allocator);
+    var result = std.array_list.Managed(u8).init(ctx.vm.gc.allocator);
     defer result.deinit();
     var writer = result.writer();
 

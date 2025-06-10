@@ -71,7 +71,7 @@ pub fn clone(self: Self) Self {
 
 // Return `n` lines around the token line in its source
 pub fn getLines(self: Self, allocator: mem.Allocator, before: usize, after: usize) ![][]const u8 {
-    var lines = std.ArrayList([]const u8).init(allocator);
+    var lines = std.ArrayList([]const u8){};
     const before_index = if (self.line > 0) self.line - @min(before, self.line) else self.line;
     const after_index = if (self.line > 0) self.line + after else self.line;
 
@@ -79,15 +79,15 @@ pub fn getLines(self: Self, allocator: mem.Allocator, before: usize, after: usiz
     var current: usize = 0;
     while (it.next()) |line| : (current += 1) {
         if (current >= before_index and current <= after_index) {
-            try lines.append(line);
+            try lines.append(allocator, line);
         }
 
         if (current > after_index) {
-            return try lines.toOwnedSlice();
+            return try lines.toOwnedSlice(allocator);
         }
     }
 
-    return try lines.toOwnedSlice();
+    return try lines.toOwnedSlice(allocator);
 }
 
 // WARNING: don't reorder without reordering `rules` in parser.zig
