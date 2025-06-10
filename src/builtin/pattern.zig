@@ -279,7 +279,7 @@ fn rawReplace(self: *o.ObjPattern, vm: *VM, subject: *o.ObjString, replacement: 
         return subject;
     }
 
-    var result = std.ArrayListUnmanaged(u8){};
+    var result = std.ArrayList(u8){};
     defer result.deinit(vm.gc.allocator);
 
     var match_data = self.pattern.createMatchData(null) orelse {

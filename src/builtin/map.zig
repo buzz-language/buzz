@@ -343,7 +343,7 @@ pub fn keys(ctx: *o.NativeCtx) callconv(.c) c_int {
     const self: *o.ObjMap = o.ObjMap.cast(ctx.vm.peek(0).obj()).?;
 
     const map_keys = self.map.keys();
-    var result = std.ArrayListUnmanaged(v.Value){};
+    var result = std.ArrayList(v.Value){};
     for (map_keys) |key| {
         result.append(ctx.vm.gc.allocator, key) catch {
             ctx.vm.panic("Out of memory");
@@ -394,7 +394,7 @@ pub fn values(ctx: *o.NativeCtx) callconv(.c) c_int {
     const self: *o.ObjMap = o.ObjMap.cast(ctx.vm.peek(0).obj()).?;
 
     const map_values: []v.Value = self.map.values();
-    var result = std.ArrayListUnmanaged(v.Value){};
+    var result = std.ArrayList(v.Value){};
     result.appendSlice(ctx.vm.gc.allocator, map_values) catch {
         ctx.vm.panic("Out of memory");
         unreachable;

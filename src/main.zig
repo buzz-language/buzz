@@ -32,7 +32,7 @@ else
 
 fn printBanner(out: anytype, full: bool) void {
     out.print(
-        "👨‍🚀 buzz {}-{s} Copyright (C) 2021-present Benoit Giannangeli\n",
+        "👨‍🚀 buzz {f}-{s} Copyright (C) 2021-present Benoit Giannangeli\n",
         .{
             BuildOptions.version,
             BuildOptions.sha,
@@ -41,7 +41,7 @@ fn printBanner(out: anytype, full: bool) void {
 
     if (full) {
         out.print(
-            "Built with Zig {} {s}\nAllocator: {s}, Memory limit: {} {s}\nJIT: {s}, CPU limit: {} {s}\n",
+            "Built with Zig {f} {s}\nAllocator: {s}, Memory limit: {} {s}\nJIT: {s}, CPU limit: {} {s}\n",
             .{
                 builtin.zig_version,
                 @tagName(builtin.mode),
@@ -179,9 +179,9 @@ pub fn runFile(allocator: Allocator, file_name: []const u8, args: []const []cons
             var arena = std.heap.ArenaAllocator.init(allocator);
             defer arena.deinit();
 
-            try Renderer(std.fs.File.Writer).render(
+            try Renderer.render(
                 arena.allocator(),
-                std.io.getStdOut().writer(),
+                io.stdoutWriter,
                 ast,
             );
         } else {
@@ -223,13 +223,13 @@ pub fn main() u8 {
         },
     ) catch |err| {
         // Report useful error and exit
-        diag.report(io.stdErrWriter, err) catch {};
+        diag.report(io.stderrWriter, err) catch {};
         return 1;
     };
     defer res.deinit();
 
     if (res.args.version == 1) {
-        printBanner(io.stdOutWriter, true);
+        printBanner(io.stdoutWriter, true);
 
         return 0;
     }
@@ -238,7 +238,7 @@ pub fn main() u8 {
         io.print("👨‍🚀 buzz A small/lightweight typed scripting language\n\nUsage: buzz ", .{});
 
         clap.usage(
-            io.stdErrWriter,
+            io.stderrWriter,
             clap.Help,
             &params,
         ) catch return 1;
@@ -246,7 +246,7 @@ pub fn main() u8 {
         io.print("\n\n", .{});
 
         clap.help(
-            io.stdErrWriter,
+            io.stderrWriter,
             clap.Help,
             &params,
             .{
@@ -260,7 +260,7 @@ pub fn main() u8 {
     }
 
     if (res.args.library.len > 0) {
-        var list = std.ArrayList([]const u8).init(allocator);
+        var list = std.array_list.Managed([]const u8).init(allocator);
 
         for (res.args.library) |path| {
             list.append(path) catch return 1;

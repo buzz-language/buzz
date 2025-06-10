@@ -33,7 +33,7 @@ pub const MIR_ctx_change_error: c_int = 29;
 pub const MIR_parallel_error: c_int = 210;
 pub const enum_MIR_error_type = c_uint;
 pub const MIR_error_type_t = enum_MIR_error_type;
-pub const MIR_error_func_t = ?*const fn (MIR_error_type_t, [*]const u8, ...) callconv(.C) noreturn;
+pub const MIR_error_func_t = ?*const fn (MIR_error_type_t, [*]const u8, ...) callconv(.c) noreturn;
 // zig fmt: off
 pub const MIR_Instruction = enum(c_int) {
     // Abbreviations:
@@ -344,7 +344,7 @@ pub const MIR_context_t = ?*struct_MIR_context;
 
 pub extern fn MIR_get_api_version() callconv(.c) f64;
 pub const MIR_init = _MIR_init;
-extern fn _MIR_init() callconv(.C) MIR_context_t;
+extern fn _MIR_init() callconv(.c) MIR_context_t;
 pub extern fn MIR_finish(ctx: MIR_context_t) callconv(.c) void;
 pub extern fn MIR_new_module(ctx: MIR_context_t, name: [*:0]const u8) callconv(.c) MIR_module_t;
 pub extern fn MIR_get_module_list(ctx: MIR_context_t) callconv(.c) *DLIST_MIR_module_t;
@@ -438,7 +438,7 @@ pub extern fn MIR_scan_string(ctx: MIR_context_t, str: [*:0]const u8) callconv(.
 pub extern fn MIR_get_global_item(ctx: MIR_context_t, name: [*:0]const u8) callconv(.c) MIR_item_t;
 pub extern fn MIR_load_module(ctx: MIR_context_t, m: MIR_module_t) callconv(.c) void;
 pub extern fn MIR_load_external(ctx: MIR_context_t, name: [*:0]const u8, addr: ?*anyopaque) callconv(.c) void;
-pub extern fn MIR_link(ctx: MIR_context_t, set_interface: ?*const fn (MIR_context_t, MIR_item_t) callconv(.c) void, import_resolver: ?*const fn ([*:0]const u8) callconv(.C) ?*anyopaque) void;
+pub extern fn MIR_link(ctx: MIR_context_t, set_interface: ?*const fn (MIR_context_t, MIR_item_t) callconv(.c) void, import_resolver: ?*const fn ([*:0]const u8) callconv(.c) ?*anyopaque) void;
 pub const MIR_val_t = extern union {
     ic: MIR_insn_code_t,
     a: ?*anyopaque,
@@ -450,50 +450,50 @@ pub const MIR_val_t = extern union {
 };
 pub extern fn MIR_interp_arr(ctx: MIR_context_t, func_item: MIR_item_t, results: *MIR_val_t, nargs: usize, vals: *MIR_val_t) callconv(.c) void;
 pub extern fn MIR_set_interp_interface(ctx: MIR_context_t, func_item: MIR_item_t) callconv(.c) void;
-extern fn _MIR_uniq_string(ctx: MIR_context_t, str: [*:0]const u8) callconv(.C) [*:0]const u8;
-extern fn _MIR_reserved_ref_name_p(ctx: MIR_context_t, name: [*:0]const u8) callconv(.C) c_int;
-extern fn _MIR_reserved_name_p(ctx: MIR_context_t, name: [*:0]const u8) callconv(.C) c_int;
-extern fn _MIR_new_temp_reg(ctx: MIR_context_t, @"type": MIR_type_t, func: MIR_func_t) callconv(.C) MIR_reg_t;
-extern fn _MIR_type_size(ctx: MIR_context_t, @"type": MIR_type_t) callconv(.C) usize;
-extern fn _MIR_insn_code_op_mode(ctx: MIR_context_t, code: MIR_insn_code_t, nop: usize, out_p: *c_int) callconv(.C) MIR_op_mode_t;
-extern fn _MIR_new_unspec_insn(ctx: MIR_context_t, nops: usize, ...) callconv(.C) MIR_insn_t;
-extern fn _MIR_register_unspec_insn(ctx: MIR_context_t, code: u64, name: [*:0]const u8, nres: usize, res_types: *MIR_type_t, nargs: usize, vararg_p: c_int, args: *MIR_var_t) callconv(.C) void;
-extern fn _MIR_duplicate_func_insns(ctx: MIR_context_t, func_item: MIR_item_t) callconv(.C) void;
-extern fn _MIR_restore_func_insns(ctx: MIR_context_t, func_item: MIR_item_t) callconv(.C) void;
-extern fn _MIR_get_temp_item_name(ctx: MIR_context_t, module: MIR_module_t, buff: *u8, buff_len: usize) callconv(.C) void;
-extern fn _MIR_new_var_op(ctx: MIR_context_t, hard_reg: MIR_reg_t) callconv(.C) MIR_op_t;
-extern fn _MIR_new_var_mem_op(ctx: MIR_context_t, @"type": MIR_type_t, disp: MIR_disp_t, base: MIR_reg_t, index: MIR_reg_t, scale: MIR_scale_t) callconv(.C) MIR_op_t;
-extern fn _MIR_builtin_proto(ctx: MIR_context_t, module: MIR_module_t, name: [*:0]const u8, nres: usize, res_types: *MIR_type_t, nargs: usize, ...) callconv(.C) MIR_item_t;
-extern fn _MIR_builtin_func(ctx: MIR_context_t, module: MIR_module_t, name: [*]const u8, addr: ?*anyopaque) callconv(.C) MIR_item_t;
-extern fn _MIR_flush_code_cache(start: ?*anyopaque, bound: ?*anyopaque) callconv(.C) void;
-extern fn _MIR_publish_code(ctx: MIR_context_t, code: [*]const u8, code_len: usize) callconv(.C) *u8;
-extern fn _MIR_get_new_code_addr(ctx: MIR_context_t, size: usize) callconv(.C) *u8;
-extern fn _MIR_publish_code_by_addr(ctx: MIR_context_t, addr: ?*anyopaque, code: [*]const u8, code_len: usize) callconv(.C) *u8;
+extern fn _MIR_uniq_string(ctx: MIR_context_t, str: [*:0]const u8) callconv(.c) [*:0]const u8;
+extern fn _MIR_reserved_ref_name_p(ctx: MIR_context_t, name: [*:0]const u8) callconv(.c) c_int;
+extern fn _MIR_reserved_name_p(ctx: MIR_context_t, name: [*:0]const u8) callconv(.c) c_int;
+extern fn _MIR_new_temp_reg(ctx: MIR_context_t, @"type": MIR_type_t, func: MIR_func_t) callconv(.c) MIR_reg_t;
+extern fn _MIR_type_size(ctx: MIR_context_t, @"type": MIR_type_t) callconv(.c) usize;
+extern fn _MIR_insn_code_op_mode(ctx: MIR_context_t, code: MIR_insn_code_t, nop: usize, out_p: *c_int) callconv(.c) MIR_op_mode_t;
+extern fn _MIR_new_unspec_insn(ctx: MIR_context_t, nops: usize, ...) callconv(.c) MIR_insn_t;
+extern fn _MIR_register_unspec_insn(ctx: MIR_context_t, code: u64, name: [*:0]const u8, nres: usize, res_types: *MIR_type_t, nargs: usize, vararg_p: c_int, args: *MIR_var_t) callconv(.c) void;
+extern fn _MIR_duplicate_func_insns(ctx: MIR_context_t, func_item: MIR_item_t) callconv(.c) void;
+extern fn _MIR_restore_func_insns(ctx: MIR_context_t, func_item: MIR_item_t) callconv(.c) void;
+extern fn _MIR_get_temp_item_name(ctx: MIR_context_t, module: MIR_module_t, buff: *u8, buff_len: usize) callconv(.c) void;
+extern fn _MIR_new_var_op(ctx: MIR_context_t, hard_reg: MIR_reg_t) callconv(.c) MIR_op_t;
+extern fn _MIR_new_var_mem_op(ctx: MIR_context_t, @"type": MIR_type_t, disp: MIR_disp_t, base: MIR_reg_t, index: MIR_reg_t, scale: MIR_scale_t) callconv(.c) MIR_op_t;
+extern fn _MIR_builtin_proto(ctx: MIR_context_t, module: MIR_module_t, name: [*:0]const u8, nres: usize, res_types: *MIR_type_t, nargs: usize, ...) callconv(.c) MIR_item_t;
+extern fn _MIR_builtin_func(ctx: MIR_context_t, module: MIR_module_t, name: [*]const u8, addr: ?*anyopaque) callconv(.c) MIR_item_t;
+extern fn _MIR_flush_code_cache(start: ?*anyopaque, bound: ?*anyopaque) callconv(.c) void;
+extern fn _MIR_publish_code(ctx: MIR_context_t, code: [*]const u8, code_len: usize) callconv(.c) *u8;
+extern fn _MIR_get_new_code_addr(ctx: MIR_context_t, size: usize) callconv(.c) *u8;
+extern fn _MIR_publish_code_by_addr(ctx: MIR_context_t, addr: ?*anyopaque, code: [*]const u8, code_len: usize) callconv(.c) *u8;
 pub const struct_MIR_code_reloc = extern struct {
     offset: usize,
     value: ?*const anyopaque,
 };
 pub const MIR_code_reloc_t = struct_MIR_code_reloc;
-extern fn _MIR_set_code(prot_start: usize, prot_len: usize, base: *u8, nloc: usize, relocs: *const MIR_code_reloc_t, reloc_size: usize) callconv(.C) void;
-extern fn _MIR_change_code(ctx: MIR_context_t, addr: *u8, code: [*]const u8, code_len: usize) callconv(.C) void;
-extern fn _MIR_update_code_arr(ctx: MIR_context_t, base: *u8, nloc: usize, relocs: *const MIR_code_reloc_t) callconv(.C) void;
-extern fn _MIR_update_code(ctx: MIR_context_t, base: *u8, nloc: usize, ...) callconv(.C) void;
+extern fn _MIR_set_code(prot_start: usize, prot_len: usize, base: *u8, nloc: usize, relocs: *const MIR_code_reloc_t, reloc_size: usize) callconv(.c) void;
+extern fn _MIR_change_code(ctx: MIR_context_t, addr: *u8, code: [*]const u8, code_len: usize) callconv(.c) void;
+extern fn _MIR_update_code_arr(ctx: MIR_context_t, base: *u8, nloc: usize, relocs: *const MIR_code_reloc_t) callconv(.c) void;
+extern fn _MIR_update_code(ctx: MIR_context_t, base: *u8, nloc: usize, ...) callconv(.c) void;
 pub extern fn va_arg_builtin(p: ?*anyopaque, t: u64) callconv(.c) ?*anyopaque;
 pub extern fn va_block_arg_builtin(res: ?*anyopaque, p: ?*anyopaque, s: usize, t: u64) callconv(.c) void;
 pub extern fn va_start_interp_builtin(ctx: MIR_context_t, p: ?*anyopaque, a: ?*anyopaque) callconv(.c) void;
 pub extern fn va_end_interp_builtin(ctx: MIR_context_t, p: ?*anyopaque) callconv(.c) void;
-extern fn _MIR_get_bstart_builtin(ctx: MIR_context_t) callconv(.C) ?*anyopaque;
-extern fn _MIR_get_bend_builtin(ctx: MIR_context_t) callconv(.C) ?*anyopaque;
+extern fn _MIR_get_bstart_builtin(ctx: MIR_context_t) callconv(.c) ?*anyopaque;
+extern fn _MIR_get_bend_builtin(ctx: MIR_context_t) callconv(.c) ?*anyopaque;
 pub const _MIR_arg_desc_t = extern struct {
     type: MIR_type_t,
     size: usize,
 };
-extern fn _MIR_get_ff_call(ctx: MIR_context_t, nres: usize, res_types: *MIR_type_t, nargs: usize, arg_descs: *_MIR_arg_desc_t, arg_vars_num: usize) callconv(.C) ?*anyopaque;
-extern fn _MIR_get_interp_shim(ctx: MIR_context_t, func_item: MIR_item_t, handler: ?*anyopaque) callconv(.C) ?*anyopaque;
-extern fn _MIR_get_thunk(ctx: MIR_context_t) callconv(.C) ?*anyopaque;
-extern fn _MIR_redirect_thunk(ctx: MIR_context_t, thunk: ?*anyopaque, to: ?*anyopaque) callconv(.C) void;
-extern fn _MIR_get_wrapper(ctx: MIR_context_t, called_func: MIR_item_t, hook_address: ?*anyopaque) callconv(.C) ?*anyopaque;
-extern fn _MIR_dump_code(name: [*:0]const u8, index: c_int, code: *u8, code_len: usize) callconv(.C) void;
+extern fn _MIR_get_ff_call(ctx: MIR_context_t, nres: usize, res_types: *MIR_type_t, nargs: usize, arg_descs: *_MIR_arg_desc_t, arg_vars_num: usize) callconv(.c) ?*anyopaque;
+extern fn _MIR_get_interp_shim(ctx: MIR_context_t, func_item: MIR_item_t, handler: ?*anyopaque) callconv(.c) ?*anyopaque;
+extern fn _MIR_get_thunk(ctx: MIR_context_t) callconv(.c) ?*anyopaque;
+extern fn _MIR_redirect_thunk(ctx: MIR_context_t, thunk: ?*anyopaque, to: ?*anyopaque) callconv(.c) void;
+extern fn _MIR_get_wrapper(ctx: MIR_context_t, called_func: MIR_item_t, hook_address: ?*anyopaque) callconv(.c) ?*anyopaque;
+extern fn _MIR_dump_code(name: [*:0]const u8, index: c_int, code: *u8, code_len: usize) callconv(.c) void;
 pub extern fn MIR_gen_init(ctx: MIR_context_t) callconv(.c) void;
 pub extern fn MIR_gen_set_debug_file(ctx: MIR_context_t, f: ?*std.c.FILE) callconv(.c) void;
 pub extern fn MIR_gen_set_debug_level(ctx: MIR_context_t, debug_level: c_int) callconv(.c) void;

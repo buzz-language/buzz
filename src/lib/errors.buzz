@@ -6,7 +6,9 @@ export enum FileSystemError {
     BadPathName,
     DeviceBusy,
     DiskQuota,
+    FastOpenAlreadyInProgress,
     FileBusy,
+    FileDescriptorNotASocket,
     FileLocksNotSupported,
     FileNotFound,
     FileSystem,
@@ -90,6 +92,7 @@ export enum SocketError {
     ProtocolFailure,
     ProtocolFamilyNotAvailable,
     ProtocolNotSupported,
+    ResolveConfParseFailed,
     ServiceUnavailable,
     SocketNotBound,
     SocketNotListening,
@@ -111,6 +114,7 @@ export enum ReadWriteError {
     NotOpenForReading,
     NotOpenForWriting,
     OperationAborted,
+    ReadFailed,
     StreamTooLong,
 }
 

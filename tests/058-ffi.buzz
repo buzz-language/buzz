@@ -78,14 +78,14 @@ test "struct" {
         value = 42.0,
     };
 
-    std\assert(data.msg == "bye world\0", message: "Could instanciate Zig struct");
+    std\assert(data.msg == "bye world\000", message: "Could instanciate Zig struct");
     std\assert(data.id == 123, message: "Could instanciate Zig struct");
 
     data.id = 42;
 
     std\assert(data.id == 42, message: "Could set Zig struct field");
 
-    std\assert(get_data_msg(data) == "bye world\0", message: "Could use foreign function with struct ptr param");
+    std\assert(get_data_msg(data) == "bye world\000", message: "Could use foreign function with struct ptr param");
 
     set_data_id(data);
 

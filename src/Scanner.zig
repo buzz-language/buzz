@@ -212,7 +212,7 @@ fn isLetter(char: u8) bool {
 fn docblock(self: *Self) !Token {
     _ = self.advance(); // Skip third `/`
 
-    var block = std.ArrayList(u8).init(self.allocator);
+    var block = std.array_list.Managed(u8).init(self.allocator);
 
     while (!self.isEOF()) {
         while (!self.isEOF()) {
@@ -564,7 +564,7 @@ fn makeToken(self: *Self, tag: Token.Type, literal: Token.Literal) Token {
     };
 }
 
-pub fn highlight(self: *Self, out: anytype, true_color: bool) void {
+pub fn highlight(self: *Self, out: *std.Io.Writer, true_color: bool) void {
     var previous_offset: usize = 0;
     var token = self.scanToken() catch unreachable;
     while (token.tag != .Eof and token.tag != .Error) {

@@ -65,7 +65,7 @@ pub export fn initRepl() *ReplCtx {
         null,
     );
 
-    printBanner(io.stdOutWriter, true);
+    printBanner(io.stdoutWriter, true);
 
     // Import std and debug as commodity
     _ = runSource(
@@ -91,25 +91,27 @@ pub export fn initRepl() *ReplCtx {
 }
 
 pub export fn runLine(ctx: *ReplCtx) void {
-    var stdout = io.stdOutWriter;
-    var stderr = io.stdErrWriter;
-    var stdin = io.stdInReader;
+    var stdout = io.stdoutWriter;
+    var stderr = io.stderrWriter;
+
+    var reader_buffer = [_]u8{0};
+    var stdin_reader = io.stdinReader(reader_buffer[0..]);
+    var stdin = io.AllocatedReader{
+        .reader = &stdin_reader,
+    };
 
     var previous_global_top = ctx.vm.globals_count;
     var previous_parser_globals = ctx.parser.globals.clone(ctx.parser.gc.allocator) catch unreachable;
     var previous_globals = ctx.vm.globals.clone(ctx.parser.gc.allocator) catch unreachable;
     var previous_type_registry = ctx.vm.gc.type_registry.registry.clone() catch unreachable;
 
-    const source_buffer = ctx.vm.gc.allocator.alloc(u8, 1024) catch unreachable;
-    errdefer ctx.vm.gc.allocator.free(source_buffer);
-    const len = stdin.readAll(source_buffer) catch unreachable;
+    const source = stdin.readAll(ctx.vm.gc.allocator) catch unreachable;
+    errdefer ctx.vm.gc.allocator.free(source);
 
-    if (len == 0) {
-        ctx.vm.gc.allocator.free(source_buffer);
+    if (source.len == 0) {
+        ctx.vm.gc.allocator.free(source);
         return;
     }
-
-    const source = source_buffer[0..len];
 
     const expr = runSource(
         source,
@@ -140,7 +142,7 @@ pub export fn runLine(ctx: *ReplCtx) void {
 
             const value = expr orelse ctx.vm.globals.items[previous_global_top];
 
-            var value_str = std.ArrayList(u8).init(ctx.vm.gc.allocator);
+            var value_str = std.array_list.Managed(u8).init(ctx.vm.gc.allocator);
             defer value_str.deinit();
             var state = DumpState.init(ctx.vm);
 

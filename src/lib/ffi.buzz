@@ -1,6 +1,6 @@
 namespace ffi;
 
-export fun cstr(string: str) => "{string}\0";
+export fun cstr(string: str) => "{string}\000";
 
 export object FFITypeMismatchError {
     message: str = "Provided buzz value type does not match expected FFI type",

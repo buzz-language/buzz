@@ -4,6 +4,7 @@ const Ast = @import("../Ast.zig");
 const Parser = @import("../Parser.zig");
 const mem = @import("../memory.zig");
 const Renderer = @import("../renderer.zig").Renderer;
+const WriteableArrayList = @import("../writeable_array_list.zig").WriteableArrayList;
 
 fn testFmt(
     name: []const u8,
@@ -24,18 +25,18 @@ fn testFmt(
         .Fmt,
     );
 
-    var result = std.ArrayList(u8).init(allocator);
+    var result = WriteableArrayList(u8).init(allocator);
 
     if (parser.parse(src, name, name) catch null) |ast| {
-        try Renderer(std.ArrayList(u8).Writer).render(
+        try Renderer.render(
             allocator,
-            result.writer(),
+            &result.writer,
             ast,
         );
 
         try std.testing.expectEqualStrings(
             expected,
-            result.items,
+            result.list.items,
         );
     } else {
         try std.testing.expect(false);

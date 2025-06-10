@@ -156,6 +156,7 @@ fn handleRealpathError(ctx: *api.NativeCtx, err: anytype) void {
         => ctx.vm.pushErrorEnum("errors.FileSystemError", @errorName(err)),
 
         error.PermissionDenied,
+        error.ProcessNotFound,
         => ctx.vm.pushErrorEnum("errors.ExecError", @errorName(err)),
 
         error.Unexpected => ctx.vm.pushError("errors.UnexpectedError", null),
@@ -255,6 +256,7 @@ fn handleOpenDirAbsoluteError(ctx: *api.NativeCtx, err: anytype) void {
         => ctx.vm.pushErrorEnum("errors.FileSystemError", @errorName(err)),
 
         error.PermissionDenied,
+        error.ProcessNotFound,
         => ctx.vm.pushErrorEnum("errors.ExecError", @errorName(err)),
 
         error.Unexpected => ctx.vm.pushError("errors.UnexpectedError", null),
@@ -280,6 +282,7 @@ fn handleOpenDirError(ctx: *api.NativeCtx, err: anytype) void {
         => ctx.vm.pushErrorEnum("errors.FileSystemError", @errorName(err)),
 
         error.PermissionDenied,
+        error.ProcessNotFound,
         => ctx.vm.pushErrorEnum("errors.ExecError", @errorName(err)),
 
         error.Unexpected => ctx.vm.pushError("errors.UnexpectedError", null),
@@ -292,6 +295,9 @@ fn handleDirIterateError(ctx: *api.NativeCtx, err: anytype) void {
         error.SystemResources,
         error.InvalidUtf8,
         => ctx.vm.pushErrorEnum("errors.FileSystemError", @errorName(err)),
+
+        error.PermissionDenied,
+        => ctx.vm.pushErrorEnum("errors.ExecError", @errorName(err)),
 
         error.Unexpected => ctx.vm.pushError("errors.UnexpectedError", null),
     }

@@ -29,7 +29,7 @@ pub const TypeRegistry = struct {
     rg_type: *o.ObjTypeDef,
 
     // Buffer resused when we build a type key
-    type_def_key_buffer: std.ArrayListUnmanaged(u8) = .{},
+    type_def_key_buffer: std.ArrayList(u8) = .{},
 
     pub fn init(gc: *GarbageCollector) !Self {
         var self = Self{
@@ -178,7 +178,7 @@ pub const GarbageCollector = struct {
     next_full_gc: usize = if (builtin.mode == .Debug) 1024 else 1024 * BuildOptions.initial_gc,
     last_gc: ?Mode = null,
     objects: std.DoublyLinkedList = .{},
-    gray_stack: std.ArrayListUnmanaged(*o.Obj),
+    gray_stack: std.ArrayList(*o.Obj),
     active_vms: std.AutoHashMapUnmanaged(*v.VM, void),
     // o.Obj being collected, useful to avoid setting object instance dirty while running its collector method
     obj_collected: ?*o.Obj = null,
@@ -207,7 +207,7 @@ pub const GarbageCollector = struct {
             .allocator = allocator,
             .strings = std.StringHashMapUnmanaged(*o.ObjString){},
             .type_registry = undefined,
-            .gray_stack = std.ArrayListUnmanaged(*o.Obj){},
+            .gray_stack = std.ArrayList(*o.Obj){},
             .active_vms = std.AutoHashMapUnmanaged(*v.VM, void){},
             .debugger = if (BuildOptions.gc_debug_access) GarbageCollectorDebugger.init(allocator) else null,
 
@@ -1134,10 +1134,10 @@ pub const GarbageCollectorDebugger = struct {
 
         if (self.tracker.getPtr(ptr)) |tracked| {
             if (tracked.collected_at) |collected_at| {
-                var items = std.ArrayList(Reporter.ReportItem).init(self.allocator);
+                var items = std.array_list.Managed(Reporter.ReportItem).init(self.allocator);
                 defer items.deinit();
 
-                var message = std.ArrayList(u8).init(self.allocator);
+                var message = std.array_list.Managed(u8).init(self.allocator);
                 defer message.deinit();
 
                 message.writer().print(

@@ -6,50 +6,42 @@ const builtin = @import("builtin");
 const is_wasm = builtin.cpu.arch.isWasm();
 const wasm = @import("wasm.zig");
 
-fn stdErrWrite(_: void, bytes: []const u8) std.posix.WriteError!usize {
-    return std.io.getStdErr().write(bytes);
-}
+var fs_stderr_writer = std.fs.File.stderr().writer(&.{});
+const wasm_stderr_writer = .{
+    .buffer = &.{},
+    .vtable = &.{
+        .drain = wasm.WasmStderrWriter.drain,
+    },
+};
 
-fn stdOutWrite(_: void, bytes: []const u8) std.posix.WriteError!usize {
-    return std.io.getStdOut().write(bytes);
-}
+pub var stderrWriter = if (!is_wasm)
+    &fs_stderr_writer.interface
+else
+    &wasm_stderr_writer;
 
-fn stdInRead(_: void, buffer: []u8) std.posix.ReadError!usize {
-    return std.io.getStdIn().read(buffer);
-}
+var fs_stdout_writer = std.fs.File.stdout().writer(&.{});
+const wasm_stdout_writer: std.Io.Writer = .{
+    .buffer = &.{},
+    .vtable = &.{
+        .drain = wasm.WasmStdoutWriter.drain,
+    },
+};
 
-const StdErrWriter = std.io.Writer(
-    void,
-    std.posix.WriteError,
-    if (is_wasm)
-        wasm.stdErrWrite
+pub var stdoutWriter = if (!is_wasm)
+    &fs_stdout_writer.interface
+else
+    &wasm_stdout_writer;
+
+pub fn stdinReader(buffer: []u8) std.Io.Reader {
+    return if (!is_wasm)
+        std.fs.File.stdin().reader(buffer).interface
     else
-        stdErrWrite,
-);
-
-pub const stdErrWriter = StdErrWriter{ .context = {} };
-
-const StdOutWriter = std.io.Writer(
-    void,
-    std.posix.WriteError,
-    if (is_wasm)
-        wasm.stdOutWrite
-    else
-        stdOutWrite,
-);
-
-pub const stdOutWriter = StdOutWriter{ .context = {} };
-
-const StdInReader = std.io.Reader(
-    void,
-    std.posix.ReadError,
-    if (is_wasm)
-        wasm.stdInRead
-    else
-        stdInRead,
-);
-
-pub const stdInReader = StdInReader{ .context = {} };
+        .{
+            .vtable = &.{
+                .stream = wasm.WasmStdinReader.stream,
+            },
+        };
+}
 
 var stderr_mutex = std.Thread.Mutex{};
 
@@ -58,8 +50,89 @@ pub fn print(comptime fmt: []const u8, args: anytype) void {
         stderr_mutex.lock();
         defer stderr_mutex.unlock();
 
-        stdErrWriter.print(fmt, args) catch return;
+        stderrWriter.print(fmt, args) catch return;
     } else {
         std.debug.print(fmt, args);
     }
 }
+
+// FIXME: i was forced to use a 1-length buffer for my readerse/writer because i'm rebuilding them each time i call one
+// of my Read/Write method
+// but this is far from optimized as it forces to do a sycall per character
+// => hold the Reader/Writer on the heap as part of the File object to avoid rebuilding it each time?
+pub const AllocatedReader = struct {
+    pub const Error = error{
+        ReadFailed,
+        OutOfMemory,
+    };
+
+    buffer: std.ArrayList(u8) = .empty,
+    max_size: ?usize = null,
+    reader: *std.Io.Reader,
+
+    pub fn readUntilDelimiterOrEof(self: *AllocatedReader, allocator: std.mem.Allocator, delimiter: u8) Error!?[]u8 {
+        std.debug.assert(self.reader.buffer.len > 0);
+
+        var writer = self.buffer.writer(allocator);
+
+        var count: usize = 0;
+        while (self.max_size == null or count < self.max_size.?) : (count += 1) {
+            const byte = self.reader.takeByte() catch |err| {
+                switch (err) {
+                    error.EndOfStream => return if (count > 0)
+                        try self.buffer.toOwnedSlice(allocator)
+                    else
+                        null,
+                    error.ReadFailed => return error.ReadFailed,
+                }
+            };
+
+            if (byte == delimiter) {
+                break;
+            }
+
+            try writer.writeByte(byte);
+        }
+
+        return try self.buffer.toOwnedSlice(allocator);
+    }
+
+    pub fn readAll(self: *AllocatedReader, allocator: std.mem.Allocator) Error![]u8 {
+        std.debug.assert(self.reader.buffer.len > 0);
+
+        var writer = self.buffer.writer(allocator);
+
+        while (true) {
+            const byte = self.reader.takeByte() catch |err| {
+                switch (err) {
+                    error.EndOfStream => break,
+                    error.ReadFailed => return error.ReadFailed,
+                }
+            };
+
+            try writer.writeByte(byte);
+        }
+
+        return try self.buffer.toOwnedSlice(allocator);
+    }
+
+    pub fn readN(self: *AllocatedReader, allocator: std.mem.Allocator, n: usize) Error![]u8 {
+        std.debug.assert(self.reader.buffer.len > 0);
+
+        var writer = self.buffer.writer(allocator);
+
+        var count: usize = 0;
+        while (count < n and (self.max_size == null or count < self.max_size.?)) : (count += 1) {
+            const byte = self.reader.takeByte() catch |err| {
+                switch (err) {
+                    error.EndOfStream => break,
+                    error.ReadFailed => return error.ReadFailed,
+                }
+            };
+
+            try writer.writeByte(byte);
+        }
+
+        return try self.buffer.toOwnedSlice(allocator);
+    }
+};

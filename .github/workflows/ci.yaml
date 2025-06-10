@@ -15,7 +15,7 @@ jobs:
       - name: Setup nightly Zig
         uses: mlugg/setup-zig@v1
         with:
-          version: master
+          version: 0.15.1
       - name: Build test ffi lib
         run: zig build-lib -dynamic tests/utils/foreign.zig && mv foreign.* tests/utils/
 
@@ -60,7 +60,7 @@ jobs:
       - name: Setup nightly Zig
         uses: mlugg/setup-zig@v1
         with:
-          version: master
+          version: 0.15.1
       - name: Build test ffi lib
         run: zig build-lib -dynamic tests/utils/foreign.zig && mv libforeign.* tests/utils/
 
@@ -103,7 +103,7 @@ jobs:
       - name: Setup nightly Zig
         uses: mlugg/setup-zig@v1
         with:
-          version: master
+          version: 0.15.1
       - name: Build test ffi lib
         run: zig build-lib -dynamic tests/utils/foreign.zig && mv libforeign.* tests/utils/
 
@@ -146,7 +146,7 @@ jobs:
       - name: Setup nightly Zig
         uses: mlugg/setup-zig@v1
         with:
-          version: master
+          version: 0.15.1
       - name: Build for wasm
         run: zig build -Dtarget=wasm32-freestanding -freference-trace -Doptimize=ReleaseSmall
       - name: Cleanup
@@ -158,5 +158,5 @@ jobs:
       - name: Setup nightly Zig
         uses: mlugg/setup-zig@v1
         with:
-          version: master
+          version: 0.15.1
       - run: zig fmt --check src/*.zig src/**/*.zig

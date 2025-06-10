@@ -218,7 +218,7 @@ pub fn join(ctx: *o.NativeCtx) callconv(.c) c_int {
     const self = o.ObjList.cast(ctx.vm.peek(1).obj()).?;
     const separator = o.ObjString.cast(ctx.vm.peek(0).obj()).?;
 
-    var result = std.ArrayList(u8).init(ctx.vm.gc.allocator);
+    var result = std.array_list.Managed(u8).init(ctx.vm.gc.allocator);
     var writer = result.writer();
     defer result.deinit();
     for (self.items.items, 0..) |item, i| {
@@ -266,8 +266,8 @@ pub fn sub(ctx: *o.NativeCtx) callconv(.c) c_int {
     const substr = self.items.items[@intCast(start)..limit];
 
     var methods = std.ArrayList(?*o.ObjNative)
-        .fromOwnedSlice(ctx.vm.gc.allocator, self.methods)
-        .clone() catch {
+        .fromOwnedSlice(self.methods)
+        .clone(ctx.vm.gc.allocator) catch {
         ctx.vm.panic("Out of memory");
         unreachable;
     };
@@ -276,11 +276,11 @@ pub fn sub(ctx: *o.NativeCtx) callconv(.c) c_int {
         o.ObjList,
         .{
             .type_def = self.type_def,
-            .methods = methods.toOwnedSlice() catch {
+            .methods = methods.toOwnedSlice(ctx.vm.gc.allocator) catch {
                 ctx.vm.panic("Out of memory");
                 unreachable;
             },
-            .items = std.ArrayListUnmanaged(v.Value){},
+            .items = std.ArrayList(v.Value){},
         },
     ) catch {
         ctx.vm.panic("Out of memory");

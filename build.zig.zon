@@ -5,12 +5,12 @@
     .minimum_zig_version = "0.15.0-dev.190+bfbf4badd",
     .dependencies = .{
         .clap = .{
-            .url = "git+https://github.com/Hejsil/zig-clap.git#e47028deaefc2fb396d3d9e9f7bd776ae0b2a43a",
-            .hash = "clap-0.10.0-oBajB434AQBDh-Ei3YtoKIRxZacVPF1iSwp3IX_ZB8f0",
+            .url = "git+https://github.com/Hejsil/zig-clap.git#5289e0753cd274d65344bef1c114284c633536ea",
+            .hash = "clap-0.11.0-oBajB-HnAQDPCKYzwF7rO3qDFwRcD39Q0DALlTSz5H7e",
         },
-        .zig_lsp_kit = .{
-            .url = "git+https://github.com/buzz-language/zig-lsp-kit.git#fe16f27f41ca5ad7ffb4e3d73e9e2a5ed42b0cc9",
-            .hash = "zig_lsp_kit-0.0.0-SaK5ApS9AACj10m7vj2CNyiD1k8LdA5jmKMAaEwQ71RY",
+        .lsp_kit = .{
+            .url = "git+https://github.com/zigtools/lsp-kit.git#fe98e895ca3bd1b39965ab30f0f252f7b7e83ee6",
+            .hash = "lsp_kit-0.1.0-bi_PLzAyCgClDh8_M0U9Q50ysdsQBuRuBTZfwg6rZPd6",
         },
     },
     .paths = .{""},

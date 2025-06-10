@@ -18,9 +18,9 @@ const io = @import("io.zig");
 pub const PROMPT = ">>> ";
 pub const MULTILINE_PROMPT = "... ";
 
-pub fn printBanner(out: anytype, full: bool) void {
+pub fn printBanner(out: *std.Io.Writer, full: bool) void {
     out.print(
-        "👨‍🚀 buzz {}-{s} Copyright (C) 2021-present Benoit Giannangeli\n",
+        "👨‍🚀 buzz {f}-{s} Copyright (C) 2021-present Benoit Giannangeli\n",
         .{
             BuildOptions.version,
             BuildOptions.sha,
@@ -29,7 +29,7 @@ pub fn printBanner(out: anytype, full: bool) void {
 
     if (full) {
         out.print(
-            "Built with Zig {} {s}\nAllocator: {s}, Memory limit: {} {s}\nJIT: {s}, CPU limit: {} {s}\n",
+            "Built with Zig {f} {s}\nAllocator: {s}, Memory limit: {} {s}\nJIT: {s}, CPU limit: {} {s}\n",
             .{
                 builtin.zig_version,
                 switch (builtin.mode) {
@@ -112,11 +112,11 @@ pub fn repl(allocator: std.mem.Allocator) !void {
         // TODO: free type_registry and its keys which are on the heap
     }
 
-    var stdout = io.stdOutWriter;
-    var stderr = io.stdErrWriter;
+    var stdout = io.stdoutWriter;
+    var stderr = io.stderrWriter;
     printBanner(stdout, false);
 
-    var buzz_history_path = std.ArrayList(u8).init(allocator);
+    var buzz_history_path = std.array_list.Managed(u8).init(allocator);
     defer buzz_history_path.deinit();
 
     try buzz_history_path.writer().print(
@@ -144,10 +144,12 @@ pub fn repl(allocator: std.mem.Allocator) !void {
     var previous_globals = try vm.globals.clone(allocator);
     var previous_type_registry = try gc.type_registry.registry.clone();
     var previous_input: ?[]u8 = null;
-    const stdin_buffer = if (builtin.os.tag == .windows)
-        gc.allocator.alloc(u8, 2048) catch @panic("Out of memory")
-    else
-        null;
+
+    var reader_buffer = [_]u8{0};
+    var stdin_reader = std.fs.File.stdin().reader(reader_buffer[0..]);
+    var reader = io.AllocatedReader{
+        .reader = &stdin_reader.interface,
+    };
 
     while (true) {
         if (builtin.os.tag == .windows) {
@@ -166,9 +168,8 @@ pub fn repl(allocator: std.mem.Allocator) !void {
                 else
                     PROMPT,
             )
-        else
-            std.io.getStdIn().reader()
-                .readUntilDelimiterOrEof(stdin_buffer, '\n') catch @panic("Could not read stdin");
+        else // FIXME: in that case, at least use an arena?
+            reader.readUntilDelimiterOrEof(allocator, '\n') catch @panic("Could not read stdin");
 
         if (read_source == null) {
             std.process.exit(0);
@@ -249,7 +250,7 @@ pub fn repl(allocator: std.mem.Allocator) !void {
 
                     const value = expr orelse vm.globals.items[previous_global_top];
 
-                    var value_str = std.ArrayList(u8).init(vm.gc.allocator);
+                    var value_str = std.array_list.Managed(u8).init(vm.gc.allocator);
                     defer value_str.deinit();
                     var state = disassembler.DumpState.init(&vm);
 

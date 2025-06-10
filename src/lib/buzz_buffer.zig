@@ -48,7 +48,7 @@ const Buffer = struct {
 
     pub const Error = error{WriteWhileReading};
 
-    buffer: std.ArrayListUnmanaged(u8) = .{},
+    buffer: std.ArrayList(u8) = .{},
     cursor: usize = 0,
 
     pub fn fromUserData(userdata: u64) *Self {
@@ -508,7 +508,7 @@ fn checkBuzzType(
     btype: api.Value,
 ) bool {
     if (!value.bz_valueIs(btype).boolean()) {
-        var err = std.ArrayList(u8).init(api.VM.allocator);
+        var err = std.array_list.Managed(u8).init(api.VM.allocator);
         defer err.deinit();
 
         err.writer().print(
@@ -631,7 +631,7 @@ fn rawWriteStruct(
         );
 
         if (!value.bz_valueIs(type_def_value).boolean()) {
-            var msg = std.ArrayList(u8).init(api.VM.allocator);
+            var msg = std.array_list.Managed(u8).init(api.VM.allocator);
             defer msg.deinit();
 
             vm.bz_pushError(

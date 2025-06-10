@@ -7,14 +7,22 @@ const Parser = @import("Parser.zig");
 // However I think its completely legitimate for a tested code to output to stdout and I
 // don't really get why zig test needs to use stdout anyway
 
+const black_listed_tests = std.StaticStringMap(void).initComptime(
+    .{
+        // .{ "tests/022-io.buzz", {} },
+    },
+);
+
 const Result = struct {
     total: usize,
     failed: usize,
+    skipped: usize,
 };
 
 fn testBehaviors(allocator: std.mem.Allocator) !Result {
     var count: usize = 0;
     var fail_count: usize = 0;
+    var skipped: usize = 0;
 
     var test_dir = try std.fs.cwd().openDir(
         "tests",
@@ -27,12 +35,19 @@ fn testBehaviors(allocator: std.mem.Allocator) !Result {
     while (try it.next()) |file| : (count += 1) {
         if (file.kind == .file and std.mem.endsWith(u8, file.name, ".buzz")) {
             const file_name = try allocator.alloc(u8, 6 + file.name.len);
+            _ = try std.fmt.bufPrint(file_name, "tests/{s}", .{file.name});
             defer allocator.free(file_name);
+
+            if (black_listed_tests.has(file_name)) {
+                skipped += 1;
+                io.print("\u{001b}[33m[{s} >>]\u{001b}[0m\n", .{file_name});
+                continue;
+            }
 
             var had_error: bool = false;
             runFile(
                 allocator,
-                try std.fmt.bufPrint(file_name, "tests/{s}", .{file.name}),
+                file_name,
                 &[_][:0]u8{},
                 .Test,
             ) catch {
@@ -50,12 +65,14 @@ fn testBehaviors(allocator: std.mem.Allocator) !Result {
     return .{
         .total = count,
         .failed = fail_count,
+        .skipped = skipped,
     };
 }
 
 fn testCompileErrors(allocator: std.mem.Allocator) !Result {
     var count: usize = 0;
     var fail_count: usize = 0;
+    var skipped: usize = 0;
 
     var test_dir = try std.fs.cwd().openDir(
         "tests/compile_errors",
@@ -71,13 +88,29 @@ fn testCompileErrors(allocator: std.mem.Allocator) !Result {
             defer allocator.free(file_name);
             _ = try std.fmt.bufPrint(file_name, "tests/compile_errors/{s}", .{file.name});
 
+            if (black_listed_tests.has(file_name)) {
+                skipped += 1;
+                io.print("\u{001b}[33m[{s} >>]\u{001b}[0m\n", .{file.name});
+                continue;
+            }
+
             // First line of test file is expected error message
-            const test_file = try std.fs.cwd().openFile(file_name, .{ .mode = .read_only });
-            const reader = test_file.reader();
-            var first_line = try reader.readUntilDelimiterAlloc(allocator, '\n', std.math.maxInt(usize));
-            first_line = @constCast(std.mem.trim(u8, first_line, "\r\n"));
+            const test_file = try std.fs.cwd().openFile(
+                file_name,
+                .{
+                    .mode = .read_only,
+                },
+            );
+            var buffer = [_]u8{0} ** 255;
+            var file_reader = test_file.reader(buffer[0..]);
+            var reader = io.AllocatedReader{
+                .reader = &file_reader.interface,
+            };
+
+            const first_line = (try reader.readUntilDelimiterOrEof(allocator, '\n')).?;
             defer allocator.free(first_line);
-            const arg0 = std.fmt.allocPrintZ(
+
+            const arg0 = std.fmt.allocPrint(
                 allocator,
                 "{s}/bin/buzz",
                 .{
@@ -89,11 +122,11 @@ fn testCompileErrors(allocator: std.mem.Allocator) !Result {
             const result = try std.process.Child.run(
                 .{
                     .allocator = allocator,
-                    .argv = ([_][]const u8{
+                    .argv = &.{
                         arg0,
                         "-t",
                         file_name,
-                    })[0..],
+                    },
                 },
             );
 
@@ -117,6 +150,7 @@ fn testCompileErrors(allocator: std.mem.Allocator) !Result {
     return .{
         .total = count,
         .failed = fail_count,
+        .skipped = skipped,
     };
 }
 
@@ -127,12 +161,14 @@ pub fn main() !u8 {
     const allocator = gpa.allocator();
     var count: usize = 0;
     var fail_count: usize = 0;
+    var skipped: usize = 0;
 
     const behaviors_result = try testBehaviors(allocator);
     const comp_result = try testCompileErrors(allocator);
 
     count += comp_result.total + behaviors_result.total;
     fail_count += comp_result.failed + behaviors_result.failed;
+    skipped += comp_result.skipped + behaviors_result.skipped;
 
     if (fail_count == 0) {
         io.print("\n\u{001b}[32m", .{});
@@ -140,9 +176,10 @@ pub fn main() !u8 {
         io.print("\n\u{001b}[31m", .{});
     }
 
-    io.print("Ran {}, Failed: {}\u{001b}[0m\n", .{
+    io.print("Ran {}, Failed: {}, Skipped {}\u{001b}[0m\n", .{
         count,
         fail_count,
+        skipped,
     });
 
     try std.testing.expect(fail_count == 0);

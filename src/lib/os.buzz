@@ -39,7 +39,7 @@ extern fun SocketRead(fd: int, n: int) > str? !> errors\InvalidArgumentError, er
 /// @private
 extern fun SocketWrite(fd: int, bytes: str) > void !> errors\FileSystemError, errors\ReadWriteError, errors\UnexpectedError;
 /// @private
-extern fun SocketServerStart(address: str, port: int, reuseAddr: bool, reusePort: bool) > int !> errors\InvalidArgumentError, errors\SocketError, errors\UnexpectedError, errors\FileSystemError;
+extern fun SocketServerStart(address: str, port: int, reuseAddr: bool) > int !> errors\InvalidArgumentError, errors\SocketError, errors\UnexpectedError, errors\FileSystemError;
 /// @private
 extern fun SocketServerAccept(fd: int) > int !> errors\SocketError, errors\UnexpectedError;
 /// @private
@@ -107,16 +107,13 @@ export object TcpServer {
     serverSocket: Socket,
     /// @private
     reuseAddr: bool,
-    /// @private
-    reusePort: bool,
 
     /// Starts a TCP server
     /// @param address Address to listen on
     /// @param port Port to listen on
     /// @param reuseAddr Wether we want to accept multiple connections
-    /// @param reusePort Wether we want to accept multiple connections
     /// @return New `TcpServer` bound to `<address>:<port>`
-    static fun init(address: str, port: int, reuseAddr: bool, reusePort: bool)
+    static fun init(address: str, port: int, reuseAddr: bool)
         > TcpServer
         !> errors\SocketError,
            errors\UnexpectedError,
@@ -124,10 +121,9 @@ export object TcpServer {
            errors\FileSystemError {
         return TcpServer{
             serverSocket = Socket{
-                fd = SocketServerStart(address, port: port, reuseAddr: reuseAddr, reusePort: reusePort),
+                fd = SocketServerStart(address, port: port, reuseAddr: reuseAddr),
             },
             reuseAddr = reuseAddr,
-            reusePort = reusePort,
         };
     }
 
