@@ -756,11 +756,15 @@ pub fn buildMimalloc(b: *Build, target: Build.ResolvedTarget, optimize: std.buil
                     "-DMI_SHOW_ERRORS=1",
                     "-fno-sanitize=undefined",
                     "-Wno-date-time",
+                    // We should not need this, but io\File.readAll makes the exit collect fail
+                    "-D=MI_SKIP_COLLECT_ON_EXIT=1",
                 }
             else
                 &.{
                     "-fno-sanitize=undefined",
                     "-Wno-date-time",
+                    // We should not need this, but io\File.readAll makes the exit collect fail
+                    "-D=MI_SKIP_COLLECT_ON_EXIT=1",
                 },
         },
     );
