@@ -731,18 +731,20 @@ pub fn buildMimalloc(b: *Build, target: Build.ResolvedTarget, optimize: std.buil
     lib.addCSourceFiles(
         .{
             .files = &.{
-                "./vendors/mimalloc/src/alloc-aligned.c",
                 "./vendors/mimalloc/src/alloc.c",
+                "./vendors/mimalloc/src/alloc-aligned.c",
+                "./vendors/mimalloc/src/alloc-posix.c",
                 "./vendors/mimalloc/src/arena.c",
+                "./vendors/mimalloc/src/arena-meta.c",
                 "./vendors/mimalloc/src/bitmap.c",
                 "./vendors/mimalloc/src/heap.c",
                 "./vendors/mimalloc/src/init.c",
+                "./vendors/mimalloc/src/libc.c",
                 "./vendors/mimalloc/src/options.c",
                 "./vendors/mimalloc/src/os.c",
                 "./vendors/mimalloc/src/page.c",
+                "./vendors/mimalloc/src/page-map.c",
                 "./vendors/mimalloc/src/random.c",
-                "./vendors/mimalloc/src/segment-map.c",
-                "./vendors/mimalloc/src/segment.c",
                 "./vendors/mimalloc/src/stats.c",
                 "./vendors/mimalloc/src/prim/prim.c",
             },
@@ -751,9 +753,15 @@ pub fn buildMimalloc(b: *Build, target: Build.ResolvedTarget, optimize: std.buil
                     "-DNDEBUG=1",
                     "-DMI_SECURE=0",
                     "-DMI_STAT=0",
+                    "-DMI_SHOW_ERRORS=1",
+                    "-fno-sanitize=undefined",
+                    "-Wno-date-time",
                 }
             else
-                &.{},
+                &.{
+                    "-fno-sanitize=undefined",
+                    "-Wno-date-time",
+                },
         },
     );
 
