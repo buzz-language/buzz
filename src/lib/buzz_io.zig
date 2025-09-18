@@ -426,6 +426,8 @@ pub export fn FileGetPoller(ctx: *api.NativeCtx) callconv(.c) c_int {
         .{ .file = file.file },
     );
 
+    // poller.reader(.file).* = ;
+
     ctx.vm.bz_push(
         ctx.vm.bz_newUserData(@intFromPtr(poller)),
     );

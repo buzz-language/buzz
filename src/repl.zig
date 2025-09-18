@@ -4,7 +4,6 @@ const is_wasm = builtin.cpu.arch.isWasm();
 const BuildOptions = @import("build_options");
 
 const v = @import("vm.zig");
-const memory = @import("memory.zig");
 const obj = @import("obj.zig");
 const Parser = @import("Parser.zig");
 const JIT = @import("Jit.zig");
@@ -14,6 +13,8 @@ const disassembler = @import("disassembler.zig");
 const CodeGen = @import("Codegen.zig");
 const Scanner = @import("Scanner.zig");
 const io = @import("io.zig");
+const GarbageCollector = @import("GarbageCollector.zig");
+const TypeRegistry = @import("TypeRegistry.zig");
 
 pub const PROMPT = ">>> ";
 pub const MULTILINE_PROMPT = "... ";
@@ -73,8 +74,8 @@ pub fn repl(allocator: std.mem.Allocator) !void {
         false;
 
     var import_registry = v.ImportRegistry{};
-    var gc = try memory.GarbageCollector.init(allocator);
-    gc.type_registry = try memory.TypeRegistry.init(&gc);
+    var gc = try GarbageCollector.init(allocator);
+    gc.type_registry = try TypeRegistry.init(&gc);
     var imports = std.StringHashMapUnmanaged(Parser.ScriptImport){};
     var vm = try v.VM.init(&gc, &import_registry, .Repl);
     vm.jit = if (BuildOptions.jit and BuildOptions.cycle_limit == null)
@@ -306,7 +307,7 @@ fn runSource(
     vm: *v.VM,
     codegen: *CodeGen,
     parser: *Parser,
-    gc: *memory.GarbageCollector,
+    gc: *GarbageCollector,
 ) !?Value {
     var total_timer = std.time.Timer.start() catch unreachable;
     var timer = try std.time.Timer.start();

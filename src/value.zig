@@ -3,7 +3,7 @@ const Allocator = std.mem.Allocator;
 const StringHashMap = std.StringHashMap;
 const o = @import("obj.zig");
 const VM = @import("vm.zig").VM;
-const GarbageCollector = @import("memory.zig").GarbageCollector;
+const GarbageCollector = @import("GarbageCollector.zig");
 
 pub const Double = f64;
 pub const Integer = i48;

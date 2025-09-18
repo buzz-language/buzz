@@ -6,7 +6,7 @@ const v = @import("value.zig");
 const Value = v.Value;
 const FFI = @import("FFI.zig");
 const Parser = @import("Parser.zig");
-const GarbageCollector = @import("memory.zig").GarbageCollector;
+const GarbageCollector = @import("GarbageCollector.zig");
 // TODO: cleanup Error sets!
 const Error = @import("Codegen.zig").Error;
 
