@@ -125,11 +125,11 @@ export object FilePoller {
 }
 
 /// stdin
-export final stdin = File{ file = getStdIn() };
+export final stdin = mut File{ file = getStdIn() };
 /// stdout
-export final stdout = File{ file = getStdOut() };
+export final stdout = mut File{ file = getStdOut() };
 /// stderr
-export final stderr = File{ file = getStdErr() };
+export final stderr = mut File{ file = getStdErr() };
 
 /// Run a buzz file
 /// @param filename path to buzz file

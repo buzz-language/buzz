@@ -110,6 +110,8 @@ fn testCompileErrors(allocator: std.mem.Allocator) !Result {
             const first_line = (try reader.readUntilDelimiterOrEof(allocator, '\n')).?;
             defer allocator.free(first_line);
 
+            test_file.close();
+
             const arg0 = std.fmt.allocPrint(
                 allocator,
                 "{s}/bin/buzz",

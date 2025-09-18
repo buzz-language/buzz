@@ -16,5 +16,3 @@ fun main() > void !> any {
         }
     }
 }
-
-// TODO: buffer de 1 c'est un peu horrible
