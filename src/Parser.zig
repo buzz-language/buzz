@@ -10,7 +10,7 @@ const Value = v.Value;
 const Integer = v.Integer;
 const FFI = @import("FFI.zig");
 const Ast = @import("Ast.zig");
-const GarbageCollector = @import("GarbageCollector.zig");
+const GC = @import("GC.zig");
 const Scanner = @import("Scanner.zig");
 const RunFlavor = @import("vm.zig").RunFlavor;
 const Reporter = @import("Reporter.zig");
@@ -142,7 +142,7 @@ else
 const Self = @This();
 
 ast: Ast,
-gc: *GarbageCollector,
+gc: *GC,
 scanner: ?Scanner = null,
 current_token: ?Ast.TokenIndex = null,
 script_name: []const u8 = undefined,
@@ -168,7 +168,7 @@ reporter: Reporter,
 opt_jumps: ?std.ArrayList(Precedence) = null,
 
 pub fn init(
-    gc: *GarbageCollector,
+    gc: *GC,
     imports: *std.StringHashMapUnmanaged(ScriptImport),
     imported: bool,
     flavor: RunFlavor,

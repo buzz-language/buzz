@@ -10,11 +10,11 @@ const buzz_api = @import("buzz_api.zig");
 const Reporter = @import("Reporter.zig");
 const is_wasm = builtin.cpu.arch.isWasm();
 const io = @import("io.zig");
-const GarbageCollector = @import("GarbageCollector.zig");
+const GC = @import("GC.zig");
 
 const TypeRegistry = @This();
 
-gc: *GarbageCollector,
+gc: *GC,
 registry: std.StringHashMap(*o.ObjTypeDef),
 
 // Common types we reuse all the time
@@ -31,7 +31,7 @@ rg_type: *o.ObjTypeDef,
 // Buffer resused when we build a type key
 type_def_key_buffer: std.ArrayList(u8) = .{},
 
-pub fn init(gc: *GarbageCollector) !TypeRegistry {
+pub fn init(gc: *GC) !TypeRegistry {
     var self = TypeRegistry{
         .gc = gc,
         .registry = .init(gc.allocator),

@@ -9,7 +9,7 @@ const _vm = @import("vm.zig");
 const VM = _vm.VM;
 const Fiber = _vm.Fiber;
 const Parser = @import("Parser.zig");
-const GarbageCollector = @import("GarbageCollector.zig");
+const GC = @import("GC.zig");
 const TypeRegistry = @import("TypeRegistry.zig");
 const v = @import("value.zig");
 const Integer = v.Integer;
@@ -70,7 +70,7 @@ pub const Obj = struct {
         return @alignCast(@fieldParentPtr("obj", obj));
     }
 
-    pub fn access(obj: *Obj, comptime T: type, obj_type: ObjType, gc: *GarbageCollector) ?*T {
+    pub fn access(obj: *Obj, comptime T: type, obj_type: ObjType, gc: *GC) ?*T {
         if (BuildOptions.gc_debug_access) {
             gc.debugger.?.accessed(obj, gc.where);
         }
@@ -330,7 +330,7 @@ pub const Obj = struct {
         }
     }
 
-    pub fn typeOf(self: *Self, gc: *GarbageCollector) error{ OutOfMemory, NoSpaceLeft, ReachedMaximumMemoryUsage }!*ObjTypeDef {
+    pub fn typeOf(self: *Self, gc: *GC) error{ OutOfMemory, NoSpaceLeft, ReachedMaximumMemoryUsage }!*ObjTypeDef {
         return switch (self.obj_type) {
             .Range => gc.type_registry.rg_type,
             .String => gc.type_registry.str_type,
@@ -719,7 +719,7 @@ pub const ObjFiber = struct {
 
     fiber: *Fiber,
 
-    pub fn mark(self: *Self, gc: *GarbageCollector) !void {
+    pub fn mark(self: *Self, gc: *GC) !void {
         try gc.markFiber(self.fiber);
     }
 
@@ -812,7 +812,7 @@ pub const ObjFiber = struct {
         return_type: *ObjTypeDef,
         yield_type: *ObjTypeDef,
 
-        pub fn mark(self: *SelfFiberDef, gc: *GarbageCollector) !void {
+        pub fn mark(self: *SelfFiberDef, gc: *GC) !void {
             try gc.markObj(@constCast(self.return_type.toObj()));
             try gc.markObj(@constCast(self.yield_type.toObj()));
         }
@@ -833,7 +833,7 @@ pub const ObjPattern = struct {
     source: []const u8,
     pattern: Pattern,
 
-    pub fn mark(_: *Self, _: *GarbageCollector) !void {}
+    pub fn mark(_: *Self, _: *GC) !void {}
 
     pub inline fn toObj(self: *Self) *Obj {
         return &self.obj;
@@ -944,7 +944,7 @@ pub const ObjUserData = struct {
 
     userdata: u64,
 
-    pub fn mark(_: *Self, _: *GarbageCollector) void {}
+    pub fn mark(_: *Self, _: *GC) void {}
 
     pub inline fn toObj(self: *Self) *Obj {
         return &self.obj;
@@ -968,7 +968,7 @@ pub const ObjString = struct {
     /// The actual string
     string: []const u8,
 
-    pub fn mark(_: *Self, _: *GarbageCollector) !void {}
+    pub fn mark(_: *Self, _: *GC) !void {}
 
     pub inline fn toObj(self: *Self) *Obj {
         return &self.obj;
@@ -1145,7 +1145,7 @@ pub const ObjUpValue = struct {
         };
     }
 
-    pub fn mark(self: *Self, gc: *GarbageCollector) !void {
+    pub fn mark(self: *Self, gc: *GC) !void {
         try gc.markValue(self.location.*); // Useless
         if (self.closed) |uclosed| {
             try gc.markValue(uclosed);
@@ -1186,7 +1186,7 @@ pub const ObjClosure = struct {
         };
     }
 
-    pub fn mark(self: *Self, gc: *GarbageCollector) !void {
+    pub fn mark(self: *Self, gc: *GC) !void {
         try gc.markObj(self.function.toObj());
         for (self.upvalues) |upvalue| {
             try gc.markObj(upvalue.toObj());
@@ -1241,7 +1241,7 @@ pub const ObjNative = struct {
     // type_def: *ObjTypeDef,
     native: *anyopaque,
 
-    pub fn mark(_: *Self, _: *GarbageCollector) void {}
+    pub fn mark(_: *Self, _: *GC) void {}
 
     pub inline fn toObj(self: *Self) *Obj {
         return &self.obj;
@@ -1318,7 +1318,7 @@ pub const ObjFunction = struct {
         self.chunk.deinit();
     }
 
-    pub fn mark(self: *Self, gc: *GarbageCollector) !void {
+    pub fn mark(self: *Self, gc: *GC) !void {
         try gc.markObj(@constCast(self.type_def.toObj()));
         if (BuildOptions.gc_debug) {
             io.print(
@@ -1382,7 +1382,7 @@ pub const ObjFunction = struct {
             return FunctionDefSelf.next_id;
         }
 
-        pub fn mark(self: *FunctionDefSelf, gc: *GarbageCollector) !void {
+        pub fn mark(self: *FunctionDefSelf, gc: *GC) !void {
             try gc.markObj(self.name.toObj());
             try gc.markObj(self.script_name.toObj());
             try gc.markObj(@constCast(self.return_type.toObj()));
@@ -1430,13 +1430,13 @@ pub const ObjObjectInstance = struct {
     /// VM in which the instance was created, we need this so the instance destructor can be called in the appropriate vm
     vm: *VM,
 
-    pub fn setField(self: *Self, gc: *GarbageCollector, key: usize, value: Value) !void {
+    pub fn setField(self: *Self, gc: *GC, key: usize, value: Value) !void {
         self.fields[key] = value;
         try gc.markObjDirty(&self.obj);
     }
 
     /// Should not be called by runtime when possible
-    pub fn setFieldByName(self: *Self, gc: *GarbageCollector, key: *ObjString, value: Value) !void {
+    pub fn setFieldByName(self: *Self, gc: *GC, key: *ObjString, value: Value) !void {
         const object_def = self.type_def.resolved_type.?.ObjectInstance.resolved_type.?.Object;
         const index = std.mem.indexOf(
             *ObjString,
@@ -1455,7 +1455,7 @@ pub const ObjObjectInstance = struct {
         vm: *VM,
         object: ?*ObjObject,
         type_def: *ObjTypeDef,
-        gc: *GarbageCollector,
+        gc: *GC,
     ) !Self {
         return .{
             .vm = vm,
@@ -1470,7 +1470,7 @@ pub const ObjObjectInstance = struct {
         };
     }
 
-    pub fn mark(self: *Self, gc: *GarbageCollector) !void {
+    pub fn mark(self: *Self, gc: *GC) !void {
         if (self.object) |object| {
             try gc.markObj(object.toObj());
         }
@@ -1569,7 +1569,7 @@ pub const ObjForeignContainer = struct {
         // Filled by codegen
         fields: std.StringArrayHashMap(Field),
 
-        pub fn mark(def: *ContainerDef, gc: *GarbageCollector) !void {
+        pub fn mark(def: *ContainerDef, gc: *GC) !void {
             try gc.markObj(def.name.toObj());
             try gc.markObj(def.qualified_name.toObj());
             var it = def.buzz_type.iterator();
@@ -1579,7 +1579,7 @@ pub const ObjForeignContainer = struct {
         }
     };
 
-    pub fn mark(self: *Self, gc: *GarbageCollector) !void {
+    pub fn mark(self: *Self, gc: *GC) !void {
         try gc.markObj(@constCast(self.type_def.toObj()));
     }
 
@@ -1647,22 +1647,22 @@ pub const ObjObject = struct {
         return property_count;
     }
 
-    pub fn setField(self: *Self, gc: *GarbageCollector, key: usize, value: Value) !void {
+    pub fn setField(self: *Self, gc: *GC, key: usize, value: Value) !void {
         self.fields[key] = value;
         try gc.markObjDirty(&self.obj);
     }
 
-    pub fn setDefault(self: *Self, gc: *GarbageCollector, key: usize, value: Value) !void {
+    pub fn setDefault(self: *Self, gc: *GC, key: usize, value: Value) !void {
         self.defaults[key] = value;
         try gc.markObjDirty(&self.obj);
     }
 
-    pub fn setPropertyDefaultValue(self: *Self, gc: *GarbageCollector, key: usize, value: Value) !void {
+    pub fn setPropertyDefaultValue(self: *Self, gc: *GC, key: usize, value: Value) !void {
         self.defaults[key] = value;
         try gc.markObjDirty(&self.obj);
     }
 
-    pub fn mark(self: *Self, gc: *GarbageCollector) !void {
+    pub fn mark(self: *Self, gc: *GC) !void {
         try gc.markObj(@constCast(self.type_def.toObj()));
 
         for (self.fields) |field| {
@@ -1722,7 +1722,7 @@ pub const ObjObject = struct {
             self.methods_locations.deinit();
         }
 
-        pub fn mark(self: *ProtocolDefSelf, gc: *GarbageCollector) !void {
+        pub fn mark(self: *ProtocolDefSelf, gc: *GC) !void {
             try gc.markObj(self.name.toObj());
             try gc.markObj(self.qualified_name.toObj());
 
@@ -1889,7 +1889,7 @@ pub const ObjObject = struct {
             return null;
         }
 
-        pub fn mark(self: *ObjectDef, gc: *GarbageCollector) !void {
+        pub fn mark(self: *ObjectDef, gc: *GC) !void {
             try gc.markObj(self.name.toObj());
             try gc.markObj(self.qualified_name.toObj());
 
@@ -1952,7 +1952,7 @@ pub const ObjList = struct {
         return self;
     }
 
-    pub fn mark(self: *Self, gc: *GarbageCollector) !void {
+    pub fn mark(self: *Self, gc: *GC) !void {
         for (self.items.items) |value| {
             try gc.markValue(value);
         }
@@ -2051,7 +2051,7 @@ pub const ObjList = struct {
         return native.toValue();
     }
 
-    pub fn rawAppend(self: *Self, gc: *GarbageCollector, value: Value) !void {
+    pub fn rawAppend(self: *Self, gc: *GC, value: Value) !void {
         try self.items.append(
             gc.allocator,
             value,
@@ -2059,7 +2059,7 @@ pub const ObjList = struct {
         try gc.markObjDirty(&self.obj);
     }
 
-    pub fn rawInsert(self: *Self, gc: *GarbageCollector, index: usize, value: Value) !void {
+    pub fn rawInsert(self: *Self, gc: *GC, index: usize, value: Value) !void {
         try self.items.insert(
             gc.allocator,
             index,
@@ -2068,7 +2068,7 @@ pub const ObjList = struct {
         try gc.markObjDirty(&self.obj);
     }
 
-    pub fn set(self: *Self, gc: *GarbageCollector, index: usize, value: Value) !void {
+    pub fn set(self: *Self, gc: *GC, index: usize, value: Value) !void {
         self.items.items[index] = value;
         try gc.markObjDirty(&self.obj);
     }
@@ -2118,7 +2118,7 @@ pub const ObjList = struct {
             self.methods.deinit();
         }
 
-        pub fn mark(self: *SelfListDef, gc: *GarbageCollector) !void {
+        pub fn mark(self: *SelfListDef, gc: *GC) !void {
             try gc.markObj(@constCast(self.item_type.toObj()));
             var it = self.methods.iterator();
             while (it.next()) |method| {
@@ -3078,7 +3078,7 @@ pub const ObjRange = struct {
     low: Integer,
     high: Integer,
 
-    pub fn mark(_: *Self, _: *GarbageCollector) void {}
+    pub fn mark(_: *Self, _: *GC) void {}
 
     pub inline fn toObj(self: *Self) *Obj {
         return &self.obj;
@@ -3208,7 +3208,7 @@ pub const ObjMap = struct {
         return self;
     }
 
-    pub fn set(self: *Self, gc: *GarbageCollector, key: Value, value: Value) !void {
+    pub fn set(self: *Self, gc: *GC, key: Value, value: Value) !void {
         try self.map.put(
             gc.allocator,
             key,
@@ -3276,7 +3276,7 @@ pub const ObjMap = struct {
         return native.toValue();
     }
 
-    pub fn mark(self: *Self, gc: *GarbageCollector) !void {
+    pub fn mark(self: *Self, gc: *GC) !void {
         var it = self.map.iterator();
         while (it.next()) |kv| {
             try gc.markValue(kv.key_ptr.*);
@@ -3352,7 +3352,7 @@ pub const ObjMap = struct {
             self.methods.deinit();
         }
 
-        pub fn mark(self: *SelfMapDef, gc: *GarbageCollector) !void {
+        pub fn mark(self: *SelfMapDef, gc: *GC) !void {
             try gc.markObj(@constCast(self.key_type.toObj()));
             try gc.markObj(@constCast(self.value_type.toObj()));
             var it = self.methods.iterator();
@@ -4137,7 +4137,7 @@ pub const ObjEnum = struct {
         };
     }
 
-    pub fn mark(self: *Self, gc: *GarbageCollector) !void {
+    pub fn mark(self: *Self, gc: *GC) !void {
         try gc.markObj(@constCast(self.type_def.toObj()));
         for (self.cases) |case| {
             try gc.markValue(case);
@@ -4188,7 +4188,7 @@ pub const ObjEnum = struct {
         // Circular reference but needed so that we can generate enum case at compile time
         value: ?*ObjEnum = null,
 
-        pub fn mark(self: *EnumDefSelf, gc: *GarbageCollector) !void {
+        pub fn mark(self: *EnumDefSelf, gc: *GC) !void {
             try gc.markObj(self.name.toObj());
             try gc.markObj(self.qualified_name.toObj());
             try gc.markObj(@constCast(self.enum_type.toObj()));
@@ -4204,7 +4204,7 @@ pub const ObjEnumInstance = struct {
     enum_ref: *ObjEnum,
     case: u24,
 
-    pub fn mark(self: *Self, gc: *GarbageCollector) !void {
+    pub fn mark(self: *Self, gc: *GC) !void {
         try gc.markObj(self.enum_ref.toObj());
     }
 
@@ -4235,7 +4235,7 @@ pub const ObjBoundMethod = struct {
     closure: ?*ObjClosure = null,
     native: ?*ObjNative = null,
 
-    pub fn mark(self: *Self, gc: *GarbageCollector) !void {
+    pub fn mark(self: *Self, gc: *GC) !void {
         try gc.markValue(self.receiver);
         if (self.closure) |closure| {
             try gc.markObj(closure.toObj());
@@ -4349,7 +4349,7 @@ pub const ObjTypeDef = struct {
         };
     }
 
-    pub fn mark(self: *Self, gc: *GarbageCollector) !void {
+    pub fn mark(self: *Self, gc: *GC) !void {
         if (self.resolved_type) |*resolved| {
             if (resolved.* == .ObjectInstance) {
                 try gc.markObj(@constCast(resolved.ObjectInstance.of.toObj()));

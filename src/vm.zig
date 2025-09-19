@@ -7,7 +7,7 @@ const Ast = @import("Ast.zig");
 const disassembler = @import("disassembler.zig");
 const obj = @import("obj.zig");
 const BuildOptions = @import("build_options");
-const GarbageCollector = @import("GarbageCollector.zig");
+const GC = @import("GC.zig");
 const is_wasm = builtin.cpu.arch.isWasm();
 const JIT = if (!is_wasm) @import("Jit.zig") else void;
 const Token = @import("Token.zig");
@@ -424,7 +424,7 @@ pub const VM = struct {
         Custom, // TODO: remove when user can use this set directly in buzz code
     } || std.mem.Allocator.Error || std.fmt.BufPrintError;
 
-    gc: *GarbageCollector,
+    gc: *GC,
     current_fiber: *Fiber,
     current_ast: Ast.Slice,
     globals: std.ArrayList(Value) = .{},
@@ -437,7 +437,7 @@ pub const VM = struct {
     reporter: Reporter,
     ffi: FFI,
 
-    pub fn init(gc: *GarbageCollector, import_registry: *ImportRegistry, flavor: RunFlavor) !Self {
+    pub fn init(gc: *GC, import_registry: *ImportRegistry, flavor: RunFlavor) !Self {
         return .{
             .gc = gc,
             .import_registry = import_registry,

@@ -3,7 +3,7 @@ const Allocator = std.mem.Allocator;
 const StringHashMap = std.StringHashMap;
 const o = @import("obj.zig");
 const VM = @import("vm.zig").VM;
-const GarbageCollector = @import("GarbageCollector.zig");
+const GC = @import("GC.zig");
 
 pub const Double = f64;
 pub const Integer = i48;
@@ -131,7 +131,7 @@ pub const Value = packed struct {
         return if (self.isObj()) self.obj() else null;
     }
 
-    pub fn typeOf(self: Value, gc: *GarbageCollector) !*o.ObjTypeDef {
+    pub fn typeOf(self: Value, gc: *GC) !*o.ObjTypeDef {
         if (self.isObj()) {
             return try self.obj().typeOf(gc);
         }

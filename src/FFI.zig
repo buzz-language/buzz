@@ -7,7 +7,7 @@ const v = @import("value.zig");
 const Parser = @import("Parser.zig");
 const ZigType = @import("zigtypes.zig").Type;
 const Reporter = @import("Reporter.zig");
-const GarbageCollector = @import("GarbageCollector.zig");
+const GC = @import("GC.zig");
 
 const Self = @This();
 
@@ -188,12 +188,12 @@ pub const State = struct {
     structs: std.StringHashMap(*Zdef),
 };
 
-gc: *GarbageCollector,
+gc: *GC,
 reporter: Reporter,
 state: ?State = null,
 type_expr_cache: std.StringHashMap(?*Zdef),
 
-pub fn init(gc: *GarbageCollector) Self {
+pub fn init(gc: *GC) Self {
     return .{
         .gc = gc,
         .reporter = .{

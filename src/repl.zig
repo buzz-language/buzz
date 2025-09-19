@@ -13,7 +13,7 @@ const disassembler = @import("disassembler.zig");
 const CodeGen = @import("Codegen.zig");
 const Scanner = @import("Scanner.zig");
 const io = @import("io.zig");
-const GarbageCollector = @import("GarbageCollector.zig");
+const GC = @import("GC.zig");
 const TypeRegistry = @import("TypeRegistry.zig");
 
 pub const PROMPT = ">>> ";
@@ -74,7 +74,7 @@ pub fn repl(allocator: std.mem.Allocator) !void {
         false;
 
     var import_registry = v.ImportRegistry{};
-    var gc = try GarbageCollector.init(allocator);
+    var gc = try GC.init(allocator);
     gc.type_registry = try TypeRegistry.init(&gc);
     var imports = std.StringHashMapUnmanaged(Parser.ScriptImport){};
     var vm = try v.VM.init(&gc, &import_registry, .Repl);
@@ -307,7 +307,7 @@ fn runSource(
     vm: *v.VM,
     codegen: *CodeGen,
     parser: *Parser,
-    gc: *GarbageCollector,
+    gc: *GC,
 ) !?Value {
     var total_timer = std.time.Timer.start() catch unreachable;
     var timer = try std.time.Timer.start();

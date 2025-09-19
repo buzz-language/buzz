@@ -2,7 +2,7 @@ const std = @import("std");
 const assert = std.debug.assert;
 const Ast = @import("../Ast.zig");
 const Parser = @import("../Parser.zig");
-const GarbageCollector = @import("../GarbageCollector.zig");
+const GC = @import("../GC.zig");
 const TypeRegistry = @import("../TypeRegistry.zig");
 const Renderer = @import("../renderer.zig").Renderer;
 const WriteableArrayList = @import("../writeable_array_list.zig").WriteableArrayList;
@@ -16,7 +16,7 @@ fn testFmt(
     defer arena.deinit();
     const allocator = arena.allocator();
 
-    var gc = try GarbageCollector.init(allocator);
+    var gc = try GC.init(allocator);
     gc.type_registry = try TypeRegistry.init(&gc);
     var imports = std.StringHashMapUnmanaged(Parser.ScriptImport){};
     var parser = Parser.init(
