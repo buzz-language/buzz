@@ -25,7 +25,7 @@ const TypeRegistry = @import("TypeRegistry.zig");
 //     - Do a mark and sweep
 //
 // For now we only have either young or old objects but we could improve on it with more categories with each its threshold
-const GarbageCollector = @This();
+const GC = @This();
 
 const Mode = enum {
     Young,
@@ -66,8 +66,8 @@ max_allocated: usize = 0,
 
 gc_time: usize = 0,
 
-pub fn init(allocator: std.mem.Allocator) !GarbageCollector {
-    const self = GarbageCollector{
+pub fn init(allocator: std.mem.Allocator) !GC {
+    const self = GC{
         .allocator = allocator,
         .strings = std.StringHashMapUnmanaged(*o.ObjString){},
         .type_registry = undefined,
@@ -108,7 +108,7 @@ pub fn init(allocator: std.mem.Allocator) !GarbageCollector {
     return self;
 }
 
-pub fn registerVM(self: *GarbageCollector, vm: *v.VM) !void {
+pub fn registerVM(self: *GC, vm: *v.VM) !void {
     try self.active_vms.put(
         self.allocator,
         vm,
@@ -116,11 +116,11 @@ pub fn registerVM(self: *GarbageCollector, vm: *v.VM) !void {
     );
 }
 
-pub fn unregisterVM(self: *GarbageCollector, vm: *v.VM) void {
+pub fn unregisterVM(self: *GC, vm: *v.VM) void {
     std.debug.assert(self.active_vms.remove(vm));
 }
 
-pub fn deinit(self: *GarbageCollector) void {
+pub fn deinit(self: *GC) void {
     self.gray_stack.deinit(self.allocator);
     self.strings.deinit(self.allocator);
     self.active_vms.deinit(self.allocator);
@@ -138,7 +138,7 @@ pub fn deinit(self: *GarbageCollector) void {
     self.allocator.free(self.objrange_memberDefs);
 }
 
-pub fn allocate(self: *GarbageCollector, comptime T: type) !*T {
+pub fn allocate(self: *GC, comptime T: type) !*T {
     var timer = if (!is_wasm) std.time.Timer.start() catch unreachable else {};
 
     self.bytes_allocated += @sizeOf(T);
@@ -176,7 +176,7 @@ pub fn allocate(self: *GarbageCollector, comptime T: type) !*T {
     return allocated;
 }
 
-pub fn allocateMany(self: *GarbageCollector, comptime T: type, count: usize) ![]T {
+pub fn allocateMany(self: *GC, comptime T: type, count: usize) ![]T {
     var timer = if (!is_wasm)
         std.time.Timer.start() catch unreachable
     else {};
@@ -197,7 +197,7 @@ pub fn allocateMany(self: *GarbageCollector, comptime T: type, count: usize) ![]
     return try self.allocator.alloc(T, count);
 }
 
-pub fn allocateObject(self: *GarbageCollector, comptime T: type, data: T) !*T {
+pub fn allocateObject(self: *GC, comptime T: type, data: T) !*T {
     // var before: usize = self.bytes_allocated;
 
     const obj: *T = try self.allocate(T);
@@ -264,11 +264,11 @@ pub fn allocateObject(self: *GarbageCollector, comptime T: type, data: T) !*T {
     return obj;
 }
 
-fn addObject(self: *GarbageCollector, obj: *o.Obj) !void {
+fn addObject(self: *GC, obj: *o.Obj) !void {
     self.objects.prepend(&obj.node);
 }
 
-pub fn allocateString(self: *GarbageCollector, chars: []const u8) !*o.ObjString {
+pub fn allocateString(self: *GC, chars: []const u8) !*o.ObjString {
     const string: *o.ObjString = try allocateObject(
         self,
         o.ObjString,
@@ -284,7 +284,7 @@ pub fn allocateString(self: *GarbageCollector, chars: []const u8) !*o.ObjString 
     return string;
 }
 
-pub fn copyString(self: *GarbageCollector, chars: []const u8) !*o.ObjString {
+pub fn copyString(self: *GC, chars: []const u8) !*o.ObjString {
     if (self.strings.get(chars)) |interned| {
         return interned;
     }
@@ -299,7 +299,7 @@ pub fn copyString(self: *GarbageCollector, chars: []const u8) !*o.ObjString {
     return try allocateString(self, copy);
 }
 
-fn free(self: *GarbageCollector, comptime T: type, pointer: *T) void {
+fn free(self: *GC, comptime T: type, pointer: *T) void {
     var timer = if (!is_wasm) std.time.Timer.start() catch unreachable else {};
 
     if (BuildOptions.gc_debug) {
@@ -325,7 +325,7 @@ fn free(self: *GarbageCollector, comptime T: type, pointer: *T) void {
     }
 }
 
-fn freeMany(self: *GarbageCollector, comptime T: type, pointer: []const T) void {
+fn freeMany(self: *GC, comptime T: type, pointer: []const T) void {
     var timer = if (!is_wasm) std.time.Timer.start() catch unreachable else {};
 
     if (BuildOptions.gc_debug) {
@@ -352,7 +352,7 @@ fn freeMany(self: *GarbageCollector, comptime T: type, pointer: []const T) void 
     }
 }
 
-pub fn markObjDirty(self: *GarbageCollector, obj: *o.Obj) !void {
+pub fn markObjDirty(self: *GC, obj: *o.Obj) !void {
     if (!obj.dirty and self.obj_collected != obj) {
         obj.dirty = true;
 
@@ -373,7 +373,7 @@ pub fn markObjDirty(self: *GarbageCollector, obj: *o.Obj) !void {
     }
 }
 
-pub fn markObj(self: *GarbageCollector, obj: *o.Obj) !void {
+pub fn markObj(self: *GC, obj: *o.Obj) !void {
     if (obj.marked or self.obj_collected == obj) {
         if (BuildOptions.gc_debug) {
             io.print(
@@ -411,7 +411,7 @@ pub fn markObj(self: *GarbageCollector, obj: *o.Obj) !void {
     try self.gray_stack.append(self.allocator, obj);
 }
 
-fn blackenObject(self: *GarbageCollector, obj: *o.Obj) !void {
+fn blackenObject(self: *GC, obj: *o.Obj) !void {
     if (BuildOptions.gc_debug) {
         io.print(
             "blackening @{} {}\n",
@@ -456,7 +456,7 @@ fn blackenObject(self: *GarbageCollector, obj: *o.Obj) !void {
     }
 }
 
-fn freeObj(self: *GarbageCollector, obj: *o.Obj) (std.mem.Allocator.Error || std.fmt.BufPrintError)!void {
+fn freeObj(self: *GC, obj: *o.Obj) (std.mem.Allocator.Error || std.fmt.BufPrintError)!void {
     if (BuildOptions.gc_debug) {
         io.print(">> freeing {} {}\n", .{ @intFromPtr(obj), obj.obj_type });
     }
@@ -620,13 +620,13 @@ fn freeObj(self: *GarbageCollector, obj: *o.Obj) (std.mem.Allocator.Error || std
     }
 }
 
-pub fn markValue(self: *GarbageCollector, value: Value) !void {
+pub fn markValue(self: *GC, value: Value) !void {
     if (value.isObj()) {
         try self.markObj(value.obj());
     }
 }
 
-pub fn markFiber(self: *GarbageCollector, fiber: *v.Fiber) !void {
+pub fn markFiber(self: *GC, fiber: *v.Fiber) !void {
     var current_fiber: ?*v.Fiber = fiber;
     while (current_fiber) |ufiber| {
         try self.markObj(@constCast(ufiber.type_def.toObj()));
@@ -677,7 +677,7 @@ pub fn markFiber(self: *GarbageCollector, fiber: *v.Fiber) !void {
     }
 }
 
-fn markMethods(self: *GarbageCollector) !void {
+fn markMethods(self: *GC) !void {
     if (BuildOptions.gc_debug) {
         io.print("MARKING BASIC TYPES METHOD\n", .{});
     }
@@ -735,7 +735,7 @@ fn markMethods(self: *GarbageCollector) !void {
     }
 }
 
-fn markRoots(self: *GarbageCollector, vm: *v.VM) !void {
+fn markRoots(self: *GC, vm: *v.VM) !void {
     // FIXME: We should not need this, but we don't know how to prevent collection before the VM actually starts making reference to them
     try self.type_registry.mark();
 
@@ -778,7 +778,7 @@ fn markRoots(self: *GarbageCollector, vm: *v.VM) !void {
     }
 }
 
-fn traceReference(self: *GarbageCollector) !void {
+fn traceReference(self: *GC) !void {
     if (BuildOptions.gc_debug) {
         io.print("TRACING REFERENCE\n", .{});
     }
@@ -790,7 +790,7 @@ fn traceReference(self: *GarbageCollector) !void {
     }
 }
 
-fn sweep(self: *GarbageCollector, mode: Mode) !void {
+fn sweep(self: *GC, mode: Mode) !void {
     const swept: usize = self.bytes_allocated;
 
     var obj_count: usize = 0;
@@ -847,7 +847,7 @@ fn sweep(self: *GarbageCollector, mode: Mode) !void {
     }
 }
 
-pub fn collectGarbage(self: *GarbageCollector) !void {
+pub fn collectGarbage(self: *GC) !void {
     var timer = if (!is_wasm) std.time.Timer.start() catch unreachable else {};
 
     // Don't collect until a VM is actually running

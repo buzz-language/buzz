@@ -4,7 +4,7 @@ const is_wasm = builtin.cpu.arch.isWasm();
 const BuildOptions = @import("build_options");
 const lsp = @import("lsp");
 const Ast = @import("Ast.zig");
-const GarbageCollector = @import("GarbageCollector.zig");
+const GC = @import("GC.zig");
 const TypeRegistry = @import("TypeRegistry.zig");
 const Parser = @import("Parser.zig");
 const Reporter = @import("Reporter.zig");
@@ -47,7 +47,7 @@ const Document = struct {
         var arena = std.heap.ArenaAllocator.init(parent_allocator);
         const allocator = arena.allocator();
 
-        var gc = try GarbageCollector.init(allocator);
+        var gc = try GC.init(allocator);
         gc.type_registry = TypeRegistry.init(&gc) catch return error.OutOfMemory;
         var imports = std.StringHashMapUnmanaged(Parser.ScriptImport){};
 

@@ -14,7 +14,7 @@ const TypeRegistry = @import("TypeRegistry.zig");
 const Ast = @import("Ast.zig");
 const BuildOptions = @import("build_options");
 const clap = @import("clap");
-const GarbageCollector = @import("GarbageCollector.zig");
+const GC = @import("GC.zig");
 const JIT = if (!is_wasm) @import("Jit.zig") else void;
 const is_wasm = builtin.cpu.arch.isWasm();
 const repl = if (!is_wasm) @import("repl.zig").repl else void;
@@ -70,7 +70,7 @@ fn printBanner(out: anytype, full: bool) void {
 pub fn runFile(allocator: Allocator, file_name: []const u8, args: []const []const u8, flavor: RunFlavor) !void {
     var total_timer = if (!is_wasm) std.time.Timer.start() catch unreachable else {};
     var import_registry = ImportRegistry{};
-    var gc = try GarbageCollector.init(allocator);
+    var gc = try GC.init(allocator);
     gc.type_registry = try TypeRegistry.init(&gc);
     var imports = std.StringHashMapUnmanaged(Parser.ScriptImport){};
     var vm = try VM.init(&gc, &import_registry, flavor);

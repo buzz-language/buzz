@@ -6,7 +6,7 @@ const v = @import("value.zig");
 const Value = v.Value;
 const FFI = @import("FFI.zig");
 const Parser = @import("Parser.zig");
-const GarbageCollector = @import("GarbageCollector.zig");
+const GC = @import("GC.zig");
 // TODO: cleanup Error sets!
 const Error = @import("Codegen.zig").Error;
 
@@ -484,7 +484,7 @@ pub const Slice = struct {
         return ctx.result orelse false;
     }
 
-    fn binaryValue(self: Self.Slice, node: Node.Index, gc: *GarbageCollector) !?Value {
+    fn binaryValue(self: Self.Slice, node: Node.Index, gc: *GC) !?Value {
         const components = self.nodes.items(.components)[node].Binary;
 
         const left = try self.toValue(components.left, gc);
@@ -702,7 +702,7 @@ pub const Slice = struct {
         }
     }
 
-    pub fn toValue(self: Self.Slice, node: Node.Index, gc: *GarbageCollector) Error!Value {
+    pub fn toValue(self: Self.Slice, node: Node.Index, gc: *GC) Error!Value {
         const value = &self.nodes.items(.value)[node];
 
         if (value.* == null and try self.isConstant(gc.allocator, node)) {

@@ -7,7 +7,7 @@ const TryCtx = vmachine.TryCtx;
 const ImportRegistry = vmachine.ImportRegistry;
 const o = @import("obj.zig");
 const v = @import("value.zig");
-const GarbageCollector = @import("GarbageCollector.zig");
+const GC = @import("GC.zig");
 const TypeRegistry = @import("TypeRegistry.zig");
 const Parser = @import("Parser.zig");
 const CodeGen = @import("Codegen.zig");
@@ -587,9 +587,9 @@ export fn bz_getUserDataPtr(userdata: v.Value) callconv(.c) u64 {
 
 export fn bz_newVM() *VM {
     const vm = allocator.create(VM) catch @panic("Out of memory");
-    var gc = allocator.create(GarbageCollector) catch @panic("Out of memory");
+    var gc = allocator.create(GC) catch @panic("Out of memory");
     // FIXME: should share strings between gc
-    gc.* = GarbageCollector.init(allocator) catch @panic("Out of memory");
+    gc.* = GC.init(allocator) catch @panic("Out of memory");
     gc.type_registry = TypeRegistry.init(gc) catch @panic("Out of memory");
     const import_registry = allocator.create(ImportRegistry) catch @panic("Out of memory");
     import_registry.* = .{};

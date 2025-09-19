@@ -10,7 +10,7 @@ const RunFlavor = vm.RunFlavor;
 const Value = @import("value.zig").Value;
 const Parser = @import("Parser.zig");
 const Token = @import("Token.zig");
-const GarbageCollector = @import("GarbageCollector.zig");
+const GC = @import("GC.zig");
 const Reporter = @import("Reporter.zig");
 const BuildOptions = @import("build_options");
 const JIT = if (!is_wasm) @import("Jit.zig") else void;
@@ -60,7 +60,7 @@ const Breaks = std.ArrayList(Break);
 
 current: ?*Frame = null,
 ast: Ast.Slice = undefined,
-gc: *GarbageCollector,
+gc: *GC,
 flavor: RunFlavor,
 /// Jump to patch at end of current expression with a optional unwrapping in the middle of it
 opt_jumps: std.ArrayList(std.ArrayList(usize)) = .{},
@@ -137,7 +137,7 @@ const generators = [_]?NodeGen{
 };
 
 pub fn init(
-    gc: *GarbageCollector,
+    gc: *GC,
     parser: *Parser,
     flavor: RunFlavor,
     jit: ?*JIT,

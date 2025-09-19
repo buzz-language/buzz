@@ -5,7 +5,7 @@ const VM = _vm.VM;
 const ImportRegistry = _vm.ImportRegistry;
 const wasm = @import("wasm.zig");
 const BuildOptions = @import("build_options");
-const GarbageCollector = @import("GarbageCollector.zig");
+const GC = @import("GC.zig");
 const TypeRegistry = @import("TypeRegistry.zig");
 const _obj = @import("obj.zig");
 const ObjTypeDef = _obj.ObjTypeDef;
@@ -34,8 +34,8 @@ pub export fn initRepl() *ReplCtx {
     const import_registry = allocator.create(ImportRegistry) catch unreachable;
     import_registry.* = .{};
 
-    const gc = allocator.create(GarbageCollector) catch unreachable;
-    gc.* = GarbageCollector.init(allocator) catch unreachable;
+    const gc = allocator.create(GC) catch unreachable;
+    gc.* = GC.init(allocator) catch unreachable;
     gc.type_registry = TypeRegistry.init(gc) catch unreachable;
 
     const imports = allocator.create(std.StringHashMapUnmanaged(Parser.ScriptImport)) catch unreachable;
