@@ -7,7 +7,7 @@ const Ast = @import("Ast.zig");
 const disassembler = @import("disassembler.zig");
 const obj = @import("obj.zig");
 const BuildOptions = @import("build_options");
-const GC = @import("GC.zig");
+const GC = @import("CheneyGC.zig");
 const is_wasm = builtin.cpu.arch.isWasm();
 const JIT = if (!is_wasm) @import("Jit.zig") else void;
 const Token = @import("Token.zig");
@@ -152,7 +152,6 @@ pub const Fiber = struct {
 
     pub fn deinit(self: *Self) void {
         self.allocator.free(self.stack);
-
         self.frames.deinit(self.allocator);
     }
 
@@ -410,6 +409,7 @@ pub const VM = struct {
     var cycles: u128 = 0;
 
     pub const Error = error{
+        OutOfSpace,
         RuntimeError, // Thrown in wasm build because we can't stop the program
         CantCompile,
         UnwrappedNull,
@@ -460,12 +460,12 @@ pub const VM = struct {
     }
 
     pub fn cliArgs(self: *Self, args: ?[]const []const u8) !*obj.ObjList {
-        var arg_list = try self.gc.allocateObject(
+        var arg_list = try self.gc.allocate(
             obj.ObjList,
             try obj.ObjList.init(
                 self.gc.allocator,
                 // TODO: get instance that already exists
-                try self.gc.allocateObject(
+                try self.gc.allocate(
                     obj.ObjTypeDef,
                     .{
                         .def_type = .List,
@@ -566,6 +566,7 @@ pub const VM = struct {
         self.current_fiber.* = try Fiber.init(
             self.gc.allocator,
             try self.gc.type_registry.getTypeDef(
+                self.gc,
                 .{
                     .optional = false,
                     .def_type = .Fiber,
@@ -584,7 +585,7 @@ pub const VM = struct {
             null,
         );
 
-        self.push((try self.gc.allocateObject(
+        self.push((try self.gc.allocate(
             obj.ObjClosure,
             try obj.ObjClosure.init(self.gc.allocator, self, function),
         )).toValue());
@@ -1248,7 +1249,7 @@ pub const VM = struct {
             self.gc,
         ).?;
 
-        var closure = self.gc.allocateObject(
+        var closure = self.gc.allocate(
             obj.ObjClosure,
             obj.ObjClosure.init(self.gc.allocator, self, function) catch {
                 self.panic("Out of memory");
@@ -1351,6 +1352,7 @@ pub const VM = struct {
         fiber.* = Fiber.init(
             self.gc.allocator,
             self.gc.type_registry.getTypeDef(
+                self.gc,
                 .{
                     .optional = false,
                     .def_type = .Fiber,
@@ -1377,7 +1379,7 @@ pub const VM = struct {
         fiber.type_def = self.pop().obj().access(obj.ObjTypeDef, .Type, self.gc).?;
 
         // Put new fiber on the stack
-        var obj_fiber = self.gc.allocateObject(obj.ObjFiber, obj.ObjFiber{
+        var obj_fiber = self.gc.allocate(obj.ObjFiber, obj.ObjFiber{
             .fiber = fiber,
         }) catch {
             self.panic("Out of memory");
@@ -2306,7 +2308,7 @@ pub const VM = struct {
     }
 
     fn OP_LIST(self: *Self, _: *CallFrame, _: u32, _: Chunk.OpCode, arg: u24) void {
-        var list = self.gc.allocateObject(
+        var list = self.gc.allocate(
             obj.ObjList,
             obj.ObjList.init(
                 self.gc.allocator,
@@ -2345,7 +2347,7 @@ pub const VM = struct {
         const low = self.pop().integer();
 
         self.push(
-            Value.fromObj((self.gc.allocateObject(
+            Value.fromObj((self.gc.allocate(
                 obj.ObjRange,
                 obj.ObjRange{
                     .high = high,
@@ -2401,7 +2403,7 @@ pub const VM = struct {
     }
 
     fn OP_MAP(self: *Self, _: *CallFrame, _: u32, _: Chunk.OpCode, arg: u24) void {
-        var map = self.gc.allocateObject(
+        var map = self.gc.allocate(
             obj.ObjMap,
             obj.ObjMap.init(
                 self.gc.allocator,
@@ -2744,7 +2746,7 @@ pub const VM = struct {
     fn OP_GET_ENUM_CASE(self: *Self, _: *CallFrame, _: u32, _: Chunk.OpCode, arg: u24) void {
         const enum_ = self.peek(0).obj().access(obj.ObjEnum, .Enum, self.gc).?;
 
-        var enum_case: *obj.ObjEnumInstance = self.gc.allocateObject(
+        var enum_case: *obj.ObjEnumInstance = self.gc.allocate(
             obj.ObjEnumInstance,
             obj.ObjEnumInstance{
                 .enum_ref = enum_,
@@ -2799,7 +2801,7 @@ pub const VM = struct {
         var found = false;
         for (enum_.cases, 0..) |case, index| {
             if (case.eql(case_value)) {
-                var enum_case = self.gc.allocateObject(obj.ObjEnumInstance, obj.ObjEnumInstance{
+                var enum_case = self.gc.allocate(obj.ObjEnumInstance, obj.ObjEnumInstance{
                     .enum_ref = enum_,
                     .case = @intCast(index),
                 }) catch {
@@ -2833,7 +2835,7 @@ pub const VM = struct {
     }
 
     fn OP_OBJECT(self: *Self, _: *CallFrame, _: u32, _: Chunk.OpCode, type_def_constant: u24) void {
-        var object = self.gc.allocateObject(
+        var object = self.gc.allocate(
             obj.ObjObject,
             obj.ObjObject.init(
                 self.gc.allocator,
@@ -2866,7 +2868,7 @@ pub const VM = struct {
 
     fn OP_FCONTAINER_INSTANCE(self: *Self, _: *CallFrame, _: u32, _: Chunk.OpCode, _: u24) void {
         const typedef = self.pop().obj().access(obj.ObjTypeDef, .Type, self.gc);
-        const instance = (self.gc.allocateObject(
+        const instance = (self.gc.allocate(
             obj.ObjForeignContainer,
             obj.ObjForeignContainer.init(
                 self,
@@ -2904,7 +2906,7 @@ pub const VM = struct {
         else
             null;
 
-        var obj_instance = self.gc.allocateObject(
+        var obj_instance = self.gc.allocate(
             obj.ObjObjectInstance,
             obj.ObjObjectInstance.init(
                 self,
@@ -3569,7 +3571,7 @@ pub const VM = struct {
         };
 
         self.push(
-            (self.gc.allocateObject(obj.ObjList, obj.ObjList{
+            (self.gc.allocate(obj.ObjList, obj.ObjList{
                 .type_def = left.type_def,
                 .methods = left.methods,
                 .items = new_list,
@@ -3614,7 +3616,7 @@ pub const VM = struct {
         }
 
         self.push(
-            (self.gc.allocateObject(obj.ObjMap, obj.ObjMap{
+            (self.gc.allocate(obj.ObjMap, obj.ObjMap{
                 .type_def = left.type_def,
                 .methods = left.methods,
                 .map = new_map,
@@ -4352,7 +4354,7 @@ pub const VM = struct {
                 self.currentFrame().?.closure,
                 node,
             ) catch null) |native| {
-                const obj_native = self.gc.allocateObject(
+                const obj_native = self.gc.allocate(
                     obj.ObjNative,
                     .{
                         .native = native,
@@ -4361,13 +4363,6 @@ pub const VM = struct {
                     self.panic("Out of memory");
                     unreachable;
                 };
-
-                // Prevent collection
-                self.gc.markObj(obj_native.toObj()) catch {
-                    self.panic("Out of memory");
-                    unreachable;
-                };
-                obj_native.mark(self.gc);
 
                 if (BuildOptions.jit_debug) {
                     io.print(
@@ -4466,12 +4461,12 @@ pub const VM = struct {
             );
         }
 
-        if (BuildOptions.gc_debug) {
-            self.gc.where = if (self.currentFrame()) |current_frame|
-                self.current_ast.tokens.get(current_frame.closure.function.chunk.lines.items[current_frame.ip - 1])
-            else
-                null;
-        }
+        // if (BuildOptions.gc_debug) {
+        //     self.gc.where = if (self.currentFrame()) |current_frame|
+        //         self.current_ast.tokens.get(current_frame.closure.function.chunk.lines.items[current_frame.ip - 1])
+        //     else
+        //         null;
+        // }
 
         op_table[@intFromEnum(next_instruction)](
             self,
@@ -4969,7 +4964,7 @@ pub const VM = struct {
     }
 
     fn bindMethod(self: *Self, method: ?*obj.ObjClosure, native: ?*obj.ObjNative) !void {
-        var bound = try self.gc.allocateObject(
+        var bound = try self.gc.allocate(
             obj.ObjBoundMethod,
             .{
                 .receiver = self.peek(0),
@@ -4984,7 +4979,7 @@ pub const VM = struct {
 
     pub fn callValue(self: *Self, callee: Value, arg_count: u8, catch_value: ?Value) Error!void {
         var object = callee.obj();
-        switch (object.obj_type) {
+        switch (object.type) {
             .Bound => {
                 const bound = object.access(obj.ObjBoundMethod, .Bound, self.gc).?;
                 (self.current_fiber.stack_top - arg_count - 1)[0] = bound.receiver;
@@ -5026,7 +5021,7 @@ pub const VM = struct {
 
     fn tailCall(self: *Self, callee: Value, arg_count: u8, catch_value: ?Value) Error!void {
         var object = callee.obj();
-        switch (object.obj_type) {
+        switch (object.type) {
             .Bound => {
                 const bound = object.access(obj.ObjBoundMethod, .Bound, self.gc).?;
                 (self.current_fiber.stack_top - arg_count - 1)[0] = bound.receiver;
@@ -5104,7 +5099,7 @@ pub const VM = struct {
         var receiver: Value = self.peek(arg_count);
 
         var object = receiver.obj();
-        switch (object.obj_type) {
+        switch (object.type) {
             .ObjectInstance => {
                 const instance = object.access(obj.ObjObjectInstance, .ObjectInstance, self.gc).?;
 
@@ -5140,7 +5135,7 @@ pub const VM = struct {
                 );
             },
             .String, .Pattern, .Fiber, .List, .Map => {
-                const member = switch (object.obj_type) {
+                const member = switch (object.type) {
                     .String => try obj.ObjString.member(self, member_idx),
                     .Pattern => try obj.ObjPattern.member(self, member_idx),
                     .Fiber => try obj.ObjFiber.member(self, member_idx),
@@ -5184,7 +5179,7 @@ pub const VM = struct {
             return upvalue.?;
         }
 
-        var created_upvalue: *obj.ObjUpValue = try self.gc.allocateObject(
+        var created_upvalue: *obj.ObjUpValue = try self.gc.allocate(
             obj.ObjUpValue,
             obj.ObjUpValue.init(local),
         );

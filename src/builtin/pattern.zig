@@ -61,10 +61,6 @@ const fake_token: Token = .{
 
 // Return match anonymous object type: obj{ start: int, end: int, capture: str }
 fn matchType(vm: *VM) !*o.ObjTypeDef {
-    if (vm.gc.type_registry.registry.get(".{ capture: str, start: int, end: int }")) |type_def| {
-        return type_def;
-    }
-
     var object_def = o.ObjObject.ObjectDef.init(
         0,
         try vm.gc.copyString("match"),
@@ -121,6 +117,7 @@ fn matchType(vm: *VM) !*o.ObjTypeDef {
     );
 
     return (try vm.gc.type_registry.getTypeDef(
+        vm.gc,
         .{
             .def_type = .Object,
             .resolved_type = .{
@@ -128,6 +125,7 @@ fn matchType(vm: *VM) !*o.ObjTypeDef {
             },
         },
     )).toInstance(
+        vm.gc,
         &vm.gc.type_registry,
         false,
     );
@@ -166,11 +164,12 @@ fn rawMatch(self: *o.ObjPattern, vm: *VM, subject: *o.ObjString, offset: *usize)
 
             offset.* = @intCast(output_vector[1]);
 
-            results = try vm.gc.allocateObject(
+            results = try vm.gc.allocate(
                 o.ObjList,
                 try o.ObjList.init(
                     vm.gc.allocator,
                     try vm.gc.type_registry.getTypeDef(
+                        vm.gc,
                         .{
                             .def_type = .List,
                             .optional = false,
@@ -192,7 +191,7 @@ fn rawMatch(self: *o.ObjPattern, vm: *VM, subject: *o.ObjString, offset: *usize)
 
             var i: usize = 0;
             while (i < rc) : (i += 1) {
-                const match_instance = try vm.gc.allocateObject(
+                const match_instance = try vm.gc.allocate(
                     o.ObjObjectInstance,
                     try o.ObjObjectInstance.init(
                         vm,
@@ -234,11 +233,12 @@ fn rawMatchAll(self: *o.ObjPattern, vm: *VM, subject: *o.ObjString) !?*o.ObjList
     while (true) {
         if (try rawMatch(self, vm, subject, &offset)) |matches| {
             const was_null = results == null;
-            results = results orelse try vm.gc.allocateObject(
+            results = results orelse try vm.gc.allocate(
                 o.ObjList,
                 try o.ObjList.init(
                     vm.gc.allocator,
                     try vm.gc.type_registry.getTypeDef(
+                        vm.gc,
                         .{
                             .def_type = .List,
                             .optional = false,

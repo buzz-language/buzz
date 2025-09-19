@@ -56,6 +56,7 @@ pub fn utf8Codepoints(ctx: *o.NativeCtx) callconv(.c) c_int {
     const str = o.ObjString.cast(ctx.vm.peek(0).obj()).?;
 
     const list_def_type = ctx.vm.gc.type_registry.getTypeDef(
+        ctx.vm.gc,
         o.ObjTypeDef{
             .def_type = .List,
             .optional = false,
@@ -71,7 +72,7 @@ pub fn utf8Codepoints(ctx: *o.NativeCtx) callconv(.c) c_int {
         unreachable;
     };
 
-    var list = (ctx.vm.gc.allocateObject(
+    var list = (ctx.vm.gc.allocate(
         o.ObjList,
         o.ObjList.init(ctx.vm.gc.allocator, list_def_type) catch {
             ctx.vm.panic("Out of memory");
@@ -249,6 +250,7 @@ pub fn split(ctx: *o.NativeCtx) callconv(.c) c_int {
     const separator = o.ObjString.cast(ctx.vm.peek(0).obj()).?;
 
     const list_def_type = ctx.vm.gc.type_registry.getTypeDef(
+        ctx.vm.gc,
         .{
             .def_type = .List,
             .optional = false,
@@ -264,7 +266,7 @@ pub fn split(ctx: *o.NativeCtx) callconv(.c) c_int {
         unreachable;
     };
 
-    var list = ctx.vm.gc.allocateObject(
+    var list = ctx.vm.gc.allocate(
         o.ObjList,
         o.ObjList.init(ctx.vm.gc.allocator, list_def_type) catch {
             ctx.vm.panic("Out of memory");

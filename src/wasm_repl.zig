@@ -5,7 +5,7 @@ const VM = _vm.VM;
 const ImportRegistry = _vm.ImportRegistry;
 const wasm = @import("wasm.zig");
 const BuildOptions = @import("build_options");
-const GC = @import("GC.zig");
+const GC = @import("CheneyGC.zig");
 const TypeRegistry = @import("TypeRegistry.zig");
 const _obj = @import("obj.zig");
 const ObjTypeDef = _obj.ObjTypeDef;
@@ -102,7 +102,7 @@ pub export fn runLine(ctx: *ReplCtx) void {
     var previous_global_top = ctx.vm.globals_count;
     var previous_parser_globals = ctx.parser.globals.clone(ctx.parser.gc.allocator) catch unreachable;
     var previous_globals = ctx.vm.globals.clone(ctx.parser.gc.allocator) catch unreachable;
-    var previous_type_registry = ctx.vm.gc.type_registry.registry.clone() catch unreachable;
+    var previous_type_registry = ctx.vm.gc.type_registry.registry.clone(ctx.vm.gc.allocator) catch unreachable;
 
     const source = stdin.readAll(ctx.vm.gc.allocator) catch unreachable;
     errdefer ctx.vm.gc.allocator.free(source);
@@ -133,7 +133,7 @@ pub export fn runLine(ctx: *ReplCtx) void {
         // previous_globals.deinit();
         previous_globals = ctx.vm.globals.clone(ctx.parser.gc.allocator) catch unreachable;
         // previous_type_registry.deinit();
-        previous_type_registry = ctx.vm.gc.type_registry.registry.clone() catch unreachable;
+        previous_type_registry = ctx.vm.gc.type_registry.registry.clone(ctx.vm.gc.allocator) catch unreachable;
 
         // Dump top of stack
         if (previous_global_top != ctx.vm.globals_count or expr != null) {

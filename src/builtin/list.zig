@@ -58,7 +58,7 @@ pub fn len(ctx: *o.NativeCtx) callconv(.c) c_int {
 pub fn reverse(ctx: *o.NativeCtx) callconv(.c) c_int {
     const list: *o.ObjList = o.ObjList.cast(ctx.vm.peek(0).obj()).?;
 
-    var new_list = ctx.vm.gc.allocateObject(
+    var new_list = ctx.vm.gc.allocate(
         o.ObjList,
         o.ObjList.init(ctx.vm.gc.allocator, list.type_def) catch {
             ctx.vm.panic("Out of memory");
@@ -103,10 +103,10 @@ pub fn remove(ctx: *o.NativeCtx) callconv(.c) c_int {
     }
 
     ctx.vm.push(list.items.orderedRemove(@as(usize, @intCast(list_index))));
-    ctx.vm.gc.markObjDirty(&list.obj) catch {
-        ctx.vm.panic("Out of memory");
-        unreachable;
-    };
+    // ctx.vm.gc.markObjDirty(&list.obj) catch {
+    //     ctx.vm.panic("Out of memory");
+    //     unreachable;
+    // };
 
     return 1;
 }
@@ -144,7 +144,7 @@ pub fn sort(ctx: *o.NativeCtx) callconv(.c) c_int {
         },
         lessThan,
     );
-    ctx.vm.gc.markObjDirty(self.toObj()) catch @panic("Out of memory");
+    // ctx.vm.gc.markObjDirty(self.toObj()) catch @panic("Out of memory");
 
     ctx.vm.push(self.toValue());
 
@@ -177,11 +177,15 @@ pub fn indexOf(ctx: *o.NativeCtx) callconv(.c) c_int {
 fn cloneRaw(ctx: *o.NativeCtx, mutable: bool) void {
     const self: *o.ObjList = o.ObjList.cast(ctx.vm.peek(0).obj()).?;
 
-    var new_list = ctx.vm.gc.allocateObject(
+    var new_list = ctx.vm.gc.allocate(
         o.ObjList,
         o.ObjList.init(
             ctx.vm.gc.allocator,
-            self.type_def.cloneMutable(&ctx.vm.gc.type_registry, mutable) catch {
+            self.type_def.cloneMutable(
+                ctx.vm.gc,
+                &ctx.vm.gc.type_registry,
+                mutable,
+            ) catch {
                 ctx.vm.panic("Out of memory");
                 unreachable;
             },
@@ -272,7 +276,7 @@ pub fn sub(ctx: *o.NativeCtx) callconv(.c) c_int {
         unreachable;
     };
 
-    var list = ctx.vm.gc.allocateObject(
+    var list = ctx.vm.gc.allocate(
         o.ObjList,
         .{
             .type_def = self.type_def,
@@ -375,7 +379,7 @@ pub fn filter(ctx: *o.NativeCtx) callconv(.c) c_int {
     const list = o.ObjList.cast(ctx.vm.peek(1).obj()).?;
     const closure = ctx.vm.peek(0);
 
-    var new_list: *o.ObjList = ctx.vm.gc.allocateObject(
+    var new_list: *o.ObjList = ctx.vm.gc.allocate(
         o.ObjList,
         o.ObjList.init(
             ctx.vm.gc.allocator,
@@ -423,11 +427,12 @@ pub fn map(ctx: *o.NativeCtx) callconv(.c) c_int {
         .type_def.resolved_type.?.Function
         .return_type;
 
-    var new_list: *o.ObjList = ctx.vm.gc.allocateObject(
+    var new_list: *o.ObjList = ctx.vm.gc.allocate(
         o.ObjList,
         o.ObjList.init(
             ctx.vm.gc.allocator,
             ctx.vm.gc.type_registry.getTypeDef(
+                ctx.vm.gc,
                 .{
                     .def_type = .List,
                     .resolved_type = .{

@@ -360,7 +360,7 @@ pub fn markObjDirty(self: *GC, obj: *o.Obj) !void {
         //     "Marked obj @{} {} dirty, gray_stack @{} or GC @{} will be {} items long\n",
         //     .{
         //         @intFromPtr(obj),
-        //         obj.obj_type,
+        //         obj.type,
         //         @intFromPtr(&self.gray_stack),
         //         @intFromPtr(self),
         //         self.gray_stack.items.len,
@@ -417,14 +417,14 @@ fn blackenObject(self: *GC, obj: *o.Obj) !void {
             "blackening @{} {}\n",
             .{
                 @intFromPtr(obj),
-                obj.obj_type,
+                obj.type,
             },
         );
     }
 
     obj.dirty = false;
 
-    _ = try switch (obj.obj_type) {
+    _ = try switch (obj.type) {
         .String => obj.access(o.ObjString, .String, self).?.mark(self),
         .Type => obj.access(o.ObjTypeDef, .Type, self).?.mark(self),
         .UpValue => obj.access(o.ObjUpValue, .UpValue, self).?.mark(self),
@@ -450,7 +450,7 @@ fn blackenObject(self: *GC, obj: *o.Obj) !void {
             "done blackening @{} {}\n",
             .{
                 @intFromPtr(obj),
-                obj.obj_type,
+                obj.type,
             },
         );
     }
@@ -458,7 +458,7 @@ fn blackenObject(self: *GC, obj: *o.Obj) !void {
 
 fn freeObj(self: *GC, obj: *o.Obj) (std.mem.Allocator.Error || std.fmt.BufPrintError)!void {
     if (BuildOptions.gc_debug) {
-        io.print(">> freeing {} {}\n", .{ @intFromPtr(obj), obj.obj_type });
+        io.print(">> freeing {} {}\n", .{ @intFromPtr(obj), obj.type });
     }
 
     if (BuildOptions.gc_debug_access) {
@@ -468,7 +468,7 @@ fn freeObj(self: *GC, obj: *o.Obj) (std.mem.Allocator.Error || std.fmt.BufPrintE
     self.obj_collected = obj;
     defer self.obj_collected = null;
 
-    switch (obj.obj_type) {
+    switch (obj.type) {
         .String => {
             const obj_string = o.ObjString.cast(obj).?;
 
@@ -737,7 +737,7 @@ fn markMethods(self: *GC) !void {
 
 fn markRoots(self: *GC, vm: *v.VM) !void {
     // FIXME: We should not need this, but we don't know how to prevent collection before the VM actually starts making reference to them
-    try self.type_registry.mark();
+    try self.type_registry.mark(self);
 
     try self.markMethods();
 
@@ -850,7 +850,7 @@ fn sweep(self: *GC, mode: Mode) !void {
 pub fn collectGarbage(self: *GC) !void {
     var timer = if (!is_wasm) std.time.Timer.start() catch unreachable else {};
 
-    // Don't collect until a VM is actually running
+    // Don't collect until a VM is actuallyerunning
     var vm_it = self.active_vms.iterator();
     const first_vm = vm_it.next();
     if (first_vm == null or first_vm.?.key_ptr.*.flavor == .Repl) {
@@ -933,7 +933,7 @@ pub const Debugger = struct {
     const Self = @This();
 
     pub const Ptr = struct {
-        what: o.ObjType,
+        what: o.Obj.Type,
         allocated_at: ?Token,
         collected_at: ?Token = null,
     };
@@ -957,7 +957,7 @@ pub const Debugger = struct {
         self.tracker.deinit(self.allocator);
     }
 
-    pub fn allocated(self: *Self, ptr: *o.Obj, at: ?Token, what: o.ObjType) void {
+    pub fn allocated(self: *Self, ptr: *o.Obj, at: ?Token, what: o.Obj.Type) void {
         std.debug.assert(self.tracker.get(ptr) == null);
         self.tracker.put(
             self.allocator,

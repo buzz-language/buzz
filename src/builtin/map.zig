@@ -7,11 +7,15 @@ const buzz_api = @import("../buzz_api.zig");
 fn cloneRaw(ctx: *o.NativeCtx, mutable: bool) void {
     const self = o.ObjMap.cast(ctx.vm.peek(0).obj()).?;
 
-    var new_map = ctx.vm.gc.allocateObject(
+    var new_map = ctx.vm.gc.allocate(
         o.ObjMap,
         o.ObjMap.init(
             ctx.vm.gc.allocator,
-            self.type_def.cloneMutable(&ctx.vm.gc.type_registry, mutable) catch {
+            self.type_def.cloneMutable(
+                ctx.vm.gc,
+                &ctx.vm.gc.type_registry,
+                mutable,
+            ) catch {
                 ctx.vm.panic("Out of memory");
                 unreachable;
             },
@@ -73,7 +77,7 @@ pub fn filter(ctx: *o.NativeCtx) callconv(.c) c_int {
     const self = o.ObjMap.cast(ctx.vm.peek(1).obj()).?;
     const closure = ctx.vm.peek(0);
 
-    var new_map: *o.ObjMap = ctx.vm.gc.allocateObject(
+    var new_map: *o.ObjMap = ctx.vm.gc.allocate(
         o.ObjMap,
         o.ObjMap.init(
             ctx.vm.gc.allocator,
@@ -140,11 +144,12 @@ pub fn map(ctx: *o.NativeCtx) callconv(.c) c_int {
         .return_type.resolved_type.?.ObjectInstance.of
         .resolved_type.?.Object;
 
-    var new_map: *o.ObjMap = ctx.vm.gc.allocateObject(
+    var new_map: *o.ObjMap = ctx.vm.gc.allocate(
         o.ObjMap,
         o.ObjMap.init(
             ctx.vm.gc.allocator,
             ctx.vm.gc.type_registry.getTypeDef(
+                ctx.vm.gc,
                 .{
                     .optional = false,
                     .def_type = .Map,
@@ -235,7 +240,7 @@ pub fn sort(ctx: *o.NativeCtx) callconv(.c) c_int {
             .map = self,
         },
     );
-    ctx.vm.gc.markObjDirty(self.toObj()) catch @panic("Out of memory");
+    // ctx.vm.gc.markObjDirty(self.toObj()) catch @panic("Out of memory");
 
     ctx.vm.push(self.toValue());
 
@@ -246,7 +251,7 @@ pub fn diff(ctx: *o.NativeCtx) callconv(.c) c_int {
     const lhs: *o.ObjMap = o.ObjMap.cast(ctx.vm.peek(1).obj()).?;
     const rhs: *o.ObjMap = o.ObjMap.cast(ctx.vm.peek(0).obj()).?;
 
-    var new_map: *o.ObjMap = ctx.vm.gc.allocateObject(
+    var new_map: *o.ObjMap = ctx.vm.gc.allocate(
         o.ObjMap,
         o.ObjMap.init(
             ctx.vm.gc.allocator,
@@ -284,7 +289,7 @@ pub fn intersect(ctx: *o.NativeCtx) callconv(.c) c_int {
     const lhs: *o.ObjMap = o.ObjMap.cast(ctx.vm.peek(1).obj()).?;
     const rhs: *o.ObjMap = o.ObjMap.cast(ctx.vm.peek(0).obj()).?;
 
-    var new_map: *o.ObjMap = ctx.vm.gc.allocateObject(
+    var new_map: *o.ObjMap = ctx.vm.gc.allocate(
         o.ObjMap,
         o.ObjMap.init(
             ctx.vm.gc.allocator,
@@ -352,6 +357,7 @@ pub fn keys(ctx: *o.NativeCtx) callconv(.c) c_int {
     }
 
     var list_def_type: *o.ObjTypeDef = ctx.vm.gc.type_registry.getTypeDef(
+        ctx.vm.gc,
         .{
             .def_type = .List,
             .optional = false,
@@ -370,7 +376,7 @@ pub fn keys(ctx: *o.NativeCtx) callconv(.c) c_int {
     // Prevent collection
     ctx.vm.push(list_def_type.toValue());
 
-    var list = ctx.vm.gc.allocateObject(
+    var list = ctx.vm.gc.allocate(
         o.ObjList,
         o.ObjList.init(ctx.vm.gc.allocator, list_def_type) catch {
             ctx.vm.panic("Out of memory");
@@ -401,6 +407,7 @@ pub fn values(ctx: *o.NativeCtx) callconv(.c) c_int {
     };
 
     const list_def_type = ctx.vm.gc.type_registry.getTypeDef(
+        ctx.vm.gc,
         o.ObjTypeDef{
             .def_type = .List,
             .optional = false,
@@ -416,7 +423,7 @@ pub fn values(ctx: *o.NativeCtx) callconv(.c) c_int {
         unreachable;
     };
 
-    var list = ctx.vm.gc.allocateObject(
+    var list = ctx.vm.gc.allocate(
         o.ObjList,
         o.ObjList.init(ctx.vm.gc.allocator, list_def_type) catch {
             ctx.vm.panic("Out of memory");

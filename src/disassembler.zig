@@ -432,7 +432,7 @@ pub const DumpState = struct {
         } else {
             state.seen.put(value.obj(), {}) catch unreachable;
 
-            switch (value.obj().obj_type) {
+            switch (value.obj().type) {
                 .Type,
                 .Closure,
                 .Function,

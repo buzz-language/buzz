@@ -20,6 +20,7 @@ pub const Error = error{
     UnwrappedNull,
     OutOfBound,
     ReachedMaximumMemoryUsage,
+    OutOfSpace,
 } || std.mem.Allocator.Error || std.fmt.BufPrintError;
 
 const OptJump = struct {
@@ -4553,7 +4554,7 @@ fn generateForEach(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
 
     // If iterable is empty constant, skip the node
     if (self.state.?.ast.nodes.items(.value)[components.iterable]) |iterable| {
-        if (switch (iterable.obj().obj_type) {
+        if (switch (iterable.obj().type) {
             .List => o.ObjList.cast(iterable.obj()).?.items.items.len == 0,
             .Map => o.ObjMap.cast(iterable.obj()).?.map.count() == 0,
             .String => o.ObjString.cast(iterable.obj()).?.string.len == 0,
@@ -5556,7 +5557,7 @@ pub fn compileZdef(self: *Self, buzz_ast: Ast.Slice, zdef: Ast.Zdef.ZdefElement)
     m.MIR_gen_init(self.ctx);
     defer m.MIR_gen_finish(self.ctx);
 
-    return try self.vm.gc.allocateObject(
+    return try self.vm.gc.allocate(
         o.ObjNative,
         .{
             .native = m.MIR_gen(self.ctx, wrapper_item) orelse unreachable,

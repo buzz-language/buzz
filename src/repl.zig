@@ -13,7 +13,7 @@ const disassembler = @import("disassembler.zig");
 const CodeGen = @import("Codegen.zig");
 const Scanner = @import("Scanner.zig");
 const io = @import("io.zig");
-const GC = @import("GC.zig");
+const GC = @import("CheneyGC.zig");
 const TypeRegistry = @import("TypeRegistry.zig");
 
 pub const PROMPT = ">>> ";
@@ -143,7 +143,7 @@ pub fn repl(allocator: std.mem.Allocator) !void {
     var previous_global_top = vm.globals_count;
     var previous_parser_globals = try parser.globals.clone(allocator);
     var previous_globals = try vm.globals.clone(allocator);
-    var previous_type_registry = try gc.type_registry.registry.clone();
+    var previous_type_registry = try gc.type_registry.registry.clone(gc.allocator);
     var previous_input: ?[]u8 = null;
 
     var reader_buffer = [_]u8{0};
@@ -243,7 +243,7 @@ pub fn repl(allocator: std.mem.Allocator) !void {
                 // previous_globals.deinit();
                 previous_globals = try vm.globals.clone(allocator);
                 // previous_type_registry.deinit();
-                previous_type_registry = try gc.type_registry.registry.clone();
+                previous_type_registry = try gc.type_registry.registry.clone(allocator);
 
                 // Dump top of stack
                 if (previous_global_top != vm.globals_count or expr != null) {

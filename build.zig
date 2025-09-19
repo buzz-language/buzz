@@ -77,9 +77,11 @@ const BuildOptions = struct {
         debug_light: bool,
         debug_access: bool,
         on: bool,
+        initial_gc_size: usize,
         initial_gc: usize,
         next_gc_ratio: usize,
         next_full_gc_ratio: usize,
+        shrink_gc_ratio: usize,
         memory_limit: ?usize,
 
         pub fn step(self: GCOptions, options: *Build.Step.Options) void {
@@ -87,9 +89,11 @@ const BuildOptions = struct {
             options.addOption(@TypeOf(self.debug_light), "gc_debug_light", self.debug_light);
             options.addOption(@TypeOf(self.debug_access), "gc_debug_access", self.debug_access);
             options.addOption(@TypeOf(self.on), "gc", self.on);
+            options.addOption(@TypeOf(self.initial_gc_size), "initial_gc_size", self.initial_gc_size);
             options.addOption(@TypeOf(self.initial_gc), "initial_gc", self.initial_gc);
             options.addOption(@TypeOf(self.next_gc_ratio), "next_gc_ratio", self.next_gc_ratio);
             options.addOption(@TypeOf(self.next_full_gc_ratio), "next_full_gc_ratio", self.next_full_gc_ratio);
+            options.addOption(@TypeOf(self.shrink_gc_ratio), "shrink_gc_ratio", self.shrink_gc_ratio);
             options.addOption(@TypeOf(self.memory_limit), "memory_limit", self.memory_limit);
         }
     };
@@ -211,6 +215,12 @@ pub fn build(b: *Build) !void {
                 "initial_gc",
                 "In Kb, threshold at which the first garbage collector pass will occur",
             ) orelse if (builtin.mode == .Debug) 1 else 8,
+
+            .initial_gc_size = b.option(
+                usize,
+                "initial_gc_size",
+                "In Kb, how much memory is initially allocated for a buzz script",
+            ) orelse 2048,
             .next_gc_ratio = b.option(
                 usize,
                 "next_gc_ratio",
@@ -221,6 +231,11 @@ pub fn build(b: *Build) !void {
                 "next_full_gc_ratio",
                 "Ratio applied to get the next full GC threshold",
             ) orelse 4,
+            .shrink_gc_ratio = b.option(
+                usize,
+                "shrink_gc_ratio",
+                "Percentage under which the used memory will be shrinked",
+            ) orelse 20,
             .memory_limit = b.option(
                 usize,
                 "memory_limit",

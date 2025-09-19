@@ -6,7 +6,7 @@ const v = @import("value.zig");
 const Value = v.Value;
 const FFI = @import("FFI.zig");
 const Parser = @import("Parser.zig");
-const GC = @import("GC.zig");
+const GC = @import("CheneyGC.zig");
 // TODO: cleanup Error sets!
 const Error = @import("Codegen.zig").Error;
 
@@ -639,7 +639,7 @@ pub const Slice = struct {
                     try new_list.appendSlice(gc.allocator, left_list.?.items.items);
                     try new_list.appendSlice(gc.allocator, rl.items.items);
 
-                    return (try gc.allocateObject(
+                    return (try gc.allocate(
                         obj.ObjList,
                         .{
                             .type_def = left_list.?.type_def,
@@ -658,7 +658,7 @@ pub const Slice = struct {
                         );
                     }
 
-                    return (try gc.allocateObject(
+                    return (try gc.allocate(
                         obj.ObjMap,
                         .{
                             .type_def = left_map.?.type_def,
@@ -743,7 +743,7 @@ pub const Slice = struct {
                     const components = self.nodes.items(.components)[node].Dot;
                     const type_def = self.nodes.items(.type_def)[components.callee].?;
 
-                    break :dot (try gc.allocateObject(
+                    break :dot (try gc.allocate(
                         obj.ObjEnumInstance,
                         .{
                             .enum_ref = type_def.resolved_type.?.Enum.value.?,
@@ -773,7 +773,7 @@ pub const Slice = struct {
                 .Range => range: {
                     const components = self.nodes.items(.components)[node].Range;
 
-                    break :range (try gc.allocateObject(
+                    break :range (try gc.allocate(
                         obj.ObjRange,
                         .{
                             .low = (try self.toValue(components.low, gc)).integer(),
@@ -787,7 +787,7 @@ pub const Slice = struct {
 
                     std.debug.assert(type_def != null and type_def.?.def_type != .Placeholder);
 
-                    var list = try gc.allocateObject(
+                    var list = try gc.allocate(
                         obj.ObjList,
                         try obj.ObjList.init(gc.allocator, type_def.?),
                     );
@@ -807,7 +807,7 @@ pub const Slice = struct {
 
                     std.debug.assert(type_def != null and type_def.?.def_type != .Placeholder);
 
-                    var map = try gc.allocateObject(
+                    var map = try gc.allocate(
                         obj.ObjMap,
                         try obj.ObjMap.init(gc.allocator, type_def.?),
                     );
@@ -839,7 +839,7 @@ pub const Slice = struct {
                     const subscriptable = (try self.toValue(components.subscripted, gc)).obj();
                     const key = try self.toValue(components.index, gc);
 
-                    switch (subscriptable.obj_type) {
+                    switch (subscriptable.type) {
                         .List => {
                             const list = obj.ObjList.cast(subscriptable).?;
                             const index: usize = @intCast(key.integer());

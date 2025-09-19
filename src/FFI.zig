@@ -7,7 +7,7 @@ const v = @import("value.zig");
 const Parser = @import("Parser.zig");
 const ZigType = @import("zigtypes.zig").Type;
 const Reporter = @import("Reporter.zig");
-const GC = @import("GC.zig");
+const GC = @import("CheneyGC.zig");
 
 const Self = @This();
 
@@ -379,7 +379,7 @@ fn getZdef(self: *Self, decl_index: Ast.Node.Index) !?*Zdef {
                             .child = &uzdef.zig_type,
                         },
                     },
-                    .type_def = try uzdef.type_def.cloneOptional(&self.gc.type_registry),
+                    .type_def = try uzdef.type_def.cloneOptional(self.gc, &self.gc.type_registry),
                     .name = uzdef.name,
                 };
 
@@ -469,9 +469,9 @@ fn containerDecl(self: *Self, name: []const u8, decl_index: Ast.Node.Index) anye
 
 fn unionContainer(self: *Self, name: []const u8, container: Ast.full.ContainerDecl) anyerror!*Zdef {
     var fields = std.array_list.Managed(ZigType.UnionField).init(self.gc.allocator);
-    var get_set_fields = std.StringArrayHashMap(o.ObjForeignContainer.ContainerDef.Field).init(self.gc.allocator);
-    var buzz_fields = std.StringArrayHashMap(*o.ObjTypeDef).init(self.gc.allocator);
-    var decls = std.array_list.Managed(ZigType.Declaration).init(self.gc.allocator);
+    var get_set_fields = std.StringArrayHashMapUnmanaged(o.ObjForeignContainer.ContainerDef.Field).empty;
+    var buzz_fields = std.StringArrayHashMapUnmanaged(*o.ObjTypeDef).empty;
+    var decls = std.ArrayList(ZigType.Declaration).empty;
     var next_field: ?*Zdef = null;
     for (container.ast.members, 0..) |member, idx| {
         const member_zdef = next_field orelse try self.getZdef(member);
@@ -490,17 +490,20 @@ fn unionContainer(self: *Self, name: []const u8, container: Ast.full.ContainerDe
         );
 
         try decls.append(
+            self.gc.allocator,
             ZigType.Declaration{
                 .name = member_zdef.?.name,
             },
         );
 
         try buzz_fields.put(
+            self.gc.allocator,
             member_zdef.?.name,
             member_zdef.?.type_def,
         );
 
         try get_set_fields.put(
+            self.gc.allocator,
             member_zdef.?.name,
             .{
                 // Always 0 since this is an enum
@@ -534,6 +537,7 @@ fn unionContainer(self: *Self, name: []const u8, container: Ast.full.ContainerDe
     const zdef = try self.gc.allocator.create(Zdef);
     zdef.* = .{
         .type_def = try self.gc.type_registry.getTypeDef(
+            self.gc,
             .{
                 .def_type = .ForeignContainer,
                 .resolved_type = .{
@@ -557,10 +561,10 @@ fn unionContainer(self: *Self, name: []const u8, container: Ast.full.ContainerDe
 }
 
 fn structContainer(self: *Self, name: []const u8, container: Ast.full.ContainerDecl) anyerror!*Zdef {
-    var fields = std.array_list.Managed(ZigType.StructField).init(self.gc.allocator);
-    var get_set_fields = std.StringArrayHashMap(o.ObjForeignContainer.ContainerDef.Field).init(self.gc.allocator);
-    var buzz_fields = std.StringArrayHashMap(*o.ObjTypeDef).init(self.gc.allocator);
-    var decls = std.array_list.Managed(ZigType.Declaration).init(self.gc.allocator);
+    var fields = std.ArrayList(ZigType.StructField).empty;
+    var get_set_fields = std.StringArrayHashMapUnmanaged(o.ObjForeignContainer.ContainerDef.Field).empty;
+    var buzz_fields = std.StringArrayHashMapUnmanaged(*o.ObjTypeDef).empty;
+    var decls = std.ArrayList(ZigType.Declaration).empty;
     var offset: usize = 0;
     var next_field: ?*Zdef = null;
     for (container.ast.members, 0..) |member, idx| {
@@ -572,6 +576,7 @@ fn structContainer(self: *Self, name: []const u8, container: Ast.full.ContainerD
             null;
 
         try fields.append(
+            self.gc.allocator,
             ZigType.StructField{
                 .name = member_zdef.?.name,
                 .type = &member_zdef.?.zig_type,
@@ -582,17 +587,20 @@ fn structContainer(self: *Self, name: []const u8, container: Ast.full.ContainerD
         );
 
         try decls.append(
+            self.gc.allocator,
             ZigType.Declaration{
                 .name = member_zdef.?.name,
             },
         );
 
         try buzz_fields.put(
+            self.gc.allocator,
             member_zdef.?.name,
             member_zdef.?.type_def,
         );
 
         try get_set_fields.put(
+            self.gc.allocator,
             member_zdef.?.name,
             .{
                 .offset = offset,
@@ -642,7 +650,7 @@ fn structContainer(self: *Self, name: []const u8, container: Ast.full.ContainerD
 
     const zdef = try self.gc.allocator.create(Zdef);
     zdef.* = .{
-        .type_def = try self.gc.type_registry.getTypeDef(type_def),
+        .type_def = try self.gc.type_registry.getTypeDef(self.gc, type_def),
         .zig_type = zig_type,
         .name = name,
     };
@@ -718,7 +726,10 @@ fn identifier(self: *Self, decl_index: Ast.Node.Index) anyerror!*Zdef {
 
     const zdef = try self.gc.allocator.create(Zdef);
     zdef.* = .{
-        .type_def = try self.gc.type_registry.getTypeDef(type_def orelse .{ .def_type = .Void }),
+        .type_def = try self.gc.type_registry.getTypeDef(
+            self.gc,
+            type_def orelse .{ .def_type = .Void },
+        ),
         .zig_type = zig_type orelse ZigType{ .Void = {} },
         .name = id,
     };
@@ -898,7 +909,7 @@ fn fnProto(self: *Self, tag: Ast.Node.Tag, decl_index: Ast.Node.Index) anyerror!
     const zdef = try self.gc.allocator.create(Zdef);
     zdef.* = .{
         .zig_type = ZigType{ .Fn = zig_fn_type },
-        .type_def = try self.gc.type_registry.getTypeDef(type_def),
+        .type_def = try self.gc.type_registry.getTypeDef(self.gc, type_def),
         .name = name orelse "unknown",
     };
 

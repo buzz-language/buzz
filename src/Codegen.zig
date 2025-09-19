@@ -10,7 +10,7 @@ const RunFlavor = vm.RunFlavor;
 const Value = @import("value.zig").Value;
 const Parser = @import("Parser.zig");
 const Token = @import("Token.zig");
-const GC = @import("GC.zig");
+const GC = @import("CheneyGC.zig");
 const Reporter = @import("Reporter.zig");
 const BuildOptions = @import("build_options");
 const JIT = if (!is_wasm) @import("Jit.zig") else void;
@@ -24,6 +24,7 @@ pub const Error = error{
     UnwrappedNull,
     OutOfBound,
     ReachedMaximumMemoryUsage,
+    OutOfSpace,
 } || std.mem.Allocator.Error || std.fmt.BufPrintError;
 
 pub const Frame = struct {
@@ -436,7 +437,7 @@ fn generateAs(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.O
 
     const constant = try self.ast.toValue(components.constant, self.gc);
 
-    std.debug.assert(constant.isObj() and constant.obj().obj_type == .Type);
+    std.debug.assert(constant.isObj() and constant.obj().type == .Type);
 
     if (obj.ObjTypeDef.cast(constant.obj()).?.def_type == .Placeholder) {
         self.reporter.reportPlaceholder(
@@ -1323,7 +1324,9 @@ fn generateCall(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj
             } else {
                 const node_type_def = type_defs[node].?;
                 // Expression
-                if (!node_type_def.eql(catch_default_type_def) and !(try node_type_def.cloneOptional(&self.gc.type_registry)).eql(catch_default_type_def)) {
+                if (!node_type_def.eql(catch_default_type_def) and
+                    !(try node_type_def.cloneOptional(self.gc, &self.gc.type_registry)).eql(catch_default_type_def))
+                {
                     self.reporter.reportTypeCheck(
                         .inline_catch_type,
                         self.ast.tokens.get(locations[components.callee]),
@@ -2049,12 +2052,13 @@ fn generateEnum(self: *Self, node: Ast.Node.Index, _: ?*Breaks) Error!?*obj.ObjF
         if (case_type_def) |case_type| {
             if (case_type.def_type == .Placeholder) {
                 self.reporter.reportPlaceholder(self.ast, case_type.resolved_type.?.Placeholder);
-            } else if (!((try enum_type.toInstance(&self.gc.type_registry, false))).eql(case_type)) {
+            } else if (!((try enum_type.toInstance(self.gc, &self.gc.type_registry, false))).eql(case_type)) {
                 self.reporter.reportTypeCheck(
                     .enum_case_type,
                     self.ast.tokens.get(locations[node]),
                     self.ast.tokens.get(end_locations[node]),
                     (try enum_type.toInstance(
+                        self.gc,
                         &self.gc.type_registry,
                         false,
                     )),
@@ -2396,6 +2400,7 @@ fn generateForEach(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*
             },
             .Enum => {
                 const iterable_type = try iterable_type_def.toInstance(
+                    self.gc,
                     &self.gc.type_registry,
                     false,
                 );
@@ -2414,6 +2419,7 @@ fn generateForEach(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*
             },
             .Fiber => {
                 const iterable_type = try iterable_type_def.resolved_type.?.Fiber.yield_type.toInstance(
+                    self.gc,
                     &self.gc.type_registry,
                     false,
                 );
@@ -2443,7 +2449,7 @@ fn generateForEach(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*
     if (try self.ast.isConstant(self.gc.allocator, components.iterable)) {
         const iterable = (try self.ast.toValue(components.iterable, self.gc)).obj();
 
-        if (switch (iterable.obj_type) {
+        if (switch (iterable.type) {
             .List => obj.ObjList.cast(iterable).?.items.items.len == 0,
             .Map => obj.ObjMap.cast(iterable).?.map.count() == 0,
             .String => obj.ObjString.cast(iterable).?.string.len == 0,
@@ -2625,7 +2631,7 @@ fn generateFunction(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?
         Value.fromObj((try self.gc.copyString("")).toObj()),
     );
 
-    self.current.?.function = try self.gc.allocateObject(obj.ObjFunction, function);
+    self.current.?.function = try self.gc.allocate(obj.ObjFunction, function);
 
     // Generate function's body
     if (components.body) |body| {
@@ -3068,7 +3074,7 @@ fn generateIs(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.O
     const constant = try self.ast.toValue(components.constant, self.gc);
 
     std.debug.assert(constant.isObj());
-    std.debug.assert(constant.obj().obj_type == .Type);
+    std.debug.assert(constant.obj().type == .Type);
 
     if (obj.ObjTypeDef.cast(constant.obj()).?.def_type == .Placeholder) {
         self.reporter.reportPlaceholder(self.ast, obj.ObjTypeDef.cast(constant.obj()).?.resolved_type.?.Placeholder);
@@ -3621,10 +3627,11 @@ fn generateObjectInit(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error
 
     var fields = if (node_type_def.def_type == .ObjectInstance) inst: {
         const fields = node_type_def.resolved_type.?.ObjectInstance.of.resolved_type.?.Object.fields;
-        var fields_type_defs = std.StringArrayHashMap(*obj.ObjTypeDef).init(self.gc.allocator);
+        var fields_type_defs = std.StringArrayHashMapUnmanaged(*obj.ObjTypeDef).empty;
         var it = fields.iterator();
         while (it.next()) |kv| {
             try fields_type_defs.put(
+                self.gc.allocator,
                 kv.value_ptr.*.name,
                 kv.value_ptr.*.type_def,
             );
@@ -3633,7 +3640,7 @@ fn generateObjectInit(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error
     } else node_type_def.resolved_type.?.ForeignContainer.buzz_type;
 
     defer if (node_type_def.def_type == .ObjectInstance) {
-        fields.deinit();
+        fields.deinit(self.gc.allocator);
     };
 
     const object_location = if (node_type_def.def_type == .ObjectInstance)
@@ -4507,14 +4514,15 @@ fn generateVarDeclaration(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) E
             self.reporter.reportPlaceholder(self.ast, value_type_def.?.resolved_type.?.Placeholder);
         } else if (type_def.def_type == .Placeholder) {
             self.reporter.reportPlaceholder(self.ast, type_def.resolved_type.?.Placeholder);
-        } else if (!(try type_def.toInstance(&self.gc.type_registry, type_def.isMutable())).eql(value_type_def.?) and
-            !(try (try type_def.toInstance(&self.gc.type_registry, type_def.isMutable())).cloneNonOptional(&self.gc.type_registry)).eql(value_type_def.?))
+        } else if (!(try type_def.toInstance(self.gc, &self.gc.type_registry, type_def.isMutable())).eql(value_type_def.?) and
+            !(try (try type_def.toInstance(self.gc, &self.gc.type_registry, type_def.isMutable()))
+                .cloneNonOptional(self.gc, &self.gc.type_registry)).eql(value_type_def.?))
         {
             self.reporter.reportTypeCheck(
                 .assignment_value_type,
                 self.ast.tokens.get(location),
                 self.ast.tokens.get(end_locations[node]),
-                try type_def.toInstance(&self.gc.type_registry, type_def.isMutable()),
+                try type_def.toInstance(self.gc, &self.gc.type_registry, type_def.isMutable()),
                 self.ast.tokens.get(locations[value]),
                 self.ast.tokens.get(end_locations[value]),
                 value_type_def.?,
