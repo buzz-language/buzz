@@ -80,6 +80,7 @@ const BuildOptions = struct {
         initial_gc: usize,
         next_gc_ratio: usize,
         next_full_gc_ratio: usize,
+        shrink_gc_ratio: usize,
         memory_limit: ?usize,
 
         pub fn step(self: GCOptions, options: *Build.Step.Options) void {
@@ -90,6 +91,7 @@ const BuildOptions = struct {
             options.addOption(@TypeOf(self.initial_gc), "initial_gc", self.initial_gc);
             options.addOption(@TypeOf(self.next_gc_ratio), "next_gc_ratio", self.next_gc_ratio);
             options.addOption(@TypeOf(self.next_full_gc_ratio), "next_full_gc_ratio", self.next_full_gc_ratio);
+            options.addOption(@TypeOf(self.shrink_gc_ratio), "shrink_gc_ratio", self.shrink_gc_ratio);
             options.addOption(@TypeOf(self.memory_limit), "memory_limit", self.memory_limit);
         }
     };
@@ -221,6 +223,11 @@ pub fn build(b: *Build) !void {
                 "next_full_gc_ratio",
                 "Ratio applied to get the next full GC threshold",
             ) orelse 4,
+            .shrink_gc_ratio = b.option(
+                usize,
+                "shrink_gc_ratio",
+                "Percentage under which the used memory will be shrinked",
+            ) orelse 20,
             .memory_limit = b.option(
                 usize,
                 "memory_limit",

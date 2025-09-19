@@ -737,7 +737,7 @@ fn markMethods(self: *GC) !void {
 
 fn markRoots(self: *GC, vm: *v.VM) !void {
     // FIXME: We should not need this, but we don't know how to prevent collection before the VM actually starts making reference to them
-    try self.type_registry.mark();
+    try self.type_registry.mark(self);
 
     try self.markMethods();
 

@@ -1367,13 +1367,13 @@ pub const ObjFunction = struct {
         yield_type: *ObjTypeDef,
         error_types: ?[]const *ObjTypeDef = null,
         // TODO: rename 'arguments'
-        parameters: std.AutoArrayHashMapUnmanaged(*ObjString, *ObjTypeDef) = .{},
+        parameters: std.AutoArrayHashMapUnmanaged(*ObjString, *ObjTypeDef) = .empty,
         // Storing here the defaults means they can only be non-Obj values
-        defaults: std.AutoArrayHashMapUnmanaged(*ObjString, Value) = .{},
+        defaults: std.AutoArrayHashMapUnmanaged(*ObjString, Value) = .empty,
         function_type: FunctionType = .Function,
         lambda: bool = false,
 
-        generic_types: std.AutoArrayHashMapUnmanaged(*ObjString, *ObjTypeDef) = .{},
+        generic_types: std.AutoArrayHashMapUnmanaged(*ObjString, *ObjTypeDef) = .empty,
         resolved_generics: ?[]*ObjTypeDef = null,
 
         pub fn nextId() usize {
@@ -1564,10 +1564,10 @@ pub const ObjForeignContainer = struct {
         qualified_name: *ObjString,
 
         zig_type: ZigType,
-        buzz_type: std.StringArrayHashMap(*ObjTypeDef),
+        buzz_type: std.StringArrayHashMapUnmanaged(*ObjTypeDef) = .empty,
 
         // Filled by codegen
-        fields: std.StringArrayHashMap(Field),
+        fields: std.StringArrayHashMapUnmanaged(Field) = .empty,
 
         pub fn mark(def: *ContainerDef, gc: *GC) !void {
             try gc.markObj(def.name.toObj());
@@ -1704,16 +1704,14 @@ pub const ObjObject = struct {
         location: Ast.TokenIndex,
         name: *ObjString,
         qualified_name: *ObjString,
-        methods: std.StringArrayHashMapUnmanaged(Method),
-        methods_locations: std.StringArrayHashMapUnmanaged(Ast.TokenIndex),
+        methods: std.StringArrayHashMapUnmanaged(Method) = .empty,
+        methods_locations: std.StringArrayHashMapUnmanaged(Ast.TokenIndex) = .empty,
 
         pub fn init(location: Ast.TokenIndex, name: *ObjString, qualified_name: *ObjString) ProtocolDefSelf {
             return ProtocolDefSelf{
                 .name = name,
                 .location = location,
                 .qualified_name = qualified_name,
-                .methods = .empty,
-                .methods_locations = .empty,
             };
         }
 
@@ -1768,15 +1766,15 @@ pub const ObjObject = struct {
         location: Ast.TokenIndex,
         name: *ObjString,
         qualified_name: *ObjString,
-        fields: std.StringArrayHashMapUnmanaged(Field),
+        fields: std.StringArrayHashMapUnmanaged(Field) = .empty,
         // When we have placeholders we don't know if they are properties or methods
         // That information is available only when the placeholder is resolved
-        placeholders: std.StringHashMapUnmanaged(Placeholder),
-        static_placeholders: std.StringHashMapUnmanaged(Placeholder),
+        placeholders: std.StringHashMapUnmanaged(Placeholder) = .empty,
+        static_placeholders: std.StringHashMapUnmanaged(Placeholder) = .empty,
         anonymous: bool,
-        conforms_to: std.AutoHashMapUnmanaged(*ObjTypeDef, void),
+        conforms_to: std.AutoHashMapUnmanaged(*ObjTypeDef, void) = .empty,
 
-        generic_types: std.AutoArrayHashMapUnmanaged(*ObjString, *ObjTypeDef),
+        generic_types: std.AutoArrayHashMapUnmanaged(*ObjString, *ObjTypeDef) = .empty,
         resolved_generics: ?[]*ObjTypeDef = null,
 
         pub fn nextId() usize {
@@ -1796,12 +1794,7 @@ pub const ObjObject = struct {
                 .name = name,
                 .location = location,
                 .qualified_name = qualified_name,
-                .fields = .{},
-                .placeholders = .{},
-                .static_placeholders = .{},
                 .anonymous = anonymous,
-                .conforms_to = .{},
-                .generic_types = .{},
             };
         }
 
@@ -3187,14 +3180,13 @@ pub const ObjMap = struct {
     type_def: *ObjTypeDef,
 
     // We need an ArrayHashMap for `next`
-    map: std.AutoArrayHashMapUnmanaged(Value, Value),
+    map: std.AutoArrayHashMapUnmanaged(Value, Value) = .empty,
 
     methods: []?*ObjNative,
 
     pub fn init(allocator: Allocator, type_def: *ObjTypeDef) !Self {
         const self = Self{
             .type_def = type_def,
-            .map = std.AutoArrayHashMapUnmanaged(Value, Value){},
             .methods = try allocator.alloc(
                 ?*ObjNative,
                 Self.members.len,
