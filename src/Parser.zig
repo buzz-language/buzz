@@ -3696,8 +3696,8 @@ fn parseUserType(self: *Self, instance: bool, mutable: bool) Error!Ast.Node.Inde
     }
 
     // Concrete generic types list
-    var resolved_generics = std.array_list.Managed(*obj.ObjTypeDef).init(self.gc.allocator);
-    var generic_nodes = std.array_list.Managed(Ast.Node.Index).init(self.gc.allocator);
+    var resolved_generics = std.ArrayList(*obj.ObjTypeDef).empty;
+    var generic_nodes = std.ArrayList(Ast.Node.Index).empty;
     const generic_resolve = if (try self.match(.DoubleColon)) gn: {
         const generic_start = self.current_token.? - 1;
 
@@ -3706,6 +3706,7 @@ fn parseUserType(self: *Self, instance: bool, mutable: bool) Error!Ast.Node.Inde
         var i: usize = 0;
         while (!self.check(.Greater) and !self.check(.Eof)) : (i += 1) {
             try generic_nodes.append(
+                self.gc.allocator,
                 try self.parseTypeDef(
                     if (self.current.?.generics) |generics|
                         generics.*
@@ -3716,6 +3717,7 @@ fn parseUserType(self: *Self, instance: bool, mutable: bool) Error!Ast.Node.Inde
             );
 
             try resolved_generics.append(
+                self.gc.allocator,
                 self.ast.nodes.items(.type_def)[generic_nodes.items[generic_nodes.items.len - 1]].?,
             );
 
@@ -3739,7 +3741,7 @@ fn parseUserType(self: *Self, instance: bool, mutable: bool) Error!Ast.Node.Inde
         var_type = try var_type.?.populateGenerics(
             self.current_token.? - 1,
             var_type.?.resolved_type.?.Object.id,
-            try resolved_generics.toOwnedSlice(),
+            try resolved_generics.toOwnedSlice(self.gc.allocator),
             &self.gc.type_registry,
             self.gc,
             null,
@@ -3751,7 +3753,7 @@ fn parseUserType(self: *Self, instance: bool, mutable: bool) Error!Ast.Node.Inde
                 .end_location = self.current_token.? - 1,
                 .type_def = var_type,
                 .components = .{
-                    .GenericResolveType = try generic_nodes.toOwnedSlice(),
+                    .GenericResolveType = try generic_nodes.toOwnedSlice(self.gc.allocator),
                 },
             },
         );
@@ -3791,8 +3793,8 @@ fn parseGenericResolve(self: *Self, callee_type_def: *obj.ObjTypeDef, expr: ?Ast
     else
         self.current_token.? - 1;
 
-    var resolved_generics = std.array_list.Managed(Ast.Node.Index).init(self.gc.allocator);
-    var resolved_generics_types = std.array_list.Managed(*obj.ObjTypeDef).init(self.gc.allocator);
+    var resolved_generics = std.ArrayList(Ast.Node.Index).empty;
+    var resolved_generics_types = std.ArrayList(*obj.ObjTypeDef).empty;
 
     try self.consume(.Less, "Expected `<` at start of generic types list");
 
@@ -3808,8 +3810,8 @@ fn parseGenericResolve(self: *Self, callee_type_def: *obj.ObjTypeDef, expr: ?Ast
             );
         }
 
-        try resolved_generics.append(resolved_generic);
-        try resolved_generics_types.append(self.ast.nodes.items(.type_def)[resolved_generic].?);
+        try resolved_generics.append(self.gc.allocator, resolved_generic);
+        try resolved_generics_types.append(self.gc.allocator, self.ast.nodes.items(.type_def)[resolved_generic].?);
 
         if (!self.check(.Greater)) {
             try self.consume(.Comma, "Expected `,` between generic types");
@@ -3834,7 +3836,7 @@ fn parseGenericResolve(self: *Self, callee_type_def: *obj.ObjTypeDef, expr: ?Ast
                     callee_type_def.resolved_type.?.Object.id
                 else
                     null,
-                try resolved_generics_types.toOwnedSlice(),
+                try resolved_generics_types.toOwnedSlice(self.gc.allocator),
                 &self.gc.type_registry,
                 self.gc,
                 null,
@@ -3842,10 +3844,10 @@ fn parseGenericResolve(self: *Self, callee_type_def: *obj.ObjTypeDef, expr: ?Ast
             .components = if (expr) |e| .{
                 .GenericResolve = .{
                     .expression = e,
-                    .resolved_types = try resolved_generics.toOwnedSlice(),
+                    .resolved_types = try resolved_generics.toOwnedSlice(self.gc.allocator),
                 },
             } else .{
-                .GenericResolveType = try resolved_generics.toOwnedSlice(),
+                .GenericResolveType = try resolved_generics.toOwnedSlice(self.gc.allocator),
             },
         },
     );

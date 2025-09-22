@@ -236,11 +236,17 @@ fn hashHelper(hasher: *std.hash.Wyhash, type_def: *const o.ObjTypeDef) void {
                         hashHelper(hasher, kv.value_ptr.type_def);
                     }
                 } else {
-                    // Actual object: name is distinction enough
+                    // Actual object: name + resolved generics is distinction enough
                     std.hash.autoHash(
                         hasher,
                         std.hash_map.hashString(resolved.Object.qualified_name.string),
                     );
+
+                    if (resolved.Object.resolved_generics) |rg| {
+                        for (rg) |gen| {
+                            hashHelper(hasher, gen);
+                        }
+                    }
                 }
             },
             .ObjectInstance => {

@@ -4564,7 +4564,10 @@ pub const ObjTypeDef = struct {
 
                 resolved.generic_types.deinit(gc.allocator);
                 resolved.generic_types = try old_object_def.generic_types.clone(gc.allocator);
-                resolved.resolved_generics = generics;
+
+                if (resolved.generic_types.count() == generics.len) {
+                    resolved.resolved_generics = generics;
+                }
 
                 {
                     var fields = std.StringArrayHashMapUnmanaged(ObjObject.ObjectDef.Field){};
@@ -4596,12 +4599,10 @@ pub const ObjTypeDef = struct {
                     resolved.fields = fields;
                 }
 
-                const resolved_type_union = ObjTypeDef.TypeUnion{ .Object = resolved };
-
                 const new_object = ObjTypeDef{
                     .def_type = .Object,
                     .optional = self.optional,
-                    .resolved_type = resolved_type_union,
+                    .resolved_type = .{ .Object = resolved },
                 };
 
                 break :object try type_registry.getTypeDef(gc, new_object);
@@ -5430,8 +5431,9 @@ pub const ObjTypeDef = struct {
             .UserData,
             .Type,
             .Range,
-            .Any,
             => unreachable,
+
+            .Any => expected.Any == actual.Any,
 
             .ForeignContainer => std.mem.eql(u8, expected.ForeignContainer.name.string, actual.ForeignContainer.name.string),
 

@@ -17,6 +17,8 @@ const JIT = if (!is_wasm) @import("Jit.zig") else void;
 const disassembler = @import("disassembler.zig");
 const io = @import("io.zig");
 
+const TypeRegistry = @import("TypeRegistry.zig");
+
 const Self = @This();
 
 pub const Error = error{
@@ -1345,8 +1347,8 @@ fn generateCall(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj
     } else if (error_types) |errors| {
         if (self.current.?.enclosing != null and self.current.?.function.?.type_def.resolved_type.?.Function.function_type != .Test) {
             var handles_any = false;
-            var not_handled = std.array_list.Managed(*obj.ObjTypeDef).init(self.gc.allocator);
-            defer not_handled.deinit();
+            var not_handled = std.ArrayList(*obj.ObjTypeDef).empty;
+            defer not_handled.deinit(self.gc.allocator);
             for (errors) |error_type| {
                 if (error_type.def_type == .Void) {
                     continue;
@@ -1376,18 +1378,18 @@ fn generateCall(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj
                             locations[components.callee],
                         );
                     } else {
-                        try not_handled.append(error_type);
+                        try not_handled.append(self.gc.allocator, error_type);
                     }
                 }
 
                 if (handles_any) {
-                    not_handled.clearAndFree();
+                    not_handled.clearAndFree(self.gc.allocator);
                     break;
                 }
             }
 
             for (not_handled.items) |error_type| {
-                const error_str = try error_type.toStringAlloc(self.gc.allocator, false);
+                const error_str = try error_type.toStringAlloc(self.gc.allocator, true);
                 defer self.gc.allocator.free(error_str);
 
                 self.reporter.reportErrorFmt(

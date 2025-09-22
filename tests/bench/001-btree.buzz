@@ -54,6 +54,6 @@ fun btree(N: int) > void {
 
 fun main(args: [str]) > void !> any {
     btree(
-        std\parseInt(args[?0] ?? "3") ?? 3
+        std\parseInt(args[?0] ?? "15") ?? 15
     );
 }

@@ -98,14 +98,14 @@ pub fn registerVM(self: *GC, vm: *v.VM) !void {
 }
 
 pub fn unregisterVM(self: *GC, vm: *v.VM) void {
-    std.debug.assert(self.active_vms.remove(vm));
+    const removed = self.active_vms.remove(vm);
+
+    std.debug.assert(removed);
 }
 
 fn getActiveVM(self: *GC) ?*v.VM {
     var vm_it = self.active_vms.iterator();
-    const first = vm_it.next();
-
-    return if (first) |kv|
+    return if (vm_it.next()) |kv|
         if (kv.key_ptr.*.flavor != .Repl)
             kv.key_ptr.*
         else
@@ -122,48 +122,48 @@ pub fn allocate(self: *GC, comptime T: type, value: T) Space.Error!*T {
             std.log.debug("Allocate while collecting", .{});
         }
 
-        if (self.to.hasSpaceFor(T)) {
-            return self.to.allocate(value);
-        } else {
-            // Not recoverable
-            return Space.Error.OutOfSpace;
-        }
+        // Not recoverable if not enough space
+        return try self.to.allocate(value);
     }
 
-    if (self.from.hasSpaceFor(T)) {
-        return self.from.allocate(value);
-    } else {
-        try self.collect();
-
-        // Still no space left, we need to resize the spaces
-        if (!self.from.hasSpaceFor(T)) {
-            try self.resize(self.to.memory.len * BuildOptions.next_gc_ratio);
+    return self.from.allocate(value) catch {
+        // Not enough space, try to collect
+        if (!try self.collect()) {
+            // Collected nothing, try resizing
+            try self.resize(self.to.memory.buffer.len * BuildOptions.next_gc_ratio);
         }
 
-        // Try again
+        // Now if it fails we're actually out of memory
         return self.allocate(T, value);
-    }
+    };
 }
 
-pub fn collect(self: *GC) Space.Error!void {
+pub fn collect(self: *GC) Space.Error!bool {
+    if (!BuildOptions.gc) {
+        return false;
+    }
+
     // Collect might have been triggered by a object's collect method
     if (self.collect_ongoing) {
         if (BuildOptions.gc_debug) {
             std.log.debug("Collect triggered while already collecting", .{});
         }
 
-        return;
+        return false;
     }
 
-    if (BuildOptions.gc_debug) {
+    if (BuildOptions.gc_debug or BuildOptions.gc_debug_light) {
         std.log.debug("Collecting...", .{});
     }
 
-    if (self.getActiveVM()) |vm| {
+    var collected_count: usize = 0;
+    var collected_bytes: usize = 0;
+    var vms = self.active_vms.keyIterator();
+    while (vms.next()) |vm_ptr| {
+        const vm = vm_ptr.*;
+
         self.collect_ongoing = true;
         defer self.collect_ongoing = false;
-
-        self.to.reset();
 
         if (BuildOptions.gc_debug) {
             std.log.debug("Moving roots...", .{});
@@ -179,7 +179,8 @@ pub fn collect(self: *GC) Space.Error!void {
         var scan_header = self.to.first_header;
         while (scan_header) |header| : (scan_header = header.next) {
             try switch (header.type) {
-                .String => self.scan(@as(*o.ObjString, @fieldParentPtr("obj", header))),
+                .String => {},
+                .Native, .UserData, .Pattern, .Range => {},
                 .Type => self.scan(@as(*o.ObjTypeDef, @fieldParentPtr("obj", header))),
                 .UpValue => self.scan(@as(*o.ObjUpValue, @fieldParentPtr("obj", header))),
                 .Closure => self.scan(@as(*o.ObjClosure, @fieldParentPtr("obj", header))),
@@ -191,30 +192,12 @@ pub fn collect(self: *GC) Space.Error!void {
                 .Enum => self.scan(@as(*o.ObjEnum, @fieldParentPtr("obj", header))),
                 .EnumInstance => self.scan(@as(*o.ObjEnumInstance, @fieldParentPtr("obj", header))),
                 .Bound => self.scan(@as(*o.ObjBoundMethod, @fieldParentPtr("obj", header))),
-                .Native => self.scan(@as(*o.ObjNative, @fieldParentPtr("obj", header))),
-                .UserData => self.scan(@as(*o.ObjUserData, @fieldParentPtr("obj", header))),
-                .Pattern => self.scan(@as(*o.ObjPattern, @fieldParentPtr("obj", header))),
                 .Fiber => self.scan(@as(*o.ObjFiber, @fieldParentPtr("obj", header))),
                 .ForeignContainer => self.scan(@as(*o.ObjForeignContainer, @fieldParentPtr("obj", header))),
-                .Range => self.scan(@as(*o.ObjRange, @fieldParentPtr("obj", header))),
             };
         }
 
-        // Fixed interned strings ptr
-        var new_strings = std.StringHashMapUnmanaged(*o.ObjString).empty;
-        var it = self.strings.iterator();
-        while (it.next()) |kv| {
-            try new_strings.put(
-                self.allocator,
-                kv.key_ptr.*,
-                if (kv.value_ptr.*.obj.forward) |forward|
-                    @fieldParentPtr("obj", forward)
-                else
-                    kv.value_ptr.*,
-            );
-        }
-        self.strings.deinit(self.allocator);
-        self.strings = new_strings;
+        // FIXME: assert that the last obj ends at self.to.memory.end
 
         if (BuildOptions.gc_debug) {
             std.log.debug("Deinit dead objects...", .{});
@@ -222,8 +205,6 @@ pub fn collect(self: *GC) Space.Error!void {
 
         // Deinit dead objects
         var from_header = self.from.first_header;
-        var collected_count: usize = 0;
-        var collected_bytes: usize = 0;
         while (from_header) |header| : (from_header = header.next) {
             // No forward adress, the object is dead
             if (header.forward == null) {
@@ -235,56 +216,96 @@ pub fn collect(self: *GC) Space.Error!void {
         // Now we switch spaces
         const tmp = self.to;
         self.to = self.from;
+        // Discard the to-space content
+        self.to.reset();
         self.from = tmp;
-
-        if (BuildOptions.gc_debug) {
-            std.log.debug(
-                "Collected {} objects for {} bytes",
-                .{
-                    collected_count,
-                    collected_bytes,
-                },
-            );
-        }
-
-        // If spaces are too empty, shrink them
-        if (self.from.occupiedSpace() < BuildOptions.shrink_gc_ratio) {
-            try self.resize(self.from.occupiedBytes() * BuildOptions.next_gc_ratio);
-        }
     }
+
+    if (BuildOptions.gc_debug or BuildOptions.gc_debug_light) {
+        std.log.debug(
+            "Collected {} objects for {} bytes",
+            .{
+                collected_count,
+                collected_bytes,
+            },
+        );
+    }
+
+    // If spaces are too empty, shrink them
+    if (self.from.occupiedRatio() < BuildOptions.shrink_gc_ratio) {
+        try self.resize(self.from.memory.buffer.len * BuildOptions.next_gc_ratio);
+    }
+
+    return collected_count > 0;
 }
 
-fn resize(self: *GC, size: usize) error{ OutOfMemory, OutOfSpace }!void {
-    if (BuildOptions.gc_debug) {
+fn resize(self: *GC, size: usize) Space.Error!void {
+    if (BuildOptions.gc_debug or BuildOptions.gc_debug_light) {
         std.log.debug(
             "Resizing from {} to {}",
             .{
-                self.to.memory.len,
+                self.to.memory.buffer.len,
                 size,
             },
         );
     }
 
-    const new = try Space.init(self.allocator, size);
-
+    // Deinit to-space
     self.to.deinit(self.allocator);
-    self.to = new;
+
+    // Put the resized space in its place
+    self.to = try Space.init(self.allocator, size);
 
     // Now do a collect, it will move every live object from the old from-space to the new to-space and then switch them
-    try self.collect();
+    _ = try self.collect();
 
     // Now replace the to-space (because the previous new space is now the from-space) with a new space
-    const new_to = try Space.init(self.allocator, size);
-    self.to = new_to;
+    self.to.deinit(self.allocator);
+    self.to = try Space.init(self.allocator, size);
 }
 
 /// Move value from -> to and returns the new header ptr, if already moved, returns the forward ptr
-fn move(self: *GC, value: anytype) error{OutOfSpace}!@TypeOf(value) {
+/// If value is ObjString or ObjTypeDef, it will update the registry or use the already moved object they have
+fn move(self: *GC, value: anytype) Space.Error!@TypeOf(value) {
     const T = @typeInfo(@TypeOf(value)).pointer.child;
+
+    // If value is already in the to-space, leave as-is
+    if (self.to.memory.ownsPtr(@ptrCast(value))) {
+        return value;
+    }
 
     // If it was already moved, return the forward ptr
     if (value.obj.forward) |forward| {
         return forward.cast(T, forward.type).?;
+    }
+
+    var type_def_hash: ?u64 = null;
+
+    // If moved value for the same string in to-space, use that, because we only want one ObjString per string
+    if (T == o.ObjString) {
+        if (self.strings.get(value.string)) |obj_string| {
+            if (self.to.memory.ownsPtr(@ptrCast(obj_string))) {
+                return obj_string;
+            }
+        }
+    } else if (T == o.ObjTypeDef) { // Same thing if it's a ObjTypeDef
+        type_def_hash = TypeRegistry.typeDefHash(value.*);
+        if (self.type_registry.registry.get(type_def_hash.?)) |type_def| {
+            if (self.to.memory.ownsPtr(@ptrCast(type_def))) {
+                return type_def;
+            }
+        }
+    }
+
+    if (BuildOptions.gc_debug) {
+        std.log.debug(
+            "Moving {*} to {*} (forward was {?*})",
+            .{
+                value,
+                &self.to,
+                value.obj.forward,
+            },
+        );
     }
 
     // Copy value to to-space
@@ -292,6 +313,15 @@ fn move(self: *GC, value: anytype) error{OutOfSpace}!@TypeOf(value) {
 
     // In old value header, set forward address
     value.obj.forward = &copy.obj;
+
+    // If it was an ObjString, replace in self.strings
+    if (T == o.ObjString) {
+        try self.strings.put(
+            self.allocator,
+            value.string,
+            copy,
+        );
+    }
 
     return copy;
 }
@@ -420,7 +450,7 @@ fn deinitValue(self: *GC, comptime T: type, value: *T) usize {
 }
 
 /// Move value and return a new one pointing to the eventually moved o.Obj
-fn moveValue(self: *GC, value: Value) error{OutOfSpace}!Value {
+fn moveValue(self: *GC, value: Value) Space.Error!Value {
     if (value.isObj()) {
         const obj = value.obj();
         return Value.fromObj(
@@ -452,6 +482,17 @@ fn moveValue(self: *GC, value: Value) error{OutOfSpace}!Value {
 
 fn scan(self: *GC, value: anytype) Space.Error!void {
     const T = @typeInfo(@TypeOf(value)).pointer.child;
+
+    if (BuildOptions.gc_debug) {
+        std.log.debug(
+            "Scanning {*} (next? {}, forward? {})",
+            .{
+                value,
+                value.obj.next != null,
+                value.obj.forward != null,
+            },
+        );
+    }
 
     // Move children too
     switch (T) {
@@ -494,30 +535,73 @@ fn scan(self: *GC, value: anytype) Space.Error!void {
 
                     {
                         var new_conforms_to = std.AutoHashMapUnmanaged(*o.ObjTypeDef, void).empty;
-                        var it = resolved.Object.conforms_to.iterator();
-                        while (it.next()) |kv| {
-                            try new_conforms_to.put(
-                                self.allocator,
-                                try self.move(kv.key_ptr.*),
-                                {},
-                            );
+                        defer new_conforms_to.deinit(self.allocator);
+
+                        var changed = false;
+                        {
+                            var it = resolved.Object.conforms_to.iterator();
+                            while (it.next()) |kv| {
+                                const key = try self.move(kv.key_ptr.*);
+
+                                changed = changed or key != kv.key_ptr.*;
+
+                                try new_conforms_to.put(
+                                    self.allocator,
+                                    key,
+                                    {},
+                                );
+                            }
                         }
-                        resolved.Object.conforms_to.deinit(self.allocator);
-                        resolved.Object.conforms_to = new_conforms_to;
+
+                        if (changed) {
+                            resolved.Object.conforms_to.clearRetainingCapacity();
+
+                            var it = new_conforms_to.iterator();
+                            while (it.next()) |kv| {
+                                try resolved.Object.conforms_to.put(
+                                    self.allocator,
+                                    kv.key_ptr.*,
+                                    kv.value_ptr.*,
+                                );
+                            }
+                        }
                     }
 
                     {
                         var new_generic_types = std.AutoArrayHashMapUnmanaged(*o.ObjString, *o.ObjTypeDef).empty;
-                        var it = resolved.Object.generic_types.iterator();
-                        while (it.next()) |kv| {
-                            try new_generic_types.put(
-                                self.allocator,
-                                try self.move(kv.key_ptr.*),
-                                try self.move(kv.value_ptr.*),
-                            );
+                        defer new_generic_types.deinit(self.allocator);
+
+                        var changed = false;
+                        {
+                            var it = resolved.Object.generic_types.iterator();
+                            while (it.next()) |kv| {
+                                const key = try self.move(kv.key_ptr.*);
+                                const val = try self.move(kv.value_ptr.*);
+
+                                changed = changed or key != kv.key_ptr.* or val != kv.value_ptr.*;
+
+                                try new_generic_types.put(self.allocator, key, val);
+                            }
                         }
-                        resolved.Object.generic_types.deinit(self.allocator);
-                        resolved.Object.generic_types = new_generic_types;
+
+                        if (changed) {
+                            resolved.Object.generic_types.clearRetainingCapacity();
+
+                            var it = new_generic_types.iterator();
+                            while (it.next()) |kv| {
+                                try resolved.Object.generic_types.put(
+                                    self.allocator,
+                                    kv.key_ptr.*,
+                                    kv.value_ptr.*,
+                                );
+                            }
+                        }
+                    }
+
+                    if (resolved.Object.resolved_generics) |rg| {
+                        for (rg, 0..) |gen, i| {
+                            rg[i] = try self.move(gen);
+                        }
                     }
                 } else if (resolved.* == .Protocol) {
                     resolved.Protocol.name = try self.move(resolved.Protocol.name);
@@ -539,30 +623,66 @@ fn scan(self: *GC, value: anytype) Space.Error!void {
 
                     {
                         var new_parameters = std.AutoArrayHashMapUnmanaged(*o.ObjString, *o.ObjTypeDef).empty;
-                        var it = resolved.Function.parameters.iterator();
-                        while (it.next()) |parameter| {
-                            try new_parameters.put(
-                                self.allocator,
-                                try self.move(parameter.key_ptr.*),
-                                try self.move(parameter.value_ptr.*),
-                            );
+                        defer new_parameters.deinit(self.allocator);
+
+                        var changed = false;
+                        {
+                            var it = resolved.Function.parameters.iterator();
+                            while (it.next()) |kv| {
+                                const key = try self.move(kv.key_ptr.*);
+                                const val = try self.move(kv.value_ptr.*);
+
+                                changed = changed or key != kv.key_ptr.* or val != kv.value_ptr.*;
+
+                                try new_parameters.put(self.allocator, key, val);
+                            }
                         }
-                        resolved.Function.parameters.deinit(self.allocator);
-                        resolved.Function.parameters = new_parameters;
+
+                        if (changed) {
+                            resolved.Function.parameters.clearRetainingCapacity();
+                            var it = new_parameters.iterator();
+                            while (it.next()) |kv| {
+                                try resolved.Function.parameters.put(
+                                    self.allocator,
+                                    kv.key_ptr.*,
+                                    kv.value_ptr.*,
+                                );
+                            }
+                        }
                     }
 
                     {
                         var new_defaults = std.AutoArrayHashMapUnmanaged(*o.ObjString, Value).empty;
-                        var it = resolved.Function.defaults.iterator();
-                        while (it.next()) |default| {
-                            try new_defaults.put(
-                                self.allocator,
-                                try self.move(default.key_ptr.*),
-                                try self.moveValue(default.value_ptr.*),
-                            );
+                        defer new_defaults.deinit(self.allocator);
+
+                        var changed = false;
+                        {
+                            var it = resolved.Function.defaults.iterator();
+                            while (it.next()) |kv| {
+                                const key = try self.move(kv.key_ptr.*);
+                                const val = try self.moveValue(kv.value_ptr.*);
+
+                                changed = changed or key != kv.key_ptr.* or val != kv.value_ptr.*;
+
+                                try new_defaults.put(
+                                    self.allocator,
+                                    key,
+                                    val,
+                                );
+                            }
                         }
-                        resolved.Function.defaults.deinit(self.allocator);
-                        resolved.Function.defaults = new_defaults;
+
+                        if (changed) {
+                            resolved.Function.defaults.clearRetainingCapacity();
+                            var it = new_defaults.iterator();
+                            while (it.next()) |kv| {
+                                try resolved.Function.defaults.put(
+                                    self.allocator,
+                                    kv.key_ptr.*,
+                                    kv.value_ptr.*,
+                                );
+                            }
+                        }
                     }
 
                     if (resolved.Function.error_types) |error_types| {
@@ -573,16 +693,38 @@ fn scan(self: *GC, value: anytype) Space.Error!void {
 
                     {
                         var new_generic_types = std.AutoArrayHashMapUnmanaged(*o.ObjString, *o.ObjTypeDef).empty;
-                        var it = resolved.Function.generic_types.iterator();
-                        while (it.next()) |kv| {
-                            try new_generic_types.put(
-                                self.allocator,
-                                try self.move(kv.key_ptr.*),
-                                try self.move(kv.value_ptr.*),
-                            );
+                        defer new_generic_types.deinit(self.allocator);
+
+                        var changed = false;
+                        {
+                            var it = resolved.Function.generic_types.iterator();
+                            while (it.next()) |kv| {
+                                const key = try self.move(kv.key_ptr.*);
+                                const val = try self.move(kv.value_ptr.*);
+
+                                changed = changed or key != kv.key_ptr.* or val != kv.value_ptr.*;
+
+                                try new_generic_types.put(self.allocator, key, val);
+                            }
                         }
-                        resolved.Function.generic_types.deinit(self.allocator);
-                        resolved.Function.generic_types = new_generic_types;
+
+                        if (changed) {
+                            resolved.Function.generic_types.clearRetainingCapacity();
+                            var it = new_generic_types.iterator();
+                            while (it.next()) |kv| {
+                                try resolved.Function.generic_types.put(
+                                    self.allocator,
+                                    kv.key_ptr.*,
+                                    kv.value_ptr.*,
+                                );
+                            }
+                        }
+                    }
+
+                    if (resolved.Function.resolved_generics) |rg| {
+                        for (rg, 0..) |gen, i| {
+                            rg[i] = try self.move(gen);
+                        }
                     }
                 } else if (resolved.* == .List) {
                     resolved.List.item_type = try self.move(resolved.List.item_type);
@@ -613,18 +755,18 @@ fn scan(self: *GC, value: anytype) Space.Error!void {
             }
         },
         o.ObjUpValue => {
-            value.location.* = try self.moveValue(value.location.*);
             if (value.closed) |uclosed| {
                 value.closed = try self.moveValue(uclosed);
+            }
+
+            if (value.next) |next| {
+                value.next = try self.move(next);
             }
         },
         o.ObjClosure => {
             value.function = try self.move(value.function);
             for (value.upvalues, 0..) |upvalue, i| {
                 value.upvalues[i] = try self.move(upvalue);
-            }
-            for (value.globals.items, 0..) |global, i| {
-                value.globals.items[i] = try self.moveValue(global);
             }
         },
         o.ObjFunction => {
@@ -669,16 +811,32 @@ fn scan(self: *GC, value: anytype) Space.Error!void {
         },
         o.ObjMap => {
             var new_map = std.AutoArrayHashMapUnmanaged(Value, Value).empty;
-            var it = value.map.iterator();
-            while (it.next()) |kv| {
-                try new_map.put(
-                    self.allocator,
-                    try self.moveValue(kv.key_ptr.*),
-                    try self.moveValue(kv.value_ptr.*),
-                );
+            defer new_map.deinit(self.allocator);
+
+            var changed = false;
+            {
+                var it = value.map.iterator();
+                while (it.next()) |kv| {
+                    const key = try self.moveValue(kv.key_ptr.*);
+                    const val = try self.moveValue(kv.value_ptr.*);
+
+                    changed = changed or key != kv.key_ptr.* or val != kv.value_ptr.*;
+
+                    try new_map.put(self.allocator, key, val);
+                }
             }
-            value.map.deinit(self.allocator);
-            value.map = new_map;
+
+            if (changed) {
+                value.map.clearRetainingCapacity();
+                var it = new_map.iterator();
+                while (it.next()) |kv| {
+                    try new_map.put(
+                        self.allocator,
+                        kv.key_ptr.*,
+                        kv.value_ptr.*,
+                    );
+                }
+            }
 
             for (value.methods, 0..) |method_opt, i| {
                 if (method_opt) |method| {
@@ -711,12 +869,12 @@ fn scan(self: *GC, value: anytype) Space.Error!void {
     }
 }
 
-fn moveFiber(self: *GC, fiber: *v.Fiber) error{OutOfSpace}!void {
+fn moveFiber(self: *GC, fiber: *v.Fiber) Space.Error!void {
     var current_fiber: ?*v.Fiber = fiber;
-    while (current_fiber) |ufiber| {
+    while (current_fiber) |ufiber| : (current_fiber = ufiber.parent_fiber) {
         ufiber.type_def = try self.move(ufiber.type_def);
 
-        // Move main fiber
+        // Move stack
         var i: [*]Value = @ptrCast(fiber.stack);
         while (@intFromPtr(i) < @intFromPtr(fiber.stack_top)) : (i += 1) {
             i[0] = try self.moveValue(i[0]);
@@ -744,28 +902,27 @@ fn moveFiber(self: *GC, fiber: *v.Fiber) error{OutOfSpace}!void {
             }
         }
 
-        current_fiber = ufiber.parent_fiber;
+        if (fiber.current_compiled_function) |current_compiled_function| {
+            fiber.current_compiled_function = try self.move(current_compiled_function);
+        }
     }
 }
 
 fn moveRoots(self: *GC, vm: *v.VM) Space.Error!void {
-    // FIXME: We should not need this, but we don't know how to prevent
-    // collection before the VM actually starts making reference to them
     {
-        var new_registry = std.AutoHashMapUnmanaged(
-            TypeRegistry.TypeDefHash,
-            *o.ObjTypeDef,
-        ).empty;
-
+        // We probably could do without keeping the whole type_registry in memory all the time
+        // But right now types get collected before reference is made to them by the program
+        var new_registry = std.AutoHashMapUnmanaged(TypeRegistry.TypeDefHash, *o.ObjTypeDef).empty;
         var it = self.type_registry.registry.iterator();
         while (it.next()) |kv| {
+            // Only need to move the type, the move function will take care of putting
+            // it in the registry if needed
             try new_registry.put(
                 self.allocator,
                 kv.key_ptr.*,
                 try self.move(kv.value_ptr.*),
             );
         }
-
         self.type_registry.registry.deinit(self.allocator);
         self.type_registry.registry = new_registry;
     }
@@ -777,21 +934,9 @@ fn moveRoots(self: *GC, vm: *v.VM) Space.Error!void {
         }
     }
 
-    for (self.objfiber_memberDefs, 0..) |def, i| {
-        if (def) |udef| {
-            self.objfiber_memberDefs[i] = try self.move(udef);
-        }
-    }
-
     for (self.objrange_members, 0..) |member, i| {
         if (member) |umember| {
             self.objrange_members[i] = try self.move(umember);
-        }
-    }
-
-    for (self.objrange_memberDefs, 0..) |def, i| {
-        if (def) |udef| {
-            self.objrange_memberDefs[i] = try self.move(udef);
         }
     }
 
@@ -801,21 +946,9 @@ fn moveRoots(self: *GC, vm: *v.VM) Space.Error!void {
         }
     }
 
-    for (self.objstring_memberDefs, 0..) |def, i| {
-        if (def) |udef| {
-            self.objstring_memberDefs[i] = try self.move(udef);
-        }
-    }
-
     for (self.objpattern_members, 0..) |member, i| {
         if (member) |umember| {
             self.objpattern_members[i] = try self.move(umember);
-        }
-    }
-
-    for (self.objpattern_memberDefs, 0..) |def, i| {
-        if (def) |udef| {
-            self.objpattern_memberDefs[i] = try self.move(udef);
         }
     }
 
@@ -830,22 +963,52 @@ fn moveRoots(self: *GC, vm: *v.VM) Space.Error!void {
 
     // Move import registry
     var new_import_registry = v.ImportRegistry.empty;
-    var it = vm.import_registry.iterator();
-    while (it.next()) |kv| {
-        var import_cache = std.ArrayList(Value).empty;
+    defer new_import_registry.deinit(self.allocator);
 
-        for (kv.value_ptr.*) |value| {
-            try import_cache.append(self.allocator, try self.moveValue(value));
+    var changed = false;
+    {
+        var it = vm.import_registry.iterator();
+        while (it.next()) |kv| {
+            var import_cache = std.ArrayList(Value).empty;
+            const key = try self.move(kv.key_ptr.*);
+
+            changed = changed or key != kv.key_ptr.*;
+
+            for (kv.value_ptr.*, 0..) |value, i| {
+                const val = try self.moveValue(value);
+
+                changed = changed or kv.value_ptr.*[i] != val;
+
+                try import_cache.append(self.allocator, val);
+            }
+
+            try new_import_registry.put(
+                self.allocator,
+                key,
+                try import_cache.toOwnedSlice(self.allocator),
+            );
         }
-
-        try new_import_registry.put(
-            self.allocator,
-            try self.move(kv.key_ptr.*),
-            try import_cache.toOwnedSlice(self.allocator),
-        );
     }
-    vm.import_registry.deinit(self.allocator);
-    vm.import_registry.* = new_import_registry;
+
+    if (changed) {
+        {
+            var it = vm.import_registry.iterator();
+            while (it.next()) |kv| {
+                self.allocator.free(kv.value_ptr.*);
+            }
+            vm.import_registry.clearRetainingCapacity();
+        }
+        {
+            var it = new_import_registry.iterator();
+            while (it.next()) |kv| {
+                try vm.import_registry.put(
+                    self.allocator,
+                    kv.key_ptr.*,
+                    kv.value_ptr.*,
+                );
+            }
+        }
+    }
 
     // Move current fiber and its parent fibers
     try self.moveFiber(vm.current_fiber);
@@ -873,12 +1036,12 @@ pub fn copyString(self: *GC, chars: []const u8) !*o.ObjString {
 
     const string: *o.ObjString = try self.allocate(
         o.ObjString,
-        o.ObjString{ .string = chars },
+        o.ObjString{ .string = copy },
     );
 
     try self.strings.put(
         self.allocator,
-        string.string,
+        copy,
         string,
     );
 
@@ -887,40 +1050,37 @@ pub fn copyString(self: *GC, chars: []const u8) !*o.ObjString {
 
 const Space = struct {
     pub const Error = error{
-        OutOfSpace,
         OutOfMemory,
     };
 
-    /// Contiguous piece of memory used by the space
-    memory: []u8,
-    /// Next available slot address
-    next: [*]u8,
+    memory: std.heap.FixedBufferAllocator,
     /// First header
     first_header: ?*o.Obj = null,
     /// Scanning current o.Obj
     current_header: ?*o.Obj = null,
 
     pub fn init(allocator: std.mem.Allocator, capacity: usize) Space.Error!Space {
-        const memory = try allocator.alloc(u8, capacity);
-
         return .{
-            .memory = memory,
-            .next = @ptrCast(&memory[0]),
+            .memory = .init(try allocator.alloc(u8, capacity)),
         };
     }
 
     pub fn deinit(self: *Space, allocator: std.mem.Allocator) void {
-        allocator.free(self.memory);
+        allocator.free(self.memory.buffer);
     }
 
     pub fn reset(self: *Space) void {
         self.current_header = null;
         self.first_header = null;
-        self.next = @ptrCast(&self.memory[0]);
+        self.memory.reset();
     }
 
     pub fn isFull(self: *Space) bool {
-        return @intFromPtr(self.next) > @intFromPtr(&self.memory[self.memory.len - 1]);
+        return self.memory.end_index >= self.memory.buffer.len;
+    }
+
+    pub fn occupiedRatio(self: *Space) usize {
+        return (self.memory.end_index * self.memory.buffer.len) / self.memory.buffer.len;
     }
 
     pub fn isValidObj(comptime T: type) void {
@@ -933,80 +1093,40 @@ const Space = struct {
         }
     }
 
-    pub fn occupiedBytes(self: *Space) usize {
-        return @intFromPtr(self.next) - @intFromPtr(&self.memory[0]);
-    }
-
-    pub fn totalBytes(self: *Space) usize {
-        return @intFromPtr(&self.memory[self.memory.len - 1]) - @intFromPtr(&self.memory[0]);
-    }
-
-    pub fn occupiedSpace(self: *Space) usize {
-        const start = @intFromPtr(&self.memory[0]);
-        const occupied = @intFromPtr(self.next - 1) - start;
-        const end = @intFromPtr(&self.memory[self.memory.len - 1]) - start;
-
-        return (occupied * end) / end;
-    }
-
-    pub fn hasSpaceFor(self: *Space, comptime T: type) bool {
-        comptime {
-            isValidObj(T);
-        }
-
-        return @intFromPtr(self.next + @sizeOf(T) - 1) <= @intFromPtr(&self.memory[self.memory.len - 1]);
-    }
-
-    pub fn allocate(self: *Space, value: anytype) error{OutOfSpace}!*@TypeOf(value) {
+    pub fn allocate(self: *Space, value: anytype) error{OutOfMemory}!*@TypeOf(value) {
         const T = @TypeOf(value);
 
         comptime {
             isValidObj(T);
         }
 
-        // Not enough space left, we fail here, the GC will allocate a new larger Space and make a sweep using it as a new to-space
-        if (@intFromPtr(self.next + @sizeOf(T) - 1) > @intFromPtr(&self.memory[self.memory.len - 1])) {
-            return error.OutOfSpace;
+        const copy = try self.memory.allocator().create(T);
+        copy.* = value;
+
+        // Don't let copy point to dead object in previous Space
+        copy.obj.next = null;
+        copy.obj.forward = null;
+
+        // Link to the current_header and replace it
+        if (self.current_header) |current_header| {
+            current_header.next = &copy.obj;
+            self.current_header = &copy.obj;
+        } else {
+            self.current_header = &copy.obj;
+            self.first_header = &copy.obj;
         }
 
-        // TODO: compute next -> end length
-        if (std.mem.alignInBytes(self.next[0..], @alignOf(T))) |slot| {
-            // Copy the value into the Space's memory
-            @memcpy(slot, std.mem.toBytes(value)[0..]);
-
-            const copy: *T = @alignCast(
-                std.mem.bytesAsValue(
-                    T,
-                    self.next[0..@sizeOf(T)],
-                ),
+        if (BuildOptions.gc_debug) {
+            std.log.debug(
+                "Allocated `{*}` for {} bytes in Space {*}",
+                .{
+                    copy,
+                    @sizeOf(T),
+                    self,
+                },
             );
-
-            // Link to the current_header and replace it
-            if (self.current_header) |current_header| {
-                current_header.next = &copy.obj;
-                self.current_header = &copy.obj;
-            } else {
-                self.current_header = &copy.obj;
-                self.first_header = &copy.obj;
-            }
-
-            // Move cursor forward
-            self.next += @sizeOf(T);
-
-            if (BuildOptions.gc_debug) {
-                std.log.debug(
-                    "Allocated `{s}` for {} bytes if Space {*}",
-                    .{
-                        @typeName(T),
-                        @sizeOf(T),
-                        self,
-                    },
-                );
-            }
-
-            return copy;
         }
 
-        return Error.OutOfSpace;
+        return copy;
     }
 };

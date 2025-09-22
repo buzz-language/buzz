@@ -2922,6 +2922,10 @@ pub const VM = struct {
             unreachable;
         };
 
+        // FIXME: now `object` might have changed Space and the address is wrong!
+        // So any reference made to a object before an allocate might be wrong now!
+        // We could look up obj.forward, but what it the data is mangled because of a collect+resize+collect?
+
         // If not anonymous, set default fields
         if (object) |uobject| {
             // Set instance fields with default values

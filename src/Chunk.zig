@@ -4,6 +4,71 @@ const Value = @import("value.zig").Value;
 const VM = @import("vm.zig").VM;
 const Token = @import("Token.zig");
 
+/// A chunk of code to execute
+const Self = @This();
+
+pub const max_constants = std.math.maxInt(u24);
+
+allocator: std.mem.Allocator,
+/// AST
+ast: Ast.Slice,
+// TODO: merge `code` and `lines` in a multiarray
+/// List of opcodes to execute
+code: std.ArrayList(u32) = .empty,
+/// List of locations
+lines: std.ArrayList(Ast.TokenIndex) = .empty,
+/// List of constants defined in this chunk
+constants: std.ArrayList(Value) = .empty,
+
+pub fn init(allocator: std.mem.Allocator, ast: Ast.Slice) Self {
+    return Self{
+        .allocator = allocator,
+        .ast = ast,
+    };
+}
+
+pub fn deinit(self: *Self) void {
+    self.code.deinit(self.allocator);
+    self.constants.deinit(self.allocator);
+    self.lines.deinit(self.allocator);
+}
+
+pub fn write(self: *Self, code: u32, where: Ast.TokenIndex) !void {
+    try self.code.append(self.allocator, code);
+    try self.lines.append(self.allocator, where);
+}
+
+pub fn addConstant(self: *Self, vm: ?*VM, value: Value) !u24 {
+    if (vm) |uvm| uvm.push(value);
+    try self.constants.append(self.allocator, value);
+    if (vm) |uvm| _ = uvm.pop();
+
+    return @intCast(self.constants.items.len - 1);
+}
+
+const RegistryContext = struct {
+    pub fn hash(_: RegistryContext, key: Self) u64 {
+        return std.hash.Wyhash.hash(
+            0,
+            std.mem.sliceAsBytes(key.code.items),
+        );
+    }
+
+    pub fn eql(_: RegistryContext, a: Self, b: Self) bool {
+        return std.mem.eql(u32, a.code.items, b.code.items) and
+            std.mem.eql(Value, a.constants.items, b.constants.items);
+    }
+};
+
+pub fn HashMap(V: type) type {
+    return std.HashMapUnmanaged(
+        Self,
+        V,
+        RegistryContext,
+        std.hash_map.default_max_load_percentage,
+    );
+}
+
 pub const OpCode = enum(u8) {
     OP_CONSTANT,
     OP_NULL,
@@ -139,71 +204,3 @@ pub const OpCode = enum(u8) {
     OP_HOTSPOT,
     OP_HOTSPOT_CALL,
 };
-
-/// A chunk of code to execute
-const Self = @This();
-
-pub const max_constants = std.math.maxInt(u24);
-
-const RegistryContext = struct {
-    pub fn hash(_: RegistryContext, key: Self) u64 {
-        return std.hash.Wyhash.hash(
-            0,
-            std.mem.sliceAsBytes(key.code.items),
-        );
-    }
-
-    pub fn eql(_: RegistryContext, a: Self, b: Self) bool {
-        return std.mem.eql(u32, a.code.items, b.code.items) and
-            std.mem.eql(Value, a.constants.items, b.constants.items);
-    }
-};
-
-pub fn HashMap(V: type) type {
-    return std.HashMapUnmanaged(
-        Self,
-        V,
-        RegistryContext,
-        std.hash_map.default_max_load_percentage,
-    );
-}
-
-allocator: std.mem.Allocator,
-/// AST
-ast: Ast.Slice,
-// TODO: merge `code` and `lines` in a multiarray
-/// List of opcodes to execute
-code: std.ArrayList(u32),
-/// List of locations
-lines: std.ArrayList(Ast.TokenIndex),
-/// List of constants defined in this chunk
-constants: std.ArrayList(Value),
-
-pub fn init(allocator: std.mem.Allocator, ast: Ast.Slice) Self {
-    return Self{
-        .allocator = allocator,
-        .ast = ast,
-        .code = .{},
-        .constants = .{},
-        .lines = .{},
-    };
-}
-
-pub fn deinit(self: *Self) void {
-    self.code.deinit(self.allocator);
-    self.constants.deinit(self.allocator);
-    self.lines.deinit(self.allocator);
-}
-
-pub fn write(self: *Self, code: u32, where: Ast.TokenIndex) !void {
-    try self.code.append(self.allocator, code);
-    try self.lines.append(self.allocator, where);
-}
-
-pub fn addConstant(self: *Self, vm: ?*VM, value: Value) !u24 {
-    if (vm) |uvm| uvm.push(value);
-    try self.constants.append(self.allocator, value);
-    if (vm) |uvm| _ = uvm.pop();
-
-    return @intCast(self.constants.items.len - 1);
-}

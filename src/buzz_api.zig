@@ -477,11 +477,11 @@ export fn bz_containerTypeAlign(type_def: v.Value) callconv(.c) usize {
 }
 
 export fn bz_allocated(self: *VM) callconv(.c) usize {
-    return self.gc.to.memory.len;
+    return self.gc.to.memory.buffer.len;
 }
 
 export fn bz_collect(self: *VM) callconv(.c) void {
-    self.gc.collect() catch @panic("Could not collect");
+    _ = self.gc.collect() catch @panic("Could not collect");
 }
 
 export fn bz_newRange(vm: *VM, low: i64, high: i64) callconv(.c) v.Value {
