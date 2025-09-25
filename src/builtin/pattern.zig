@@ -61,10 +61,6 @@ const fake_token: Token = .{
 
 // Return match anonymous object type: obj{ start: int, end: int, capture: str }
 fn matchType(vm: *VM) !*o.ObjTypeDef {
-    if (vm.gc.type_registry.registry.get(".{ capture: str, start: int, end: int }")) |type_def| {
-        return type_def;
-    }
-
     var object_def = o.ObjObject.ObjectDef.init(
         0,
         try vm.gc.copyString("match"),

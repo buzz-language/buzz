@@ -488,15 +488,20 @@ fn freeObj(self: *GC, obj: *o.Obj) (std.mem.Allocator.Error || std.fmt.BufPrintE
         },
         .Type => {
             var obj_typedef = o.ObjTypeDef.cast(obj).?;
+            const hash = TypeRegistry.typeDefHash(obj_typedef.*);
 
-            const str = try obj_typedef.toStringAlloc(self.allocator, true);
-            defer self.allocator.free(str);
-
-            if (self.type_registry.registry.get(str)) |registered_obj| {
+            if (self.type_registry.registry.get(hash)) |registered_obj| {
                 if (registered_obj == obj_typedef) {
-                    _ = self.type_registry.registry.remove(str);
+                    _ = self.type_registry.registry.remove(hash);
                     if (BuildOptions.gc_debug) {
-                        io.print("Removed registered type @{} `{s}`\n", .{ @intFromPtr(registered_obj), str });
+                        io.print(
+                            "Removed registered type @{} #{} `{s}`\n",
+                            .{
+                                @intFromPtr(registered_obj),
+                                hash,
+                                obj_typedef.toStringAlloc(self.allocator, true) catch unreachable,
+                            },
+                        );
                     }
                 } else {
                     // io.print(

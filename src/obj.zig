@@ -4512,7 +4512,10 @@ pub const ObjTypeDef = struct {
 
                 resolved.generic_types.deinit(type_registry.gc.allocator);
                 resolved.generic_types = try old_object_def.generic_types.clone(type_registry.gc.allocator);
-                resolved.resolved_generics = generics;
+
+                if (resolved.generic_types.count() == generics.len) {
+                    resolved.resolved_generics = generics;
+                }
 
                 {
                     var fields = std.StringArrayHashMapUnmanaged(ObjObject.ObjectDef.Field){};
@@ -5355,8 +5358,9 @@ pub const ObjTypeDef = struct {
             .UserData,
             .Type,
             .Range,
-            .Any,
             => unreachable,
+
+            .Any => expected.Any == actual.Any,
 
             .ForeignContainer => std.mem.eql(u8, expected.ForeignContainer.name.string, actual.ForeignContainer.name.string),
 
