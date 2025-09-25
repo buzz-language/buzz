@@ -14,6 +14,7 @@ const GC = @This();
 allocator: std.mem.Allocator,
 from: Space,
 to: Space,
+undersized_to: ?Space = null,
 
 strings: std.StringHashMapUnmanaged(*o.ObjString) = .empty,
 type_registry: TypeRegistry,
@@ -144,6 +145,8 @@ pub fn allocate(self: *GC, comptime T: type, value: T) Space.Error!*T {
                 self.from.memory.buffer.len,
             },
         );
+
+        // We give the allocated obj to the resize function so it can consider it as a root
         return (try self.resize(
             self.from.memory.buffer.len * BuildOptions.next_gc_ratio,
             new.toValue(),
@@ -168,7 +171,24 @@ pub fn collect(self: *GC, just_allocated_obj: ?Value) Space.Error!?Value {
     }
 
     if (BuildOptions.gc_debug or BuildOptions.gc_debug_light) {
-        std.log.debug("Collecting...", .{});
+        std.log.debug(
+            "Collecting (from {}, to {})...",
+            .{
+                self.from.memory.buffer.len,
+                self.to.memory.buffer.len,
+            },
+        );
+    }
+
+    // If we had to do a resize previously, the to-space might be undersized
+    // It's now safe to resize it as well
+    if (self.undersized_to) |*undersized_to| {
+        if (BuildOptions.gc_debug_light) {
+            std.log.debug("Freeing old undersized to-space", .{});
+        }
+
+        undersized_to.deinit(self.allocator);
+        self.undersized_to = null;
     }
 
     // This object must be considered like a root, its allocation triggered a resize and so a collect
@@ -240,6 +260,17 @@ pub fn collect(self: *GC, just_allocated_obj: ?Value) Space.Error!?Value {
         // Discard the to-space content
         self.to.reset();
         self.from = tmp;
+
+        std.log.debug(
+            "After collect space {*} has from is {*}:{}, to is {*}:{}",
+            .{
+                self,
+                self.from.memory.buffer,
+                self.from.memory.buffer.len,
+                self.to.memory.buffer,
+                self.to.memory.buffer.len,
+            },
+        );
     }
 
     if (BuildOptions.gc_debug or BuildOptions.gc_debug_light) {
@@ -258,10 +289,13 @@ pub fn collect(self: *GC, just_allocated_obj: ?Value) Space.Error!?Value {
 fn resize(self: *GC, size: usize, just_allocated_obj: Value) Space.Error!Value {
     if (BuildOptions.gc_debug or BuildOptions.gc_debug_light) {
         std.log.debug(
-            "Resizing from {} to {}",
+            "Resizing space {*} from {} to {} (spaces are from {*} and to {*})",
             .{
+                self,
                 self.to.memory.buffer.len,
                 size,
+                self.from.memory.buffer,
+                self.to.memory.buffer,
             },
         );
     }
@@ -275,8 +309,19 @@ fn resize(self: *GC, size: usize, just_allocated_obj: Value) Space.Error!Value {
     // Now do a collect, it will move every live object from the old from-space to the new to-space and then switch them
     const new = (try self.collect(just_allocated_obj)).?;
 
-    // Now replace the to-space (because the previous new space is now the from-space) with a new space
-    self.to.deinit(self.allocator);
+    // The to-space is now undersized, we will resize it just before the next collect
+    // We can't do it know because things might still be referring to old objects in there
+    // But we can't keep it as the to-space because it will trigger another resize
+    self.undersized_to = self.to;
+
+    std.log.debug("Left space {*} at from {*}:{} vs to {*}:{}", .{
+        self,
+        self.from.memory.buffer,
+        self.from.memory.buffer.len,
+        self.to.memory.buffer,
+        self.to.memory.buffer.len,
+    });
+
     self.to = try Space.init(self.allocator, size);
 
     return new;
