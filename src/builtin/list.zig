@@ -6,9 +6,9 @@ const v = @import("../value.zig");
 const buzz_api = @import("../buzz_api.zig");
 
 pub fn append(ctx: *o.NativeCtx) callconv(.c) c_int {
-    const list_value: v.Value = ctx.vm.peek(1);
-    const list: *o.ObjList = o.ObjList.cast(list_value.obj()).?;
-    const value: v.Value = ctx.vm.peek(0);
+    const list_value = ctx.vm.peek(1);
+    const list = o.ObjList.cast(list_value.obj()).?;
+    const value = ctx.vm.peek(0);
 
     list.rawAppend(
         ctx.vm.gc,
@@ -22,10 +22,10 @@ pub fn append(ctx: *o.NativeCtx) callconv(.c) c_int {
 }
 
 pub fn insert(ctx: *o.NativeCtx) callconv(.c) c_int {
-    const list_value: v.Value = ctx.vm.peek(2);
-    const list: *o.ObjList = o.ObjList.cast(list_value.obj()).?;
+    const list_value = ctx.vm.peek(2);
+    const list = o.ObjList.cast(list_value.obj()).?;
     var index = ctx.vm.peek(1).integer();
-    const value: v.Value = ctx.vm.peek(0);
+    const value = ctx.vm.peek(0);
 
     if (index < 0 or list.items.items.len == 0) {
         index = 0;
@@ -48,7 +48,7 @@ pub fn insert(ctx: *o.NativeCtx) callconv(.c) c_int {
 }
 
 pub fn len(ctx: *o.NativeCtx) callconv(.c) c_int {
-    const list: *o.ObjList = o.ObjList.cast(ctx.vm.peek(0).obj()).?;
+    const list = o.ObjList.cast(ctx.vm.peek(0).obj()).?;
 
     ctx.vm.push(v.Value.fromInteger(@as(v.Integer, @intCast(list.items.items.len))));
 
@@ -56,10 +56,9 @@ pub fn len(ctx: *o.NativeCtx) callconv(.c) c_int {
 }
 
 pub fn reverse(ctx: *o.NativeCtx) callconv(.c) c_int {
-    const list: *o.ObjList = o.ObjList.cast(ctx.vm.peek(0).obj()).?;
+    const list = o.ObjList.cast(ctx.vm.peek(0).obj()).?;
 
     var new_list = ctx.vm.gc.allocateObject(
-        o.ObjList,
         o.ObjList.init(ctx.vm.gc.allocator, list.type_def) catch {
             ctx.vm.panic("Out of memory");
             unreachable;
@@ -81,7 +80,7 @@ pub fn reverse(ctx: *o.NativeCtx) callconv(.c) c_int {
 }
 
 pub fn pop(ctx: *o.NativeCtx) callconv(.c) c_int {
-    const list: *o.ObjList = o.ObjList.cast(ctx.vm.peek(0).obj()).?;
+    const list = o.ObjList.cast(ctx.vm.peek(0).obj()).?;
 
     if (list.items.items.len > 0) {
         ctx.vm.push(list.items.pop().?);
@@ -93,7 +92,7 @@ pub fn pop(ctx: *o.NativeCtx) callconv(.c) c_int {
 }
 
 pub fn remove(ctx: *o.NativeCtx) callconv(.c) c_int {
-    const list: *o.ObjList = o.ObjList.cast(ctx.vm.peek(1).obj()).?;
+    const list = o.ObjList.cast(ctx.vm.peek(1).obj()).?;
     const list_index = ctx.vm.peek(0).integer();
 
     if (list_index < 0 or list_index >= list.items.items.len) {
@@ -152,8 +151,8 @@ pub fn sort(ctx: *o.NativeCtx) callconv(.c) c_int {
 }
 
 pub fn indexOf(ctx: *o.NativeCtx) callconv(.c) c_int {
-    const self: *o.ObjList = o.ObjList.cast(ctx.vm.peek(1).obj()).?;
-    const needle: v.Value = ctx.vm.peek(0);
+    const self = o.ObjList.cast(ctx.vm.peek(1).obj()).?;
+    const needle = ctx.vm.peek(0);
 
     var index: ?usize = null;
     var i: usize = 0;
@@ -175,10 +174,9 @@ pub fn indexOf(ctx: *o.NativeCtx) callconv(.c) c_int {
 }
 
 fn cloneRaw(ctx: *o.NativeCtx, mutable: bool) void {
-    const self: *o.ObjList = o.ObjList.cast(ctx.vm.peek(0).obj()).?;
+    const self = o.ObjList.cast(ctx.vm.peek(0).obj()).?;
 
     var new_list = ctx.vm.gc.allocateObject(
-        o.ObjList,
         o.ObjList.init(
             ctx.vm.gc.allocator,
             self.type_def.cloneMutable(&ctx.vm.gc.type_registry, mutable) catch {
@@ -246,7 +244,7 @@ pub fn join(ctx: *o.NativeCtx) callconv(.c) c_int {
 }
 
 pub fn sub(ctx: *o.NativeCtx) callconv(.c) c_int {
-    const self: *o.ObjList = o.ObjList.cast(ctx.vm.peek(2).obj()).?;
+    const self = o.ObjList.cast(ctx.vm.peek(2).obj()).?;
     const start = @min(
         @max(
             0,
@@ -273,8 +271,7 @@ pub fn sub(ctx: *o.NativeCtx) callconv(.c) c_int {
     };
 
     var list = ctx.vm.gc.allocateObject(
-        o.ObjList,
-        .{
+        o.ObjList{
             .type_def = self.type_def,
             .methods = methods.toOwnedSlice(ctx.vm.gc.allocator) catch {
                 ctx.vm.panic("Out of memory");
@@ -298,9 +295,9 @@ pub fn sub(ctx: *o.NativeCtx) callconv(.c) c_int {
 }
 
 pub fn next(ctx: *o.NativeCtx) callconv(.c) c_int {
-    const list_value: v.Value = ctx.vm.peek(1);
-    const list: *o.ObjList = o.ObjList.cast(list_value.obj()).?;
-    const list_index: v.Value = ctx.vm.peek(0);
+    const list_value = ctx.vm.peek(1);
+    const list = o.ObjList.cast(list_value.obj()).?;
+    const list_index = ctx.vm.peek(0);
 
     const next_index: ?v.Integer = list.rawNext(
         ctx.vm,
@@ -375,8 +372,7 @@ pub fn filter(ctx: *o.NativeCtx) callconv(.c) c_int {
     const list = o.ObjList.cast(ctx.vm.peek(1).obj()).?;
     const closure = ctx.vm.peek(0);
 
-    var new_list: *o.ObjList = ctx.vm.gc.allocateObject(
-        o.ObjList,
+    var new_list = ctx.vm.gc.allocateObject(
         o.ObjList.init(
             ctx.vm.gc.allocator,
             list.type_def,
@@ -423,8 +419,7 @@ pub fn map(ctx: *o.NativeCtx) callconv(.c) c_int {
         .type_def.resolved_type.?.Function
         .return_type;
 
-    var new_list: *o.ObjList = ctx.vm.gc.allocateObject(
-        o.ObjList,
+    var new_list = ctx.vm.gc.allocateObject(
         o.ObjList.init(
             ctx.vm.gc.allocator,
             ctx.vm.gc.type_registry.getTypeDef(
@@ -474,7 +469,7 @@ pub fn map(ctx: *o.NativeCtx) callconv(.c) c_int {
 }
 
 pub fn fill(ctx: *o.NativeCtx) callconv(.c) c_int {
-    const self: *o.ObjList = o.ObjList.cast(ctx.vm.peek(3).obj()).?;
+    const self = o.ObjList.cast(ctx.vm.peek(3).obj()).?;
     const value = ctx.vm.peek(2);
     const start: usize = @intCast(
         @min(

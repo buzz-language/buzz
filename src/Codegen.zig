@@ -217,7 +217,7 @@ pub fn emitJump(self: *Self, location: Ast.TokenIndex, instruction: Chunk.OpCode
 }
 
 pub fn patchJumpOrLoop(self: *Self, offset: usize, loop_start: ?usize) !void {
-    const original: u32 = self.current.?.function.?.chunk.code.items[offset];
+    const original = self.current.?.function.?.chunk.code.items[offset];
     const instruction: u8 = @intCast(original >> 24);
     const code: Chunk.OpCode = @enumFromInt(instruction);
 
@@ -275,7 +275,7 @@ pub fn patchTryOrJit(self: *Self, offset: usize) void {
         );
     }
 
-    const original: u32 = self.current.?.function.?.chunk.code.items[offset];
+    const original = self.current.?.function.?.chunk.code.items[offset];
     const instruction: u8 = @intCast(original >> 24);
 
     self.current.?.function.?.chunk.code.items[offset] =
@@ -2625,7 +2625,7 @@ fn generateFunction(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?
         Value.fromObj((try self.gc.copyString("")).toObj()),
     );
 
-    self.current.?.function = try self.gc.allocateObject(obj.ObjFunction, function);
+    self.current.?.function = try self.gc.allocateObject(function);
 
     // Generate function's body
     if (components.body) |body| {

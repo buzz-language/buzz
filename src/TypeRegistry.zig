@@ -87,7 +87,7 @@ pub fn getTypeDef(self: *TypeRegistry, type_def: o.ObjTypeDef) !*o.ObjTypeDef {
         }
     }
 
-    const type_def_ptr = try self.gc.allocateObject(o.ObjTypeDef, type_def);
+    const type_def_ptr = try self.gc.allocateObject(type_def);
 
     if (BuildOptions.debug_placeholders or BuildOptions.debug_type_registry) {
         io.print(

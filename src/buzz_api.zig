@@ -484,7 +484,6 @@ export fn bz_collect(self: *VM) callconv(.c) void {
 
 export fn bz_newRange(vm: *VM, low: i64, high: i64) callconv(.c) v.Value {
     return v.Value.fromObj((vm.gc.allocateObject(
-        o.ObjRange,
         o.ObjRange{
             .low = @truncate(low),
             .high = @truncate(high),
@@ -494,7 +493,6 @@ export fn bz_newRange(vm: *VM, low: i64, high: i64) callconv(.c) v.Value {
 
 export fn bz_newList(vm: *VM, list_type: v.Value) callconv(.c) v.Value {
     return (vm.gc.allocateObject(
-        o.ObjList,
         o.ObjList.init(
             vm.gc.allocator,
             o.ObjTypeDef.cast(list_type.obj()).?,
@@ -541,7 +539,6 @@ export fn bz_listConcat(list: v.Value, other_list: v.Value, vm: *VM) callconv(.c
     new_list.appendSlice(vm.gc.allocator, right.items.items) catch @panic("Could not concatenate lists");
 
     return (vm.gc.allocateObject(
-        o.ObjList,
         o.ObjList{
             .type_def = left.type_def,
             .methods = left.methods,
@@ -564,16 +561,17 @@ export fn bz_mapConcat(map: v.Value, other_map: v.Value, vm: *VM) callconv(.c) v
         ) catch @panic("Could not concatenate maps");
     }
 
-    return (vm.gc.allocateObject(o.ObjMap, o.ObjMap{
-        .type_def = left.type_def,
-        .methods = left.methods,
-        .map = new_map,
-    }) catch @panic("Could not concatenate maps")).toValue();
+    return (vm.gc.allocateObject(
+        o.ObjMap{
+            .type_def = left.type_def,
+            .methods = left.methods,
+            .map = new_map,
+        },
+    ) catch @panic("Could not concatenate maps")).toValue();
 }
 
 export fn bz_newUserData(vm: *VM, userdata: u64) callconv(.c) v.Value {
     return (vm.gc.allocateObject(
-        o.ObjUserData,
         o.ObjUserData{ .userdata = userdata },
     ) catch {
         vm.panic("Out of memory");
@@ -752,7 +750,6 @@ export fn bz_newQualifiedObjectInstance(self: *VM, qualified_name: [*]const u8, 
     const object = o.ObjObject.cast(bz_getQualified(self, qualified_name, len).obj()).?;
 
     const instance: *o.ObjObjectInstance = self.gc.allocateObject(
-        o.ObjObjectInstance,
         o.ObjObjectInstance.init(
             self,
             object,
@@ -876,7 +873,6 @@ export fn bz_newObjectInstance(vm: *VM, object_value: v.Value, typedef_value: v.
     const typedef = o.ObjTypeDef.cast(typedef_value.obj()).?;
 
     const instance = vm.gc.allocateObject(
-        o.ObjObjectInstance,
         o.ObjObjectInstance.init(
             vm,
             object,
@@ -967,8 +963,7 @@ export fn bz_getProtocolMethod(instance_value: v.Value, method_name: v.Value, vm
 
 export fn bz_bindMethod(vm: *VM, receiver: v.Value, method_value: v.Value, native_value: v.Value) callconv(.c) v.Value {
     return (vm.gc.allocateObject(
-        o.ObjBoundMethod,
-        .{
+        o.ObjBoundMethod{
             .receiver = receiver,
             .closure = if (method_value.isObj()) o.ObjClosure.cast(method_value.obj()).? else null,
             .native = if (native_value.isObj()) o.ObjNative.cast(native_value.obj()).? else null,
@@ -989,7 +984,6 @@ export fn bz_getEnumCase(enum_value: v.Value, case_name_value: v.Value, vm: *VM)
     }
 
     return (vm.gc.allocateObject(
-        o.ObjEnumInstance,
         o.ObjEnumInstance{
             .enum_ref = self,
             .case = @intCast(case_index),
@@ -1008,10 +1002,12 @@ export fn bz_getEnumCaseFromValue(enum_value: v.Value, case_value: v.Value, vm: 
 
     for (enum_.cases, 0..) |case, index| {
         if (v.Value.eql(case, case_value)) {
-            var enum_case: *o.ObjEnumInstance = vm.gc.allocateObject(o.ObjEnumInstance, o.ObjEnumInstance{
-                .enum_ref = enum_,
-                .case = @intCast(index),
-            }) catch @panic("Could not create enum instance");
+            var enum_case: *o.ObjEnumInstance = vm.gc.allocateObject(
+                o.ObjEnumInstance{
+                    .enum_ref = enum_,
+                    .case = @intCast(index),
+                },
+            ) catch @panic("Could not create enum instance");
 
             return v.Value.fromObj(enum_case.toObj());
         }
@@ -1032,8 +1028,7 @@ export fn bz_valueTypeOf(self: v.Value, vm: *VM) callconv(.c) v.Value {
 }
 
 export fn bz_newMap(vm: *VM, map_type: v.Value) callconv(.c) v.Value {
-    var map: *o.ObjMap = vm.gc.allocateObject(
-        o.ObjMap,
+    var map = vm.gc.allocateObject(
         o.ObjMap.init(
             vm.gc.allocator,
             o.ObjTypeDef.cast(map_type.obj()).?,
@@ -1210,8 +1205,7 @@ export fn bz_closure(
     obj_function.native = native;
     obj_function.native_raw = native_raw;
 
-    const closure: *o.ObjClosure = ctx.vm.gc.allocateObject(
-        o.ObjClosure,
+    const closure = ctx.vm.gc.allocateObject(
         o.ObjClosure.init(
             ctx.vm.gc.allocator,
             ctx.vm,
@@ -1455,7 +1449,6 @@ export fn bz_foreignContainerSet(value: v.Value, field_idx: usize, new_value: v.
 
 export fn bz_newForeignContainerInstance(vm: *VM, typedef_value: v.Value) callconv(.c) v.Value {
     return (vm.gc.allocateObject(
-        o.ObjForeignContainer,
         o.ObjForeignContainer.init(
             vm,
             o.ObjTypeDef.cast(typedef_value.obj()).?,
@@ -1483,8 +1476,7 @@ export fn bz_valueIsForeignContainer(value: v.Value) callconv(.c) bool {
 
 export fn bz_newForeignContainerFromSlice(vm: *VM, type_def: v.Value, ptr: [*]u8, len: usize) callconv(.c) v.Value {
     var container = (vm.gc.allocateObject(
-        o.ObjForeignContainer,
-        .{
+        o.ObjForeignContainer{
             .type_def = o.ObjTypeDef.cast(type_def.obj()).?,
             .data = ptr[0..len],
         },
@@ -1552,8 +1544,7 @@ export fn bz_serialize(vm: *VM, value: v.Value, error_value: *v.Value) callconv(
 
 export fn bz_currentFiber(vm: *VM) callconv(.c) v.Value {
     return (vm.gc.allocateObject(
-        o.ObjFiber,
-        .{
+        o.ObjFiber{
             .fiber = vm.current_fiber,
         },
     ) catch {
@@ -1589,8 +1580,7 @@ export fn bz_readZigValueFromBuffer(
             switch (ztype.Int.bits) {
                 64 => {
                     const userdata = vm.gc.allocateObject(
-                        o.ObjUserData,
-                        .{
+                        o.ObjUserData{
                             .userdata = @as(
                                 u64,
                                 if (ztype.Int.signedness == .unsigned)
@@ -1706,8 +1696,7 @@ export fn bz_readZigValueFromBuffer(
             const bytes = buffer.items[offset .. offset + 8];
 
             const userdata = vm.gc.allocateObject(
-                o.ObjUserData,
-                .{
+                o.ObjUserData{
                     .userdata = std.mem.bytesToValue(u64, bytes[0..8]),
                 },
             ) catch {

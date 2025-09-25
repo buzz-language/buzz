@@ -163,7 +163,6 @@ fn rawMatch(self: *o.ObjPattern, vm: *VM, subject: *o.ObjString, offset: *usize)
             offset.* = @intCast(output_vector[1]);
 
             results = try vm.gc.allocateObject(
-                o.ObjList,
                 try o.ObjList.init(
                     vm.gc.allocator,
                     try vm.gc.type_registry.getTypeDef(
@@ -189,7 +188,6 @@ fn rawMatch(self: *o.ObjPattern, vm: *VM, subject: *o.ObjString, offset: *usize)
             var i: usize = 0;
             while (i < rc) : (i += 1) {
                 const match_instance = try vm.gc.allocateObject(
-                    o.ObjObjectInstance,
                     try o.ObjObjectInstance.init(
                         vm,
                         null,
@@ -231,7 +229,6 @@ fn rawMatchAll(self: *o.ObjPattern, vm: *VM, subject: *o.ObjString) !?*o.ObjList
         if (try rawMatch(self, vm, subject, &offset)) |matches| {
             const was_null = results == null;
             results = results orelse try vm.gc.allocateObject(
-                o.ObjList,
                 try o.ObjList.init(
                     vm.gc.allocator,
                     try vm.gc.type_registry.getTypeDef(

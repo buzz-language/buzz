@@ -41,11 +41,11 @@ const Breaks = std.ArrayList(Break);
 
 const GenState = struct {
     module: m.MIR_module_t,
-    prototypes: std.AutoHashMapUnmanaged(ExternApi, m.MIR_item_t),
+    prototypes: std.AutoHashMapUnmanaged(ExternApi, m.MIR_item_t) = .empty,
 
     /// Root closure (not necessarily the one being compiled)
     closure: *o.ObjClosure,
-    opt_jumps: std.ArrayList(OptJump) = .{},
+    opt_jumps: std.ArrayList(OptJump) = .empty,
 
     // Frame related stuff, since we compile one function at a time, we don't stack frames while compiling
     ast: Ast.Slice,
@@ -64,14 +64,14 @@ const GenState = struct {
     vm_reg: ?m.MIR_reg_t = null,
 
     /// Avoid register name collisions
-    registers: std.AutoHashMapUnmanaged([*:0]const u8, usize),
+    registers: std.AutoHashMapUnmanaged([*:0]const u8, usize) = .empty,
 
     /// Label to jump to when breaking a loop without a label
     break_label: m.MIR_insn_t = null,
     /// Label to jump to when continuing a loop whithout a label
     continue_label: m.MIR_insn_t = null,
 
-    breaks_label: Breaks,
+    breaks_label: Breaks = .empty,
 
     pub fn deinit(self: *GenState, allocator: std.mem.Allocator) void {
         self.prototypes.deinit(allocator);
@@ -98,18 +98,18 @@ vm: *VM,
 ctx: m.MIR_context_t,
 state: ?GenState = null,
 /// Set of closures or hotspots being or already compiled
-compiled_nodes: std.AutoHashMapUnmanaged(Ast.Node.Index, void),
+compiled_nodes: std.AutoHashMapUnmanaged(Ast.Node.Index, void) = .empty,
 /// Closures or hotspots we can't compile (containing async call, or yield)
-blacklisted_nodes: std.AutoHashMapUnmanaged(Ast.Node.Index, void),
+blacklisted_nodes: std.AutoHashMapUnmanaged(Ast.Node.Index, void) = .empty,
 /// MIR doesn't allow generating multiple functions at once, so we keep a set of function to compile
 /// Once compiled, the value is set to an array of the native and raw native func_items
-functions_queue: std.AutoHashMapUnmanaged(Ast.Node.Index, ?[2]?m.MIR_item_t),
+functions_queue: std.AutoHashMapUnmanaged(Ast.Node.Index, ?[2]?m.MIR_item_t) = .empty,
 /// ObjClosures for which we later compiled the function and need to set it's native and native_raw fields
-objclosures_queue: std.AutoHashMapUnmanaged(*o.ObjClosure, void),
+objclosures_queue: std.AutoHashMapUnmanaged(*o.ObjClosure, void) = .empty,
 /// External api to link
-required_ext_api: std.AutoHashMapUnmanaged(ExternApi, void),
+required_ext_api: std.AutoHashMapUnmanaged(ExternApi, void) = .empty,
 /// Modules to load when linking/generating
-modules: std.ArrayList(m.MIR_module_t),
+modules: std.ArrayList(m.MIR_module_t) = .empty,
 /// Call count of all functions
 call_count: u128 = 0,
 /// Keeps track of time spent in the JIT
@@ -123,13 +123,6 @@ pub fn init(vm: *VM) Self {
     return .{
         .vm = vm,
         .ctx = m.MIR_init(),
-        .compiled_nodes = .{},
-        .blacklisted_nodes = .{},
-        .functions_queue = .{},
-        .objclosures_queue = .{},
-        .required_ext_api = .{},
-        .modules = .{},
-        .compiled_functions_bodies = .{},
     };
 }
 
@@ -373,11 +366,8 @@ fn buildFunction(self: *Self, ast: Ast.Slice, closure: ?*o.ObjClosure, ast_node:
     self.state = .{
         .ast = ast,
         .module = undefined,
-        .prototypes = .{},
         .ast_node = ast_node,
-        .registers = .{},
         .closure = closure orelse self.state.?.closure,
-        .breaks_label = .{},
     };
 
     const tag = self.state.?.ast.nodes.items(.tag)[ast_node];
@@ -5239,9 +5229,9 @@ pub fn compileZdefContainer(self: *Self, ast: Ast.Slice, zdef_element: Ast.Zdef.
 
     const foreign_def = zdef_element.zdef.type_def.resolved_type.?.ForeignContainer;
 
-    var getters: std.ArrayList(m.MIR_item_t) = .{};
+    var getters = std.ArrayList(m.MIR_item_t).empty;
     defer getters.deinit(self.vm.gc.allocator);
-    var setters: std.ArrayList(m.MIR_item_t) = .{};
+    var setters = std.ArrayList(m.MIR_item_t).empty;
     defer setters.deinit(self.vm.gc.allocator);
 
     switch (foreign_def.zig_type) {
@@ -5557,8 +5547,7 @@ pub fn compileZdef(self: *Self, buzz_ast: Ast.Slice, zdef: Ast.Zdef.ZdefElement)
     defer m.MIR_gen_finish(self.ctx);
 
     return try self.vm.gc.allocateObject(
-        o.ObjNative,
-        .{
+        o.ObjNative{
             .native = m.MIR_gen(self.ctx, wrapper_item) orelse unreachable,
         },
     );

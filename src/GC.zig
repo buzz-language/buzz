@@ -34,7 +34,7 @@ const Mode = enum {
 };
 
 allocator: std.mem.Allocator,
-strings: std.StringHashMapUnmanaged(*o.ObjString),
+strings: std.StringHashMapUnmanaged(*o.ObjString) = .empty,
 type_registry: TypeRegistry,
 bytes_allocated: usize = 0,
 // next_gc == next_full_gc at first so the first cycle is a full gc
@@ -42,8 +42,8 @@ next_gc: usize = if (builtin.mode == .Debug) 1024 else 1024 * BuildOptions.initi
 next_full_gc: usize = if (builtin.mode == .Debug) 1024 else 1024 * BuildOptions.initial_gc,
 last_gc: ?Mode = null,
 objects: std.DoublyLinkedList = .{},
-gray_stack: std.ArrayList(*o.Obj),
-active_vms: std.AutoHashMapUnmanaged(*v.VM, void),
+gray_stack: std.ArrayList(*o.Obj) = .empty,
+active_vms: std.AutoHashMapUnmanaged(*v.VM, void) = .empty,
 // o.Obj being collected, useful to avoid setting object instance dirty while running its collector method
 obj_collected: ?*o.Obj = null,
 
@@ -69,10 +69,7 @@ gc_time: usize = 0,
 pub fn init(allocator: std.mem.Allocator) !GC {
     const self = GC{
         .allocator = allocator,
-        .strings = std.StringHashMapUnmanaged(*o.ObjString){},
         .type_registry = undefined,
-        .gray_stack = std.ArrayList(*o.Obj){},
-        .active_vms = std.AutoHashMapUnmanaged(*v.VM, void){},
         .debugger = if (BuildOptions.gc_debug_access) Debugger.init(allocator) else null,
 
         .objfiber_members = try allocator.alloc(?*o.ObjNative, o.ObjFiber.members.len),
@@ -117,7 +114,9 @@ pub fn registerVM(self: *GC, vm: *v.VM) !void {
 }
 
 pub fn unregisterVM(self: *GC, vm: *v.VM) void {
-    std.debug.assert(self.active_vms.remove(vm));
+    const removed = self.active_vms.remove(vm);
+
+    std.debug.assert(removed);
 }
 
 pub fn deinit(self: *GC) void {
@@ -197,38 +196,13 @@ pub fn allocateMany(self: *GC, comptime T: type, count: usize) ![]T {
     return try self.allocator.alloc(T, count);
 }
 
-pub fn allocateObject(self: *GC, comptime T: type, data: T) !*T {
-    // var before: usize = self.bytes_allocated;
+pub fn allocateObject(self: *GC, data: anytype) !*@TypeOf(data) {
+    const T = @TypeOf(data);
 
     const obj: *T = try self.allocate(T);
     obj.* = data;
 
-    const object: *o.Obj = switch (T) {
-        o.ObjString => o.ObjString.toObj(obj),
-        o.ObjTypeDef => o.ObjTypeDef.toObj(obj),
-        o.ObjUpValue => o.ObjUpValue.toObj(obj),
-        o.ObjClosure => o.ObjClosure.toObj(obj),
-        o.ObjFunction => o.ObjFunction.toObj(obj),
-        o.ObjObjectInstance => o.ObjObjectInstance.toObj(obj),
-        o.ObjObject => o.ObjObject.toObj(obj),
-        o.ObjList => o.ObjList.toObj(obj),
-        o.ObjMap => o.ObjMap.toObj(obj),
-        o.ObjEnum => o.ObjEnum.toObj(obj),
-        o.ObjEnumInstance => o.ObjEnumInstance.toObj(obj),
-        o.ObjBoundMethod => o.ObjBoundMethod.toObj(obj),
-        o.ObjNative => o.ObjNative.toObj(obj),
-        o.ObjUserData => o.ObjUserData.toObj(obj),
-        o.ObjPattern => o.ObjPattern.toObj(obj),
-        o.ObjFiber => o.ObjFiber.toObj(obj),
-        o.ObjForeignContainer => o.ObjForeignContainer.toObj(obj),
-        o.ObjRange => o.ObjRange.toObj(obj),
-        else => {},
-    };
-
-    // if (BuildOptions.gc_debug) {
-    //     io.print("allocated {*} {*}\n", .{ obj, object });
-    //     io.print("(from {}) {} allocated, total {}\n", .{ before, self.bytes_allocated - before, self.bytes_allocated });
-    // }
+    const object = obj.toObj();
 
     // Add new object at start of vm.objects linked list
     try self.addObject(object);
@@ -271,7 +245,6 @@ fn addObject(self: *GC, obj: *o.Obj) !void {
 pub fn allocateString(self: *GC, chars: []const u8) !*o.ObjString {
     const string: *o.ObjString = try allocateObject(
         self,
-        o.ObjString,
         o.ObjString{ .string = chars },
     );
 

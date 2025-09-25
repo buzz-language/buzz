@@ -4,8 +4,7 @@ const v = @import("../value.zig");
 pub fn toList(ctx: *obj.NativeCtx) callconv(.c) c_int {
     const range = ctx.vm.peek(0).obj().access(obj.ObjRange, .Range, ctx.vm.gc).?;
 
-    var list: *obj.ObjList = ctx.vm.gc.allocateObject(
-        obj.ObjList,
+    var list = ctx.vm.gc.allocateObject(
         obj.ObjList.init(
             ctx.vm.gc.allocator,
             ctx.vm.gc.type_registry.getTypeDef(
@@ -74,8 +73,7 @@ pub fn invert(ctx: *obj.NativeCtx) callconv(.c) c_int {
 
     ctx.vm.push(
         v.Value.fromObj((ctx.vm.gc.allocateObject(
-            obj.ObjRange,
-            .{
+            obj.ObjRange{
                 .high = range.low,
                 .low = range.high,
             },
@@ -108,8 +106,7 @@ pub fn intersect(ctx: *obj.NativeCtx) callconv(.c) c_int {
 
     ctx.vm.push(
         v.Value.fromObj((ctx.vm.gc.allocateObject(
-            obj.ObjRange,
-            .{
+            obj.ObjRange{
                 .high = @max(
                     @min(rangeB.low, rangeB.high),
                     @min(rangeA.low, rangeA.high),
@@ -134,8 +131,7 @@ pub fn @"union"(ctx: *obj.NativeCtx) callconv(.c) c_int {
 
     ctx.vm.push(
         v.Value.fromObj((ctx.vm.gc.allocateObject(
-            obj.ObjRange,
-            .{
+            obj.ObjRange{
                 .high = @min(
                     @min(rangeB.low, rangeB.high),
                     @min(rangeA.low, rangeA.high),

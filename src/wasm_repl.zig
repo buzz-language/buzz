@@ -25,6 +25,7 @@ pub const ReplCtx = extern struct {
     codegen: *CodeGen,
 };
 
+// TODO: use std.heap.WasmAllocataor?
 var gpa = std.heap.GeneralPurposeAllocator(.{
     .safety = builtin.mode == .Debug,
 }){};

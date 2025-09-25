@@ -6446,8 +6446,7 @@ fn pattern(self: *Self, _: bool) Error!Ast.Node.Index {
     }
 
     const constant = try self.gc.allocateObject(
-        obj.ObjPattern,
-        .{
+        obj.ObjPattern{
             .source = source,
             .pattern = if (!is_wasm) reg.? else {},
         },
@@ -8122,7 +8121,6 @@ fn enumDeclaration(self: *Self) Error!Ast.Node.Index {
 
     // Generate the enum constant
     var @"enum" = try self.gc.allocateObject(
-        obj.ObjEnum,
         obj.ObjEnum.init(enum_type),
     );
 
@@ -8976,8 +8974,7 @@ fn importStaticLibSymbol(self: *Self, file_name: []const u8, symbol: []const u8)
 
     return if (symbol_ptr) |ptr|
         try self.gc.allocateObject(
-            obj.ObjNative,
-            .{
+            obj.ObjNative{
                 .native = @ptrFromInt(@intFromPtr(ptr)),
             },
         )
@@ -9046,8 +9043,7 @@ fn importLibSymbol(
 
         // Create a ObjNative with it
         return try self.gc.allocateObject(
-            obj.ObjNative,
-            .{
+            obj.ObjNative{
                 .native = opaque_symbol_method.?,
             },
         );

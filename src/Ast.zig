@@ -640,8 +640,7 @@ pub const Slice = struct {
                     try new_list.appendSlice(gc.allocator, rl.items.items);
 
                     return (try gc.allocateObject(
-                        obj.ObjList,
-                        .{
+                        obj.ObjList{
                             .type_def = left_list.?.type_def,
                             .methods = left_list.?.methods,
                             .items = new_list,
@@ -659,8 +658,7 @@ pub const Slice = struct {
                     }
 
                     return (try gc.allocateObject(
-                        obj.ObjMap,
-                        .{
+                        obj.ObjMap{
                             .type_def = left_map.?.type_def,
                             .methods = left_map.?.methods,
                             .map = new_map,
@@ -744,8 +742,7 @@ pub const Slice = struct {
                     const type_def = self.nodes.items(.type_def)[components.callee].?;
 
                     break :dot (try gc.allocateObject(
-                        obj.ObjEnumInstance,
-                        .{
+                        obj.ObjEnumInstance{
                             .enum_ref = type_def.resolved_type.?.Enum.value.?,
                             .case = @intCast(components.value_or_call_or_enum.EnumCase),
                         },
@@ -774,8 +771,7 @@ pub const Slice = struct {
                     const components = self.nodes.items(.components)[node].Range;
 
                     break :range (try gc.allocateObject(
-                        obj.ObjRange,
-                        .{
+                        obj.ObjRange{
                             .low = (try self.toValue(components.low, gc)).integer(),
                             .high = (try self.toValue(components.high, gc)).integer(),
                         },
@@ -788,7 +784,6 @@ pub const Slice = struct {
                     std.debug.assert(type_def != null and type_def.?.def_type != .Placeholder);
 
                     var list = try gc.allocateObject(
-                        obj.ObjList,
                         try obj.ObjList.init(gc.allocator, type_def.?),
                     );
 
@@ -808,7 +803,6 @@ pub const Slice = struct {
                     std.debug.assert(type_def != null and type_def.?.def_type != .Placeholder);
 
                     var map = try gc.allocateObject(
-                        obj.ObjMap,
                         try obj.ObjMap.init(gc.allocator, type_def.?),
                     );
 

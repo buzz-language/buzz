@@ -70,6 +70,10 @@ pub const Obj = struct {
         return @alignCast(@fieldParentPtr("obj", obj));
     }
 
+    pub fn forceCast(obj: *Obj, comptime T: type) ?*T {
+        return @alignCast(@fieldParentPtr("obj", obj));
+    }
+
     pub fn access(obj: *Obj, comptime T: type, obj_type: ObjType, gc: *GC) ?*T {
         if (BuildOptions.gc_debug_access) {
             gc.debugger.?.accessed(obj, gc.where);
@@ -145,7 +149,6 @@ pub const Obj = struct {
                 ) catch return error.OutOfMemory;
 
                 const serialized_range = vm.gc.allocateObject(
-                    ObjMap,
                     ObjMap.init(
                         vm.gc.allocator,
                         map_type,
@@ -183,7 +186,6 @@ pub const Obj = struct {
                 ) catch return error.OutOfMemory;
 
                 const serialized_list = vm.gc.allocateObject(
-                    ObjList,
                     ObjList.init(
                         vm.gc.allocator,
                         list_type,
@@ -220,7 +222,6 @@ pub const Obj = struct {
                 ) catch return error.OutOfMemory;
 
                 const serialized_map = vm.gc.allocateObject(
-                    ObjMap,
                     ObjMap.init(
                         vm.gc.allocator,
                         map_type,
@@ -259,7 +260,6 @@ pub const Obj = struct {
                 ) catch return error.OutOfMemory;
 
                 const serialized_instance = vm.gc.allocateObject(
-                    ObjMap,
                     ObjMap.init(
                         vm.gc.allocator,
                         map_type,
@@ -303,7 +303,6 @@ pub const Obj = struct {
                 ) catch return error.OutOfMemory;
 
                 const serialized_instance = vm.gc.allocateObject(
-                    ObjMap,
                     ObjMap.init(
                         vm.gc.allocator,
                         map_type,
@@ -767,9 +766,8 @@ pub const ObjFiber = struct {
             return umethod.toValue();
         }
 
-        var native: *ObjNative = try vm.gc.allocateObject(
-            ObjNative,
-            .{
+        var native = try vm.gc.allocateObject(
+            ObjNative{
                 // Complains about const qualifier discard otherwise
                 .native = @as(*anyopaque, @ptrFromInt(@intFromPtr(members[method_idx]))),
             },
@@ -893,9 +891,8 @@ pub const ObjPattern = struct {
             return umethod.toValue();
         }
 
-        var native: *ObjNative = try vm.gc.allocateObject(
-            ObjNative,
-            .{
+        var native = try vm.gc.allocateObject(
+            ObjNative{
                 // Complains about const qualifier discard otherwise
                 .native = @as(*anyopaque, @ptrFromInt(@intFromPtr(members[method_idx]))),
             },
@@ -1090,9 +1087,8 @@ pub const ObjString = struct {
             return umethod.toValue();
         }
 
-        var native: *ObjNative = try vm.gc.allocateObject(
-            ObjNative,
-            .{
+        var native = try vm.gc.allocateObject(
+            ObjNative{
                 // Complains about const qualifier discard otherwise
                 .native = @as(*anyopaque, @ptrFromInt(@intFromPtr(members[method_idx]))),
             },
@@ -2035,9 +2031,8 @@ pub const ObjList = struct {
             return native.toValue();
         }
 
-        var native: *ObjNative = try vm.gc.allocateObject(
-            ObjNative,
-            .{
+        var native = try vm.gc.allocateObject(
+            ObjNative{
                 // Complains about const qualifier discard otherwise
                 .native = @as(*anyopaque, @ptrFromInt(@intFromPtr(members[method_idx]))),
             },
@@ -3142,9 +3137,8 @@ pub const ObjRange = struct {
             return native.toValue();
         }
 
-        var native: *ObjNative = try vm.gc.allocateObject(
-            ObjNative,
-            .{
+        var native = try vm.gc.allocateObject(
+            ObjNative{
                 // Complains about const qualifier discard otherwise
                 .native = @as(*anyopaque, @ptrFromInt(@intFromPtr(members[method_idx]))),
             },
@@ -3260,9 +3254,8 @@ pub const ObjMap = struct {
             return native.toValue();
         }
 
-        const native: *ObjNative = try vm.gc.allocateObject(
-            ObjNative,
-            .{
+        const native = try vm.gc.allocateObject(
+            ObjNative{
                 // Complains about const qualifier discard otherwise
                 .native = @constCast(members[method_idx]),
             },
@@ -4152,15 +4145,19 @@ pub const ObjEnum = struct {
                 return null;
             }
 
-            return try vm.gc.allocateObject(ObjEnumInstance, ObjEnumInstance{
-                .enum_ref = self,
-                .case = @as(u8, @intCast(case.case + 1)),
-            });
+            return try vm.gc.allocateObject(
+                ObjEnumInstance{
+                    .enum_ref = self,
+                    .case = @as(u8, @intCast(case.case + 1)),
+                },
+            );
         } else {
-            return try vm.gc.allocateObject(ObjEnumInstance, ObjEnumInstance{
-                .enum_ref = self,
-                .case = 0,
-            });
+            return try vm.gc.allocateObject(
+                ObjEnumInstance{
+                    .enum_ref = self,
+                    .case = 0,
+                },
+            );
         }
     }
 
@@ -4922,7 +4919,12 @@ pub const ObjTypeDef = struct {
             .Double => try writer.writeAll("double"),
             .String => try writer.writeAll("str"),
             .Pattern => try writer.writeAll("pat"),
-            .Any => try writer.writeAll("any"),
+            .Any => {
+                if (self.resolved_type.?.Any) {
+                    try writer.writeAll("mut ");
+                }
+                try writer.writeAll("any");
+            },
             .Range => try writer.writeAll("rg"),
             .Fiber => {
                 try writer.writeAll("fib<");
@@ -5542,8 +5544,7 @@ pub fn cloneObject(obj: *Obj, vm: *VM) !Value {
             const list = ObjList.cast(obj).?;
 
             return (try vm.gc.allocateObject(
-                ObjList,
-                .{
+                ObjList{
                     .type_def = list.type_def,
                     .items = try list.items.clone(vm.gc.allocator),
                     .methods = list.methods,
@@ -5555,8 +5556,7 @@ pub fn cloneObject(obj: *Obj, vm: *VM) !Value {
             const map = ObjMap.cast(obj).?;
 
             return (try vm.gc.allocateObject(
-                ObjMap,
-                .{
+                ObjMap{
                     .type_def = map.type_def,
                     .map = try map.map.clone(vm.gc.allocator),
                     .methods = map.methods,
