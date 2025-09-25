@@ -71,6 +71,10 @@ pub const Obj = struct {
         return @alignCast(@fieldParentPtr("obj", obj));
     }
 
+    pub fn forceCast(obj: *Self, comptime T: type) *T {
+        return @alignCast(@fieldParentPtr("obj", obj));
+    }
+
     pub fn access(obj: *Self, comptime T: type, obj_type: Type, gc: *GC) ?*T {
         if (BuildOptions.gc_debug_access) {
             gc.debugger.?.accessed(obj, gc.where);

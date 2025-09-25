@@ -126,21 +126,36 @@ pub fn allocate(self: *GC, comptime T: type, value: T) Space.Error!*T {
         return try self.to.allocate(value);
     }
 
-    return self.from.allocate(value) catch {
-        // Not enough space, try to collect
-        if (!try self.collect()) {
-            // Collected nothing, try resizing
-            try self.resize(self.to.memory.buffer.len * BuildOptions.next_gc_ratio);
-        }
+    const new = self.from.allocate(value) catch {
+        _ = try self.collect(null);
 
         // Now if it fails we're actually out of memory
         return self.allocate(T, value);
     };
+
+    // Allocation worked but we might be approaching the space limit so we resize preemptively
+    const occupied = self.from.occupiedRatio();
+    if (self.from.occupiedRatio() > 90) {
+        std.log.debug(
+            "Occupied ratio is {} {}/{}, need to resize",
+            .{
+                occupied,
+                self.from.memory.end_index,
+                self.from.memory.buffer.len,
+            },
+        );
+        return (try self.resize(
+            self.from.memory.buffer.len * BuildOptions.next_gc_ratio,
+            new.toValue(),
+        )).obj().forceCast(T);
+    }
+
+    return new;
 }
 
-pub fn collect(self: *GC) Space.Error!bool {
+pub fn collect(self: *GC, just_allocated_obj: ?Value) Space.Error!?Value {
     if (!BuildOptions.gc) {
-        return false;
+        return null;
     }
 
     // Collect might have been triggered by a object's collect method
@@ -149,12 +164,18 @@ pub fn collect(self: *GC) Space.Error!bool {
             std.log.debug("Collect triggered while already collecting", .{});
         }
 
-        return false;
+        return null;
     }
 
     if (BuildOptions.gc_debug or BuildOptions.gc_debug_light) {
         std.log.debug("Collecting...", .{});
     }
+
+    // This object must be considered like a root, its allocation triggered a resize and so a collect
+    const moved_just_allocated_obj = if (just_allocated_obj) |new|
+        try self.moveValue(new)
+    else
+        null;
 
     var collected_count: usize = 0;
     var collected_bytes: usize = 0;
@@ -231,15 +252,10 @@ pub fn collect(self: *GC) Space.Error!bool {
         );
     }
 
-    // If spaces are too empty, shrink them
-    if (self.from.occupiedRatio() < BuildOptions.shrink_gc_ratio) {
-        try self.resize(self.from.memory.buffer.len * BuildOptions.next_gc_ratio);
-    }
-
-    return collected_count > 0;
+    return moved_just_allocated_obj;
 }
 
-fn resize(self: *GC, size: usize) Space.Error!void {
+fn resize(self: *GC, size: usize, just_allocated_obj: Value) Space.Error!Value {
     if (BuildOptions.gc_debug or BuildOptions.gc_debug_light) {
         std.log.debug(
             "Resizing from {} to {}",
@@ -257,11 +273,13 @@ fn resize(self: *GC, size: usize) Space.Error!void {
     self.to = try Space.init(self.allocator, size);
 
     // Now do a collect, it will move every live object from the old from-space to the new to-space and then switch them
-    _ = try self.collect();
+    const new = (try self.collect(just_allocated_obj)).?;
 
     // Now replace the to-space (because the previous new space is now the from-space) with a new space
     self.to.deinit(self.allocator);
     self.to = try Space.init(self.allocator, size);
+
+    return new;
 }
 
 /// Move value from -> to and returns the new header ptr, if already moved, returns the forward ptr
@@ -297,16 +315,16 @@ fn move(self: *GC, value: anytype) Space.Error!@TypeOf(value) {
         }
     }
 
-    if (BuildOptions.gc_debug) {
-        std.log.debug(
-            "Moving {*} to {*} (forward was {?*})",
-            .{
-                value,
-                &self.to,
-                value.obj.forward,
-            },
-        );
-    }
+    // if (BuildOptions.gc_debug) {
+    //     std.log.debug(
+    //         "Moving {*} to {*} (forward was {?*})",
+    //         .{
+    //             value,
+    //             &self.to,
+    //             value.obj.forward,
+    //         },
+    //     );
+    // }
 
     // Copy value to to-space
     const copy = try self.to.allocate(value.*);
@@ -483,16 +501,16 @@ fn moveValue(self: *GC, value: Value) Space.Error!Value {
 fn scan(self: *GC, value: anytype) Space.Error!void {
     const T = @typeInfo(@TypeOf(value)).pointer.child;
 
-    if (BuildOptions.gc_debug) {
-        std.log.debug(
-            "Scanning {*} (next? {}, forward? {})",
-            .{
-                value,
-                value.obj.next != null,
-                value.obj.forward != null,
-            },
-        );
-    }
+    // if (BuildOptions.gc_debug) {
+    //     std.log.debug(
+    //         "Scanning {*} (next? {}, forward? {})",
+    //         .{
+    //             value,
+    //             value.obj.next != null,
+    //             value.obj.forward != null,
+    //         },
+    //     );
+    // }
 
     // Move children too
     switch (T) {
@@ -1080,7 +1098,11 @@ const Space = struct {
     }
 
     pub fn occupiedRatio(self: *Space) usize {
-        return (self.memory.end_index * self.memory.buffer.len) / self.memory.buffer.len;
+        return (self.memory.end_index * 100) / self.memory.buffer.len;
+    }
+
+    pub fn availableBytes(self: *Space) usize {
+        return self.memory.buffer.len - self.memory.end_index;
     }
 
     pub fn isValidObj(comptime T: type) void {
