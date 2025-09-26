@@ -345,17 +345,17 @@ fn runSource(
 
         if (BuildOptions.show_perf) {
             io.print(
-                "\u{001b}[2mParsing: {d}\nCodegen: {d}\nRun: {d}\nJIT: {d}\nGC: {d}\nTotal: {d}\nFull GC: {} | GC: {} | Max allocated: {} bytes\n\u{001b}[0m",
+                "\u{001b}[2mParsing: {D}\nCodegen: {D}\nRun: {D}\nJIT: {D}\nGC: {D}\nTotal: {D}\nFull GC: {} | GC: {} | Max allocated: {B} bytes\n\u{001b}[0m",
                 .{
-                    std.fmt.fmtDuration(parsing_time),
-                    std.fmt.fmtDuration(codegen_time),
-                    std.fmt.fmtDuration(running_time),
-                    std.fmt.fmtDuration(if (vm.jit) |jit| jit.jit_time else 0),
-                    std.fmt.fmtDuration(gc.gc_time),
-                    std.fmt.fmtDuration(total_timer.read()),
+                    parsing_time,
+                    codegen_time,
+                    running_time,
+                    if (vm.jit) |jit| jit.jit_time else 0,
+                    gc.gc_time,
+                    total_timer.read(),
                     gc.full_collection_count,
                     gc.light_collection_count,
-                    std.fmt.fmtIntSizeDec(gc.max_allocated),
+                    gc.max_allocated,
                 },
             );
         }

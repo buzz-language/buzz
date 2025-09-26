@@ -210,7 +210,7 @@ pub fn build(b: *Build) !void {
                 usize,
                 "initial_gc",
                 "In Kb, threshold at which the first garbage collector pass will occur",
-            ) orelse if (builtin.mode == .Debug) 1 else 8,
+            ) orelse 40_960, // 40Mb
             .next_gc_ratio = b.option(
                 usize,
                 "next_gc_ratio",

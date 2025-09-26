@@ -9,7 +9,7 @@
             .hash = "clap-0.11.0-oBajB-HnAQDPCKYzwF7rO3qDFwRcD39Q0DALlTSz5H7e",
         },
         .lsp_kit = .{
-            .url = "git+https://github.com/zigtools/lsp-kit.git#fe98e895ca3bd1b39965ab30f0f252f7b7e83ee6",
+            .url = "git+https://github.com/zigtools/lsp-kit.git#6274eebace9a6a82ce182e24468fef88e0b95f37",
             .hash = "lsp_kit-0.1.0-bi_PLzAyCgClDh8_M0U9Q50ysdsQBuRuBTZfwg6rZPd6",
         },
     },

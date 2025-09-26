@@ -222,7 +222,9 @@ pub const Report = struct {
         allocator.free(self.notes);
     }
 
-    pub inline fn reportStderr(self: Report, reporter: *Self) !void {
+    pub fn reportStderr(self: Report, reporter: *Self) !void {
+        @branchHint(.cold);
+
         if (reporter.collect) {
             return reporter.reports.append(reporter.allocator, self);
         }
@@ -231,6 +233,8 @@ pub const Report = struct {
     }
 
     pub fn report(self: Report, reporter: *Self, out: *std.Io.Writer) !void {
+        @branchHint(.cold);
+
         assert(self.items.len > 0);
         var env_map = try std.process.getEnvMap(reporter.allocator);
         defer env_map.deinit();
@@ -575,6 +579,8 @@ pub fn warn(self: *Self, error_type: Error, location: Token, end_location: Token
 }
 
 pub fn report(self: *Self, error_type: Error, location: Token, end_location: Token, message: []const u8) void {
+    @branchHint(.cold);
+
     self.panic_mode = true;
     self.last_error = error_type;
 
@@ -601,6 +607,8 @@ pub fn report(self: *Self, error_type: Error, location: Token, end_location: Tok
 }
 
 pub fn reportErrorAt(self: *Self, error_type: Error, location: Token, end_location: Token, comptime message: []const u8) void {
+    @branchHint(.cold);
+
     if (self.panic_mode) {
         return;
     }
@@ -629,6 +637,8 @@ pub fn warnAt(self: *Self, error_type: Error, location: Token, end_location: Tok
 }
 
 pub fn reportErrorFmt(self: *Self, error_type: Error, location: Token, end_location: Token, comptime fmt: []const u8, args: anytype) void {
+    @branchHint(.cold);
+
     var message = std.array_list.Managed(u8).init(self.allocator);
     defer {
         if (!self.collect) {
@@ -680,6 +690,8 @@ pub fn reportWithOrigin(
     args: anytype,
     declared_message: ?[]const u8,
 ) void {
+    @branchHint(.cold);
+
     var message = std.array_list.Managed(u8).init(self.allocator);
     defer {
         if (!self.collect) {
@@ -739,6 +751,8 @@ pub fn reportTypeCheck(
     actual_type: *ObjTypeDef,
     message: []const u8,
 ) void {
+    @branchHint(.cold);
+
     var actual_message = std.array_list.Managed(u8).init(self.allocator);
     defer {
         if (!self.collect) {
@@ -854,6 +868,8 @@ pub fn reportTypeCheck(
 
 // Got to the root placeholder and report it
 pub fn reportPlaceholder(self: *Self, ast: Ast.Slice, placeholder: PlaceholderDef) void {
+    @branchHint(.cold);
+
     if (placeholder.parent) |parent| {
         if (parent.def_type == .Placeholder) {
             self.reportPlaceholder(ast, parent.resolved_type.?.Placeholder);

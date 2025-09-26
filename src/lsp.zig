@@ -17,7 +17,7 @@ const log = std.log.scoped(.buzz_lsp);
 
 const Document = struct {
     pub const Definition = struct {
-        def_links: []const lsp.types.DefinitionLink,
+        location: lsp.types.Location,
         def_node: Ast.Node.Index,
     };
 
@@ -29,19 +29,19 @@ const Document = struct {
     errors: []const Reporter.Report,
 
     /// Symbols collected in the document
-    symbols: std.ArrayList(lsp.types.DocumentSymbol) = .{},
+    symbols: std.ArrayList(lsp.types.DocumentSymbol) = .empty,
 
     /// Cache for previous gotoDefinition
-    definitions: std.AutoHashMapUnmanaged(Ast.Node.Index, ?Definition) = .{},
+    definitions: std.AutoHashMapUnmanaged(Ast.Node.Index, ?Definition) = .empty,
 
     /// Cache for node under position
-    node_under_position: std.AutoHashMapUnmanaged(lsp.types.Position, ?Ast.Node.Index) = .{},
+    node_under_position: std.AutoHashMapUnmanaged(lsp.types.Position, ?Ast.Node.Index) = .empty,
 
     /// Cache for hover
-    node_hover: std.AutoHashMapUnmanaged(Ast.Node.Index, []const u8) = .{},
+    node_hover: std.AutoHashMapUnmanaged(Ast.Node.Index, []const u8) = .empty,
 
     /// Cache for inlay hints
-    inlay_hints: std.ArrayList(lsp.types.InlayHint) = .{}, // I tried to make this a simple slice but the data was lost I don't know why
+    inlay_hints: std.ArrayList(lsp.types.InlayHint) = .empty, // I tried to make this a simple slice but the data was lost I don't know why
 
     pub fn init(parent_allocator: std.mem.Allocator, src: [*:0]const u8, uri: []const u8) !Document {
         var arena = std.heap.ArenaAllocator.init(parent_allocator);
@@ -124,7 +124,12 @@ const Document = struct {
         result: ?Ast.Node.Index = null,
         position: lsp.types.Position,
 
-        pub fn processNode(self: *NodeUnderPositionContext, _: std.mem.Allocator, ast: Ast.Slice, node: Ast.Node.Index) (std.mem.Allocator.Error || std.fmt.BufPrintError)!bool {
+        pub fn processNode(
+            self: *NodeUnderPositionContext,
+            _: std.mem.Allocator,
+            ast: Ast.Slice,
+            node: Ast.Node.Index,
+        ) (std.mem.Allocator.Error || std.fmt.BufPrintError)!bool {
             const locations = ast.nodes.items(.location);
             const location = ast.tokens.get(locations[node]);
             const end_locations = ast.nodes.items(.end_location);
@@ -229,16 +234,10 @@ const Document = struct {
                     allocator,
                     node,
                     .{
-                        .def_links = try allocator.dupe(
-                            lsp.types.DefinitionLink,
-                            &.{
-                                .{
-                                    .targetUri = script_names[location],
-                                    .targetRange = tokenToRange(ast_slice, location, end_location),
-                                    .targetSelectionRange = tokenToRange(ast_slice, location, location),
-                                },
-                            },
-                        ),
+                        .location = .{
+                            .uri = script_names[location],
+                            .range = tokenToRange(ast_slice, location, end_location),
+                        },
                         .def_node = def,
                     },
                 );
@@ -261,16 +260,11 @@ const Document = struct {
                                     allocator,
                                     node,
                                     .{
-                                        .def_links = try allocator.dupe(
-                                            lsp.types.DefinitionLink,
-                                            &.{
-                                                .{
-                                                    .targetUri = ast_slice.tokens.items(.script_name)[field.location],
-                                                    .targetRange = tokenToRange(ast_slice, field.location, field.location),
-                                                    .targetSelectionRange = tokenToRange(ast_slice, field.location, field.location),
-                                                },
-                                            },
-                                        ),
+                                        .location = .{
+                                            .uri = ast_slice.tokens.items(.script_name)[field.location],
+                                            .range = tokenToRange(ast_slice, field.location, field.location),
+                                        },
+
                                         .def_node = node, // FIXME: get object fields docblock
                                     },
                                 );
@@ -297,16 +291,11 @@ const Document = struct {
                             allocator,
                             node,
                             .{
-                                .def_links = try allocator.dupe(
-                                    lsp.types.DefinitionLink,
-                                    &.{
-                                        .{
-                                            .targetUri = ast_slice.tokens.items(.script_name)[location],
-                                            .targetRange = tokenToRange(ast_slice, location, location),
-                                            .targetSelectionRange = tokenToRange(ast_slice, location, location),
-                                        },
-                                    },
-                                ),
+                                .location = .{
+                                    .uri = ast_slice.tokens.items(.script_name)[location],
+                                    .range = tokenToRange(ast_slice, location, location),
+                                },
+
                                 .def_node = node,
                             },
                         );
@@ -396,7 +385,7 @@ pub fn main() !void {
 
     log.debug("Buzz LSP started with PID {}", .{getpid()});
 
-    var read_buffer = [_]u8{undefined};
+    var read_buffer = [_]u8{0} ** 256;
     var stdio_transport = lsp.Transport.Stdio.init(
         read_buffer[0..],
         std.fs.File.stdin(),
@@ -436,9 +425,9 @@ const Handler = struct {
             },
         );
 
-        var version = std.array_list.Managed(u8).init(allocator);
+        var version = std.ArrayList(u8).empty;
 
-        try version.writer().print(
+        try version.writer(allocator).print(
             "{f}-{s}",
             .{
                 BuildOptions.version,
@@ -587,14 +576,12 @@ const Handler = struct {
             res.diagnostics = try diags.toOwnedSlice(self.allocator);
         }
 
-        self.allocator.free(
-            try self.transport.writeNotification(
-                self.allocator,
-                "textDocument/publishDiagnostics",
-                lsp.types.PublishDiagnosticsParams,
-                res,
-                .{},
-            ),
+        try self.transport.writeNotification(
+            self.allocator,
+            "textDocument/publishDiagnostics",
+            lsp.types.PublishDiagnosticsParams,
+            res,
+            .{},
         );
     }
 
@@ -616,10 +603,10 @@ const Handler = struct {
         _: void,
     ) !void {}
 
-    pub fn openDocument(
+    pub fn @"textDocument/didOpen"(
         self: *Handler,
         _: std.mem.Allocator,
-        notification: lsp.types.DidOpenTextDocumentParams,
+        notification: lsp.types.getNotificationMetadata("textDocument/didOpen").?.Params.?,
     ) !void {
         const new_text = try self.allocator.dupeZ(
             u8,
@@ -634,10 +621,10 @@ const Handler = struct {
         );
     }
 
-    pub fn changeDocument(
+    pub fn @"textDocument/didChange"(
         self: *Handler,
         allocator: std.mem.Allocator,
-        notification: lsp.types.DidChangeTextDocumentParams,
+        notification: lsp.types.getNotificationMetadata("textDocument/didChange").?.Params.?,
     ) !void {
         errdefer |e| log.err("changeDocument failed: {any}", .{e});
 
@@ -663,42 +650,26 @@ const Handler = struct {
                     const old_text = std.mem.span(file.src);
                     const range = change.range;
 
-                    const start_idx = lsp.offsets.maybePositionToIndex(
+                    const start_idx = lsp.offsets.positionToIndex(
                         old_text,
                         range.start,
                         self.offset_encoding,
-                    ) orelse {
-                        log.warn(
-                            "changeDocument failed: invalid start position: {any}",
-                            .{
-                                range.start,
-                            },
-                        );
-                        return error.InternalError;
-                    };
+                    );
 
-                    const end_idx = lsp.offsets.maybePositionToIndex(
+                    const end_idx = lsp.offsets.positionToIndex(
                         old_text,
                         range.end,
                         self.offset_encoding,
-                    ) orelse {
-                        log.warn(
-                            "changeDocument failed: invalid end position: {any}",
-                            .{
-                                range.end,
-                            },
-                        );
-                        return error.InternalError;
-                    };
+                    );
 
-                    var new_text = std.array_list.Managed(u8).init(self.allocator);
-                    errdefer new_text.deinit();
+                    var new_text = std.ArrayList(u8).empty;
+                    errdefer new_text.deinit(self.allocator);
 
-                    try new_text.appendSlice(old_text[0..start_idx]);
-                    try new_text.appendSlice(change.text);
-                    try new_text.appendSlice(old_text[end_idx..]);
+                    try new_text.appendSlice(self.allocator, old_text[0..start_idx]);
+                    try new_text.appendSlice(self.allocator, change.text);
+                    try new_text.appendSlice(self.allocator, old_text[end_idx..]);
 
-                    break :blk try new_text.toOwnedSliceSentinel(0);
+                    break :blk try new_text.toOwnedSliceSentinel(self.allocator, 0);
                 },
             };
             errdefer self.allocator.free(new_text);
@@ -712,16 +683,16 @@ const Handler = struct {
         }
     }
 
-    pub fn saveDocument(
+    pub fn @"textDocument/didSave"(
         _: Handler,
         _: std.mem.Allocator,
-        _: lsp.types.DidSaveTextDocumentParams,
+        _: lsp.types.getNotificationMetadata("textDocument/didSave").?.Params.?,
     ) !void {}
 
-    pub fn closeDocument(
+    pub fn @"textDocument/didClose"(
         self: *Handler,
         _: std.mem.Allocator,
-        notification: lsp.types.DidCloseTextDocumentParams,
+        notification: lsp.types.getNotificationMetadata("textDocument/didClose").?.Params.?,
     ) !void {
         var kv = self.documents.fetchRemove(notification.textDocument.uri) orelse return;
         self.allocator.free(kv.key);
@@ -976,8 +947,8 @@ const Handler = struct {
                     const markupEntry = try document.node_hover.getOrPut(allocator, origin);
 
                     if (!markupEntry.found_existing) {
-                        var markup = std.array_list.Managed(u8).init(allocator);
-                        const writer = markup.writer();
+                        var markup = std.ArrayList(u8).empty;
+                        const writer = markup.writer(self.allocator);
 
                         const def = try document.definition(origin);
                         if (def != null) {
@@ -997,7 +968,7 @@ const Handler = struct {
                         };
                         try writer.writeAll("\n```");
 
-                        markupEntry.value_ptr.* = try markup.toOwnedSlice();
+                        markupEntry.value_ptr.* = try markup.toOwnedSlice(self.allocator);
                     }
 
                     return .{
@@ -1026,14 +997,21 @@ const Handler = struct {
                 if (kv.value_ptr.definitions.get(origin)) |result| {
                     if (result) |res| {
                         return .{
-                            .array_of_DefinitionLink = res.def_links,
+                            .Definition = .{
+                                .Location = res.location,
+                            },
                         };
                     }
                 }
 
-                return .{
-                    .array_of_DefinitionLink = if (try document.definition(origin)) |defs| defs.def_links else &.{},
-                };
+                return if (try document.definition(origin)) |def|
+                    .{
+                        .Definition = .{
+                            .Location = def.location,
+                        },
+                    }
+                else
+                    null;
             }
         }
 
@@ -1072,15 +1050,16 @@ const Handler = struct {
                 return null;
             };
 
-            var text_edit = std.array_list.Managed(lsp.types.TextEdit).init(self.allocator);
+            var text_edit = std.ArrayList(lsp.types.TextEdit).empty;
             try text_edit.append(
+                self.allocator,
                 .{
                     .range = document.wholeDocumentRange(),
                     .newText = result.list.items,
                 },
             );
 
-            return try text_edit.toOwnedSlice();
+            return try text_edit.toOwnedSlice(self.allocator);
         }
         return null;
     }
