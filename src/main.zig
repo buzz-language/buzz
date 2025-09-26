@@ -159,19 +159,19 @@ pub fn runFile(allocator: Allocator, file_name: []const u8, args: []const []cons
             if (BuildOptions.show_perf and flavor != .Check and flavor != .Fmt) {
                 io.print(
                     if (builtin.os.tag != .windows)
-                        "\x1b[2mParsing: {[parsing]d}\nCodegen: {[codegen]d}\nRun: {[running]d}\nJIT: {[jit]d}\nGC: {[gc]d}\nTotal: {[total]}\nFull GC: {[gc_full]} | GC: {[gc_light]} | Max allocated: {[max_alloc]}\n\x1b[0m"
+                        "\x1b[2mParsing: {[parsing]D}\nCodegen: {[codegen]D}\nRun: {[running]D}\nJIT: {[jit]D}\nGC: {[gc]D}\nTotal: {[total]D}\nFull GC: {[gc_full]} | GC: {[gc_light]} | Max allocated: {[max_alloc]B}\n\x1b[0m"
                     else
-                        "Parsing: {[parsing]d}\nCodegen: {[codegen]d}\nRun: {[running]d}\nJIT: {[jit]d}\nGC: {[gc]d}\nTotal: {[total]}\nFull GC: {[gc_full]} | GC: {[gc_light]} | Max allocated: {[max_alloc]}\n",
+                        "Parsing: {[parsing]D}\nCodegen: {[codegen]D}\nRun: {[running]D}\nJIT: {[jit]D}\nGC: {[gc]D}\nTotal: {[total]D}\nFull GC: {[gc_full]} | GC: {[gc_light]} | Max allocated: {[max_alloc]B}\n",
                     .{
-                        .parsing = std.fmt.fmtDuration(parsing_time),
-                        .codegen = std.fmt.fmtDuration(codegen_time),
-                        .running = std.fmt.fmtDuration(running_time),
-                        .jit = std.fmt.fmtDuration(if (vm.jit) |jit| jit.jit_time else 0),
-                        .gc = std.fmt.fmtDuration(gc.gc_time),
-                        .total = std.fmt.fmtDuration(if (!is_wasm) total_timer.read() else 0),
+                        .parsing = parsing_time,
+                        .codegen = codegen_time,
+                        .running = running_time,
+                        .jit = if (vm.jit) |jit| jit.jit_time else 0,
+                        .gc = gc.gc_time,
+                        .total = if (!is_wasm) total_timer.read() else 0,
                         .gc_full = gc.full_collection_count,
                         .gc_light = gc.light_collection_count,
-                        .max_alloc = std.fmt.fmtIntSizeDec(gc.max_allocated),
+                        .max_alloc = gc.max_allocated,
                     },
                 );
             }

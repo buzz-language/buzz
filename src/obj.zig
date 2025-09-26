@@ -4348,28 +4348,18 @@ pub const ObjTypeDef = struct {
 
     pub fn mark(self: *Self, gc: *GC) !void {
         if (self.resolved_type) |*resolved| {
-            if (resolved.* == .ObjectInstance) {
-                try gc.markObj(@constCast(resolved.ObjectInstance.of.toObj()));
-            } else if (resolved.* == .EnumInstance) {
-                try gc.markObj(@constCast(resolved.EnumInstance.of.toObj()));
-            } else if (resolved.* == .Object) {
-                try resolved.Object.mark(gc);
-            } else if (resolved.* == .Protocol) {
-                try resolved.Protocol.mark(gc);
-            } else if (resolved.* == .Enum) {
-                try resolved.Enum.mark(gc);
-            } else if (resolved.* == .Function) {
-                try resolved.Function.mark(gc);
-            } else if (resolved.* == .List) {
-                try resolved.List.mark(gc);
-            } else if (resolved.* == .Map) {
-                try resolved.Map.mark(gc);
-            } else if (resolved.* == .Fiber) {
-                try resolved.Fiber.mark(gc);
-            } else if (resolved.* == .Placeholder) {
-                // unreachable;
-            } else if (resolved.* == .ForeignContainer) {
-                try resolved.ForeignContainer.mark(gc);
+            switch (self.def_type) {
+                .ObjectInstance => try gc.markObj(@constCast(resolved.ObjectInstance.of.toObj())),
+                .EnumInstance => try gc.markObj(@constCast(resolved.EnumInstance.of.toObj())),
+                .Object => try resolved.Object.mark(gc),
+                .Protocol => try resolved.Protocol.mark(gc),
+                .Enum => try resolved.Enum.mark(gc),
+                .Function => try resolved.Function.mark(gc),
+                .List => try resolved.List.mark(gc),
+                .Map => try resolved.Map.mark(gc),
+                .Fiber => try resolved.Fiber.mark(gc),
+                .ForeignContainer => try resolved.ForeignContainer.mark(gc),
+                else => {},
             }
         }
     }

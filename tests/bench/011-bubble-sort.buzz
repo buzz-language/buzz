@@ -3,7 +3,7 @@ import  "std";
 fun main(args: [str]) > void {
     final max = std\parseInt(args[?0] ?? "750") ?? 750;
 
-    var list = init(max);
+    final list = init(max);
 
     bubblesort(list);
 
@@ -12,8 +12,8 @@ fun main(args: [str]) > void {
     }
 }
 
-fun init(max: int) > [int] {
-    final list: [int] = [];
+fun init(max: int) > mut [int] {
+    final list: mut [int] = mut [];
     final f = max - 13;
     final h = ((max - 117) * (max - 13)) / max;
 
@@ -24,7 +24,7 @@ fun init(max: int) > [int] {
     return list;
 }
 
-fun bubblesort(list: [int]) > void {
+fun bubblesort(list: mut [int]) > void {
     final len = list.len();
     foreach (_ in 0..(len - 1)) {
         foreach (j in 0..(len - 1)) {

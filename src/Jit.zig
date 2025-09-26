@@ -115,7 +115,7 @@ call_count: u128 = 0,
 /// Keeps track of time spent in the JIT
 jit_time: usize = 0,
 /// Closures already compiled (hash is bytecode list), useful to compile once a function
-compiled_functions_bodies: Chunk.HashMap(CompiledFunction),
+compiled_functions_bodies: Chunk.HashMap(CompiledFunction) = .empty,
 
 args_buffer: [255]m.MIR_op_t = undefined,
 
