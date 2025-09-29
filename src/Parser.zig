@@ -1085,7 +1085,7 @@ pub fn parse(self: *Self, source: []const u8, file_name: ?[]const u8, name: []co
         ];
 
         self.ast.nodes.items(.end_location)[function_node] = self.ast.nodes.items(.end_location)[
-            statements[0]
+            statements[statements.len - 1]
         ];
     }
 

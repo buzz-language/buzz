@@ -49,7 +49,14 @@ pub fn init(gc: *GC) !TypeRegistry {
     self.int_type = try self.getTypeDef(.{ .def_type = .Integer });
     self.float_type = try self.getTypeDef(.{ .def_type = .Double });
     self.bool_type = try self.getTypeDef(.{ .def_type = .Bool });
-    self.any_type = try self.getTypeDef(.{ .def_type = .Any });
+    self.any_type = try self.getTypeDef(
+        .{
+            .def_type = .Any,
+            .resolved_type = .{
+                .Any = false,
+            },
+        },
+    );
     self.pat_type = try self.getTypeDef(.{ .def_type = .Pattern });
     self.ud_type = try self.getTypeDef(.{ .def_type = .UserData });
     self.rg_type = try self.getTypeDef(.{ .def_type = .Range });

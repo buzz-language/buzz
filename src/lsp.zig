@@ -951,8 +951,8 @@ const Handler = struct {
                         const writer = markup.writer(self.allocator);
 
                         const def = try document.definition(origin);
-                        if (def != null) {
-                            if (document.ast.nodes.items(.docblock)[def.?.def_node]) |docblock| {
+                        if (def) |udef| {
+                            if (document.ast.nodes.items(.docblock)[udef.def_node]) |docblock| {
                                 const doc = document.ast.tokens.items(.lexeme)[docblock];
 
                                 var it = std.mem.tokenizeSequence(u8, doc, "/// ");

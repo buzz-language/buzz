@@ -4193,7 +4193,7 @@ fn generateTry(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.
     for (components.clauses) |clause| {
         const error_type = type_defs[clause.type_def].?;
 
-        if (error_type.eql(self.gc.type_registry.any_type)) {
+        if (error_type.def_type == .Any) {
             has_unconditional = true;
         }
 
