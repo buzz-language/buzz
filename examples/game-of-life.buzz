@@ -2,7 +2,7 @@ import "std";
 import "io";
 import "examples/sdl-wrapped" as _;
 
-// buzz -L/path/to/SDL2.dylib/so/dll examples/game-of-life.buzz
+/// buzz -L/path/to/SDL2.dylib/so/dll examples/game-of-life.buzz
 object World {
     width: int,
     height: int,
@@ -10,7 +10,7 @@ object World {
 
     static fun init(width: int, height: int) > mut World {
         final world = mut World{
-            width ,
+            width,
             height,
             cells = mut [],
         };
@@ -32,7 +32,10 @@ object World {
             }
         }
 
-        return liveCount - if (this.cells[y * this.width + x]) 1 else 0;
+        return liveCount - if (this.cells[y * this.width + x])
+            1
+        else
+            0;
     }
 
     mut fun step() > void {
@@ -41,7 +44,7 @@ object World {
             for (x: int = 0; x < this.width; x = x + 1) {
                 final coordinate = y * this.width + x;
                 final liveNeighbors = this.neighbors(x: x, y: y);
-                
+
                 cells.append(liveNeighbors == 3 or (this.cells[coordinate] and liveNeighbors == 2));
             }
         }
@@ -52,12 +55,10 @@ object World {
     fun dump() > void {
         for (y: int = 0; y < this.height; y = y + 1) {
             for (x: int = 0; x < this.width; x = x + 1) {
-                io\stdout.write(
-                    if (this.cells[y * this.width + x])
-                        "x"
-                    else
-                        "."
-                ) catch void;
+                io\stdout.write(if (this.cells[y * this.width + x])
+                    "x"
+                else
+                    ".") catch void;
             }
             io\stdout.write("\n") catch void;
         }
@@ -77,11 +78,11 @@ object World {
                             blue = 0xe0,
                         }
                     else
-                        Color{
-                            red = 0xff,
-                            green = 0xff,
-                            blue = 0xff,
-                        }
+                    Color{
+                        red = 0xff,
+                        green = 0xff,
+                        blue = 0xff,
+                    },
                 );
 
                 renderer.fillRect(
@@ -90,7 +91,7 @@ object World {
                         y = cellHeight * y,
                         width = cellWidth,
                         height = cellHeight,
-                    }
+                    },
                 );
             }
         }
@@ -101,7 +102,7 @@ object World {
                 red = 0,
                 green = 0,
                 blue = 0,
-            }
+            },
         );
     }
 }
@@ -133,18 +134,18 @@ fun loop(world: mut World, sdl: SDL, renderer: Renderer, texture: Texture) > voi
 }
 
 fun main(args: [str]) > void !> SDLError {
-    final sdl = SDL.init([Subsystem.Video]);
+    final sdl = SDL.init([ Subsystem.Video ]);
 
     final window = Window.init(
         "buzz example: Game of Life",
         width: 800,
         height: 600,
-        flags: [WindowFlag.OpenGL, WindowFlag.AllowHighDPI],
+        flags: [ WindowFlag.OpenGL, WindowFlag.AllowHighDPI ],
     );
 
     final renderer = window.createRenderer(
         index: -1,
-        flags: [RendererFlag.Accelerated, RendererFlag.TargetTexture],
+        flags: [ RendererFlag.Accelerated, RendererFlag.TargetTexture ],
     );
 
     final texture = renderer.createTexture(
@@ -154,8 +155,14 @@ fun main(args: [str]) > void !> SDLError {
         height: 600,
     );
 
-    final width = if (args.len() > 0) std\parseInt(args[0]) else null;
-    final height = if (args.len() > 1) std\parseInt(args[1]) else null;
+    final width = if (args.len() > 0)
+        std\parseInt(args[0])
+    else
+        null;
+    final height = if (args.len() > 1)
+        std\parseInt(args[1])
+    else
+        null;
 
     final world = World.init(
         width: width ?? 10,

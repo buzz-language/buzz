@@ -1,19 +1,19 @@
 import "examples/sdl-wrapped" as _;
 
-// buzz -L/path/to/SDL2.dylib/so/dll examples/sdl.buzz
+/// buzz -L/path/to/SDL2.dylib/so/dll examples/sdl.buzz
 fun main() > int !> SDLError {
-    final sdl = SDL.init([Subsystem.Video]);
+    final sdl = SDL.init([ Subsystem.Video ]);
 
     final window = Window.init(
         "SDL FFI test",
         width: 800,
         height: 600,
-        flags: [WindowFlag.OpenGL, WindowFlag.AllowHighDPI],
+        flags: [ WindowFlag.OpenGL, WindowFlag.AllowHighDPI ],
     );
 
     final renderer = window.createRenderer(
         index: -1,
-        flags: [RendererFlag.Accelerated, RendererFlag.TargetTexture],
+        flags: [ RendererFlag.Accelerated, RendererFlag.TargetTexture ],
     );
 
     final texture = renderer.createTexture(
@@ -29,7 +29,7 @@ fun main() > int !> SDLError {
             red = 0x01,
             green = 0x9d,
             blue = 0xe0,
-        }
+        },
     );
 
     renderer.fillRect(
@@ -38,7 +38,7 @@ fun main() > int !> SDLError {
             y = 200,
             width = 200,
             height = 200,
-        }
+        },
     );
 
     renderer.setRenderTarget(null);
@@ -47,7 +47,7 @@ fun main() > int !> SDLError {
             red = 0,
             green = 0,
             blue = 0,
-        }
+        },
     );
 
     while (true) {

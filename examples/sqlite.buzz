@@ -5,7 +5,9 @@ import "std";
 import "buffer";
 import "serialize";
 
-zdef("sqlite3", `
+zdef(
+    "sqlite3",
+    `
     fn sqlite3_initialize() c_int;
     fn sqlite3_shutdown() c_int;
     // Right now we can't express a ptr to an opaque struct because we need to know its size
@@ -23,40 +25,41 @@ zdef("sqlite3", `
     fn sqlite3_column_int64(pStmt: *anyopaque, col: c_int) i64;
     fn sqlite3_column_text(pStmt: *anyopaque, col: c_int) [*:0]const u8;
     fn sqlite3_mprintf(str: [*:0]const u8) ?[*:0]const u8;
-`);
+`
+);
 
 enum<int> ResultCode {
-    Ok         = 0,   // Successful result
-    Error      = 1,   // Generic error
-    Internal   = 2,   // Internal logic error in SQLite
-    Perm       = 3,   // Access permission denied
-    Abort      = 4,   // Callback routine requested an abort
-    Busy       = 5,   // The database file is locked
-    Locked     = 6,   // A table in the database is locked
-    NoMem      = 7,   // A malloc() failed
-    Readonly   = 8,   // Attempt to write a readonly database
-    Interrupt  = 9,   // Operation terminated by sqlite3_interrupt(
-    IoErr      = 10,  // Some kind of disk I/O error occurred
-    Corrupt    = 11,  // The database disk image is malformed
-    NotFound   = 12,  // Unknown opcode in sqlite3_file_control()
-    Full       = 13,  // Insertion failed because database is full
-    CantOpen   = 14,  // Unable to open the database file
-    Protocol   = 15,  // Database lock protocol error
-    Empty      = 16,  // Internal use only
-    Schema     = 17,  // The database schema changed
-    TooBig     = 18,  // String or BLOB exceeds size limit
-    Constraint = 19,  // Abort due to finalraint violation
-    Mismatch   = 20,  // Data type mismatch
-    Misuse     = 21,  // Library used incorrectly
-    NoLfs      = 22,  // Uses OS features not supported on host
-    Auth       = 23,  // Authorization denied
-    Format     = 24,  // Not used
-    Range      = 25,  // 2nd parameter to sqlite3_bind out of range
-    NotADB     = 26,  // File opened that is not a database file
-    Notice     = 27,  // Notifications from sqlite3_log()
-    Warning    = 28,  // Warnings from sqlite3_log()
-    Row        = 100, // sqlite3_step() has another row ready
-    Done       = 101, // sqlite3_step() has finished executing
+    Ok = 0, // Successful result
+    Error = 1, // Generic error
+    Internal = 2, // Internal logic error in SQLite
+    Perm = 3, // Access permission denied
+    Abort = 4, // Callback routine requested an abort
+    Busy = 5, // The database file is locked
+    Locked = 6, // A table in the database is locked
+    NoMem = 7, // A malloc() failed
+    Readonly = 8, // Attempt to write a readonly database
+    Interrupt = 9, // Operation terminated by sqlite3_interrupt(
+    IoErr = 10, // Some kind of disk I/O error occurred
+    Corrupt = 11, // The database disk image is malformed
+    NotFound = 12, // Unknown opcode in sqlite3_file_control()
+    Full = 13, // Insertion failed because database is full
+    CantOpen = 14, // Unable to open the database file
+    Protocol = 15, // Database lock protocol error
+    Empty = 16, // Internal use only
+    Schema = 17, // The database schema changed
+    TooBig = 18, // String or BLOB exceeds size limit
+    Constraint = 19, // Abort due to finalraint violation
+    Mismatch = 20, // Data type mismatch
+    Misuse = 21, // Library used incorrectly
+    NoLfs = 22, // Uses OS features not supported on host
+    Auth = 23, // Authorization denied
+    Format = 24, // Not used
+    Range = 25, // 2nd parameter to sqlite3_bind out of range
+    NotADB = 26, // File opened that is not a database file
+    Notice = 27, // Notifications from sqlite3_log()
+    Warning = 28, // Warnings from sqlite3_log()
+    Row = 100, // sqlite3_step() has another row ready
+    Done = 101, // sqlite3_step() has finished executing
 }
 
 export object SQLiteError {
@@ -65,45 +68,43 @@ export object SQLiteError {
 }
 
 export enum<int> OpenFlag {
-    Readonly      = 0x00000001,
-    ReadWrite     = 0x00000002,
-    Create        = 0x00000004,
+    Readonly = 0x00000001,
+    ReadWrite = 0x00000002,
+    Create = 0x00000004,
     DeleteOnClose = 0x00000008,
-    Exclusive     = 0x00000010,
-    Autoproxy     = 0x00000020,
-    Uri           = 0x00000040,
-    Memory        = 0x00000080,
-    MainDb        = 0x00000100,
-    TempDb        = 0x00000200,
-    TransientDb   = 0x00000400,
-    MainJournal   = 0x00000800,
-    TempJournal   = 0x00001000,
-    SubJournal    = 0x00002000,
-    SuperJournal  = 0x00004000,
-    NoMutex       = 0x00008000,
-    FullMutex     = 0x00010000,
-    SharedCache   = 0x00020000,
-    PrivateCache  = 0x00040000,
-    Wal           = 0x00080000,
-    Nofollow      = 0x01000000,
-    ExResCode     = 0x02000000,
+    Exclusive = 0x00000010,
+    Autoproxy = 0x00000020,
+    Uri = 0x00000040,
+    Memory = 0x00000080,
+    MainDb = 0x00000100,
+    TempDb = 0x00000200,
+    TransientDb = 0x00000400,
+    MainJournal = 0x00000800,
+    TempJournal = 0x00001000,
+    SubJournal = 0x00002000,
+    SuperJournal = 0x00004000,
+    NoMutex = 0x00008000,
+    FullMutex = 0x00010000,
+    SharedCache = 0x00020000,
+    PrivateCache = 0x00040000,
+    Wal = 0x00080000,
+    Nofollow = 0x01000000,
+    ExResCode = 0x02000000,
 }
 
 enum<int> Type {
     Integer = 1,
-    Double  = 2,
-    Text    = 3,
-    Blob    = 4,
-    Null    = 5,
+    Double = 2,
+    Text = 3,
+    Blob = 4,
+    Null = 5,
 }
 
 export object Query {
     query: str = "",
 
     fun branch(keyword: str, expression: str) > Query {
-        return Query{
-            query = "{this.query} {keyword.upper()} {expression}"
-        };
+        return Query{ query = "{this.query} {keyword.upper()} {expression}" };
     }
 
     fun select(columns: [str]) > Query {
@@ -162,7 +163,7 @@ export object Statement {
             if (code != ResultCode.Ok and code != ResultCode.Row and code != ResultCode.Done) {
                 throw SQLiteError{
                     code = code,
-                    message = "Could not execute statement `{this.query}`: {code} {sqlite3_errmsg(this.db)}"
+                    message = "Could not execute statement `{this.query}`: {code} {sqlite3_errmsg(this.db)}",
                 };
             }
 
@@ -176,21 +177,13 @@ export object Statement {
                 final columnType = Type(sqlite3_column_type(this.stmt, col: i)) ?? Type.Null;
 
                 if (columnType == Type.Integer) {
-                    row.append(
-                        sqlite3_column_int(this.stmt, col: i)
-                    );
+                    row.append(sqlite3_column_int(this.stmt, col: i));
                 } else if (columnType == Type.Double) {
-                    row.append(
-                        sqlite3_column_double(this.stmt, col: i)
-                    );
+                    row.append(sqlite3_column_double(this.stmt, col: i));
                 } else if (columnType == Type.Text) {
-                    row.append(
-                        sqlite3_column_text(this.stmt, col: i)
-                    );
+                    row.append(sqlite3_column_text(this.stmt, col: i));
                 } else if (columnType == Type.Blob) {
-                    row.append(
-                        sqlite3_column_blob(this.stmt, col: i)
-                    );
+                    row.append(sqlite3_column_blob(this.stmt, col: i));
                 } else {
                     row.append(null);
                 }
@@ -232,13 +225,10 @@ export object Database {
                 nBytes: -1,
                 ppStmt: buffer.ptr(),
                 pzTail: null,
-            )
+            ),
         ) ?? ResultCode.Error;
         if (code != ResultCode.Ok) {
-            throw SQLiteError{
-                code = code,
-                message = "Could not prepareRaw query `{query}`: {code} {sqlite3_errmsg(this.db)}"
-            };
+            throw SQLiteError{ code = code, message = "Could not prepareRaw query `{query}`: {code} {sqlite3_errmsg(this.db)}" };
         }
 
         return Statement{
@@ -255,7 +245,7 @@ export object SQLite {
         if (code != ResultCode.Ok) {
             throw SQLiteError{
                 code = code,
-                message = "Could not initialize SQLite: {code}"
+                message = "Could not initialize SQLite: {code}",
             };
         }
 
@@ -264,7 +254,7 @@ export object SQLite {
 
     static fun escape(string: str) > str {
         return sqlite3_mprintf(ffi\cstr(string)) ?? "";
-    } 
+    }
 
     fun collect() > void {
         _ = sqlite3_shutdown();
@@ -279,25 +269,15 @@ export object SQLite {
         final buffer = buffer\Buffer.init();
         buffer.writeUserData(std\toUd(0)) catch void;
 
-        final code = ResultCode(
-            sqlite3_open_v2(
-                filename: ffi\cstr(filename),
-                ppDb: buffer.ptr(),
-                flags: cFlags,
-                zVfs: null
-            )
-        ) ?? ResultCode.Error;
+        final code = ResultCode(sqlite3_open_v2(filename: ffi\cstr(filename), ppDb: buffer.ptr(), flags: cFlags, zVfs: null)) ?? ResultCode.Error;
 
         if (code != ResultCode.Ok) {
-            throw SQLiteError{
-                code = code,
-                message = "Could not open database `{filename}`: {code}"
-            };
+            throw SQLiteError{ code = code, message = "Could not open database `{filename}`: {code}" };
         }
 
         std\print("Database `{filename}` opened");
 
-        return Database {
+        return Database{
             db = buffer.readUserData()!,
         };
     }
@@ -306,7 +286,7 @@ export object SQLite {
 test "Testing sqlite" {
     final sqlite = SQLite.init();
 
-    final database = sqlite.open("./test.db", flags: [OpenFlag.ReadWrite, OpenFlag.Create]);
+    final database = sqlite.open("./test.db", flags: [ OpenFlag.ReadWrite, OpenFlag.Create ]);
 
     final statement = database.prepareRaw(`
         CREATE TABLE IF NOT EXISTS test (
@@ -314,19 +294,13 @@ test "Testing sqlite" {
         )
     `);
 
-    _ =  statement.execute();
+    _ = statement.execute();
 
-    foreach (name in ["john", "joe", "janet", "joline"]) {
-        _ = Query{}
-            .insertInto("test", columns: [ "name" ])
-            .values([ "'{name}'" ])
-            .execute(database);
+    foreach (name in [ "john", "joe", "janet", "joline" ]) {
+        _ = Query{}.insertInto("test", columns: [ "name" ]).values([ "'{name}'" ]).execute(database);
     }
 
-    final select = Query{}
-        .select([ "rowid", "name" ])
-        .@"from"("test")
-        .prepare(database);
+    final select = Query{}.select([ "rowid", "name" ]).@"from"("test").prepare(database);
 
     foreach (row in &select.execute()) {
         std\print("{row?[0].integerValue()}: {row?[1].stringValue()}");

@@ -409,7 +409,7 @@ pub const Renderer = struct {
                     // Respect the newline directly before the comment.
                     // Note: This allows an empty line between comments
                     try self.ais.insertNewline();
-                } else if (index == start) {
+                } else if (index == start and comment.len > 0) {
                     // Otherwise if the first comment is on the same line as
                     // the token before it, prefix it with a single space.
                     try self.ais.writer().writeByte(' ');
@@ -435,7 +435,7 @@ pub const Renderer = struct {
                 try self.ais.writer().print(
                     "//{s}{s}\n",
                     .{
-                        if (!std.mem.startsWith(u8, comment, " "))
+                        if (comment.len > 1 and !std.mem.startsWith(u8, comment, " "))
                             " "
                         else
                             "",

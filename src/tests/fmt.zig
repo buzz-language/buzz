@@ -7,14 +7,59 @@ const TypeRegistry = @import("../TypeRegistry.zig");
 const Renderer = @import("../renderer.zig").Renderer;
 const WriteableArrayList = @import("../writeable_array_list.zig").WriteableArrayList;
 
-fn testFmt(
-    name: []const u8,
-    src: []const u8,
-    expected: []const u8,
-) !void {
+const ignore = std.StaticStringMap(void).initComptime(
+    .{
+        // stringEscape escapes utf-8 graphemes (emojis, etc.)
+        .{ "tests/061-utf8.buzz", {} },
+        .{ "examples/2048.buzz", {} },
+        // statements that enforce newline before them don't take comment into account
+        .{ "tests/042-anonymous-objects.buzz", {} },
+        // bad identation of inline if-else else branch
+        .{ "tests/052-inline-if.buzz", {} },
+        // something wrong with renderCopy signature
+        .{ "examples/sdl-wrapped.buzz", {} },
+    },
+);
+
+fn testFmt(prefix: []const u8, entry: std.fs.Dir.Entry) !void {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const allocator = arena.allocator();
+
+    if (entry.kind != .file or !std.mem.endsWith(u8, entry.name, ".buzz")) {
+        return;
+    }
+
+    var file_name = try allocator.alloc(u8, prefix.len + entry.name.len + 1);
+    file_name = try std.fmt.bufPrint(
+        file_name,
+        "{s}/{s}",
+        .{
+            prefix,
+            entry.name,
+        },
+    );
+
+    if (ignore.get(file_name) != null) {
+        return;
+    }
+
+    std.debug.print("\n{s}\n", .{file_name});
+
+    var file = (if (std.fs.path.isAbsolute(
+        file_name,
+    ))
+        std.fs.openFileAbsolute(file_name, .{})
+    else
+        std.fs.cwd().openFile(file_name, .{})) catch {
+        std.debug.print("File not found", .{});
+        return;
+    };
+    defer file.close();
+
+    const source = try allocator.alloc(u8, (try file.stat()).size);
+
+    _ = try file.readAll(source);
 
     var gc = try GC.init(allocator);
     gc.type_registry = try TypeRegistry.init(&gc);
@@ -28,7 +73,7 @@ fn testFmt(
 
     var result = WriteableArrayList(u8).init(allocator);
 
-    if (parser.parse(src, name, name) catch null) |ast| {
+    if (parser.parse(source, file_name, file_name) catch null) |ast| {
         try Renderer.render(
             allocator,
             &result.writer,
@@ -36,7 +81,7 @@ fn testFmt(
         );
 
         try std.testing.expectEqualStrings(
-            expected,
+            source,
             result.list.items,
         );
     } else {
@@ -45,62 +90,17 @@ fn testFmt(
 }
 
 test "fmt" {
-    const ignore = std.StaticStringMap(void).initComptime(
-        .{
-            // stringEscape escapes utf-8 graphemes (emojis)
-            .{ "tests/061-utf8.buzz", {} },
-            // statements that enforce newline before them don't take comment into account
-            .{ "tests/042-anonymous-objects.buzz", {} },
-            // bad identation of inline if-else else branch
-            .{ "tests/052-inline-if.buzz", {} },
-        },
-    );
+    inline for (.{ "tests", "examples" }) |dir| {
+        var test_dir = try std.fs.cwd().openDir(
+            dir,
+            .{
+                .iterate = true,
+            },
+        );
+        var it = test_dir.iterate();
 
-    var test_dir = try std.fs.cwd().openDir(
-        "tests",
-        .{
-            .iterate = true,
-        },
-    );
-    var it = test_dir.iterate();
-
-    while (try it.next()) |entry| {
-        if (entry.kind == .file and std.mem.endsWith(u8, entry.name, ".buzz")) {
-            var file_name = try std.testing.allocator.alloc(u8, 6 + entry.name.len);
-            defer std.testing.allocator.free(file_name);
-            file_name = try std.fmt.bufPrint(
-                file_name,
-                "tests/{s}",
-                .{entry.name},
-            );
-
-            if (ignore.get(file_name) != null) {
-                continue;
-            }
-
-            std.debug.print("\n{s}\n", .{file_name});
-
-            var file = (if (std.fs.path.isAbsolute(
-                file_name,
-            ))
-                std.fs.openFileAbsolute(file_name, .{})
-            else
-                std.fs.cwd().openFile(file_name, .{})) catch {
-                std.debug.print("File not found", .{});
-                return;
-            };
-            defer file.close();
-
-            const source = try std.testing.allocator.alloc(u8, (try file.stat()).size);
-            defer std.testing.allocator.free(source);
-
-            _ = try file.readAll(source);
-
-            try testFmt(
-                file_name,
-                source,
-                source,
-            );
+        while (try it.next()) |entry| {
+            try testFmt(dir, entry);
         }
     }
 }

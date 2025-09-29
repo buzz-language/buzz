@@ -5,10 +5,8 @@ import "math";
 fun hypot(x: int, y: int) > int {
     return std\toInt(
         math\sqrt(
-            std\toDouble(
-                x * x + y * y
-            )
-        )
+            std\toDouble(x * x + y * y),
+        ),
     );
 }
 
@@ -20,11 +18,13 @@ fun generateVoronoi(renderer: Renderer, width: int, height: int, numCells: int) 
     foreach (_ in 0..numCells) {
         nx.append(std\random(min: 0, max: width));
         ny.append(std\random(min: 0, max: height));
-        colors.append(Color{
-            red = std\random(min: 0, max: 255),
-            green = std\random(min: 0, max: 255),
-            blue = std\random(min: 0, max: 255)
-        });
+        colors.append(
+            Color{
+                red = std\random(min: 0, max: 255),
+                green = std\random(min: 0, max: 255),
+                blue = std\random(min: 0, max: 255),
+            },
+        );
     }
 
     renderer.setRenderDrawColor(
@@ -32,7 +32,7 @@ fun generateVoronoi(renderer: Renderer, width: int, height: int, numCells: int) 
             red = 255,
             green = 255,
             blue = 255,
-        }
+        },
     );
 
     foreach (y in 0..width) {
@@ -58,7 +58,7 @@ fun generateVoronoi(renderer: Renderer, width: int, height: int, numCells: int) 
             red = 255,
             green = 255,
             blue = 255,
-        }
+        },
     );
 
     foreach (b in 0..numCells) {
@@ -71,18 +71,18 @@ fun main() > void !> SDLError {
     final height = 400;
     final numCells = 50;
 
-    final sdl = SDL.init([Subsystem.Video]);
+    final sdl = SDL.init([ Subsystem.Video ]);
 
     final window = Window.init(
         "buzz example: Voronoi Diagram",
         width,
         height,
-        flags: [WindowFlag.OpenGL, WindowFlag.AllowHighDPI],
+        flags: [ WindowFlag.OpenGL, WindowFlag.AllowHighDPI ],
     );
 
     final renderer = window.createRenderer(
         index: -1,
-        flags: [RendererFlag.Accelerated, RendererFlag.TargetTexture],
+        flags: [ RendererFlag.Accelerated, RendererFlag.TargetTexture ],
     );
 
     final texture = renderer.createTexture(
