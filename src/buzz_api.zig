@@ -83,7 +83,7 @@ export fn bz_valueToCString(value: v.Value) callconv(.c) ?[*:0]const u8 {
     return @ptrCast(o.ObjString.cast(value.obj()).?.string.ptr);
 }
 
-fn valueDump(value: v.Value, vm: *VM, seen: *std.AutoHashMap(*o.Obj, void), depth: usize) void {
+fn valueDump(value: v.Value, vm: *VM, seen: *std.AutoHashMapUnmanaged(*o.Obj, void), depth: usize) void {
     if (depth > 50) {
         io.print("...", .{});
         return;
@@ -97,7 +97,7 @@ fn valueDump(value: v.Value, vm: *VM, seen: *std.AutoHashMap(*o.Obj, void), dept
 
         io.print("{s}", .{string});
     } else {
-        seen.put(value.obj(), {}) catch unreachable;
+        seen.put(vm.gc.allocator, value.obj(), {}) catch unreachable;
 
         switch (value.obj().obj_type) {
             .Type,
@@ -331,8 +331,8 @@ fn valueDump(value: v.Value, vm: *VM, seen: *std.AutoHashMap(*o.Obj, void), dept
 
 /// Dump value
 pub export fn bz_valueDump(value: v.Value, vm: *VM) callconv(.c) void {
-    var seen = std.AutoHashMap(*o.Obj, void).init(vm.gc.allocator);
-    defer seen.deinit();
+    var seen = std.AutoHashMapUnmanaged(*o.Obj, void).empty;
+    defer seen.deinit(vm.gc.allocator);
 
     valueDump(value, vm, &seen, 0);
 }
@@ -624,7 +624,7 @@ export fn bz_run(
     }
 
     var imports = std.StringHashMapUnmanaged(Parser.ScriptImport){};
-    var strings = std.StringHashMap(*o.ObjString).init(self.gc.allocator);
+    var strings = std.StringHashMapUnmanaged(*o.ObjString).empty;
     var parser = Parser.init(
         self.gc,
         &imports,
@@ -641,7 +641,7 @@ export fn bz_run(
         codegen.deinit();
         imports.deinit(self.gc.allocator);
         parser.deinit();
-        strings.deinit();
+        strings.deinit(self.gc.allocator);
     }
 
     if (parser.parse(source.?[0..source_len], null, file_name.?[0..file_name_len]) catch null) |ast| {
@@ -1497,9 +1497,9 @@ export fn bz_zigTypeAlignment(self: *ZigType) callconv(.c) u16 {
 }
 
 export fn bz_zigTypeToCString(self: *ZigType, vm: *VM) callconv(.c) [*:0]const u8 {
-    var out = std.array_list.Managed(u8).init(vm.gc.allocator);
+    var out = std.ArrayList(u8).empty;
 
-    out.writer().print("{}\x00", .{self.*}) catch {
+    out.writer(vm.gc.allocator).print("{}\x00", .{self.*}) catch {
         vm.panic("Out of memory");
         unreachable;
     };
@@ -1508,8 +1508,8 @@ export fn bz_zigTypeToCString(self: *ZigType, vm: *VM) callconv(.c) [*:0]const u
 }
 
 export fn bz_serialize(vm: *VM, value: v.Value, error_value: *v.Value) callconv(.c) v.Value {
-    var seen = std.AutoHashMap(*o.Obj, void).init(vm.gc.allocator);
-    defer seen.deinit();
+    var seen = std.AutoHashMapUnmanaged(*o.Obj, void).empty;
+    defer seen.deinit(vm.gc.allocator);
 
     return value.serialize(vm, &seen) catch |err| s: {
         switch (err) {
@@ -1564,8 +1564,7 @@ export fn bz_readZigValueFromBuffer(
     buf: [*]u8,
     len: usize,
 ) callconv(.c) v.Value {
-    var buffer = std.array_list.Managed(u8).fromOwnedSlice(
-        vm.gc.allocator,
+    var buffer = std.ArrayList(u8).fromOwnedSlice(
         buf[0..len],
     );
     buffer.capacity = len;
@@ -1720,8 +1719,7 @@ export fn bz_writeZigValueToBuffer(
     buf: [*]u8,
     capacity: usize,
 ) callconv(.c) void {
-    var buffer = std.array_list.Managed(u8).fromOwnedSlice(
-        vm.gc.allocator,
+    var buffer = std.ArrayList(u8).fromOwnedSlice(
         buf[0..capacity],
     );
     buffer.capacity = capacity;
@@ -1735,7 +1733,7 @@ export fn bz_writeZigValueToBuffer(
                 @as(u8, 0));
             const bytes = std.mem.asBytes(&unwrapped);
 
-            buffer.replaceRange(at, bytes.len, bytes) catch {
+            buffer.replaceRange(vm.gc.allocator, at, bytes.len, bytes) catch {
                 vm.panic("Out of memory");
                 unreachable;
             };
@@ -1747,7 +1745,7 @@ export fn bz_writeZigValueToBuffer(
                     const unwrapped = o.ObjUserData.cast(value.obj()).?.userdata;
                     const bytes = std.mem.asBytes(&unwrapped);
 
-                    buffer.replaceRange(at, bytes.len, bytes) catch {
+                    buffer.replaceRange(vm.gc.allocator, at, bytes.len, bytes) catch {
                         vm.panic("Out of memory");
                         unreachable;
                     };
@@ -1756,7 +1754,7 @@ export fn bz_writeZigValueToBuffer(
                     const unwrapped = value.integer();
                     const bytes = std.mem.asBytes(&unwrapped)[0..(ztype.Int.bits / 8)];
 
-                    buffer.replaceRange(at, bytes.len, bytes) catch {
+                    buffer.replaceRange(vm.gc.allocator, at, bytes.len, bytes) catch {
                         vm.panic("Out of memory");
                         unreachable;
                     };
@@ -1769,7 +1767,7 @@ export fn bz_writeZigValueToBuffer(
                 const unwrapped = @as(f32, @floatCast(value.double()));
                 const bytes = std.mem.asBytes(&unwrapped);
 
-                buffer.replaceRange(at, bytes.len, bytes) catch {
+                buffer.replaceRange(vm.gc.allocator, at, bytes.len, bytes) catch {
                     vm.panic("Out of memory");
                     unreachable;
                 };
@@ -1778,7 +1776,7 @@ export fn bz_writeZigValueToBuffer(
                 const unwrapped = value.double();
                 const bytes = std.mem.asBytes(&unwrapped);
 
-                buffer.replaceRange(at, bytes.len, bytes) catch {
+                buffer.replaceRange(vm.gc.allocator, at, bytes.len, bytes) catch {
                     vm.panic("Out of memory");
                     unreachable;
                 };
@@ -1803,7 +1801,7 @@ export fn bz_writeZigValueToBuffer(
             const unwrapped = o.ObjUserData.cast(value.obj()).?.userdata;
             const bytes = std.mem.asBytes(&unwrapped);
 
-            buffer.replaceRange(at, bytes.len, bytes) catch {
+            buffer.replaceRange(vm.gc.allocator, at, bytes.len, bytes) catch {
                 vm.panic("Out of memory");
                 unreachable;
             };

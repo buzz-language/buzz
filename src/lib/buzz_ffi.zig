@@ -11,10 +11,10 @@ pub export fn alignOf(ctx: *api.NativeCtx) callconv(.c) c_int {
     if (zig_type) |ztype| {
         ctx.vm.bz_push(api.Value.fromInteger(@intCast(ztype.bz_zigTypeAlignment())));
     } else {
-        var msg = std.array_list.Managed(u8).init(api.VM.allocator);
-        defer msg.deinit();
+        var msg = std.ArrayList(u8).empty;
+        defer msg.deinit(api.VM.allocator);
 
-        msg.writer().print(
+        msg.writer(api.VM.allocator).print(
             "Could not parse zig type `{s}`",
             .{
                 zig_type_str[0..len],
@@ -42,10 +42,10 @@ pub export fn sizeOf(ctx: *api.NativeCtx) callconv(.c) c_int {
     if (zig_type) |ztype| {
         ctx.vm.bz_push(api.Value.fromInteger(@intCast(ztype.bz_zigTypeSize())));
     } else {
-        var msg = std.array_list.Managed(u8).init(api.VM.allocator);
-        defer msg.deinit();
+        var msg = std.ArrayList(u8).empty;
+        defer msg.deinit(api.VM.allocator);
 
-        msg.writer().print(
+        msg.writer(api.VM.allocator).print(
             "Could not parse zig type `{s}`",
             .{
                 zig_type_str[0..len],

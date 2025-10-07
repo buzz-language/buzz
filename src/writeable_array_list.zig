@@ -6,17 +6,16 @@ pub fn WriteableArrayList(comptime T: type) type {
         const Self = @This();
 
         list: std.array_list.Managed(T),
-        writer: std.Io.Writer,
+        writer: std.Io.Writer = .{
+            .buffer = &.{},
+            .vtable = &.{
+                .drain = drain,
+            },
+        },
 
         pub fn init(allocator: std.mem.Allocator) Self {
             return .{
                 .list = .init(allocator),
-                .writer = .{
-                    .buffer = &.{},
-                    .vtable = &.{
-                        .drain = drain,
-                    },
-                },
             };
         }
 

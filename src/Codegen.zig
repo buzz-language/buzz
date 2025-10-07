@@ -1142,10 +1142,14 @@ fn generateCall(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj
     const arg_keys = args.keys();
     const arg_count = arg_keys.len;
 
-    var missing_arguments = std.StringArrayHashMap(usize).init(self.gc.allocator);
-    defer missing_arguments.deinit();
+    var missing_arguments = std.StringArrayHashMapUnmanaged(usize).empty;
+    defer missing_arguments.deinit(self.gc.allocator);
     for (arg_keys, 0..) |arg_name, pindex| {
-        try missing_arguments.put(arg_name.string, pindex);
+        try missing_arguments.put(
+            self.gc.allocator,
+            arg_name.string,
+            pindex,
+        );
     }
 
     if (components.arguments.len > args.count()) {
@@ -1211,10 +1215,11 @@ fn generateCall(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj
     }
 
     // Argument order reference
-    var arguments_order_ref = std.array_list.Managed([]const u8).init(self.gc.allocator);
-    defer arguments_order_ref.deinit();
+    var arguments_order_ref = std.ArrayList([]const u8).empty;
+    defer arguments_order_ref.deinit(self.gc.allocator);
     for (components.arguments) |arg| {
         try arguments_order_ref.append(
+            self.gc.allocator,
             if (arg.name) |name|
                 lexemes[name]
             else
@@ -1224,8 +1229,8 @@ fn generateCall(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj
 
     // Push default arguments
     if (missing_arguments.count() > 0) {
-        var tmp_missing_arguments = try missing_arguments.clone();
-        defer tmp_missing_arguments.deinit();
+        var tmp_missing_arguments = try missing_arguments.clone(self.gc.allocator);
+        defer tmp_missing_arguments.deinit(self.gc.allocator);
         const missing_keys = tmp_missing_arguments.keys();
         for (missing_keys) |missing_key| {
             if (defaults.get(try self.gc.copyString(missing_key))) |default| {
@@ -1233,7 +1238,7 @@ fn generateCall(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj
                 try self.emitConstant(locations[node], default);
                 try self.OP_CLONE(locations[node]);
 
-                try arguments_order_ref.append(missing_key);
+                try arguments_order_ref.append(self.gc.allocator, missing_key);
                 _ = missing_arguments.orderedRemove(missing_key);
                 needs_reorder = true;
             }
@@ -1241,8 +1246,8 @@ fn generateCall(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj
     }
 
     if (missing_arguments.count() > 0) {
-        var missing = std.array_list.Managed(u8).init(self.gc.allocator);
-        const missing_writer = missing.writer();
+        var missing = std.ArrayList(u8).empty;
+        const missing_writer = missing.writer(self.gc.allocator);
         for (missing_arguments.keys(), 0..) |key, i| {
             try missing_writer.print(
                 "{s}{s}",
@@ -1255,7 +1260,7 @@ fn generateCall(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj
                 },
             );
         }
-        defer missing.deinit();
+        defer missing.deinit(self.gc.allocator);
         self.reporter.reportErrorFmt(
             .call_arguments,
             self.ast.tokens.get(locations[node]),
@@ -1342,8 +1347,8 @@ fn generateCall(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj
     } else if (error_types) |errors| {
         if (self.current.?.enclosing != null and self.current.?.function.?.type_def.resolved_type.?.Function.function_type != .Test) {
             var handles_any = false;
-            var not_handled = std.array_list.Managed(*obj.ObjTypeDef).init(self.gc.allocator);
-            defer not_handled.deinit();
+            var not_handled = std.ArrayList(*obj.ObjTypeDef).empty;
+            defer not_handled.deinit(self.gc.allocator);
             for (errors) |error_type| {
                 if (error_type.def_type == .Void) {
                     continue;
@@ -1373,12 +1378,12 @@ fn generateCall(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj
                             locations[components.callee],
                         );
                     } else {
-                        try not_handled.append(error_type);
+                        try not_handled.append(self.gc.allocator, error_type);
                     }
                 }
 
                 if (handles_any) {
-                    not_handled.clearAndFree();
+                    not_handled.clearAndFree(self.gc.allocator);
                     break;
                 }
             }
@@ -3621,10 +3626,11 @@ fn generateObjectInit(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error
 
     var fields = if (node_type_def.def_type == .ObjectInstance) inst: {
         const fields = node_type_def.resolved_type.?.ObjectInstance.of.resolved_type.?.Object.fields;
-        var fields_type_defs = std.StringArrayHashMap(*obj.ObjTypeDef).init(self.gc.allocator);
+        var fields_type_defs = std.StringArrayHashMapUnmanaged(*obj.ObjTypeDef).empty;
         var it = fields.iterator();
         while (it.next()) |kv| {
             try fields_type_defs.put(
+                self.gc.allocator,
                 kv.value_ptr.*.name,
                 kv.value_ptr.*.type_def,
             );
@@ -3633,7 +3639,7 @@ fn generateObjectInit(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error
     } else node_type_def.resolved_type.?.ForeignContainer.buzz_type;
 
     defer if (node_type_def.def_type == .ObjectInstance) {
-        fields.deinit();
+        fields.deinit(self.gc.allocator);
     };
 
     const object_location = if (node_type_def.def_type == .ObjectInstance)
@@ -3642,8 +3648,8 @@ fn generateObjectInit(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error
         node_type_def.resolved_type.?.ForeignContainer.location;
 
     // Keep track of what's been initialized or not by this statement
-    var init_properties = std.StringHashMap(void).init(self.gc.allocator);
-    defer init_properties.deinit();
+    var init_properties = std.StringHashMapUnmanaged(void).empty;
+    defer init_properties.deinit(self.gc.allocator);
 
     for (components.properties) |property| {
         const property_name = lexemes[property.name];
@@ -3701,7 +3707,7 @@ fn generateObjectInit(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error
 
             _ = try self.generateNode(property.value, breaks);
 
-            try init_properties.put(property_name, {});
+            try init_properties.put(self.gc.allocator, property_name, {});
 
             try self.emitCodeArg(
                 location,
@@ -4185,8 +4191,8 @@ fn generateTry(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.
     // Jump reached if no error was raised
     const no_error_jump = try self.OP_JUMP(self.ast.nodes.items(.end_location)[components.body]);
 
-    var exit_jumps = std.array_list.Managed(usize).init(self.gc.allocator);
-    defer exit_jumps.deinit();
+    var exit_jumps = std.ArrayList(usize).empty;
+    defer exit_jumps.deinit(self.gc.allocator);
 
     self.patchTryOrJit(try_jump);
     var has_unconditional = components.unconditional_clause != null;
@@ -4214,7 +4220,10 @@ fn generateTry(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.
         self.current.?.try_should_handle = previous;
 
         // After handling the error, jump over next clauses
-        try exit_jumps.append(try self.emitJump(location, .OP_JUMP));
+        try exit_jumps.append(
+            self.gc.allocator,
+            try self.emitJump(location, .OP_JUMP),
+        );
 
         self.patchJump(next_clause_jump);
         // Pop `is` result
@@ -4230,7 +4239,10 @@ fn generateTry(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.
         _ = try self.generateNode(unconditional_clause, breaks);
         self.current.?.try_should_handle = previous;
 
-        try exit_jumps.append(try self.emitJump(location, .OP_JUMP));
+        try exit_jumps.append(
+            self.gc.allocator,
+            try self.emitJump(location, .OP_JUMP),
+        );
     }
 
     // Tell runtime we're not in a try block anymore

@@ -106,10 +106,10 @@ pub fn repeat(ctx: *o.NativeCtx) callconv(.c) c_int {
     const str = o.ObjString.cast(ctx.vm.peek(1).obj()).?;
     const n = ctx.vm.peek(0).integer();
 
-    var new_string = std.array_list.Managed(u8).init(ctx.vm.gc.allocator);
+    var new_string = std.ArrayList(u8).empty;
     var i: usize = 0;
     while (i < n) : (i += 1) {
-        new_string.appendSlice(str.string) catch {
+        new_string.appendSlice(ctx.vm.gc.allocator, str.string) catch {
             ctx.vm.panic("Out of memory");
             unreachable;
         };
@@ -440,9 +440,9 @@ pub fn hex(ctx: *o.NativeCtx) callconv(.c) c_int {
         return 1;
     }
 
-    var result = std.array_list.Managed(u8).init(ctx.vm.gc.allocator);
-    defer result.deinit();
-    var writer = result.writer();
+    var result = std.ArrayList(u8).empty;
+    defer result.deinit(ctx.vm.gc.allocator);
+    var writer = result.writer(ctx.vm.gc.allocator);
 
     for (str.string) |char| {
         writer.print("{x:0>2}", .{char}) catch {

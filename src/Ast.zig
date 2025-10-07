@@ -625,11 +625,11 @@ pub const Slice = struct {
                 const left_map = if (left.isObj()) obj.ObjMap.cast(left.obj()) else null;
 
                 if (right_string) |rs| {
-                    var new_string = std.array_list.Managed(u8).init(gc.allocator);
-                    try new_string.appendSlice(left_string.?.string);
-                    try new_string.appendSlice(rs.string);
+                    var new_string = std.ArrayList(u8).empty;
+                    try new_string.appendSlice(gc.allocator, left_string.?.string);
+                    try new_string.appendSlice(gc.allocator, rs.string);
 
-                    return (try gc.copyString(try new_string.toOwnedSlice())).toValue();
+                    return (try gc.copyString(try new_string.toOwnedSlice(gc.allocator))).toValue();
                 } else if (right_float) |rf| {
                     return Value.fromDouble(rf + left_float.?);
                 } else if (right_integer) |ri| {
@@ -819,13 +819,13 @@ pub const Slice = struct {
                 .String => string: {
                     const elements = self.nodes.items(.components)[node].String;
 
-                    var string = std.array_list.Managed(u8).init(gc.allocator);
-                    const writer = &string.writer();
+                    var string = std.ArrayList(u8).empty;
+                    const writer = &string.writer(gc.allocator);
                     for (elements) |element| {
                         try (try self.toValue(element, gc)).toString(writer);
                     }
 
-                    break :string (try gc.copyString(try string.toOwnedSlice())).toValue();
+                    break :string (try gc.copyString(try string.toOwnedSlice(gc.allocator))).toValue();
                 },
                 .Subscript => subscript: {
                     const components = self.nodes.items(.components)[node].Subscript;

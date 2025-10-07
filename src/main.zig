@@ -264,13 +264,13 @@ pub fn main() u8 {
     }
 
     if (res.args.library.len > 0) {
-        var list = std.array_list.Managed([]const u8).init(allocator);
+        var list = std.ArrayList([]const u8).empty;
 
         for (res.args.library) |path| {
-            list.append(path) catch return 1;
+            list.append(allocator, path) catch return 1;
         }
 
-        Parser.user_library_paths = list.toOwnedSlice() catch return 1;
+        Parser.user_library_paths = list.toOwnedSlice(allocator) catch return 1;
     }
 
     const flavor: RunFlavor = if (res.args.check == 1)

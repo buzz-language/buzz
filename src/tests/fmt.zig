@@ -14,7 +14,7 @@ const ignore = std.StaticStringMap(void).initComptime(
         .{ "examples/2048.buzz", {} },
         // statements that enforce newline before them don't take comment into account
         .{ "tests/042-anonymous-objects.buzz", {} },
-        // bad identation of inline if-else else branch
+        // bad indentation of inline if-else else branch
         .{ "tests/052-inline-if.buzz", {} },
         // something wrong with renderCopy signature
         .{ "examples/sdl-wrapped.buzz", {} },

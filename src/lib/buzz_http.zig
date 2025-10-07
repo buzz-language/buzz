@@ -53,7 +53,7 @@ pub export fn HttpClientSend(ctx: *api.NativeCtx) callconv(.c) c_int {
     }
 
     const header_values = ctx.vm.bz_peek(0);
-    var headers = std.array_list.Managed(http.Header).init(api.VM.allocator);
+    var headers = std.ArrayList(http.Header).empty;
     var next_header_key = api.Value.Null;
     var next_header_value = header_values.bz_mapNext(&next_header_key);
     while (next_header_key.val != api.Value.Null.val) : (next_header_value = header_values.bz_mapNext(&next_header_key)) {
@@ -68,6 +68,7 @@ pub export fn HttpClientSend(ctx: *api.NativeCtx) callconv(.c) c_int {
         }
 
         headers.append(
+            api.VM.allocator,
             .{
                 .name = key.?[0..key_len],
                 .value = value.?[0..value_len],
@@ -173,8 +174,8 @@ pub export fn HttpRequestRead(ctx: *api.NativeCtx) callconv(.c) c_int {
         ),
     );
 
-    var body_raw = std.array_list.Managed(u8).init(api.VM.allocator);
-    defer body_raw.deinit();
+    var body_raw = std.ArrayList(u8).empty;
+    defer body_raw.deinit(api.VM.allocator);
 
     request.reader().readAllArrayList(&body_raw, std.math.maxInt(usize)) catch |err| {
         handleResponseError(ctx, err);

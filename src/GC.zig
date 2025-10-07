@@ -941,13 +941,13 @@ pub const Debugger = struct {
 
         if (self.tracker.getPtr(ptr)) |tracked| {
             if (tracked.collected_at) |collected_at| {
-                var items = std.array_list.Managed(Reporter.ReportItem).init(self.allocator);
-                defer items.deinit();
+                var items = std.ArrayList(Reporter.ReportItem).empty;
+                defer items.deinit(self.allocator);
 
-                var message = std.array_list.Managed(u8).init(self.allocator);
-                defer message.deinit();
+                var message = std.ArrayList(u8).empty;
+                defer message.deinit(self.allocator);
 
-                message.writer().print(
+                message.writer(self.allocator).print(
                     "Access to already collected {} {*}",
                     .{
                         tracked.what,
@@ -956,6 +956,7 @@ pub const Debugger = struct {
                 ) catch unreachable;
 
                 items.append(
+                    self.allocator,
                     .{
                         .location = at.?,
                         .end_location = at.?,
@@ -966,6 +967,7 @@ pub const Debugger = struct {
 
                 if (tracked.allocated_at) |allocated_at| {
                     items.append(
+                        self.allocator,
                         .{
                             .location = allocated_at,
                             .end_location = allocated_at,
@@ -976,6 +978,7 @@ pub const Debugger = struct {
                 }
 
                 items.append(
+                    self.allocator,
                     .{
                         .location = collected_at,
                         .end_location = collected_at,

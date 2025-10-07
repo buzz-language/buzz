@@ -212,7 +212,7 @@ fn isLetter(char: u8) bool {
 fn docblock(self: *Self) !Token {
     _ = self.advance(); // Skip third `/`
 
-    var block = std.array_list.Managed(u8).init(self.allocator);
+    var block = std.ArrayList(u8).empty;
 
     while (!self.isEOF()) {
         while (!self.isEOF()) {
@@ -223,10 +223,10 @@ fn docblock(self: *Self) !Token {
                 self.current.column = 0;
                 _ = self.advance();
 
-                try block.append('\n');
+                try block.append(self.allocator, '\n');
                 break;
             } else {
-                try block.append(char);
+                try block.append(self.allocator, char);
             }
 
             _ = self.advance();
@@ -245,7 +245,9 @@ fn docblock(self: *Self) !Token {
 
     return self.makeToken(
         .Docblock,
-        .{ .String = std.mem.trim(u8, block.items, " ") },
+        .{
+            .String = std.mem.trim(u8, block.items, " "),
+        },
     );
 }
 

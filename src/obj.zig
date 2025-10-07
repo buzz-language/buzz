@@ -82,12 +82,12 @@ pub const Obj = struct {
         return obj.cast(T, obj_type);
     }
 
-    pub fn serialize(self: *Self, vm: *VM, seen: *std.AutoHashMap(*Self, void)) SerializeError!Value {
+    pub fn serialize(self: *Self, vm: *VM, seen: *std.AutoHashMapUnmanaged(*Self, void)) SerializeError!Value {
         if (seen.get(self) != null) {
             return error.CircularReference;
         }
 
-        try seen.put(self, {});
+        try seen.put(vm.gc.allocator, self, {});
 
         switch (self.obj_type) {
             .String => return Value.fromObj(self),
@@ -509,7 +509,7 @@ pub const Obj = struct {
         }
     }
 
-    pub fn toString(obj: *Obj, writer: *const std.array_list.Managed(u8).Writer) (Allocator.Error || std.fmt.BufPrintError)!void {
+    pub fn toString(obj: *Obj, writer: *const std.ArrayList(u8).Writer) (Allocator.Error || std.fmt.BufPrintError)!void {
         return switch (obj.obj_type) {
             .String => {
                 const str = ObjString.cast(obj).?.string;
@@ -980,9 +980,9 @@ pub const ObjString = struct {
     }
 
     pub fn concat(self: *Self, vm: *VM, other: *Self) !*Self {
-        var new_string = std.array_list.Managed(u8).init(vm.gc.allocator);
-        try new_string.appendSlice(self.string);
-        try new_string.appendSlice(other.string);
+        var new_string = std.ArrayList(u8).empty;
+        try new_string.appendSlice(vm.gc.allocator, self.string);
+        try new_string.appendSlice(vm.gc.allocator, other.string);
 
         return vm.gc.copyString(new_string.items);
     }
@@ -1560,10 +1560,10 @@ pub const ObjForeignContainer = struct {
         qualified_name: *ObjString,
 
         zig_type: ZigType,
-        buzz_type: std.StringArrayHashMap(*ObjTypeDef),
+        buzz_type: std.StringArrayHashMapUnmanaged(*ObjTypeDef),
 
         // Filled by codegen
-        fields: std.StringArrayHashMap(Field),
+        fields: std.StringArrayHashMapUnmanaged(Field),
 
         pub fn mark(def: *ContainerDef, gc: *GC) !void {
             try gc.markObj(def.name.toObj());
@@ -4370,15 +4370,16 @@ pub const ObjTypeDef = struct {
         origin: ?usize,
         generics: []*Self,
         type_registry: *TypeRegistry,
-        visited: ?*std.AutoHashMap(*Self, void),
+        allocator: std.mem.Allocator,
+        visited: ?*std.AutoHashMapUnmanaged(*Self, void),
     ) !*Self {
         var visited_nodes = if (visited == null)
-            std.AutoHashMap(*Self, void).init(type_registry.gc.allocator)
+            std.AutoHashMapUnmanaged(*Self, void).empty
         else
             null;
         defer {
             if (visited == null) {
-                visited_nodes.?.deinit();
+                visited_nodes.?.deinit(allocator);
             }
         }
 
@@ -4388,7 +4389,7 @@ pub const ObjTypeDef = struct {
             return self;
         }
 
-        try visited_ptr.put(self, {});
+        try visited_ptr.put(allocator, self, {});
 
         if (generics.len == 0) {
             return self;
@@ -4455,6 +4456,7 @@ pub const ObjTypeDef = struct {
                         origin,
                         generics,
                         type_registry,
+                        allocator,
                         visited_ptr,
                     ),
                     .yield_type = try (try self.resolved_type.?.Fiber.yield_type.populateGenerics(
@@ -4462,6 +4464,7 @@ pub const ObjTypeDef = struct {
                         origin,
                         generics,
                         type_registry,
+                        allocator,
                         visited_ptr,
                     )).cloneOptional(type_registry),
                 };
@@ -4481,6 +4484,7 @@ pub const ObjTypeDef = struct {
                 origin,
                 generics,
                 type_registry,
+                allocator,
                 visited_ptr,
             )).toInstance(
                 type_registry,
@@ -4523,6 +4527,7 @@ pub const ObjTypeDef = struct {
                                     origin,
                                     generics,
                                     type_registry,
+                                    allocator,
                                     visited_ptr,
                                 ),
                                 .has_default = kv.value_ptr.*.has_default,
@@ -4558,6 +4563,7 @@ pub const ObjTypeDef = struct {
                                 origin,
                                 generics,
                                 type_registry,
+                                allocator,
                                 visited_ptr,
                             ),
                             .mutable = kv.value_ptr.*.mutable,
@@ -4577,6 +4583,7 @@ pub const ObjTypeDef = struct {
                                     origin,
                                     generics,
                                     type_registry,
+                                    allocator,
                                     visited_ptr,
                                 )).toInstance(
                                     type_registry,
@@ -4603,6 +4610,7 @@ pub const ObjTypeDef = struct {
                                 origin,
                                 generics,
                                 type_registry,
+                                allocator,
                                 visited_ptr,
                             ),
                             .mutable = kv.value_ptr.*.mutable,
@@ -4622,6 +4630,7 @@ pub const ObjTypeDef = struct {
                                     origin,
                                     generics,
                                     type_registry,
+                                    allocator,
                                     visited_ptr,
                                 ),
                                 .value_type = try old_map_def.value_type.populateGenerics(
@@ -4629,6 +4638,7 @@ pub const ObjTypeDef = struct {
                                     origin,
                                     generics,
                                     type_registry,
+                                    allocator,
                                     visited_ptr,
                                 ),
                                 .methods = methods,
@@ -4651,6 +4661,7 @@ pub const ObjTypeDef = struct {
                                 origin,
                                 generics,
                                 type_registry,
+                                allocator,
                                 visited_ptr,
                             ),
                         );
@@ -4669,6 +4680,7 @@ pub const ObjTypeDef = struct {
                                 origin,
                                 generics,
                                 type_registry,
+                                allocator,
                                 visited_ptr,
                             )).toInstance(
                                 type_registry,
@@ -4687,6 +4699,7 @@ pub const ObjTypeDef = struct {
                         origin,
                         generics,
                         type_registry,
+                        allocator,
                         visited_ptr,
                     ))
                         .toInstance(
@@ -4698,6 +4711,7 @@ pub const ObjTypeDef = struct {
                         origin,
                         generics,
                         type_registry,
+                        allocator,
                         visited_ptr,
                     ))
                         .toInstance(
@@ -4879,11 +4893,11 @@ pub const ObjTypeDef = struct {
     }
 
     pub fn toStringAlloc(self: *const Self, allocator: Allocator, qualified: bool) (Allocator.Error || std.fmt.BufPrintError)![]const u8 {
-        var str = std.array_list.Managed(u8).init(allocator);
+        var str = std.ArrayList(u8).empty;
 
-        try self.toString(&str.writer(), qualified);
+        try self.toString(&str.writer(allocator), qualified);
 
-        return try str.toOwnedSlice();
+        return try str.toOwnedSlice(allocator);
     }
 
     pub fn toString(self: *const Self, writer: anytype, qualified: bool) (Allocator.Error || std.fmt.BufPrintError)!void {

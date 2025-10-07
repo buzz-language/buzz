@@ -142,13 +142,15 @@ pub export fn runLine(ctx: *ReplCtx) void {
 
             const value = expr orelse ctx.vm.globals.items[previous_global_top];
 
-            var value_str = std.array_list.Managed(u8).init(ctx.vm.gc.allocator);
-            defer value_str.deinit();
-            var state = DumpState.init(ctx.vm);
+            var value_str = std.ArrayList(u8).empty;
+            defer value_str.deinit(ctx.vm.gc.allocator);
+            var state = DumpState{
+                .vm = ctx.vm,
+            };
 
             state.valueDump(
                 value,
-                value_str.writer(),
+                value_str.writer(ctx.vm.gc.allocator),
                 false,
             );
 
