@@ -117,10 +117,10 @@ pub fn repl(allocator: std.mem.Allocator) !void {
     var stderr = io.stderrWriter;
     printBanner(stdout, false);
 
-    var buzz_history_path = std.array_list.Managed(u8).init(allocator);
-    defer buzz_history_path.deinit();
+    var buzz_history_path = std.ArrayList(u8).empty;
+    defer buzz_history_path.deinit(allocator);
 
-    try buzz_history_path.writer().print(
+    try buzz_history_path.writer(allocator).print(
         "{s}/.buzz_history\x00",
         .{envMap.get("HOME") orelse "."},
     );
@@ -251,13 +251,15 @@ pub fn repl(allocator: std.mem.Allocator) !void {
 
                     const value = expr orelse vm.globals.items[previous_global_top];
 
-                    var value_str = std.array_list.Managed(u8).init(vm.gc.allocator);
-                    defer value_str.deinit();
-                    var state = disassembler.DumpState.init(&vm);
+                    var value_str = std.ArrayList(u8).empty;
+                    defer value_str.deinit(vm.gc.allocator);
+                    var state = disassembler.DumpState{
+                        .vm = &vm,
+                    };
 
                     state.valueDump(
                         value,
-                        value_str.writer(),
+                        value_str.writer(vm.gc.allocator),
                         false,
                     );
 

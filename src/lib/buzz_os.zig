@@ -88,9 +88,9 @@ pub export fn tmpFilename(ctx: *api.NativeCtx) callconv(.c) c_int {
 
     const prefix_slice = if (prefix_len == 0) "" else prefix.?[0..prefix_len];
 
-    var random_part = std.array_list.Managed(u8).init(api.VM.allocator);
-    defer random_part.deinit();
-    random_part.writer().print("{x}", .{std.crypto.random.int(api.Integer)}) catch {
+    var random_part = std.ArrayList(u8).empty;
+    defer random_part.deinit(api.VM.allocator);
+    random_part.writer(api.VM.allocator).print("{x}", .{std.crypto.random.int(api.Integer)}) catch {
         ctx.vm.bz_panic("Out of memory", "Out of memory".len);
         unreachable;
     };
@@ -107,10 +107,10 @@ pub export fn tmpFilename(ctx: *api.NativeCtx) callconv(.c) c_int {
 
     _ = std.base64.standard.Encoder.encode(random_part_b64.items, random_part.items);
 
-    var final = std.array_list.Managed(u8).init(api.VM.allocator);
-    defer final.deinit();
+    var final = std.ArrayList(u8).empty;
+    defer final.deinit(api.VM.allocator);
 
-    final.writer().print("{s}{s}-{s}", .{ sysTempDir(), prefix_slice, random_part_b64.items }) catch {
+    final.writer(api.VM.allocator).print("{s}{s}-{s}", .{ sysTempDir(), prefix_slice, random_part_b64.items }) catch {
         ctx.vm.bz_panic("Out of memory", "Out of memory".len);
         unreachable;
     };
@@ -181,8 +181,8 @@ fn handleSpawnError(ctx: *api.NativeCtx, err: anytype) void {
 }
 
 pub export fn execute(ctx: *api.NativeCtx) callconv(.c) c_int {
-    var command = std.array_list.Managed([]const u8).init(api.VM.allocator);
-    defer command.deinit();
+    var command = std.ArrayList([]const u8).empty;
+    defer command.deinit(api.VM.allocator);
 
     const argv = ctx.vm.bz_peek(0);
     const len = argv.bz_listLen();
@@ -197,7 +197,7 @@ pub export fn execute(ctx: *api.NativeCtx) callconv(.c) c_int {
 
         std.debug.assert(arg_len > 0);
 
-        command.append(arg_str.?[0..arg_len]) catch {
+        command.append(api.VM.allocator, arg_str.?[0..arg_len]) catch {
             ctx.vm.bz_panic("Out of memory", "Out of memory".len);
             unreachable;
         };

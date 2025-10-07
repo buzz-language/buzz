@@ -294,24 +294,26 @@ pub const Report = struct {
         // Print items
 
         // Group items by files
-        var reported_files = std.StringArrayHashMap(std.array_list.Managed(ReportItem)).init(reporter.allocator);
+        var reported_files = std.StringArrayHashMapUnmanaged(std.ArrayList(ReportItem)).empty;
         defer {
             var it = reported_files.iterator();
             while (it.next()) |kv| {
-                kv.value_ptr.*.deinit();
+                kv.value_ptr.*.deinit(reporter.allocator);
             }
-            reported_files.deinit();
+            reported_files.deinit(reporter.allocator);
         }
 
         for (self.items) |item| {
             if (reported_files.get(item.end_location.script_name) == null) {
                 try reported_files.put(
+                    reporter.allocator,
                     item.end_location.script_name,
-                    std.array_list.Managed(ReportItem).init(reporter.allocator),
+                    std.ArrayList(ReportItem).empty,
                 );
             }
 
-            try reported_files.getEntry(item.end_location.script_name).?.value_ptr.append(item);
+            try reported_files.getEntry(item.end_location.script_name).?
+                .value_ptr.append(reporter.allocator, item);
         }
 
         var file_it = reported_files.iterator();
@@ -332,24 +334,26 @@ pub const Report = struct {
                 ReportItem.lessThan,
             );
 
-            var reported_lines = std.AutoArrayHashMap(usize, std.array_list.Managed(ReportItem)).init(reporter.allocator);
+            var reported_lines = std.AutoArrayHashMapUnmanaged(usize, std.ArrayList(ReportItem)).empty;
             defer {
                 var it = reported_lines.iterator();
                 while (it.next()) |kv| {
-                    kv.value_ptr.*.deinit();
+                    kv.value_ptr.*.deinit(reporter.allocator);
                 }
-                reported_lines.deinit();
+                reported_lines.deinit(reporter.allocator);
             }
 
             for (file_entry.value_ptr.items) |item| {
                 if (reported_lines.get(item.end_location.line) == null) {
                     try reported_lines.put(
+                        reporter.allocator,
                         item.end_location.line,
-                        std.array_list.Managed(ReportItem).init(reporter.allocator),
+                        std.ArrayList(ReportItem).empty,
                     );
                 }
 
-                try reported_lines.getEntry(item.end_location.line).?.value_ptr.append(item);
+                try reported_lines.getEntry(item.end_location.line).?
+                    .value_ptr.append(reporter.allocator, item);
             }
 
             var previous_line: ?usize = null;
@@ -639,14 +643,14 @@ pub fn warnAt(self: *Self, error_type: Error, location: Token, end_location: Tok
 pub fn reportErrorFmt(self: *Self, error_type: Error, location: Token, end_location: Token, comptime fmt: []const u8, args: anytype) void {
     @branchHint(.cold);
 
-    var message = std.array_list.Managed(u8).init(self.allocator);
+    var message = std.ArrayList(u8).empty;
     defer {
         if (!self.collect) {
-            message.deinit();
+            message.deinit(self.allocator);
         }
     }
 
-    var writer = message.writer();
+    var writer = message.writer(self.allocator);
     writer.print(fmt, args) catch @panic("Unable to report error");
 
     if (self.panic_mode) {
@@ -657,25 +661,25 @@ pub fn reportErrorFmt(self: *Self, error_type: Error, location: Token, end_locat
         error_type,
         location,
         end_location,
-        message.toOwnedSlice() catch @panic("Untable to report error"),
+        message.toOwnedSlice(self.allocator) catch @panic("Untable to report error"),
     );
 }
 
 pub fn warnFmt(self: *Self, error_type: Error, location: Token, end_location: Token, comptime fmt: []const u8, args: anytype) void {
-    var message = std.array_list.Managed(u8).init(self.allocator);
+    var message = std.ArrayList(u8).empty;
     defer {
         if (!self.collect) {
-            message.deinit();
+            message.deinit(self.allocator);
         }
     }
 
-    var writer = message.writer();
+    var writer = message.writer(self.allocator);
     writer.print(fmt, args) catch @panic("Unable to report error");
     self.warn(
         error_type,
         location,
         end_location,
-        message.toOwnedSlice() catch @panic("Unable to report error"),
+        message.toOwnedSlice(self.allocator) catch @panic("Unable to report error"),
     );
 }
 
@@ -692,14 +696,14 @@ pub fn reportWithOrigin(
 ) void {
     @branchHint(.cold);
 
-    var message = std.array_list.Managed(u8).init(self.allocator);
+    var message = std.ArrayList(u8).empty;
     defer {
         if (!self.collect) {
-            message.deinit();
+            message.deinit(self.allocator);
         }
     }
 
-    var writer = message.writer();
+    var writer = message.writer(self.allocator);
     writer.print(fmt, args) catch @panic("Unable to report error");
 
     const items = [_]ReportItem{
@@ -753,28 +757,28 @@ pub fn reportTypeCheck(
 ) void {
     @branchHint(.cold);
 
-    var actual_message = std.array_list.Managed(u8).init(self.allocator);
+    var actual_message = std.ArrayList(u8).empty;
     defer {
         if (!self.collect) {
-            actual_message.deinit();
+            actual_message.deinit(self.allocator);
         }
     }
 
-    var writer = &actual_message.writer();
+    var writer = &actual_message.writer(self.allocator);
 
     writer.print("{s}: got type `", .{message}) catch @panic("Unable to report error");
     actual_type.toString(writer, false) catch @panic("Unable to report error");
     writer.writeAll("`") catch @panic("Unable to report error");
 
-    var expected_message = std.array_list.Managed(u8).init(self.allocator);
+    var expected_message = std.ArrayList(u8).empty;
     defer {
         if (!self.collect) {
-            expected_message.deinit();
+            expected_message.deinit(self.allocator);
         }
     }
 
     if (expected_location != null) {
-        writer = &expected_message.writer();
+        writer = &expected_message.writer(self.allocator);
     }
 
     writer.writeAll("expected `") catch @panic("Unable to report error");
@@ -782,18 +786,21 @@ pub fn reportTypeCheck(
     expected_type.toString(writer, false) catch @panic("Unable to report error");
     writer.writeAll("`") catch @panic("Unable to report error");
 
-    var full_message = if (expected_location == null) actual_message else std.array_list.Managed(u8).init(self.allocator);
+    var full_message = if (expected_location == null)
+        actual_message
+    else
+        std.ArrayList(u8).empty;
     defer {
         if (!self.collect and expected_location != null) {
-            full_message.deinit();
+            full_message.deinit(self.allocator);
         }
     }
     if (expected_location != null) {
-        full_message.writer().print(
+        full_message.writer(self.allocator).print(
             "{s}, {s}",
             .{
-                actual_message.toOwnedSlice() catch @panic("Unable to report error"),
-                expected_message.toOwnedSlice() catch @panic("Unable to report error"),
+                actual_message.toOwnedSlice(self.allocator) catch @panic("Unable to report error"),
+                expected_message.toOwnedSlice(self.allocator) catch @panic("Unable to report error"),
             },
         ) catch @panic("Unable to report error");
     }

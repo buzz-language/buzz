@@ -9,17 +9,6 @@ pub const os = if (is_wasm)
 else
     std.os;
 
-fn bin2hex(allocator: std.mem.Allocator, input: []const u8) std.ArrayList(u8) {
-    var result = std.array_list.Managed(u8).init(allocator);
-    var writer = result.writer();
-
-    for (input) |byte| {
-        writer.print("{x:0>2}", .{byte}) catch @panic("Could not convert string to hex");
-    }
-
-    return result;
-}
-
 pub export fn hash(ctx: *api.NativeCtx) callconv(.c) c_int {
     const algo_index = ctx.vm.bz_peek(1).bz_getEnumInstanceValue().integer();
     var data_len: usize = 0;

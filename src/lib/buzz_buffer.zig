@@ -508,10 +508,10 @@ fn checkBuzzType(
     btype: api.Value,
 ) bool {
     if (!value.bz_valueIs(btype).boolean()) {
-        var err = std.array_list.Managed(u8).init(api.VM.allocator);
-        defer err.deinit();
+        var err = std.ArrayList(u8).empty;
+        defer err.deinit(api.VM.allocator);
 
-        err.writer().print(
+        err.writer(api.VM.allocator).print(
             "Expected buzz value of type `{s}` to match FFI type `{s}`",
             .{
                 btype.bz_valueCastToString(vm).bz_valueToCString().?,
@@ -631,9 +631,6 @@ fn rawWriteStruct(
         );
 
         if (!value.bz_valueIs(type_def_value).boolean()) {
-            var msg = std.array_list.Managed(u8).init(api.VM.allocator);
-            defer msg.deinit();
-
             vm.bz_pushError(
                 "ffi.FFITypeMismatchError",
                 "ffi.FFITypeMismatchError".len,
