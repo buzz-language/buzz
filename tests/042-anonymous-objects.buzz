@@ -12,8 +12,15 @@ test "Anonymous objects" {
     // Two anonymous type matches
     _: obj{ name: str, age: int } = info;
 
-    std\assert(info.name == "Joe" and info.age == 36, message: "Could declare, instanciate and acces anonymous objects");
-    std\assert(info is obj{ name: str, age: int }, message: "Type safety works with anonymous object");
+    std\assert(
+        info.name == "Joe" and info.age == 36,
+        message: "Could declare, instanciate and acces anonymous objects",
+    );
+
+    std\assert(
+        info is obj{ name: str, age: int },
+        message: "Type safety works with anonymous object",
+    );
 }
 
 test "Named variable init" {
@@ -45,15 +52,15 @@ test "anonymous objects with different fields order" {
     callMe(.{ y = 13, x = 12 });
 }
 
-// placeholders in anonymous object fields works
+/// placeholders in anonymous object fields works
 object A {
     board: mut [int],
 
     fun free() > void {
         foreach (x, y in this.board) {
             var board: mut [obj{ x: int }] = mut [];
-            
-            board.append(.{ x = x });
+
+            board.append(.{ x });
         }
     }
 }

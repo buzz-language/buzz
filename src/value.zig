@@ -151,7 +151,7 @@ pub const Value = packed struct {
         };
     }
 
-    pub fn serialize(self: Value, vm: *VM, seen: *std.AutoHashMap(*o.Obj, void)) !Value {
+    pub fn serialize(self: Value, vm: *VM, seen: *std.AutoHashMapUnmanaged(*o.Obj, void)) !Value {
         if (self.isObj()) {
             return try self.obj().serialize(vm, seen);
         }
@@ -160,15 +160,15 @@ pub const Value = packed struct {
     }
 
     pub fn toStringAlloc(value: Value, allocator: Allocator) (Allocator.Error || std.fmt.BufPrintError)![]const u8 {
-        var str = std.array_list.Managed(u8).init(allocator);
+        var str = std.ArrayList(u8).empty;
 
-        try value.toString(&str.writer());
+        try value.toString(&str.writer(allocator));
 
-        return try str.toOwnedSlice();
+        return try str.toOwnedSlice(allocator);
     }
 
     // FIXME: should be a std.io.Writer once it exists for ArrayLists
-    pub fn toString(self: Value, writer: *const std.array_list.Managed(u8).Writer) (Allocator.Error || std.fmt.BufPrintError)!void {
+    pub fn toString(self: Value, writer: *const std.ArrayList(u8).Writer) (Allocator.Error || std.fmt.BufPrintError)!void {
         if (self.isObj()) {
             try self.obj().toString(writer);
 

@@ -5,19 +5,16 @@ pub fn WriteableArrayList(comptime T: type) type {
     return struct {
         const Self = @This();
 
-        list: std.array_list.Managed(T),
-        writer: std.Io.Writer,
+        list: std.ArrayList(T) = .empty,
+        writer: std.Io.Writer = .{
+            .buffer = &.{},
+            .vtable = &.{
+                .drain = drain,
+            },
+        },
 
-        pub fn init(allocator: std.mem.Allocator) Self {
-            return .{
-                .list = .init(allocator),
-                .writer = .{
-                    .buffer = &.{},
-                    .vtable = &.{
-                        .drain = drain,
-                    },
-                },
-            };
+        pub fn empty() Self {
+            return Self{};
         }
 
         pub fn deinit(self: *Self) void {

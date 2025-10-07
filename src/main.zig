@@ -264,7 +264,7 @@ pub fn main() u8 {
     }
 
     if (res.args.library.len > 0) {
-        var list = std.array_list.Managed([]const u8).init(allocator);
+        var list = std.ArrayList([]const u8).empty;
 
         for (res.args.library) |path| {
             list.append(path) catch return 1;

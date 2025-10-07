@@ -2194,7 +2194,7 @@ pub const VM = struct {
             const exported_count = vm.peek(0).integer();
 
             // Copy them to this vm globals
-            var import_cache = std.array_list.Managed(Value).init(self.gc.allocator);
+            var import_cache = std.ArrayList(Value).empty;
 
             if (exported_count > 0) {
                 var i = exported_count;
@@ -2205,7 +2205,7 @@ pub const VM = struct {
                         unreachable;
                     };
 
-                    import_cache.append(global) catch {
+                    import_cache.append(self.gc.allocator, global) catch {
                         self.panic("Out of memory");
                         unreachable;
                     };
@@ -2215,7 +2215,7 @@ pub const VM = struct {
             self.import_registry.put(
                 self.gc.allocator,
                 fullpath,
-                import_cache.toOwnedSlice() catch {
+                import_cache.toOwnedSlice(self.gc.allocator) catch {
                     self.panic("Out of memory");
                     unreachable;
                 },
@@ -4606,18 +4606,18 @@ pub const VM = struct {
     }
 
     fn reportRuntimeError(self: *Self, message: []const u8, error_site: ?Ast.TokenIndex, stack: []const CallFrame) void {
-        var notes = std.array_list.Managed(Reporter.Note).init(self.gc.allocator);
+        var notes = std.ArrayList(Reporter.Note).empty;
         defer {
             for (notes.items) |note| {
                 self.gc.allocator.free(note.message);
             }
-            notes.deinit();
+            notes.deinit(self.gc.allocator);
         }
 
         for (stack, 0..) |frame, i| {
             const next = if (i < stack.len - 1) stack[i + 1] else null;
-            var msg = std.array_list.Managed(u8).init(self.gc.allocator);
-            var writer = msg.writer();
+            var msg = std.ArrayList(u8).empty;
+            var writer = msg.writer(self.gc.allocator);
 
             if (next) |unext| {
                 const function_name = unext.closure.function.type_def.resolved_type.?.Function.name.string;
@@ -4671,8 +4671,9 @@ pub const VM = struct {
             }
 
             notes.append(
+                self.gc.allocator,
                 .{
-                    .message = msg.toOwnedSlice() catch @panic("Could not report error"),
+                    .message = msg.toOwnedSlice(self.gc.allocator) catch @panic("Could not report error"),
                     .show_prefix = false,
                 },
             ) catch @panic("Could not report error");

@@ -2196,8 +2196,8 @@ fn generateCall(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
     const defaults = function_type_def.resolved_type.?.Function.defaults;
     const arg_keys = args.keys();
 
-    var arguments = std.AutoArrayHashMap(*o.ObjString, m.MIR_op_t).init(self.vm.gc.allocator);
-    defer arguments.deinit();
+    var arguments = std.AutoArrayHashMapUnmanaged(*o.ObjString, m.MIR_op_t).empty;
+    defer arguments.deinit(self.vm.gc.allocator);
 
     // Evaluate arguments
     for (components.arguments, 0..) |argument, index| {
@@ -2207,6 +2207,7 @@ fn generateCall(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
             (try self.vm.gc.copyString(lexemes[argument.name.?]));
 
         try arguments.put(
+            self.vm.gc.allocator,
             actual_arg_key,
             (try self.generateNode(argument.value)).?,
         );

@@ -393,19 +393,12 @@ pub const DumpState = struct {
     const Self = @This();
 
     vm: *VM,
-    seen: std.AutoHashMap(*obj.Obj, void),
+    seen: std.AutoHashMapUnmanaged(*obj.Obj, void) = .empty,
     depth: usize = 0,
     tab: usize = 0,
 
-    pub fn init(vm: *VM) Self {
-        return Self{
-            .vm = vm,
-            .seen = std.AutoHashMap(*obj.Obj, void).init(vm.gc.allocator),
-        };
-    }
-
-    pub fn deinit(self: *Self) void {
-        self.seen.deinit();
+    pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
+        self.seen.deinit(allocator);
     }
 
     pub fn valueDump(state: *DumpState, value: Value, out: anytype, same_line: bool) void {

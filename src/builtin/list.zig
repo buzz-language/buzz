@@ -216,9 +216,9 @@ pub fn join(ctx: *o.NativeCtx) callconv(.c) c_int {
     const self = o.ObjList.cast(ctx.vm.peek(1).obj()).?;
     const separator = o.ObjString.cast(ctx.vm.peek(0).obj()).?;
 
-    var result = std.array_list.Managed(u8).init(ctx.vm.gc.allocator);
-    var writer = result.writer();
-    defer result.deinit();
+    var result = std.ArrayList(u8).empty;
+    var writer = result.writer(ctx.vm.gc.allocator);
+    defer result.deinit(ctx.vm.gc.allocator);
     for (self.items.items, 0..) |item, i| {
         item.toString(&writer) catch {
             ctx.vm.panic("Out of memory");

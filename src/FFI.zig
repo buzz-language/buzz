@@ -185,13 +185,13 @@ pub const State = struct {
     buzz_ast: ?BuzzAst.Slice = null,
     parser: ?*Parser,
     type_expr: ?[]const u8 = null,
-    structs: std.StringHashMap(*Zdef),
+    structs: std.StringHashMapUnmanaged(*Zdef) = .empty,
 };
 
 gc: *GC,
 reporter: Reporter,
 state: ?State = null,
-type_expr_cache: std.StringHashMap(?*Zdef),
+type_expr_cache: std.StringHashMapUnmanaged(?*Zdef) = .empty,
 
 pub fn init(gc: *GC) Self {
     return .{
@@ -200,12 +200,11 @@ pub fn init(gc: *GC) Self {
             .allocator = gc.allocator,
             .error_prefix = "FFI",
         },
-        .type_expr_cache = .init(gc.allocator),
     };
 }
 
 pub fn deinit(self: *Self) void {
-    self.type_expr_cache.deinit();
+    self.type_expr_cache.deinit(self.gc.allocator);
 }
 
 pub fn parseTypeExpr(self: *Self, ztype: []const u8) !?*Zdef {
@@ -213,10 +212,10 @@ pub fn parseTypeExpr(self: *Self, ztype: []const u8) !?*Zdef {
         return zdef;
     }
 
-    var full = std.array_list.Managed(u8).init(self.gc.allocator);
-    defer full.deinit();
+    var full = std.ArrayList(u8).empty;
+    defer full.deinit(self.gc.allocator);
 
-    full.writer().print("const zig_type: {s};", .{ztype}) catch @panic("Out of memory");
+    full.writer(self.gc.allocator).print("const zig_type: {s};", .{ztype}) catch @panic("Out of memory");
 
     const zdef = try self.parse(
         null,
@@ -227,6 +226,7 @@ pub fn parseTypeExpr(self: *Self, ztype: []const u8) !?*Zdef {
     std.debug.assert(zdef == null or zdef.?.len == 1);
 
     self.type_expr_cache.put(
+        self.gc.allocator,
         ztype,
         if (zdef) |z| z[0] else null,
     ) catch @panic("Out of memory");
@@ -259,10 +259,9 @@ pub fn parse(self: *Self, parser: ?*Parser, source: Ast.TokenIndex, type_expr: ?
             duped,
             .zig,
         ) catch @panic("Could not parse zdef"),
-        .structs = .init(self.gc.allocator),
     };
     defer {
-        self.state.?.structs.deinit();
+        self.state.?.structs.deinit(self.gc.allocator);
         self.state = null;
     }
 
@@ -291,15 +290,15 @@ pub fn parse(self: *Self, parser: ?*Parser, source: Ast.TokenIndex, type_expr: ?
         return null;
     }
 
-    var zdefs = std.array_list.Managed(*Zdef).init(self.gc.allocator);
+    var zdefs = std.ArrayList(*Zdef).empty;
 
     for (root_decls) |decl| {
         if (try self.getZdef(decl)) |zdef| {
-            try zdefs.append(zdef);
+            try zdefs.append(self.gc.allocator, zdef);
         }
     }
 
-    return try zdefs.toOwnedSlice();
+    return try zdefs.toOwnedSlice(self.gc.allocator);
 }
 
 fn getZdef(self: *Self, decl_index: Ast.Node.Index) !?*Zdef {
@@ -345,7 +344,11 @@ fn getZdef(self: *Self, decl_index: Ast.Node.Index) !?*Zdef {
                         ast.simpleVarDecl(decl_index).ast.init_node.unwrap().?,
                     );
 
-                    try self.state.?.structs.put(name, zdef);
+                    try self.state.?.structs.put(
+                        self.gc.allocator,
+                        name,
+                        zdef,
+                    );
 
                     break :var_decl zdef;
                 },
@@ -468,10 +471,10 @@ fn containerDecl(self: *Self, name: []const u8, decl_index: Ast.Node.Index) anye
 }
 
 fn unionContainer(self: *Self, name: []const u8, container: Ast.full.ContainerDecl) anyerror!*Zdef {
-    var fields = std.array_list.Managed(ZigType.UnionField).init(self.gc.allocator);
-    var get_set_fields = std.StringArrayHashMap(o.ObjForeignContainer.ContainerDef.Field).init(self.gc.allocator);
-    var buzz_fields = std.StringArrayHashMap(*o.ObjTypeDef).init(self.gc.allocator);
-    var decls = std.array_list.Managed(ZigType.Declaration).init(self.gc.allocator);
+    var fields = std.ArrayList(ZigType.UnionField).empty;
+    var get_set_fields = std.StringArrayHashMapUnmanaged(o.ObjForeignContainer.ContainerDef.Field).empty;
+    var buzz_fields = std.StringArrayHashMapUnmanaged(*o.ObjTypeDef).empty;
+    var decls = std.ArrayList(ZigType.Declaration).empty;
     var next_field: ?*Zdef = null;
     for (container.ast.members, 0..) |member, idx| {
         const member_zdef = next_field orelse try self.getZdef(member);
@@ -482,6 +485,7 @@ fn unionContainer(self: *Self, name: []const u8, container: Ast.full.ContainerDe
             null;
 
         try fields.append(
+            self.gc.allocator,
             ZigType.UnionField{
                 .name = member_zdef.?.name,
                 .type = &member_zdef.?.zig_type,
@@ -490,17 +494,20 @@ fn unionContainer(self: *Self, name: []const u8, container: Ast.full.ContainerDe
         );
 
         try decls.append(
+            self.gc.allocator,
             ZigType.Declaration{
                 .name = member_zdef.?.name,
             },
         );
 
         try buzz_fields.put(
+            self.gc.allocator,
             member_zdef.?.name,
             member_zdef.?.type_def,
         );
 
         try get_set_fields.put(
+            self.gc.allocator,
             member_zdef.?.name,
             .{
                 // Always 0 since this is an enum
@@ -520,10 +527,10 @@ fn unionContainer(self: *Self, name: []const u8, container: Ast.full.ContainerDe
         },
     };
 
-    var qualified_name = std.array_list.Managed(u8).init(self.gc.allocator);
-    defer qualified_name.deinit();
+    var qualified_name = std.ArrayList(u8).empty;
+    defer qualified_name.deinit(self.gc.allocator);
 
-    try qualified_name.writer().print(
+    try qualified_name.writer(self.gc.allocator).print(
         "{s}.{s}",
         .{
             self.state.?.script,
@@ -557,10 +564,10 @@ fn unionContainer(self: *Self, name: []const u8, container: Ast.full.ContainerDe
 }
 
 fn structContainer(self: *Self, name: []const u8, container: Ast.full.ContainerDecl) anyerror!*Zdef {
-    var fields = std.array_list.Managed(ZigType.StructField).init(self.gc.allocator);
-    var get_set_fields = std.StringArrayHashMap(o.ObjForeignContainer.ContainerDef.Field).init(self.gc.allocator);
-    var buzz_fields = std.StringArrayHashMap(*o.ObjTypeDef).init(self.gc.allocator);
-    var decls = std.array_list.Managed(ZigType.Declaration).init(self.gc.allocator);
+    var fields = std.ArrayList(ZigType.StructField).empty;
+    var get_set_fields = std.StringArrayHashMapUnmanaged(o.ObjForeignContainer.ContainerDef.Field).empty;
+    var buzz_fields = std.StringArrayHashMapUnmanaged(*o.ObjTypeDef).empty;
+    var decls = std.ArrayList(ZigType.Declaration).empty;
     var offset: usize = 0;
     var next_field: ?*Zdef = null;
     for (container.ast.members, 0..) |member, idx| {
@@ -572,6 +579,7 @@ fn structContainer(self: *Self, name: []const u8, container: Ast.full.ContainerD
             null;
 
         try fields.append(
+            self.gc.allocator,
             ZigType.StructField{
                 .name = member_zdef.?.name,
                 .type = &member_zdef.?.zig_type,
@@ -582,17 +590,20 @@ fn structContainer(self: *Self, name: []const u8, container: Ast.full.ContainerD
         );
 
         try decls.append(
+            self.gc.allocator,
             ZigType.Declaration{
                 .name = member_zdef.?.name,
             },
         );
 
         try buzz_fields.put(
+            self.gc.allocator,
             member_zdef.?.name,
             member_zdef.?.type_def,
         );
 
         try get_set_fields.put(
+            self.gc.allocator,
             member_zdef.?.name,
             .{
                 .offset = offset,
@@ -836,7 +847,7 @@ fn fnProto(self: *Self, tag: Ast.Node.Tag, decl_index: Ast.Node.Index) anyerror!
         .function_type = .Extern,
     };
 
-    var parameters_zig_types = std.array_list.Managed(ZigType.FnType.Param).init(self.gc.allocator);
+    var parameters_zig_types = std.ArrayList(ZigType.FnType.Param).empty;
     var zig_fn_type = ZigType.FnType{
         .calling_convention = .c,
         // How could it be something else?
@@ -880,6 +891,7 @@ fn fnProto(self: *Self, tag: Ast.Node.Tag, decl_index: Ast.Node.Index) anyerror!
         );
 
         try parameters_zig_types.append(
+            self.gc.allocator,
             .{
                 .is_generic = false,
                 .is_noalias = false,
@@ -888,7 +900,7 @@ fn fnProto(self: *Self, tag: Ast.Node.Tag, decl_index: Ast.Node.Index) anyerror!
         );
     }
 
-    zig_fn_type.params = try parameters_zig_types.toOwnedSlice();
+    zig_fn_type.params = try parameters_zig_types.toOwnedSlice(self.gc.allocator);
 
     const type_def = o.ObjTypeDef{
         .def_type = .Function,
@@ -906,10 +918,10 @@ fn fnProto(self: *Self, tag: Ast.Node.Tag, decl_index: Ast.Node.Index) anyerror!
 }
 
 fn reportZigError(self: *Self, err: Ast.Error) void {
-    var message = std.array_list.Managed(u8).init(self.gc.allocator);
-    defer message.deinit();
+    var message = std.ArrayList(u8).empty;
+    defer message.deinit(self.gc.allocator);
 
-    message.writer().print("zdef could not be parsed: {}", .{err.tag}) catch unreachable;
+    message.writer(self.gc.allocator).print("zdef could not be parsed: {}", .{err.tag}) catch unreachable;
 
     const location = self.state.?.buzz_ast.?.tokens.get(self.state.?.source);
     self.reporter.report(
