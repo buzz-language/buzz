@@ -3,7 +3,6 @@ const assert = std.debug.assert;
 const builtin = @import("builtin");
 const Ast = @import("Ast.zig");
 const Token = @import("Token.zig");
-const WriteableArrayList = @import("writeable_array_list.zig").WriteableArrayList;
 
 pub const Renderer = struct {
     const Self = @This();
@@ -189,7 +188,7 @@ pub const Renderer = struct {
             try self.renderToken(token, if (is_last) space else .None);
 
             if (!is_last) {
-                try self.ais.writer().writeByte('\\');
+                try self.ais.writeByte('\\');
             }
         }
     }
@@ -252,14 +251,14 @@ pub const Renderer = struct {
         const lexeme = self.ast.tokens.items(.lexeme)[token];
 
         if (self.ast.tokens.items(.tag)[token] == .Identifier and isAtIdentifier(lexeme)) {
-            try self.ais.writer().print(
+            try self.ais.print(
                 "@\"{s}\"",
                 .{
                     lexeme,
                 },
             );
         } else {
-            try self.ais.writer().writeAll(lexeme);
+            try self.ais.writeAll(lexeme);
         }
 
         try self.renderSpace(
@@ -315,7 +314,7 @@ pub const Renderer = struct {
 
         const next_token_tag = self.ast.tokens.items(.tag)[next_token];
         if (space == .Comma and next_token_tag != .Comma) {
-            try self.ais.writer().writeByte(',');
+            try self.ais.writeByte(',');
         }
 
         if (space == .Semicolon or space == .Comma) self.ais.enableSpaceMode(space);
@@ -352,7 +351,7 @@ pub const Renderer = struct {
 
         switch (space) {
             .None => {},
-            .Space => if (!comment) try self.ais.writer().writeByte(' '),
+            .Space => if (!comment) try self.ais.writeByte(' '),
             .Newline => if (!comment) try self.ais.insertNewline(),
 
             .Comma => if (next_token_tag == .Comma) {
@@ -364,7 +363,7 @@ pub const Renderer = struct {
             .CommaSpace => if (next_token_tag == .Comma) {
                 try self.renderToken(next_token, .Space);
             } else if (!comment) {
-                try self.ais.writer().writeByte(' ');
+                try self.ais.writeByte(' ');
             },
 
             .Semicolon => if (next_token_tag == .Semicolon) {
@@ -376,7 +375,7 @@ pub const Renderer = struct {
             .SemicolonSpace => if (next_token_tag == .Semicolon) {
                 try self.renderToken(next_token, .Space);
             } else if (!comment) {
-                try self.ais.writer().writeByte(' ');
+                try self.ais.writeByte(' ');
             },
 
             .Skip => unreachable,
@@ -412,7 +411,7 @@ pub const Renderer = struct {
                 } else if (index == start and comment.len > 0) {
                     // Otherwise if the first comment is on the same line as
                     // the token before it, prefix it with a single space.
-                    try self.ais.writer().writeByte(' ');
+                    try self.ais.writeByte(' ');
                 }
             }
 
@@ -428,11 +427,11 @@ pub const Renderer = struct {
                 self.ais.disabled_offset = null;
             } else if (self.ais.disabled_offset == null and std.mem.eql(u8, comment, "buzz fmt: off")) {
                 // Write with the canonical single space.
-                try self.ais.writer().writeAll("// buzz fmt: off\n");
+                try self.ais.writeAll("// buzz fmt: off\n");
                 self.ais.disabled_offset = index;
             } else {
                 // Write the comment minus trailing whitespace.
-                try self.ais.writer().print(
+                try self.ais.print(
                     "//{s}{s}\n",
                     .{
                         if (comment.len > 1 and !std.mem.startsWith(u8, comment, " "))
@@ -1040,12 +1039,12 @@ pub const Renderer = struct {
         };
 
         if (string_literal.delimiter == '`') {
-            var buffer = WriteableArrayList(u8).init(self.allocator);
+            var buffer = std.Io.Writer.Allocating.init(self.allocator);
             defer buffer.deinit();
 
             try formatter.format(&buffer.writer);
 
-            try self.ais.writeFixingWhitespace(buffer.list.items);
+            try self.ais.writeFixingWhitespace(buffer.written());
         } else {
             try formatter.format(self.ais.underlying_writer);
         }
@@ -1064,22 +1063,22 @@ pub const Renderer = struct {
         const string_lexeme = self.ast.tokens.items(.lexeme)[locations[node]];
 
         // " or `
-        try self.ais.writer().writeAll(string_lexeme[0..1]);
+        try self.ais.writeAll(string_lexeme[0..1]);
 
         for (self.ast.nodes.items(.components)[node].String) |part| {
             if (tags[part] != .StringLiteral) {
-                try self.ais.writer().writeByte('{');
+                try self.ais.writeByte('{');
 
                 try self.renderNode(part, .None);
 
-                try self.ais.writer().writeByte('}');
+                try self.ais.writeByte('}');
             } else {
                 try self.renderNode(part, .None);
             }
         }
 
         // " or `
-        try self.ais.writer().writeByte(string_lexeme[string_lexeme.len - 1]);
+        try self.ais.writeByte(string_lexeme[string_lexeme.len - 1]);
         try self.renderSpace(
             locations[node],
             string_lexeme.len,
@@ -3477,13 +3476,6 @@ pub const Renderer = struct {
     const AutoIndentingStream = struct {
         const SelfAis = @This();
 
-        pub const WriteError = std.io.Writer.Error;
-        pub const Writer = std.io.GenericWriter(
-            *SelfAis,
-            WriteError,
-            write,
-        );
-
         pub const IndentType = enum {
             normal,
             after_equals,
@@ -3530,13 +3522,26 @@ pub const Renderer = struct {
             self.space_stack.deinit(allocator);
         }
 
-        pub fn writer(self: *SelfAis) Writer {
-            return .{ .context = self };
-        }
-
         pub fn write(self: *SelfAis, bytes: []const u8) std.Io.Writer.Error!usize {
             try self.applyIndent();
             return try self.writeNoIndent(bytes);
+        }
+
+        pub fn writeByte(self: *SelfAis, byte: u8) std.Io.Writer.Error!void {
+            _ = try self.write(&.{byte});
+        }
+
+        pub fn print(self: *SelfAis, comptime fmt: []const u8, args: anytype) std.Io.Writer.Error!void {
+            try self.applyIndent();
+            if (self.disabled_offset == null) try self.underlying_writer.print(fmt, args);
+            if (fmt[fmt.len - 1] == '\n') self.resetLine();
+        }
+
+        pub fn writeAll(self: *SelfAis, bytes: []const u8) Error!void {
+            if (bytes.len == 0) return;
+            try self.applyIndent();
+            if (self.disabled_offset == null) try self.underlying_writer.writeAll(bytes);
+            if (bytes[bytes.len - 1] == '\n') self.resetLine();
         }
 
         // Change the indent delta without changing the final indentation level

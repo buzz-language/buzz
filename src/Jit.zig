@@ -20,6 +20,7 @@ pub const Error = error{
     UnwrappedNull,
     OutOfBound,
     ReachedMaximumMemoryUsage,
+    WriteFailed,
 } || std.mem.Allocator.Error || std.fmt.BufPrintError;
 
 const OptJump = struct {
@@ -5140,16 +5141,16 @@ fn getQualifiedName(self: *Self, node: Ast.Node.Index, raw: bool) ![]const u8 {
             const function_type = function_def.function_type;
             const name = function_def.name.string;
 
-            var qualified_name = std.ArrayList(u8){};
+            var qualified_name = std.Io.Writer.Allocating.init(self.vm.gc.allocator);
 
-            try qualified_name.appendSlice(self.vm.gc.allocator, name);
+            try qualified_name.writer.writeAll(name);
 
             // Main and script are not allowed to be compiled
             std.debug.assert(function_type != .ScriptEntryPoint and function_type != .Script);
 
             // Don't qualify extern functions
             if (function_type != .Extern) {
-                try qualified_name.writer(self.vm.gc.allocator).print(
+                try qualified_name.writer.print(
                     ".{}.n{}",
                     .{
                         components.id,
@@ -5158,20 +5159,20 @@ fn getQualifiedName(self: *Self, node: Ast.Node.Index, raw: bool) ![]const u8 {
                 );
             }
             if (function_type != .Extern and raw) {
-                try qualified_name.appendSlice(self.vm.gc.allocator, ".raw");
+                try qualified_name.writer.writeAll(".raw");
             }
-            try qualified_name.append(self.vm.gc.allocator, 0);
+            try qualified_name.writer.writeByte(0);
 
-            return qualified_name.toOwnedSlice(self.vm.gc.allocator);
+            return qualified_name.toOwnedSlice();
         },
 
         .For,
         .ForEach,
         .While,
         => {
-            var qualified_name = std.ArrayList(u8){};
+            var qualified_name = std.Io.Writer.Allocating.init(self.vm.gc.allocator);
 
-            try qualified_name.writer(self.vm.gc.allocator).print(
+            try qualified_name.writer.print(
                 "{s}#{d}\x00",
                 .{
                     @tagName(tag),
@@ -5179,7 +5180,7 @@ fn getQualifiedName(self: *Self, node: Ast.Node.Index, raw: bool) ![]const u8 {
                 },
             );
 
-            return qualified_name.toOwnedSlice(self.vm.gc.allocator);
+            return qualified_name.toOwnedSlice();
         },
 
         else => {
@@ -5198,12 +5199,20 @@ fn getQualifiedName(self: *Self, node: Ast.Node.Index, raw: bool) ![]const u8 {
 }
 
 pub fn compileZdefContainer(self: *Self, ast: Ast.Slice, zdef_element: Ast.Zdef.ZdefElement) Error!void {
-    var wrapper_name = std.ArrayList(u8){};
-    defer wrapper_name.deinit(self.vm.gc.allocator);
+    var wrapper_name = std.Io.Writer.Allocating.init(self.vm.gc.allocator);
+    defer wrapper_name.deinit();
 
-    try wrapper_name.writer(self.vm.gc.allocator).print("zdef_{s}\x00", .{zdef_element.zdef.name});
+    try wrapper_name.writer.print(
+        "zdef_{s}\x00",
+        .{
+            zdef_element.zdef.name,
+        },
+    );
 
-    const module = m.MIR_new_module(self.ctx, @ptrCast(wrapper_name.items.ptr));
+    const module = m.MIR_new_module(
+        self.ctx,
+        @ptrCast(wrapper_name.written().ptr),
+    );
     defer m.MIR_finish_module(self.ctx);
 
     if (BuildOptions.jit_debug) {
@@ -5477,10 +5486,10 @@ fn buildZigValueToBuzzValue(self: *Self, buzz_type: *o.ObjTypeDef, zig_type: Zig
 }
 
 pub fn compileZdef(self: *Self, buzz_ast: Ast.Slice, zdef: Ast.Zdef.ZdefElement) Error!*o.ObjNative {
-    var wrapper_name = std.ArrayList(u8){};
-    defer wrapper_name.deinit(self.vm.gc.allocator);
+    var wrapper_name = std.Io.Writer.Allocating.init(self.vm.gc.allocator);
+    defer wrapper_name.deinit();
 
-    try wrapper_name.writer(self.vm.gc.allocator).print("zdef_{s}\x00", .{zdef.zdef.name});
+    try wrapper_name.writer.print("zdef_{s}\x00", .{zdef.zdef.name});
 
     const dupped_symbol = self.vm.gc.allocator.dupeZ(u8, zdef.zdef.name) catch {
         self.vm.panic("Out of memory");
@@ -5488,7 +5497,7 @@ pub fn compileZdef(self: *Self, buzz_ast: Ast.Slice, zdef: Ast.Zdef.ZdefElement)
     };
     defer self.vm.gc.allocator.free(dupped_symbol);
 
-    const module = m.MIR_new_module(self.ctx, @ptrCast(wrapper_name.items.ptr));
+    const module = m.MIR_new_module(self.ctx, @ptrCast(wrapper_name.written().ptr));
     defer m.MIR_finish_module(self.ctx);
 
     if (BuildOptions.jit_debug) {
@@ -5516,7 +5525,7 @@ pub fn compileZdef(self: *Self, buzz_ast: Ast.Slice, zdef: Ast.Zdef.ZdefElement)
     // Build wrapper
     const wrapper_item = try self.buildZdefWrapper(zdef);
 
-    _ = m.MIR_new_export(self.ctx, @ptrCast(wrapper_name.items.ptr));
+    _ = m.MIR_new_export(self.ctx, @ptrCast(wrapper_name.written().ptr));
 
     if (BuildOptions.jit_debug) {
         self.outputModule(zdef.zdef.name, module);
@@ -5607,15 +5616,15 @@ fn zigToMIRRegType(zig_type: ZigType) m.MIR_type_t {
 }
 
 fn buildZdefWrapper(self: *Self, zdef_element: Ast.Zdef.ZdefElement) Error!m.MIR_item_t {
-    var wrapper_name = std.ArrayList(u8){};
-    defer wrapper_name.deinit(self.vm.gc.allocator);
+    var wrapper_name = std.Io.Writer.Allocating.init(self.vm.gc.allocator);
+    defer wrapper_name.deinit();
 
-    try wrapper_name.writer(self.vm.gc.allocator).print("zdef_{s}\x00", .{zdef_element.zdef.name});
+    try wrapper_name.writer.print("zdef_{s}\x00", .{zdef_element.zdef.name});
 
-    var wrapper_protocol_name = std.ArrayList(u8){};
-    defer wrapper_protocol_name.deinit(self.vm.gc.allocator);
+    var wrapper_protocol_name = std.Io.Writer.Allocating.init(self.vm.gc.allocator);
+    defer wrapper_protocol_name.deinit();
 
-    try wrapper_protocol_name.writer(self.vm.gc.allocator).print("p_zdef_{s}\x00", .{zdef_element.zdef.name});
+    try wrapper_protocol_name.writer.print("p_zdef_{s}\x00", .{zdef_element.zdef.name});
 
     const dupped_symbol = self.vm.gc.allocator.dupeZ(u8, zdef_element.zdef.name) catch {
         self.vm.panic("Out of memory");
@@ -5631,7 +5640,7 @@ fn buildZdefWrapper(self: *Self, zdef_element: Ast.Zdef.ZdefElement) Error!m.MIR
     defer self.vm.gc.allocator.free(ctx_name);
     const function = m.MIR_new_func_arr(
         self.ctx,
-        @ptrCast(wrapper_name.items.ptr),
+        @ptrCast(wrapper_name.written().ptr),
         1,
         &[_]m.MIR_type_t{m.MIR_T_U64},
         1,
@@ -5731,7 +5740,7 @@ fn buildZdefWrapper(self: *Self, zdef_element: Ast.Zdef.ZdefElement) Error!m.MIR
             self.ctx,
             m.MIR_new_proto_arr(
                 self.ctx,
-                @ptrCast(wrapper_protocol_name.items.ptr),
+                @ptrCast(wrapper_protocol_name.written().ptr),
                 if (return_mir_type != null) 1 else 0,
                 if (return_mir_type) |rmt| &[_]m.MIR_type_t{rmt} else null,
                 arg_types.items.len,
@@ -5823,10 +5832,10 @@ fn buildZdefUnionGetter(
     buzz_type: *o.ObjTypeDef,
     zig_type: *const ZigType,
 ) Error!m.MIR_item_t {
-    var getter_name = std.ArrayList(u8){};
-    defer getter_name.deinit(self.vm.gc.allocator);
+    var getter_name = std.Io.Writer.Allocating.init(self.vm.gc.allocator);
+    defer getter_name.deinit();
 
-    try getter_name.writer(self.vm.gc.allocator).print(
+    try getter_name.writer.print(
         "zdef_union_{s}_{s}_getter\x00",
         .{
             union_name,
@@ -5847,7 +5856,7 @@ fn buildZdefUnionGetter(
     defer self.vm.gc.allocator.free(data_name);
     const function = m.MIR_new_func_arr(
         self.ctx,
-        @ptrCast(getter_name.items.ptr),
+        @ptrCast(getter_name.written().ptr),
         1,
         &[_]m.MIR_type_t{m.MIR_T_U64},
         2,
@@ -5921,7 +5930,7 @@ fn buildZdefUnionGetter(
 
     m.MIR_finish_func(self.ctx);
 
-    _ = m.MIR_new_export(self.ctx, @ptrCast(getter_name.items.ptr));
+    _ = m.MIR_new_export(self.ctx, @ptrCast(getter_name.written().ptr));
 
     return function;
 }
@@ -5933,10 +5942,10 @@ fn buildZdefUnionSetter(
     buzz_type: *o.ObjTypeDef,
     zig_type: *const ZigType,
 ) Error!m.MIR_item_t {
-    var setter_name = std.ArrayList(u8){};
-    defer setter_name.deinit(self.vm.gc.allocator);
+    var setter_name = std.Io.Writer.Allocating.init(self.vm.gc.allocator);
+    defer setter_name.deinit();
 
-    try setter_name.writer(self.vm.gc.allocator).print(
+    try setter_name.writer.print(
         "zdef_union_{s}_{s}_setter\x00",
         .{
             union_name,
@@ -5962,7 +5971,7 @@ fn buildZdefUnionSetter(
     defer self.vm.gc.allocator.free(new_value_name);
     const function = m.MIR_new_func_arr(
         self.ctx,
-        @ptrCast(setter_name.items.ptr),
+        @ptrCast(setter_name.written().ptr),
         0,
         null,
         3,
@@ -6036,7 +6045,7 @@ fn buildZdefUnionSetter(
 
     m.MIR_finish_func(self.ctx);
 
-    _ = m.MIR_new_export(self.ctx, @ptrCast(setter_name.items.ptr));
+    _ = m.MIR_new_export(self.ctx, @ptrCast(setter_name.written().ptr));
 
     return function;
 }
@@ -6049,10 +6058,10 @@ fn buildZdefContainerGetter(
     buzz_type: *o.ObjTypeDef,
     zig_type: *const ZigType,
 ) Error!m.MIR_item_t {
-    var getter_name = std.ArrayList(u8){};
-    defer getter_name.deinit(self.vm.gc.allocator);
+    var getter_name = std.Io.Writer.Allocating.init(self.vm.gc.allocator);
+    defer getter_name.deinit();
 
-    try getter_name.writer(self.vm.gc.allocator).print(
+    try getter_name.writer.print(
         "zdef_struct_{s}_{s}_getter\x00",
         .{
             struct_name,
@@ -6073,7 +6082,7 @@ fn buildZdefContainerGetter(
     defer self.vm.gc.allocator.free(data_name);
     const function = m.MIR_new_func_arr(
         self.ctx,
-        @ptrCast(getter_name.items.ptr),
+        @ptrCast(getter_name.written().ptr),
         1,
         &[_]m.MIR_type_t{m.MIR_T_U64},
         2,
@@ -6130,7 +6139,7 @@ fn buildZdefContainerGetter(
 
     m.MIR_finish_func(self.ctx);
 
-    _ = m.MIR_new_export(self.ctx, @ptrCast(getter_name.items.ptr));
+    _ = m.MIR_new_export(self.ctx, @ptrCast(getter_name.written().ptr));
 
     return function;
 }
@@ -6143,10 +6152,10 @@ fn buildZdefContainerSetter(
     buzz_type: *o.ObjTypeDef,
     zig_type: *const ZigType,
 ) Error!m.MIR_item_t {
-    var setter_name = std.ArrayList(u8){};
-    defer setter_name.deinit(self.vm.gc.allocator);
+    var setter_name = std.Io.Writer.Allocating.init(self.vm.gc.allocator);
+    defer setter_name.deinit();
 
-    try setter_name.writer(self.vm.gc.allocator).print(
+    try setter_name.writer.print(
         "zdef_struct_{s}_{s}_setter\x00",
         .{
             struct_name,
@@ -6172,7 +6181,7 @@ fn buildZdefContainerSetter(
     defer self.vm.gc.allocator.free(new_value_name);
     const function = m.MIR_new_func_arr(
         self.ctx,
-        @ptrCast(setter_name.items.ptr),
+        @ptrCast(setter_name.written().ptr),
         0,
         null,
         3,
@@ -6225,7 +6234,7 @@ fn buildZdefContainerSetter(
 
     m.MIR_finish_func(self.ctx);
 
-    _ = m.MIR_new_export(self.ctx, @ptrCast(setter_name.items.ptr));
+    _ = m.MIR_new_export(self.ctx, @ptrCast(setter_name.written().ptr));
 
     return function;
 }
@@ -7116,21 +7125,21 @@ inline fn BEND(self: *Self, from: m.MIR_reg_t) void {
 }
 
 fn REG(self: *Self, name: [*:0]const u8, reg_type: m.MIR_type_t) !m.MIR_reg_t {
-    var actual_name = std.ArrayList(u8){};
-    defer actual_name.deinit(self.vm.gc.allocator);
+    var actual_name = std.Io.Writer.Allocating.init(self.vm.gc.allocator);
+    defer actual_name.deinit();
 
     const count = self.state.?.registers.get(name) orelse 0;
     if (count > 0) {
-        try actual_name.writer(self.vm.gc.allocator).print("{s}{d}\u{0}", .{ name, count + 1 });
+        try actual_name.writer.print("{s}{d}\u{0}", .{ name, count + 1 });
     } else {
-        try actual_name.writer(self.vm.gc.allocator).print("{s}\u{0}", .{name});
+        try actual_name.writer.print("{s}\u{0}", .{name});
     }
 
     const reg = m.MIR_new_func_reg(
         self.ctx,
         self.state.?.function.?.u.func,
         reg_type,
-        @ptrCast(actual_name.items.ptr),
+        @ptrCast(actual_name.written().ptr),
     );
 
     try self.state.?.registers.put(
@@ -7144,10 +7153,10 @@ fn REG(self: *Self, name: [*:0]const u8, reg_type: m.MIR_type_t) !m.MIR_reg_t {
 
 fn outputModule(self: *Self, name: []const u8, module: m.MIR_module_t) void {
     // Output MIR code to .mir file
-    var debug_path = std.ArrayList(u8){};
-    defer debug_path.deinit(self.vm.gc.allocator);
+    var debug_path = std.Io.Writer.Allocating.init(self.vm.gc.allocator);
+    defer debug_path.deinit();
 
-    debug_path.writer(self.vm.gc.allocator).print(
+    debug_path.writer.print(
         "./dist/gen/{s}.mod.mir\x00",
         .{
             name,
@@ -7155,7 +7164,7 @@ fn outputModule(self: *Self, name: []const u8, module: m.MIR_module_t) void {
     ) catch unreachable;
 
     const debug_file = std.c.fopen(
-        @ptrCast(debug_path.items.ptr),
+        @ptrCast(debug_path.written().ptr),
         "w",
     ).?;
     defer _ = std.c.fclose(debug_file);

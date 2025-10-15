@@ -1497,14 +1497,14 @@ export fn bz_zigTypeAlignment(self: *ZigType) callconv(.c) u16 {
 }
 
 export fn bz_zigTypeToCString(self: *ZigType, vm: *VM) callconv(.c) [*:0]const u8 {
-    var out = std.ArrayList(u8).empty;
+    var out = std.Io.Writer.Allocating.init(vm.gc.allocator);
 
-    out.writer(vm.gc.allocator).print("{}\x00", .{self.*}) catch {
+    out.writer.print("{}\x00", .{self.*}) catch {
         vm.panic("Out of memory");
         unreachable;
     };
 
-    return @ptrCast(out.items.ptr);
+    return @ptrCast(out.written().ptr);
 }
 
 export fn bz_serialize(vm: *VM, value: v.Value, error_value: *v.Value) callconv(.c) v.Value {

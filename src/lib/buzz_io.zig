@@ -56,10 +56,11 @@ const File = struct {
 
         self.reader_buffer = try allocator.alloc(u8, 255);
         self.io_reader = self.file.reader(self.reader_buffer.?);
-        self.reader = .{
-            .reader = &self.io_reader.?.interface,
-            .max_size = max_size,
-        };
+        self.reader = .init(
+            api.VM.allocator,
+            &self.io_reader.?.interface,
+            max_size,
+        );
 
         return &self.reader.?;
     }
@@ -253,13 +254,13 @@ pub export fn FileReadAll(ctx: *api.NativeCtx) callconv(.c) c_int {
         unreachable;
     };
 
-    const content = reader.readAll(api.VM.allocator) catch |err| {
+    const content = reader.readAll() catch |err| {
         switch (err) {
             error.ReadFailed => {
                 ctx.vm.pushErrorEnum("errors.ReadWriteError", @errorName(err));
                 return -1;
             },
-            error.OutOfMemory => {
+            error.OutOfMemory, error.WriteFailed => {
                 ctx.vm.bz_panic("Out of memory", "Out of memory".len);
                 unreachable;
             },
@@ -291,13 +292,13 @@ pub export fn FileReadLine(ctx: *api.NativeCtx) callconv(.c) c_int {
         unreachable;
     };
 
-    if (reader.readUntilDelimiterOrEof(api.VM.allocator, '\n') catch |err| {
+    if (reader.readUntilDelimiterOrEof('\n') catch |err| {
         switch (err) {
             error.ReadFailed => {
                 ctx.vm.pushErrorEnum("errors.ReadWriteError", @errorName(err));
                 return -1;
             },
-            error.OutOfMemory => {
+            error.OutOfMemory, error.WriteFailed => {
                 ctx.vm.bz_panic("Out of memory", "Out of memory".len);
                 unreachable;
             },
@@ -333,13 +334,13 @@ pub export fn FileRead(ctx: *api.NativeCtx) callconv(.c) c_int {
         unreachable;
     };
 
-    const content = reader.readN(api.VM.allocator, @intCast(n)) catch |err| {
+    const content = reader.readN(@intCast(n)) catch |err| {
         switch (err) {
             error.ReadFailed => {
                 ctx.vm.pushErrorEnum("errors.ReadWriteError", @errorName(err));
                 return -1;
             },
-            error.OutOfMemory => {
+            error.OutOfMemory, error.WriteFailed => {
                 ctx.vm.bz_panic("Out of memory", "Out of memory".len);
                 unreachable;
             },
@@ -415,12 +416,12 @@ const FileEnum = enum {
 pub export fn FileGetPoller(ctx: *api.NativeCtx) callconv(.c) c_int {
     const file = File.fromUserData(ctx.vm.bz_peek(0).bz_getUserDataPtr());
 
-    const poller = api.VM.allocator.create(std.io.Poller(FileEnum)) catch {
+    const poller = api.VM.allocator.create(std.Io.Poller(FileEnum)) catch {
         ctx.vm.bz_panic("Out of memory", "Out of memory".len);
         unreachable;
     };
 
-    poller.* = std.io.poll(
+    poller.* = std.Io.poll(
         api.VM.allocator,
         FileEnum,
         .{ .file = file.file },
@@ -435,7 +436,7 @@ pub export fn FileGetPoller(ctx: *api.NativeCtx) callconv(.c) c_int {
     return 1;
 }
 
-fn pollerFromUserData(userdata: u64) *std.io.Poller(FileEnum) {
+fn pollerFromUserData(userdata: u64) *std.Io.Poller(FileEnum) {
     return @ptrCast(@alignCast(@as(*anyopaque, @ptrFromInt(@as(usize, @truncate(userdata))))));
 }
 
@@ -465,16 +466,19 @@ pub export fn PollerPoll(ctx: *api.NativeCtx) callconv(.c) c_int {
 
     if (got_something) {
         const poll_reader = poller.reader(.file);
-        var reader = io.AllocatedReader{
-            .reader = poll_reader,
-        };
-        const read = reader.readAll(api.VM.allocator) catch |err| {
+        var reader = io.AllocatedReader.init(
+            api.VM.allocator,
+            poll_reader,
+            null,
+        );
+
+        const read = reader.readAll() catch |err| {
             switch (err) {
                 error.ReadFailed => {
                     ctx.vm.pushErrorEnum("errors.ReadWriteError", @errorName(err));
                     return -1;
                 },
-                error.OutOfMemory => {
+                error.OutOfMemory, error.WriteFailed => {
                     ctx.vm.bz_panic("Out of memory", "Out of memory".len);
                     unreachable;
                 },
@@ -565,17 +569,19 @@ pub export fn runFile(ctx: *api.NativeCtx) callconv(.c) c_int {
 
     var reader_buffer = [_]u8{0};
     var file_reader = file.reader(reader_buffer[0..]);
-    var reader = io.AllocatedReader{
-        .reader = &file_reader.interface,
-    };
+    var reader = io.AllocatedReader.init(
+        api.VM.allocator,
+        &file_reader.interface,
+        null,
+    );
 
-    const source = reader.readAll(api.VM.allocator) catch |err| {
+    const source = reader.readAll() catch |err| {
         switch (err) {
             error.ReadFailed => {
                 ctx.vm.pushErrorEnum("errors.ReadWriteError", @errorName(err));
                 return -1;
             },
-            error.OutOfMemory => {
+            error.WriteFailed, error.OutOfMemory => {
                 ctx.vm.bz_panic("Out of memory", "Out of memory".len);
                 unreachable;
             },

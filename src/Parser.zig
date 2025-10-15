@@ -446,6 +446,7 @@ pub const Error = error{
     UnwrappedNull,
     OutOfBound,
     ReachedMaximumMemoryUsage,
+    WriteFailed,
 } || std.mem.Allocator.Error || std.fmt.BufPrintError || CompileError;
 
 const ParseFn = *const fn (*Self, bool) Error!Ast.Node.Index;
@@ -3474,14 +3475,14 @@ fn parseObjType(self: *Self, generic_types: ?std.AutoArrayHashMapUnmanaged(*obj.
 
     const qualifier = try std.mem.replaceOwned(u8, self.gc.allocator, self.script_name, "/", ".");
     defer self.gc.allocator.free(qualifier);
-    var qualified_name = std.ArrayList(u8).empty;
-    defer qualified_name.deinit(self.gc.allocator);
-    try qualified_name.writer(self.gc.allocator).print("{s}.anonymous", .{qualifier});
+    var qualified_name = std.Io.Writer.Allocating.init(self.gc.allocator);
+    defer qualified_name.deinit();
+    try qualified_name.writer.print("{s}.anonymous", .{qualifier});
 
     const object_def = obj.ObjObject.ObjectDef.init(
         start_location,
         try self.gc.copyString("anonymous"),
-        try self.gc.copyString(qualified_name.items),
+        try self.gc.copyString(qualified_name.written()),
         true,
     );
 
@@ -4576,16 +4577,22 @@ fn anonymousObjectInit(self: *Self, _: bool) Error!Ast.Node.Index {
     const start_location = self.current_token.? - 1;
     try self.consume(.LeftBrace, "Expected `{` after `.`");
 
-    const qualifier = try std.mem.replaceOwned(u8, self.gc.allocator, self.script_name, "/", ".");
+    const qualifier = try std.mem.replaceOwned(
+        u8,
+        self.gc.allocator,
+        self.script_name,
+        "/",
+        ".",
+    );
     defer self.gc.allocator.free(qualifier);
-    var qualified_name = std.ArrayList(u8).empty;
-    defer qualified_name.deinit(self.gc.allocator);
-    try qualified_name.writer(self.gc.allocator).print("{s}.anonymous", .{qualifier});
+    var qualified_name = std.Io.Writer.Allocating.init(self.gc.allocator);
+    defer qualified_name.deinit();
+    try qualified_name.writer.print("{s}.anonymous", .{qualifier});
 
     const object_def = obj.ObjObject.ObjectDef.init(
         start_location,
         try self.gc.copyString("anonymous"),
-        try self.gc.copyString(qualified_name.items),
+        try self.gc.copyString(qualified_name.written()),
         true,
     );
 
@@ -7343,9 +7350,9 @@ fn objectDeclaration(self: *Self) Error!Ast.Node.Index {
     // Qualified name to avoid cross script collision
     const qualifier = try std.mem.replaceOwned(u8, self.gc.allocator, self.script_name, "/", "\\");
     defer self.gc.allocator.free(qualifier);
-    var qualified_object_name = std.ArrayList(u8).empty;
-    defer qualified_object_name.deinit(self.gc.allocator);
-    try qualified_object_name.writer(self.gc.allocator).print(
+    var qualified_object_name = std.Io.Writer.Allocating.init(self.gc.allocator);
+    defer qualified_object_name.deinit();
+    try qualified_object_name.writer.print(
         "{s}.{s}",
         .{
             qualifier,
@@ -7360,7 +7367,7 @@ fn objectDeclaration(self: *Self) Error!Ast.Node.Index {
     var object_def = obj.ObjObject.ObjectDef.init(
         object_name_token,
         try self.gc.copyString(object_name_lexeme),
-        try self.gc.copyString(qualified_object_name.items),
+        try self.gc.copyString(qualified_object_name.written()),
         false,
     );
 
@@ -7828,9 +7835,9 @@ fn protocolDeclaration(self: *Self) Error!Ast.Node.Index {
     // Qualified name to avoid cross script collision
     const qualifier = try std.mem.replaceOwned(u8, self.gc.allocator, self.script_name, "/", "\\");
     defer self.gc.allocator.free(qualifier);
-    var qualified_protocol_name = std.ArrayList(u8).empty;
-    defer qualified_protocol_name.deinit(self.gc.allocator);
-    try qualified_protocol_name.writer(self.gc.allocator).print(
+    var qualified_protocol_name = std.Io.Writer.Allocating.init(self.gc.allocator);
+    defer qualified_protocol_name.deinit();
+    try qualified_protocol_name.writer.print(
         "{s}.{s}",
         .{
             qualifier,
@@ -7849,7 +7856,7 @@ fn protocolDeclaration(self: *Self) Error!Ast.Node.Index {
             .Protocol = obj.ObjObject.ProtocolDef.init(
                 protocol_name,
                 try self.gc.copyString(self.ast.tokens.items(.lexeme)[protocol_name]),
-                try self.gc.copyString(qualified_protocol_name.items),
+                try self.gc.copyString(qualified_protocol_name.written()),
             ),
         },
     };
@@ -8002,9 +8009,9 @@ fn enumDeclaration(self: *Self) Error!Ast.Node.Index {
     // Qualified name to avoid cross script collision
     const qualifier = try std.mem.replaceOwned(u8, self.gc.allocator, self.script_name, "/", ".");
     defer self.gc.allocator.free(qualifier);
-    var qualified_name = std.ArrayList(u8).empty;
-    defer qualified_name.deinit(self.gc.allocator);
-    try qualified_name.writer(self.gc.allocator).print(
+    var qualified_name = std.Io.Writer.Allocating.init(self.gc.allocator);
+    defer qualified_name.deinit();
+    try qualified_name.writer.print(
         "{s}.{s}",
         .{ qualifier, enum_name_lexeme },
     );
@@ -8012,7 +8019,7 @@ fn enumDeclaration(self: *Self) Error!Ast.Node.Index {
     const enum_def = obj.ObjEnum.EnumDef{
         .name = try self.gc.copyString(enum_name_lexeme),
         .location = enum_name,
-        .qualified_name = try self.gc.copyString(qualified_name.items),
+        .qualified_name = try self.gc.copyString(qualified_name.written()),
         .enum_type = enum_case_type,
         .cases = undefined,
         .cases_locations = undefined,
@@ -8539,9 +8546,9 @@ fn searchLibPaths(self: *Self, file_name: []const u8) ![][]const u8 {
     }
 
     for (user_library_paths orelse &[_][]const u8{}) |path| {
-        var filled = std.ArrayList(u8).empty;
+        var filled = std.Io.Writer.Allocating.init(self.gc.allocator);
 
-        try filled.writer(self.gc.allocator).print(
+        try filled.writer.print(
             "{s}{s}{s}.{s}",
             .{
                 path,
@@ -8561,11 +8568,11 @@ fn searchLibPaths(self: *Self, file_name: []const u8) ![][]const u8 {
             },
         );
 
-        try paths.append(self.gc.allocator, try filled.toOwnedSlice(self.gc.allocator));
+        try paths.append(self.gc.allocator, try filled.toOwnedSlice());
 
-        var prefixed_filled = std.ArrayList(u8).empty;
+        var prefixed_filled = std.Io.Writer.Allocating.init(self.gc.allocator);
 
-        try prefixed_filled.writer(self.gc.allocator).print(
+        try prefixed_filled.writer.print(
             "{s}{s}lib{s}.{s}",
             .{
                 path,
@@ -8587,7 +8594,7 @@ fn searchLibPaths(self: *Self, file_name: []const u8) ![][]const u8 {
 
         try paths.append(
             self.gc.allocator,
-            try prefixed_filled.toOwnedSlice(self.gc.allocator),
+            try prefixed_filled.toOwnedSlice(),
         );
     }
 
@@ -8628,9 +8635,9 @@ fn searchZdefLibPaths(self: *Self, file_name: []const u8) ![][]const u8 {
     }
 
     for (Self.user_library_paths orelse &[_][]const u8{}) |path| {
-        var filled = std.ArrayList(u8).empty;
+        var filled = std.Io.Writer.Allocating.init(self.gc.allocator);
 
-        try filled.writer(self.gc.allocator).print(
+        try filled.writer.print(
             "{s}{s}{s}.{s}",
             .{
                 path,
@@ -8650,11 +8657,11 @@ fn searchZdefLibPaths(self: *Self, file_name: []const u8) ![][]const u8 {
             },
         );
 
-        try paths.append(self.gc.allocator, try filled.toOwnedSlice(self.gc.allocator));
+        try paths.append(self.gc.allocator, try filled.toOwnedSlice());
 
-        var prefixed_filled = std.ArrayList(u8).empty;
+        var prefixed_filled = std.Io.Writer.Allocating.init(self.gc.allocator);
 
-        try prefixed_filled.writer(self.gc.allocator).print(
+        try prefixed_filled.writer.print(
             "{s}{s}lib{s}.{s}",
             .{
                 path,
@@ -8676,7 +8683,7 @@ fn searchZdefLibPaths(self: *Self, file_name: []const u8) ![][]const u8 {
 
         try paths.append(
             self.gc.allocator,
-            try prefixed_filled.toOwnedSlice(self.gc.allocator),
+            try prefixed_filled.toOwnedSlice(),
         );
     }
 
@@ -8783,12 +8790,10 @@ fn readScript(self: *Self, file_name: []const u8) !?[2][]const u8 {
     }
 
     if (file == null) {
-        var search_report = std.ArrayList(u8).empty;
-        defer search_report.deinit(self.gc.allocator);
-        var writer = search_report.writer(self.gc.allocator);
-
+        var search_report = std.Io.Writer.Allocating.init(self.gc.allocator);
+        defer search_report.deinit();
         for (paths) |path| {
-            try writer.print("    no file `{s}`\n", .{path});
+            try search_report.writer.print("    no file `{s}`\n", .{path});
         }
 
         const location = self.ast.tokens.get(self.current_token.? - 1);
@@ -8799,7 +8804,7 @@ fn readScript(self: *Self, file_name: []const u8) !?[2][]const u8 {
             "buzz script `{s}` not found:\n{s}",
             .{
                 file_name,
-                search_report.items,
+                search_report.written(),
             },
         );
 
@@ -9104,12 +9109,11 @@ fn importLibSymbol(
         );
     }
 
-    var search_report = std.ArrayList(u8).empty;
-    defer search_report.deinit(self.gc.allocator);
-    var writer = search_report.writer(self.gc.allocator);
+    var search_report = std.Io.Writer.Allocating.init(self.gc.allocator);
+    defer search_report.deinit();
 
     for (paths) |path| {
-        try writer.print("    no file `{s}`\n", .{path});
+        try search_report.writer.print("    no file `{s}`\n", .{path});
     }
 
     self.reporter.reportErrorFmt(
@@ -9123,7 +9127,7 @@ fn importLibSymbol(
                 std.mem.sliceTo(dlerror(), 0)
             else
                 "",
-            search_report.items,
+            search_report.written(),
         },
     );
 
@@ -9347,12 +9351,11 @@ fn zdefStatement(self: *Self) Error!Ast.Node.Index {
 
                     fn_ptr = opaque_symbol_method;
                 } else {
-                    var search_report = std.ArrayList(u8).empty;
-                    defer search_report.deinit(self.gc.allocator);
-                    var writer = search_report.writer(self.gc.allocator);
+                    var search_report = std.Io.Writer.Allocating.init(self.gc.allocator);
+                    defer search_report.deinit();
 
                     for (paths) |path| {
-                        try writer.print("    no file `{s}`\n", .{path});
+                        try search_report.writer.print("    no file `{s}`\n", .{path});
                     }
 
                     const location = self.ast.tokens.get(lib_name);
@@ -9367,7 +9370,7 @@ fn zdefStatement(self: *Self) Error!Ast.Node.Index {
                                 std.mem.sliceTo(dlerror(), 0)
                             else
                                 "",
-                            search_report.items,
+                            search_report.written(),
                         },
                     );
                 }

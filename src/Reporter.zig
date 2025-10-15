@@ -643,15 +643,14 @@ pub fn warnAt(self: *Self, error_type: Error, location: Token, end_location: Tok
 pub fn reportErrorFmt(self: *Self, error_type: Error, location: Token, end_location: Token, comptime fmt: []const u8, args: anytype) void {
     @branchHint(.cold);
 
-    var message = std.ArrayList(u8).empty;
+    var message = std.Io.Writer.Allocating.init(self.allocator);
     defer {
         if (!self.collect) {
-            message.deinit(self.allocator);
+            message.deinit();
         }
     }
 
-    var writer = message.writer(self.allocator);
-    writer.print(fmt, args) catch @panic("Unable to report error");
+    message.writer.print(fmt, args) catch @panic("Unable to report error");
 
     if (self.panic_mode) {
         return;
@@ -661,25 +660,24 @@ pub fn reportErrorFmt(self: *Self, error_type: Error, location: Token, end_locat
         error_type,
         location,
         end_location,
-        message.toOwnedSlice(self.allocator) catch @panic("Untable to report error"),
+        message.written(),
     );
 }
 
 pub fn warnFmt(self: *Self, error_type: Error, location: Token, end_location: Token, comptime fmt: []const u8, args: anytype) void {
-    var message = std.ArrayList(u8).empty;
+    var message = std.Io.Writer.Allocating.init(self.allocator);
     defer {
         if (!self.collect) {
-            message.deinit(self.allocator);
+            message.deinit();
         }
     }
 
-    var writer = message.writer(self.allocator);
-    writer.print(fmt, args) catch @panic("Unable to report error");
+    message.writer.print(fmt, args) catch @panic("Unable to report error");
     self.warn(
         error_type,
         location,
         end_location,
-        message.toOwnedSlice(self.allocator) catch @panic("Unable to report error"),
+        message.written(),
     );
 }
 
@@ -696,22 +694,21 @@ pub fn reportWithOrigin(
 ) void {
     @branchHint(.cold);
 
-    var message = std.ArrayList(u8).empty;
+    var message = std.Io.Writer.Allocating.init(self.allocator);
     defer {
         if (!self.collect) {
-            message.deinit(self.allocator);
+            message.deinit();
         }
     }
 
-    var writer = message.writer(self.allocator);
-    writer.print(fmt, args) catch @panic("Unable to report error");
+    message.writer.print(fmt, args) catch @panic("Unable to report error");
 
     const items = [_]ReportItem{
         .{
             .location = location,
             .end_location = end_location,
             .kind = .@"error",
-            .message = message.items,
+            .message = message.written(),
         },
         .{
             .location = decl_location,
@@ -722,7 +719,7 @@ pub fn reportWithOrigin(
     };
 
     var decl_report = Report{
-        .message = message.items,
+        .message = message.written(),
         .error_type = error_type,
         // When collecting errors for LSP, those can't live on the stack
         .items = items: {
@@ -757,50 +754,49 @@ pub fn reportTypeCheck(
 ) void {
     @branchHint(.cold);
 
-    var actual_message = std.ArrayList(u8).empty;
+    var actual_message = std.Io.Writer.Allocating.init(self.allocator);
     defer {
         if (!self.collect) {
-            actual_message.deinit(self.allocator);
+            actual_message.deinit();
         }
     }
 
-    var writer = &actual_message.writer(self.allocator);
+    actual_message.writer.print("{s}: got type `", .{message}) catch @panic("Unable to report error");
+    actual_type.toString(&actual_message.writer, false) catch @panic("Unable to report error");
+    actual_message.writer.writeAll("`") catch @panic("Unable to report error");
 
-    writer.print("{s}: got type `", .{message}) catch @panic("Unable to report error");
-    actual_type.toString(writer, false) catch @panic("Unable to report error");
-    writer.writeAll("`") catch @panic("Unable to report error");
-
-    var expected_message = std.ArrayList(u8).empty;
+    var expected_message = std.Io.Writer.Allocating.init(self.allocator);
     defer {
         if (!self.collect) {
-            expected_message.deinit(self.allocator);
+            expected_message.deinit();
         }
     }
 
-    if (expected_location != null) {
-        writer = &expected_message.writer(self.allocator);
-    }
+    var following_message = if (expected_location != null)
+        expected_message
+    else
+        actual_message;
 
-    writer.writeAll("expected `") catch @panic("Unable to report error");
+    following_message.writer.writeAll("expected `") catch @panic("Unable to report error");
 
-    expected_type.toString(writer, false) catch @panic("Unable to report error");
-    writer.writeAll("`") catch @panic("Unable to report error");
+    expected_type.toString(&following_message.writer, false) catch @panic("Unable to report error");
+    following_message.writer.writeAll("`") catch @panic("Unable to report error");
 
     var full_message = if (expected_location == null)
         actual_message
     else
-        std.ArrayList(u8).empty;
+        std.Io.Writer.Allocating.init(self.allocator);
     defer {
         if (!self.collect and expected_location != null) {
-            full_message.deinit(self.allocator);
+            full_message.deinit();
         }
     }
     if (expected_location != null) {
-        full_message.writer(self.allocator).print(
+        full_message.writer.print(
             "{s}, {s}",
             .{
-                actual_message.toOwnedSlice(self.allocator) catch @panic("Unable to report error"),
-                expected_message.toOwnedSlice(self.allocator) catch @panic("Unable to report error"),
+                actual_message.written(),
+                expected_message.written(),
             },
         ) catch @panic("Unable to report error");
     }
@@ -812,18 +808,18 @@ pub fn reportTypeCheck(
                     .location = actual_location,
                     .end_location = actual_end_location,
                     .kind = .@"error",
-                    .message = actual_message.items,
+                    .message = actual_message.written(),
                 },
                 .{
                     .location = location,
                     .end_location = expected_end_location.?,
                     .kind = .hint,
-                    .message = expected_message.items,
+                    .message = expected_message.written(),
                 },
             };
 
             break :rpt Report{
-                .message = full_message.items,
+                .message = full_message.written(),
                 .error_type = error_type,
                 // When collecting errors for LSP, those can't live on the stack
                 .items = items: {
@@ -844,12 +840,12 @@ pub fn reportTypeCheck(
                     .location = actual_location,
                     .end_location = actual_end_location,
                     .kind = .hint,
-                    .message = actual_message.items,
+                    .message = actual_message.written(),
                 },
             };
 
             break :rpt Report{
-                .message = full_message.items,
+                .message = full_message.written(),
                 .error_type = error_type,
                 // When collecting errors for LSP, those can't live on the stack
                 .items = items: {

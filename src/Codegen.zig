@@ -24,6 +24,7 @@ pub const Error = error{
     UnwrappedNull,
     OutOfBound,
     ReachedMaximumMemoryUsage,
+    WriteFailed,
 } || std.mem.Allocator.Error || std.fmt.BufPrintError;
 
 pub const Frame = struct {
@@ -1246,10 +1247,11 @@ fn generateCall(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj
     }
 
     if (missing_arguments.count() > 0) {
-        var missing = std.ArrayList(u8).empty;
-        const missing_writer = missing.writer(self.gc.allocator);
+        var missing = std.Io.Writer.Allocating.init(self.gc.allocator);
+        defer missing.deinit();
+
         for (missing_arguments.keys(), 0..) |key, i| {
-            try missing_writer.print(
+            try missing.writer.print(
                 "{s}{s}",
                 .{
                     key,
@@ -1260,7 +1262,7 @@ fn generateCall(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj
                 },
             );
         }
-        defer missing.deinit(self.gc.allocator);
+
         self.reporter.reportErrorFmt(
             .call_arguments,
             self.ast.tokens.get(locations[node]),
@@ -1271,7 +1273,7 @@ fn generateCall(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj
                     "s"
                 else
                     "",
-                missing.items,
+                missing.written(),
             },
         );
     }

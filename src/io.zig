@@ -1,5 +1,5 @@
-// Because of https://ziglang.org/download/0.12.0/release-notes.html#Bring-Your-Own-OS-API-Layer-Regressed
-// we have to add this abstraction layer to avoid using io.getStdIn/Err/Out
+//! Because of https://ziglang.org/download/0.12.0/release-notes.html#Bring-Your-Own-OS-API-Layer-Regressed
+//! we have to add this abstraction layer to avoid using io.getStdIn/Err/Out
 
 const std = @import("std");
 const builtin = @import("builtin");
@@ -62,24 +62,35 @@ pub fn print(comptime fmt: []const u8, args: anytype) void {
 pub const AllocatedReader = struct {
     pub const Error = error{
         ReadFailed,
+        WriteFailed,
         OutOfMemory,
     };
 
-    buffer: std.ArrayList(u8) = .empty,
+    buffer: std.Io.Writer.Allocating,
     max_size: ?usize = null,
     reader: *std.Io.Reader,
 
-    pub fn readUntilDelimiterOrEof(self: *AllocatedReader, allocator: std.mem.Allocator, delimiter: u8) Error!?[]u8 {
-        std.debug.assert(self.reader.buffer.len > 0);
+    pub fn init(allocator: std.mem.Allocator, reader: *std.Io.Reader, max_size: ?usize) @This() {
+        return .{
+            .buffer = .init(allocator),
+            .reader = reader,
+            .max_size = max_size,
+        };
+    }
 
-        var writer = self.buffer.writer(allocator);
+    pub fn deinit(self: *@This()) void {
+        self.buffer.deinit();
+    }
+
+    pub fn readUntilDelimiterOrEof(self: *AllocatedReader, delimiter: u8) Error!?[]u8 {
+        std.debug.assert(self.reader.buffer.len > 0);
 
         var count: usize = 0;
         while (self.max_size == null or count < self.max_size.?) : (count += 1) {
             const byte = self.reader.takeByte() catch |err| {
                 switch (err) {
                     error.EndOfStream => return if (count > 0)
-                        try self.buffer.toOwnedSlice(allocator)
+                        try self.buffer.toOwnedSlice()
                     else
                         null,
                     error.ReadFailed => return error.ReadFailed,
@@ -90,16 +101,14 @@ pub const AllocatedReader = struct {
                 break;
             }
 
-            try writer.writeByte(byte);
+            try self.buffer.writer.writeByte(byte);
         }
 
-        return try self.buffer.toOwnedSlice(allocator);
+        return try self.buffer.toOwnedSlice();
     }
 
-    pub fn readAll(self: *AllocatedReader, allocator: std.mem.Allocator) Error![]u8 {
+    pub fn readAll(self: *AllocatedReader) Error![]u8 {
         std.debug.assert(self.reader.buffer.len > 0);
-
-        var writer = self.buffer.writer(allocator);
 
         while (true) {
             const byte = self.reader.takeByte() catch |err| {
@@ -109,16 +118,14 @@ pub const AllocatedReader = struct {
                 }
             };
 
-            try writer.writeByte(byte);
+            try self.buffer.writer.writeByte(byte);
         }
 
-        return try self.buffer.toOwnedSlice(allocator);
+        return try self.buffer.toOwnedSlice();
     }
 
-    pub fn readN(self: *AllocatedReader, allocator: std.mem.Allocator, n: usize) Error![]u8 {
+    pub fn readN(self: *AllocatedReader, n: usize) Error![]u8 {
         std.debug.assert(self.reader.buffer.len > 0);
-
-        var writer = self.buffer.writer(allocator);
 
         var count: usize = 0;
         while (count < n and (self.max_size == null or count < self.max_size.?)) : (count += 1) {
@@ -129,9 +136,9 @@ pub const AllocatedReader = struct {
                 }
             };
 
-            try writer.writeByte(byte);
+            try self.buffer.writer.writeByte(byte);
         }
 
-        return try self.buffer.toOwnedSlice(allocator);
+        return try self.buffer.toOwnedSlice();
     }
 };

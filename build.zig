@@ -382,6 +382,11 @@ pub fn build(b: *Build) !void {
         },
     );
 
+    exe_check.root_module.addImport(
+        "clap",
+        clap.module("clap"),
+    );
+
     exe.root_module.sanitize_c = .off;
     if (behavior_exe) |bexe| bexe.root_module.sanitize_c = .off;
     if (!is_wasm) lsp_exe.?.root_module.sanitize_c = .off;
@@ -659,6 +664,7 @@ pub fn buildPcre2(b: *Build, target: Build.ResolvedTarget, optimize: std.builtin
                 .{
                     .target = target,
                     .optimize = optimize,
+                    .sanitize_c = .off,
                 },
             ),
         },
@@ -782,6 +788,7 @@ pub fn buildLinenoise(b: *Build, target: Build.ResolvedTarget, optimize: std.bui
                 .{
                     .target = target,
                     .optimize = optimize,
+                    .sanitize_c = .off,
                 },
             ),
         },
