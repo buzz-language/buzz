@@ -819,13 +819,14 @@ pub const Slice = struct {
                 .String => string: {
                     const elements = self.nodes.items(.components)[node].String;
 
-                    var string = std.ArrayList(u8).empty;
-                    const writer = &string.writer(gc.allocator);
+                    var string = std.Io.Writer.Allocating.init(gc.allocator);
+                    defer string.deinit();
+
                     for (elements) |element| {
-                        try (try self.toValue(element, gc)).toString(writer);
+                        try (try self.toValue(element, gc)).toString(&string.writer);
                     }
 
-                    break :string (try gc.copyString(try string.toOwnedSlice(gc.allocator))).toValue();
+                    break :string (try gc.copyString(string.written())).toValue();
                 },
                 .Subscript => subscript: {
                     const components = self.nodes.items(.components)[node].Subscript;

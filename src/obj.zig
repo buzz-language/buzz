@@ -509,7 +509,7 @@ pub const Obj = struct {
         }
     }
 
-    pub fn toString(obj: *Obj, writer: *const std.ArrayList(u8).Writer) (Allocator.Error || std.fmt.BufPrintError)!void {
+    pub fn toString(obj: *Obj, writer: *std.Io.Writer) (Allocator.Error || std.fmt.BufPrintError || error{WriteFailed})!void {
         return switch (obj.obj_type) {
             .String => {
                 const str = ObjString.cast(obj).?.string;
@@ -4892,23 +4892,23 @@ pub const ObjTypeDef = struct {
         // FIXME
     }
 
-    pub fn toStringAlloc(self: *const Self, allocator: Allocator, qualified: bool) (Allocator.Error || std.fmt.BufPrintError)![]const u8 {
-        var str = std.ArrayList(u8).empty;
+    pub fn toStringAlloc(self: *const Self, allocator: Allocator, qualified: bool) (Allocator.Error || std.fmt.BufPrintError || error{WriteFailed})![]const u8 {
+        var str = std.Io.Writer.Allocating.init(allocator);
 
-        try self.toString(&str.writer(allocator), qualified);
+        try self.toString(&str.writer, qualified);
 
-        return try str.toOwnedSlice(allocator);
+        return try str.toOwnedSlice();
     }
 
-    pub fn toString(self: *const Self, writer: anytype, qualified: bool) (Allocator.Error || std.fmt.BufPrintError)!void {
+    pub fn toString(self: *const Self, writer: anytype, qualified: bool) (Allocator.Error || std.fmt.BufPrintError || error{WriteFailed})!void {
         try self.toStringRaw(writer, qualified);
     }
 
-    pub fn toStringUnqualified(self: *const Self, writer: anytype) (Allocator.Error || std.fmt.BufPrintError)!void {
+    pub fn toStringUnqualified(self: *const Self, writer: anytype) (Allocator.Error || std.fmt.BufPrintError || error{WriteFailed})!void {
         try self.toStringRaw(writer, false);
     }
 
-    fn toStringRaw(self: *const Self, writer: anytype, qualified: bool) (Allocator.Error || std.fmt.BufPrintError)!void {
+    fn toStringRaw(self: *const Self, writer: anytype, qualified: bool) (Allocator.Error || std.fmt.BufPrintError || error{WriteFailed})!void {
         switch (self.def_type) {
             .Generic => try writer.print(
                 "generic type #{}-{}",

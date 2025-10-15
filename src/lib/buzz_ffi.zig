@@ -11,10 +11,10 @@ pub export fn alignOf(ctx: *api.NativeCtx) callconv(.c) c_int {
     if (zig_type) |ztype| {
         ctx.vm.bz_push(api.Value.fromInteger(@intCast(ztype.bz_zigTypeAlignment())));
     } else {
-        var msg = std.ArrayList(u8).empty;
-        defer msg.deinit(api.VM.allocator);
+        var msg = std.Io.Writer.Allocating.init(api.VM.allocator);
+        defer msg.deinit();
 
-        msg.writer(api.VM.allocator).print(
+        msg.writer.print(
             "Could not parse zig type `{s}`",
             .{
                 zig_type_str[0..len],
@@ -24,7 +24,13 @@ pub export fn alignOf(ctx: *api.NativeCtx) callconv(.c) c_int {
             unreachable;
         };
 
-        ctx.vm.pushError("ffi.FFIZigTypeParseError", msg.items);
+        ctx.vm.pushError(
+            "ffi.FFIZigTypeParseError",
+            msg.toOwnedSlice() catch {
+                ctx.vm.bz_panic("Out of memory", "Out of memory".len);
+                unreachable;
+            },
+        );
 
         return -1;
     }
@@ -42,10 +48,10 @@ pub export fn sizeOf(ctx: *api.NativeCtx) callconv(.c) c_int {
     if (zig_type) |ztype| {
         ctx.vm.bz_push(api.Value.fromInteger(@intCast(ztype.bz_zigTypeSize())));
     } else {
-        var msg = std.ArrayList(u8).empty;
-        defer msg.deinit(api.VM.allocator);
+        var msg = std.Io.Writer.Allocating.init(api.VM.allocator);
+        defer msg.deinit();
 
-        msg.writer(api.VM.allocator).print(
+        msg.writer.print(
             "Could not parse zig type `{s}`",
             .{
                 zig_type_str[0..len],
@@ -55,7 +61,13 @@ pub export fn sizeOf(ctx: *api.NativeCtx) callconv(.c) c_int {
             unreachable;
         };
 
-        ctx.vm.pushError("ffi.FFIZigTypeParseError", msg.items);
+        ctx.vm.pushError(
+            "ffi.FFIZigTypeParseError",
+            msg.toOwnedSlice() catch {
+                ctx.vm.bz_panic("Out of memory", "Out of memory".len);
+                unreachable;
+            },
+        );
 
         return -1;
     }

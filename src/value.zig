@@ -159,16 +159,16 @@ pub const Value = packed struct {
         return self;
     }
 
-    pub fn toStringAlloc(value: Value, allocator: Allocator) (Allocator.Error || std.fmt.BufPrintError)![]const u8 {
-        var str = std.ArrayList(u8).empty;
+    pub fn toStringAlloc(value: Value, allocator: Allocator) (Allocator.Error || std.fmt.BufPrintError || error{WriteFailed})![]const u8 {
+        var str = std.Io.Writer.Allocating.init(allocator);
 
-        try value.toString(&str.writer(allocator));
+        try value.toString(&str.writer);
 
-        return try str.toOwnedSlice(allocator);
+        return try str.toOwnedSlice();
     }
 
     // FIXME: should be a std.io.Writer once it exists for ArrayLists
-    pub fn toString(self: Value, writer: *const std.ArrayList(u8).Writer) (Allocator.Error || std.fmt.BufPrintError)!void {
+    pub fn toString(self: Value, writer: *std.Io.Writer) (Allocator.Error || std.fmt.BufPrintError || error{WriteFailed})!void {
         if (self.isObj()) {
             try self.obj().toString(writer);
 

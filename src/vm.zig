@@ -421,6 +421,7 @@ pub const VM = struct {
         ReachedMaximumMemoryUsage,
         ReachedMaximumCPUUsage,
         ReachedMaximumRecursiveCall,
+        WriteFailed,
         Custom, // TODO: remove when user can use this set directly in buzz code
     } || std.mem.Allocator.Error || std.fmt.BufPrintError;
 
@@ -4616,12 +4617,11 @@ pub const VM = struct {
 
         for (stack, 0..) |frame, i| {
             const next = if (i < stack.len - 1) stack[i + 1] else null;
-            var msg = std.ArrayList(u8).empty;
-            var writer = msg.writer(self.gc.allocator);
+            var msg = std.Io.Writer.Allocating.init(self.gc.allocator);
 
             if (next) |unext| {
                 const function_name = unext.closure.function.type_def.resolved_type.?.Function.name.string;
-                writer.print(
+                msg.writer.print(
                     if (builtin.os.tag != .windows)
                         "\t{s} in \x1b[36m{s}\x1b[0m at {s}"
                     else
@@ -4641,7 +4641,7 @@ pub const VM = struct {
                     },
                 ) catch @panic("Could not report error");
             } else {
-                writer.print(
+                msg.writer.print(
                     "\t{s} in {s}",
                     .{
                         if (i == 0)
@@ -4660,7 +4660,7 @@ pub const VM = struct {
 
             if (frame.call_site) |call_site| {
                 if (frame.closure.function.type_def.resolved_type.?.Function.function_type != .ScriptEntryPoint) {
-                    writer.print(
+                    msg.writer.print(
                         ":{d}:{d}",
                         .{
                             self.current_ast.tokens.items(.line)[call_site] + 1,
@@ -4673,7 +4673,7 @@ pub const VM = struct {
             notes.append(
                 self.gc.allocator,
                 .{
-                    .message = msg.toOwnedSlice(self.gc.allocator) catch @panic("Could not report error"),
+                    .message = msg.toOwnedSlice() catch @panic("Could not report error"),
                     .show_prefix = false,
                 },
             ) catch @panic("Could not report error");

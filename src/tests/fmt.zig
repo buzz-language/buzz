@@ -5,7 +5,6 @@ const Parser = @import("../Parser.zig");
 const GC = @import("../GC.zig");
 const TypeRegistry = @import("../TypeRegistry.zig");
 const Renderer = @import("../renderer.zig").Renderer;
-const WriteableArrayList = @import("../writeable_array_list.zig").WriteableArrayList;
 
 const ignore = std.StaticStringMap(void).initComptime(
     .{
@@ -71,7 +70,7 @@ fn testFmt(prefix: []const u8, entry: std.fs.Dir.Entry) !void {
         .Fmt,
     );
 
-    var result = WriteableArrayList(u8).init(allocator);
+    var result = std.Io.Writer.Allocating.init(allocator);
 
     if (parser.parse(source, file_name, file_name) catch null) |ast| {
         try Renderer.render(
@@ -82,7 +81,7 @@ fn testFmt(prefix: []const u8, entry: std.fs.Dir.Entry) !void {
 
         try std.testing.expectEqualStrings(
             source,
-            result.list.items,
+            result.written(),
         );
     } else {
         try std.testing.expect(false);

@@ -96,16 +96,18 @@ pub export fn runLine(ctx: *ReplCtx) void {
 
     var reader_buffer = [_]u8{0};
     var stdin_reader = io.stdinReader(reader_buffer[0..]);
-    var stdin = io.AllocatedReader{
-        .reader = &stdin_reader,
-    };
+    var stdin = io.AllocatedReader.init(
+        ctx.vm.gc.allocator,
+        &stdin_reader,
+        null,
+    );
 
     var previous_global_top = ctx.vm.globals_count;
     var previous_parser_globals = ctx.parser.globals.clone(ctx.parser.gc.allocator) catch unreachable;
     var previous_globals = ctx.vm.globals.clone(ctx.parser.gc.allocator) catch unreachable;
     var previous_type_registry = ctx.vm.gc.type_registry.registry.clone(ctx.parser.gc.allocator) catch unreachable;
 
-    const source = stdin.readAll(ctx.vm.gc.allocator) catch unreachable;
+    const source = stdin.readAll() catch unreachable;
     errdefer ctx.vm.gc.allocator.free(source);
 
     if (source.len == 0) {
@@ -142,22 +144,22 @@ pub export fn runLine(ctx: *ReplCtx) void {
 
             const value = expr orelse ctx.vm.globals.items[previous_global_top];
 
-            var value_str = std.ArrayList(u8).empty;
-            defer value_str.deinit(ctx.vm.gc.allocator);
+            var value_str = std.Io.Writer.Allocating.init(ctx.vm.gc.allocator);
+            defer value_str.deinit();
             var state = DumpState{
                 .vm = ctx.vm,
             };
 
             state.valueDump(
                 value,
-                value_str.writer(ctx.vm.gc.allocator),
+                &value_str.writer,
                 false,
             );
 
             var scanner = Scanner.init(
                 ctx.vm.gc.allocator,
                 "REPL",
-                value_str.items,
+                value_str.written(),
             );
             scanner.highlight(stdout, false);
 

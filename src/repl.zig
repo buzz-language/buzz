@@ -117,17 +117,17 @@ pub fn repl(allocator: std.mem.Allocator) !void {
     var stderr = io.stderrWriter;
     printBanner(stdout, false);
 
-    var buzz_history_path = std.ArrayList(u8).empty;
-    defer buzz_history_path.deinit(allocator);
+    var buzz_history_path = std.Io.Writer.Allocating.init(allocator);
+    defer buzz_history_path.deinit();
 
-    try buzz_history_path.writer(allocator).print(
+    try buzz_history_path.writer.print(
         "{s}/.buzz_history\x00",
         .{envMap.get("HOME") orelse "."},
     );
 
     if (builtin.os.tag != .windows) {
         _ = ln.linenoiseHistorySetMaxLen(100);
-        _ = ln.linenoiseHistoryLoad(@ptrCast(buzz_history_path.items.ptr));
+        _ = ln.linenoiseHistoryLoad(@ptrCast(buzz_history_path.written().ptr));
     }
 
     // Import std and debug as commodity
@@ -148,9 +148,11 @@ pub fn repl(allocator: std.mem.Allocator) !void {
 
     var reader_buffer = [_]u8{0};
     var stdin_reader = std.fs.File.stdin().reader(reader_buffer[0..]);
-    var reader = io.AllocatedReader{
-        .reader = &stdin_reader.interface,
-    };
+    var reader = io.AllocatedReader.init(
+        allocator,
+        &stdin_reader.interface,
+        null,
+    );
 
     while (true) {
         if (builtin.os.tag == .windows) {
@@ -170,7 +172,7 @@ pub fn repl(allocator: std.mem.Allocator) !void {
                     PROMPT,
             )
         else // FIXME: in that case, at least use an arena?
-            reader.readUntilDelimiterOrEof(allocator, '\n') catch @panic("Could not read stdin");
+            reader.readUntilDelimiterOrEof('\n') catch @panic("Could not read stdin");
 
         if (read_source == null) {
             std.process.exit(0);
@@ -235,7 +237,7 @@ pub fn repl(allocator: std.mem.Allocator) !void {
             if (parser.reporter.last_error == null and codegen.reporter.last_error == null) {
                 if (builtin.os.tag != .windows) {
                     _ = ln.linenoiseHistoryAdd(source);
-                    _ = ln.linenoiseHistorySave(@ptrCast(buzz_history_path.items.ptr));
+                    _ = ln.linenoiseHistorySave(@ptrCast(buzz_history_path.written().ptr));
                 }
                 // FIXME: why can't I deinit those?
                 // previous_parser_globals.deinit();
@@ -251,22 +253,23 @@ pub fn repl(allocator: std.mem.Allocator) !void {
 
                     const value = expr orelse vm.globals.items[previous_global_top];
 
-                    var value_str = std.ArrayList(u8).empty;
-                    defer value_str.deinit(vm.gc.allocator);
+                    var value_str = std.Io.Writer.Allocating.init(vm.gc.allocator);
+                    defer value_str.deinit();
+
                     var state = disassembler.DumpState{
                         .vm = &vm,
                     };
 
                     state.valueDump(
                         value,
-                        value_str.writer(vm.gc.allocator),
+                        &value_str.writer,
                         false,
                     );
 
                     var scanner = Scanner.init(
                         gc.allocator,
                         "REPL",
-                        value_str.items,
+                        value_str.written(),
                     );
                     scanner.highlight(stdout, true_color);
 
@@ -291,7 +294,7 @@ pub fn repl(allocator: std.mem.Allocator) !void {
                     std.mem.copyForwards(u8, previous_input.?, source);
                 } else if (builtin.os.tag != .windows) {
                     _ = ln.linenoiseHistoryAdd(source);
-                    _ = ln.linenoiseHistorySave(@ptrCast(buzz_history_path.items.ptr));
+                    _ = ln.linenoiseHistorySave(@ptrCast(buzz_history_path.written().ptr));
                 }
             }
 
