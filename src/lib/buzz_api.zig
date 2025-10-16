@@ -56,71 +56,71 @@ pub const Value = packed struct {
     // We only need this so that an NativeFn can see the error returned by its raw function
     pub const Error = Value{ .val = ErrorMask };
 
-    pub inline fn fromBoolean(val: bool) Value {
+    pub fn fromBoolean(val: bool) Value {
         return if (val) True else False;
     }
 
-    pub inline fn fromInteger(val: Integer) Value {
+    pub fn fromInteger(val: Integer) Value {
         return .{ .val = IntegerMask | @as(u48, @bitCast(val)) };
     }
 
-    pub inline fn fromDouble(val: Double) Value {
+    pub fn fromDouble(val: Double) Value {
         return .{ .val = @as(u64, @bitCast(val)) };
     }
 
-    pub inline fn fromObj(val: *anyopaque) Value {
+    pub fn fromObj(val: *anyopaque) Value {
         return .{ .val = PointerMask | @intFromPtr(val) };
     }
 
-    pub inline fn getTag(self: Value) u3 {
+    pub fn getTag(self: Value) u3 {
         return @intCast(@as(u32, @intCast(self.val >> 32)) & TagMask);
     }
 
-    pub inline fn isBool(self: Value) bool {
+    pub fn isBool(self: Value) bool {
         return self.val & (TaggedPrimitiveMask | SignMask) == BooleanMask;
     }
 
-    pub inline fn isInteger(self: Value) bool {
+    pub fn isInteger(self: Value) bool {
         return self.val & (TaggedUpperValueMask | SignMask) == IntegerMask;
     }
 
-    pub inline fn isFloat(self: Value) bool {
+    pub fn isFloat(self: Value) bool {
         return self.val & TaggedValueMask != TaggedValueMask;
     }
 
-    pub inline fn isNumber(self: Value) bool {
+    pub fn isNumber(self: Value) bool {
         return self.isFloat() or self.isInteger();
     }
 
-    pub inline fn isObj(self: Value) bool {
+    pub fn isObj(self: Value) bool {
         return self.val & PointerMask == PointerMask;
     }
 
-    pub inline fn isNull(self: Value) bool {
+    pub fn isNull(self: Value) bool {
         return self.val == NullMask;
     }
 
-    pub inline fn isVoid(self: Value) bool {
+    pub fn isVoid(self: Value) bool {
         return self.val == VoidMask;
     }
 
-    pub inline fn isError(self: Value) bool {
+    pub fn isError(self: Value) bool {
         return self.val == ErrorMask;
     }
 
-    pub inline fn boolean(self: Value) bool {
+    pub fn boolean(self: Value) bool {
         return self.val == TrueMask;
     }
 
-    pub inline fn integer(self: Value) Integer {
+    pub fn integer(self: Value) Integer {
         return @bitCast(@as(u48, @intCast(self.val & 0xffffffffffff)));
     }
 
-    pub inline fn double(self: Value) Double {
+    pub fn double(self: Value) Double {
         return @bitCast(self.val);
     }
 
-    pub inline fn obj(self: Value) *anyopaque {
+    pub fn obj(self: Value) *anyopaque {
         return @ptrFromInt(@as(usize, @truncate(self.val & ~PointerMask)));
     }
 
@@ -213,7 +213,7 @@ pub const VM = opaque {
     pub extern fn bz_stringToValue(vm: *VM, string: ?[*]const u8, len: usize) callconv(.c) Value;
     pub extern fn bz_stringToValueZ(vm: *VM, string: ?[*:0]const u8) callconv(.c) Value;
     pub extern fn bz_newUserData(vm: *VM, userdata: u64) callconv(.c) Value;
-    pub inline fn pushError(self: *VM, qualified_name: []const u8, message: ?[]const u8) void {
+    pub fn pushError(self: *VM, qualified_name: []const u8, message: ?[]const u8) void {
         self.bz_pushError(
             qualified_name.ptr,
             qualified_name.len,
@@ -221,7 +221,7 @@ pub const VM = opaque {
             if (message) |m| m.len else 0,
         );
     }
-    pub inline fn pushErrorEnum(self: *VM, qualified_name: []const u8, case: []const u8) void {
+    pub fn pushErrorEnum(self: *VM, qualified_name: []const u8, case: []const u8) void {
         self.bz_pushErrorEnum(
             qualified_name.ptr,
             qualified_name.len,

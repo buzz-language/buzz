@@ -11,7 +11,6 @@ const Reporter = @import("Reporter.zig");
 const CodeGen = @import("Codegen.zig");
 const Token = @import("Token.zig");
 const Renderer = @import("renderer.zig").Renderer;
-const WriteableArrayList = @import("writeable_array_list.zig").WriteableArrayList;
 
 const log = std.log.scoped(.buzz_lsp);
 
@@ -317,7 +316,12 @@ const Document = struct {
     const InlayHintsContext = struct {
         document: *Document,
 
-        pub fn processNode(self: *InlayHintsContext, allocator: std.mem.Allocator, ast: Ast.Slice, node: Ast.Node.Index) (std.mem.Allocator.Error || std.fmt.BufPrintError)!bool {
+        pub fn processNode(
+            self: *InlayHintsContext,
+            allocator: std.mem.Allocator,
+            ast: Ast.Slice,
+            node: Ast.Node.Index,
+        ) (std.mem.Allocator.Error || std.fmt.BufPrintError || error{WriteFailed})!bool {
             switch (ast.nodes.items(.tag)[node]) {
                 .VarDeclaration => {
                     const comp = ast.nodes.items(.components)[node].VarDeclaration;
@@ -326,11 +330,10 @@ const Document = struct {
 
                     // If type was omitted, provide it
                     if (!comp.implicit and comp.type == null and type_def != null) {
-                        var inlay = std.ArrayList(u8){};
-                        var writer = inlay.writer(allocator);
+                        var inlay = std.Io.Writer.Allocating.init(allocator);
 
-                        try writer.writeAll(": ");
-                        try type_def.?.toString(writer, false);
+                        try inlay.writer.writeAll(": ");
+                        try type_def.?.toString(&inlay.writer, false);
 
                         try self.document.inlay_hints.append(
                             allocator,
@@ -340,7 +343,7 @@ const Document = struct {
                                     .character = @intCast(@max(1, name.column + name.lexeme.len) - 1),
                                 },
                                 .label = .{
-                                    .string = try inlay.toOwnedSlice(allocator),
+                                    .string = try inlay.toOwnedSlice(),
                                 },
                                 .kind = .Type,
                             },
@@ -425,9 +428,9 @@ const Handler = struct {
             },
         );
 
-        var version = std.ArrayList(u8).empty;
+        var version = std.Io.Writer.Allocating.init(allocator);
 
-        try version.writer(allocator).print(
+        try version.writer.print(
             "{f}-{s}",
             .{
                 BuildOptions.version,
@@ -438,7 +441,7 @@ const Handler = struct {
         return .{
             .serverInfo = .{
                 .name = "Buzz LSP",
-                .version = version.items,
+                .version = version.written(),
             },
             .capabilities = .{
                 .positionEncoding = switch (self.offset_encoding) {
@@ -702,7 +705,12 @@ const Handler = struct {
     const DocumentSymbolContext = struct {
         document: *Document,
 
-        pub fn processNode(self: DocumentSymbolContext, _: std.mem.Allocator, ast: Ast.Slice, node: Ast.Node.Index) (std.mem.Allocator.Error || std.fmt.BufPrintError)!bool {
+        pub fn processNode(
+            self: DocumentSymbolContext,
+            _: std.mem.Allocator,
+            ast: Ast.Slice,
+            node: Ast.Node.Index,
+        ) (std.mem.Allocator.Error || std.fmt.BufPrintError || error{WriteFailed})!bool {
             const lexemes = ast.tokens.items(.lexeme);
             const locations = ast.nodes.items(.location);
             const end_locations = ast.nodes.items(.end_location);
@@ -947,8 +955,7 @@ const Handler = struct {
                     const markupEntry = try document.node_hover.getOrPut(allocator, origin);
 
                     if (!markupEntry.found_existing) {
-                        var markup = std.ArrayList(u8).empty;
-                        const writer = markup.writer(self.allocator);
+                        var markup = std.Io.Writer.Allocating.init(self.allocator);
 
                         const def = try document.definition(origin);
                         if (def) |udef| {
@@ -957,18 +964,18 @@ const Handler = struct {
 
                                 var it = std.mem.tokenizeSequence(u8, doc, "/// ");
                                 while (it.next()) |text| {
-                                    try writer.print("{s}\n", .{text});
+                                    try markup.writer.print("{s}\n", .{text});
                                 }
                             }
                         }
 
-                        try writer.writeAll("```buzz\n");
-                        td.toString(&writer, false) catch |err| {
+                        try markup.writer.writeAll("```buzz\n");
+                        td.toString(&markup.writer, false) catch |err| {
                             log.err("textDocument/hover: {any}", .{err});
                         };
-                        try writer.writeAll("\n```");
+                        try markup.writer.writeAll("\n```");
 
-                        markupEntry.value_ptr.* = try markup.toOwnedSlice(self.allocator);
+                        markupEntry.value_ptr.* = try markup.toOwnedSlice();
                     }
 
                     return .{
@@ -1032,7 +1039,7 @@ const Handler = struct {
         notification: lsp.types.getRequestMetadata("textDocument/formatting").?.Params.?,
     ) !lsp.types.getRequestMetadata("textDocument/formatting").?.Result {
         if (self.documents.get(notification.textDocument.uri)) |document| {
-            var result = WriteableArrayList(u8).init(self.allocator);
+            var result = std.Io.Writer.Allocating.init(self.allocator);
 
             Renderer.render(
                 self.allocator,
@@ -1055,7 +1062,7 @@ const Handler = struct {
                 self.allocator,
                 .{
                     .range = document.wholeDocumentRange(),
-                    .newText = result.list.items,
+                    .newText = result.written(),
                 },
             );
 

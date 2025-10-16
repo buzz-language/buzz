@@ -212,15 +212,15 @@ pub fn parseTypeExpr(self: *Self, ztype: []const u8) !?*Zdef {
         return zdef;
     }
 
-    var full = std.ArrayList(u8).empty;
-    defer full.deinit(self.gc.allocator);
+    var full = std.Io.Writer.Allocating.init(self.gc.allocator);
+    defer full.deinit();
 
-    full.writer(self.gc.allocator).print("const zig_type: {s};", .{ztype}) catch @panic("Out of memory");
+    full.writer.print("const zig_type: {s};", .{ztype}) catch @panic("Out of memory");
 
     const zdef = try self.parse(
         null,
         0,
-        full.items,
+        full.written(),
     );
 
     std.debug.assert(zdef == null or zdef.?.len == 1);
@@ -527,10 +527,10 @@ fn unionContainer(self: *Self, name: []const u8, container: Ast.full.ContainerDe
         },
     };
 
-    var qualified_name = std.ArrayList(u8).empty;
-    defer qualified_name.deinit(self.gc.allocator);
+    var qualified_name = std.Io.Writer.Allocating.init(self.gc.allocator);
+    defer qualified_name.deinit();
 
-    try qualified_name.writer(self.gc.allocator).print(
+    try qualified_name.writer.print(
         "{s}.{s}",
         .{
             self.state.?.script,
@@ -548,7 +548,7 @@ fn unionContainer(self: *Self, name: []const u8, container: Ast.full.ContainerDe
                         .location = self.state.?.source,
                         .name = try self.gc.copyString(name),
                         // FIXME
-                        .qualified_name = try self.gc.copyString(qualified_name.items),
+                        .qualified_name = try self.gc.copyString(qualified_name.written()),
                         .zig_type = zig_type,
                         .buzz_type = buzz_fields,
                         .fields = get_set_fields,
@@ -918,16 +918,16 @@ fn fnProto(self: *Self, tag: Ast.Node.Tag, decl_index: Ast.Node.Index) anyerror!
 }
 
 fn reportZigError(self: *Self, err: Ast.Error) void {
-    var message = std.ArrayList(u8).empty;
-    defer message.deinit(self.gc.allocator);
+    var message = std.Io.Writer.Allocating.init(self.gc.allocator);
+    defer message.deinit();
 
-    message.writer(self.gc.allocator).print("zdef could not be parsed: {}", .{err.tag}) catch unreachable;
+    message.writer.print("zdef could not be parsed: {}", .{err.tag}) catch unreachable;
 
     const location = self.state.?.buzz_ast.?.tokens.get(self.state.?.source);
     self.reporter.report(
         .zdef,
         location,
         location,
-        message.items,
+        message.written(),
     );
 }

@@ -944,10 +944,10 @@ pub const Debugger = struct {
                 var items = std.ArrayList(Reporter.ReportItem).empty;
                 defer items.deinit(self.allocator);
 
-                var message = std.ArrayList(u8).empty;
-                defer message.deinit(self.allocator);
+                var message = std.Io.Writer.Allocating.init(self.allocator);
+                defer message.deinit();
 
-                message.writer(self.allocator).print(
+                message.writer.print(
                     "Access to already collected {} {*}",
                     .{
                         tracked.what,
@@ -961,7 +961,7 @@ pub const Debugger = struct {
                         .location = at.?,
                         .end_location = at.?,
                         .kind = .@"error",
-                        .message = message.items,
+                        .message = message.written(),
                     },
                 ) catch unreachable;
 

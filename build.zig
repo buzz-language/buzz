@@ -101,7 +101,7 @@ pub fn build(b: *Build) !void {
 
     // Check minimum zig version
     const current_zig = builtin.zig_version;
-    const min_zig = std.SemanticVersion.parse("0.15.1") catch return;
+    const min_zig = std.SemanticVersion.parse("0.16.0-dev.732+2f3234c76") catch return;
     if (current_zig.order(min_zig).compare(.lt)) {
         @panic(b.fmt("Your Zig version v{f} does not meet the minimum build requirement of v{f}", .{ current_zig, min_zig }));
     }
@@ -382,6 +382,11 @@ pub fn build(b: *Build) !void {
         },
     );
 
+    exe_check.root_module.addImport(
+        "clap",
+        clap.module("clap"),
+    );
+
     exe.root_module.sanitize_c = .off;
     if (behavior_exe) |bexe| bexe.root_module.sanitize_c = .off;
     if (!is_wasm) lsp_exe.?.root_module.sanitize_c = .off;
@@ -659,6 +664,7 @@ pub fn buildPcre2(b: *Build, target: Build.ResolvedTarget, optimize: std.builtin
                 .{
                     .target = target,
                     .optimize = optimize,
+                    .sanitize_c = .off,
                 },
             ),
         },
@@ -782,6 +788,7 @@ pub fn buildLinenoise(b: *Build, target: Build.ResolvedTarget, optimize: std.bui
                 .{
                     .target = target,
                     .optimize = optimize,
+                    .sanitize_c = .off,
                 },
             ),
         },

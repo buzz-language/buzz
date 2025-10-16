@@ -88,16 +88,17 @@ pub export fn tmpFilename(ctx: *api.NativeCtx) callconv(.c) c_int {
 
     const prefix_slice = if (prefix_len == 0) "" else prefix.?[0..prefix_len];
 
-    var random_part = std.ArrayList(u8).empty;
-    defer random_part.deinit(api.VM.allocator);
-    random_part.writer(api.VM.allocator).print("{x}", .{std.crypto.random.int(api.Integer)}) catch {
+    var random_part = std.Io.Writer.Allocating.init(api.VM.allocator);
+    defer random_part.deinit();
+
+    random_part.writer.print("{x}", .{std.crypto.random.int(api.Integer)}) catch {
         ctx.vm.bz_panic("Out of memory", "Out of memory".len);
         unreachable;
     };
 
     var random_part_b64 = std.ArrayList(u8).initCapacity(
         api.VM.allocator,
-        std.base64.standard.Encoder.calcSize(random_part.items.len),
+        std.base64.standard.Encoder.calcSize(random_part.written().len),
     ) catch {
         ctx.vm.bz_panic("Out of memory", "Out of memory".len);
         unreachable;
@@ -105,12 +106,18 @@ pub export fn tmpFilename(ctx: *api.NativeCtx) callconv(.c) c_int {
     random_part_b64.expandToCapacity();
     defer random_part_b64.deinit(api.VM.allocator);
 
-    _ = std.base64.standard.Encoder.encode(random_part_b64.items, random_part.items);
+    _ = std.base64.standard.Encoder.encode(random_part_b64.items, random_part.written());
 
-    var final = std.ArrayList(u8).empty;
-    defer final.deinit(api.VM.allocator);
+    var final = std.Io.Writer.Allocating.init(api.VM.allocator);
 
-    final.writer(api.VM.allocator).print("{s}{s}-{s}", .{ sysTempDir(), prefix_slice, random_part_b64.items }) catch {
+    final.writer.print(
+        "{s}{s}-{s}",
+        .{
+            sysTempDir(),
+            prefix_slice,
+            random_part_b64.items,
+        },
+    ) catch {
         ctx.vm.bz_panic("Out of memory", "Out of memory".len);
         unreachable;
     };
@@ -118,11 +125,11 @@ pub export fn tmpFilename(ctx: *api.NativeCtx) callconv(.c) c_int {
     ctx.vm.bz_push(
         api.VM.bz_stringToValue(
             ctx.vm,
-            if (final.items.len > 0)
-                @as([*]const u8, @ptrCast(final.items))
+            if (final.written().len > 0)
+                @as([*]const u8, @ptrCast(final.written()))
             else
                 null,
-            final.items.len,
+            final.written().len,
         ),
     );
 
@@ -311,6 +318,7 @@ fn handleConnectUnixError(ctx: *api.NativeCtx, err: anytype) void {
         error.AddressFamilyNotSupported,
         error.AddressInUse,
         error.AddressNotAvailable,
+        error.AlreadyConnected,
         error.ConnectionPending,
         error.ConnectionRefused,
         error.ConnectionResetByPeer,
@@ -432,33 +440,38 @@ pub export fn SocketRead(ctx: *api.NativeCtx) callconv(.c) c_int {
         );
 
     const stream: std.net.Stream = .{ .handle = handle };
-    var reader_buffer = [_]u8{0};
+    var reader_buffer: [1024]u8 = undefined;
     var stream_reader = stream.reader(reader_buffer[0..]);
-    var reader = io.AllocatedReader{
-        .reader = stream_reader.interface(),
-    };
+    var reader = stream_reader.interface();
 
-    const content = reader.readN(api.VM.allocator, @intCast(n)) catch |err| {
-        switch (err) {
-            error.ReadFailed => {
-                ctx.vm.pushErrorEnum("errors.ReadWriteError", @errorName(err));
-                return -1;
-            },
-            error.OutOfMemory => {
-                ctx.vm.bz_panic("Out of memory", "Out of memory".len);
-                unreachable;
-            },
-        }
-    };
+    var content = std.Io.Writer.Allocating.init(api.VM.allocator);
+    defer content.deinit();
+
+    while (content.written().len <= n) {
+        const byte = reader.takeByte() catch |err| {
+            switch (err) {
+                error.EndOfStream => break,
+                error.ReadFailed => {
+                    ctx.vm.pushErrorEnum("errors.ReadWriteError", @errorName(err));
+                    return -1;
+                },
+            }
+        };
+
+        content.writer.writeByte(byte) catch |err| {
+            ctx.vm.pushErrorEnum("errors.ReadWriteError", @errorName(err));
+            return -1;
+        };
+    }
 
     ctx.vm.bz_push(
         api.VM.bz_stringToValue(
             ctx.vm,
-            if (content.len > 0)
-                @as([*]const u8, @ptrCast(content))
+            if (content.written().len > 0)
+                @as([*]const u8, @ptrCast(content.written()))
             else
                 null,
-            content.len,
+            content.written().len,
         ),
     );
 
@@ -513,18 +526,19 @@ pub export fn SocketReadLine(ctx: *api.NativeCtx) callconv(.c) c_int {
     const stream: std.net.Stream = .{ .handle = handle };
     var reader_buffer = [_]u8{0};
     var stream_reader = stream.reader(reader_buffer[0..]);
-    var reader = io.AllocatedReader{
-        .reader = stream_reader.interface(),
-        .max_size = if (max_size.isInteger()) @intCast(max_size.integer()) else null,
-    };
+    var reader = io.AllocatedReader.init(
+        api.VM.allocator,
+        stream_reader.interface(),
+        if (max_size.isInteger()) @intCast(max_size.integer()) else null,
+    );
 
-    if (reader.readUntilDelimiterOrEof(api.VM.allocator, '\n') catch |err| {
+    if (reader.readUntilDelimiterOrEof('\n') catch |err| {
         switch (err) {
             error.ReadFailed => {
                 ctx.vm.pushErrorEnum("errors.ReadWriteError", @errorName(err));
                 return -1;
             },
-            error.OutOfMemory => {
+            error.WriteFailed, error.OutOfMemory => {
                 ctx.vm.bz_panic("Out of memory", "Out of memory".len);
                 unreachable;
             },
@@ -556,18 +570,19 @@ pub export fn SocketReadAll(ctx: *api.NativeCtx) callconv(.c) c_int {
     const stream = std.net.Stream{ .handle = handle };
     var reader_buffer = [_]u8{0};
     var stream_reader = stream.reader(reader_buffer[0..]);
-    var reader = io.AllocatedReader{
-        .reader = stream_reader.interface(),
-        .max_size = if (max_size.isInteger()) @intCast(max_size.integer()) else null,
-    };
+    var reader = io.AllocatedReader.init(
+        api.VM.allocator,
+        stream_reader.interface(),
+        if (max_size.isInteger()) @intCast(max_size.integer()) else null,
+    );
 
-    const content = reader.readAll(api.VM.allocator) catch |err| {
+    const content = reader.readAll() catch |err| {
         switch (err) {
             error.ReadFailed => {
                 ctx.vm.pushErrorEnum("errors.ReadWriteError", @errorName(err));
                 return -1;
             },
-            error.OutOfMemory => {
+            error.WriteFailed, error.OutOfMemory => {
                 ctx.vm.bz_panic("Out of memory", "Out of memory".len);
                 unreachable;
             },

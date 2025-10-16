@@ -5,51 +5,16 @@ on:
     branches: [main]
 
 jobs:
-  # test-windows:
-  #   runs-on: windows-latest
-  #   steps:
-  #     - name: Checkout project
-  #       uses: actions/checkout@v3.0.0
-  #     - name: Checkout submodules
-  #       run: git submodule update --init --recursive
-  #     - name: Setup nightly Zig
-  #       uses: mlugg/setup-zig@v2
-  #       with:
-  #         version: 0.15.1
-  #     - name: Build test ffi lib
-  #       run: zig build-lib -dynamic tests/utils/foreign.zig && mv foreign.* tests/utils/
+  tests:
+    runs-on: ${{ matrix.operating-system }}
 
-  #     - name: Build
-  #       run: zig build && ls ./zig-out/lib/buzz
-
-  #     - name: Run behavior tests Debug
-  #       run: zig build test-behavior
-  #     - name: Cleanup
-  #       run: rm -rf zig-out zig-cache
-  #     - name: Run behavior tests Debug with JIT always on
-  #       run: zig build -Djit_always_on test && zig build -Djit_always_on test-behavior
-  #     - name: Cleanup
-  #       run: rm -rf zig-out zig-cache
-
-  #     - name: Run behavior tests ReleaseSafe
-  #       run: zig build -Doptimize=ReleaseSafe test && zig build -Doptimize=ReleaseSafe test-behavior
-  #     - name: Cleanup
-  #       run: rm -rf zig-out zig-cache
-  #     - name: Run behavior tests ReleaseSafe with JIT always on
-  #       run: zig build -Doptimize=ReleaseSafe -Djit_always_on test && zig build -Doptimize=ReleaseSafe -Djit_always_on test-behavior
-  #     - name: Cleanup
-  #       run: rm -rf zig-out zig-cache
-
-  #     - name: Run behavior tests ReleaseFast
-  #       run: zig build -Doptimize=ReleaseFast test && zig build -Doptimize=ReleaseFast test-behavior
-  #     - name: Cleanup
-  #       run: rm -rf zig-out zig-cache
-  #     - name: Run behavior tests ReleaseFast with JIT always on
-  #       run: zig build -Doptimize=ReleaseFast -Djit_always_on test && zig build -Doptimize=ReleaseFast -Djit_always_on test-behavior
-  #     - name: Cleanup
-  #       run: rm -rf zig-out zig-cache
-  test-macos:
-    runs-on: macos-latest
+    strategy:
+        fail-fast: false
+        matrix:
+          zig-version:
+              - "master"
+          operating-system: [ ubuntu-latest, macos-latest ]
+    
     steps:
       - name: Install homebrew
         run: /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
@@ -60,7 +25,7 @@ jobs:
       - name: Setup nightly Zig
         uses: mlugg/setup-zig@v2
         with:
-          version: 0.15.1
+          version: ${{ matrix.zig-version }}
       - name: Build test ffi lib
         run: zig build-lib -dynamic tests/utils/foreign.zig && mv libforeign.* tests/utils/
 
@@ -93,49 +58,7 @@ jobs:
         run: zig build -Doptimize=ReleaseFast -Djit_always_on test && zig build -Doptimize=ReleaseFast -Djit_always_on test-behavior
       - name: Cleanup
         run: rm -rf zig-out zig-cache
-  test-linux:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout project
-        uses: actions/checkout@v3.0.0
-      - name: Checkout submodules
-        run: git submodule update --init --recursive
-      - name: Setup nightly Zig
-        uses: mlugg/setup-zig@v2
-        with:
-          version: 0.15.1
-      - name: Build test ffi lib
-        run: zig build-lib -dynamic tests/utils/foreign.zig && mv libforeign.* tests/utils/
-
-      - name: Run behavior tests Debug
-        run: zig build test && zig build test-behavior
-      - name: Cleanup
-        run: rm -rf zig-out zig-cache
-
-      - name: Run behavior tests Debug with JIT always on
-        run: zig build -Djit_always_on test && zig build -Djit_always_on test-behavior
-      - name: Cleanup
-        run: rm -rf zig-out zig-cache
-
-      - name: Run behavior tests ReleaseSafe
-        run: zig build -Doptimize=ReleaseSafe test && zig build -Doptimize=ReleaseSafe test-behavior
-      - name: Cleanup
-        run: rm -rf zig-out zig-cache
-
-      - name: Run behavior tests ReleaseSafe with JIT always on
-        run: zig build -Doptimize=ReleaseSafe -Djit_always_on test && zig build -Doptimize=ReleaseSafe -Djit_always_on test-behavior
-      - name: Cleanup
-        run: rm -rf zig-out zig-cache
-
-      - name: Run behavior tests ReleaseFast
-        run: zig build -Doptimize=ReleaseFast test && zig build -Doptimize=ReleaseFast test-behavior
-      - name: Cleanup
-        run: rm -rf zig-out zig-cache
-
-      - name: Run behavior tests ReleaseFast with JIT always on
-        run: zig build -Doptimize=ReleaseFast -Djit_always_on test && zig build -Doptimize=ReleaseFast -Djit_always_on test-behavior
-      - name: Cleanup
-        run: rm -rf zig-out zig-cache
+  
   wasm-build:
     runs-on: ubuntu-latest
     steps:
@@ -146,11 +69,12 @@ jobs:
       - name: Setup nightly Zig
         uses: mlugg/setup-zig@v2
         with:
-          version: 0.15.1
+          version: master
       - name: Build for wasm
         run: zig build -Dtarget=wasm32-freestanding -freference-trace -Doptimize=ReleaseSmall
       - name: Cleanup
         run: rm -rf zig-out zig-cache
+
   lint:
     runs-on: macos-latest
     steps:
@@ -158,5 +82,5 @@ jobs:
       - name: Setup nightly Zig
         uses: mlugg/setup-zig@v2
         with:
-          version: 0.15.1
+          version: master
       - run: zig fmt --check src/*.zig src/**/*.zig

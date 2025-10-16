@@ -440,18 +440,17 @@ pub fn hex(ctx: *o.NativeCtx) callconv(.c) c_int {
         return 1;
     }
 
-    var result = std.ArrayList(u8).empty;
-    defer result.deinit(ctx.vm.gc.allocator);
-    var writer = result.writer(ctx.vm.gc.allocator);
+    var result = std.Io.Writer.Allocating.init(ctx.vm.gc.allocator);
+    defer result.deinit();
 
     for (str.string) |char| {
-        writer.print("{x:0>2}", .{char}) catch {
+        result.writer.print("{x:0>2}", .{char}) catch {
             ctx.vm.panic("Out of memory");
             unreachable;
         };
     }
 
-    var obj_string = ctx.vm.gc.copyString(result.items) catch {
+    var obj_string = ctx.vm.gc.copyString(result.written()) catch {
         ctx.vm.panic("Out of memory");
         unreachable;
     };

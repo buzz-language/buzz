@@ -103,11 +103,13 @@ fn testCompileErrors(allocator: std.mem.Allocator) !Result {
             );
             var buffer = [_]u8{0} ** 255;
             var file_reader = test_file.reader(buffer[0..]);
-            var reader = io.AllocatedReader{
-                .reader = &file_reader.interface,
-            };
+            var reader = io.AllocatedReader.init(
+                allocator,
+                &file_reader.interface,
+                null,
+            );
 
-            const first_line = (try reader.readUntilDelimiterOrEof(allocator, '\n')).?;
+            const first_line = (try reader.readUntilDelimiterOrEof('\n')).?;
             defer allocator.free(first_line);
 
             test_file.close();

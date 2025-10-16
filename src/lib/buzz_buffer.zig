@@ -138,10 +138,9 @@ const Buffer = struct {
             return null;
         }
 
-        var buffer_stream = std.io.fixedBufferStream(self.buffer.items[self.cursor..self.buffer.items.len]);
-        var reader = buffer_stream.reader();
+        var buffer_stream = std.Io.Reader.fixed(self.buffer.items[self.cursor..self.buffer.items.len]);
 
-        const number = try reader.readInt(api.Integer, builtin.cpu.arch.endian());
+        const number = try buffer_stream.takeInt(api.Integer, builtin.cpu.arch.endian());
 
         self.cursor += @divExact(@typeInfo(api.Integer).int.bits, 8);
 
@@ -153,10 +152,12 @@ const Buffer = struct {
             return Error.WriteWhileReading;
         }
 
-        var writer = self.buffer.writer(api.VM.allocator);
+        var buffer = std.Io.Writer.Allocating.fromArrayList(api.VM.allocator, &self.buffer);
 
         // Flag so we know it an integer
-        try writer.writeInt(api.Integer, integer, native_endian);
+        try buffer.writer.writeInt(api.Integer, integer, native_endian);
+
+        self.buffer = buffer.toArrayList();
     }
 
     pub fn readUserData(self: *Self, vm: *api.VM) !?api.Value {
@@ -164,10 +165,9 @@ const Buffer = struct {
             return null;
         }
 
-        var buffer_stream = std.io.fixedBufferStream(self.buffer.items[self.cursor..self.buffer.items.len]);
-        var reader = buffer_stream.reader();
+        var buffer_stream = std.Io.Reader.fixed(self.buffer.items[self.cursor..self.buffer.items.len]);
 
-        const number = try reader.readInt(u64, builtin.cpu.arch.endian());
+        const number = try buffer_stream.takeInt(u64, builtin.cpu.arch.endian());
 
         self.cursor += @sizeOf(u64);
 
@@ -179,14 +179,16 @@ const Buffer = struct {
             return Error.WriteWhileReading;
         }
 
-        var writer = self.buffer.writer(api.VM.allocator);
+        var buffer = std.Io.Writer.Allocating.fromArrayList(api.VM.allocator, &self.buffer);
 
         // Flag so we know it an integer
-        try writer.writeInt(
+        try buffer.writer.writeInt(
             u64,
             userdata.bz_getUserDataPtr(),
             native_endian,
         );
+
+        self.buffer = buffer.toArrayList();
     }
 
     pub fn readDouble(self: *Self) !?api.Double {
@@ -194,10 +196,9 @@ const Buffer = struct {
             return null;
         }
 
-        var buffer_stream = std.io.fixedBufferStream(self.buffer.items[self.cursor..self.buffer.items.len]);
-        var reader = buffer_stream.reader();
+        var buffer_stream = std.Io.Reader.fixed(self.buffer.items[self.cursor..self.buffer.items.len]);
 
-        const number = try reader.readInt(u64, builtin.cpu.arch.endian());
+        const number = try buffer_stream.takeInt(u64, builtin.cpu.arch.endian());
 
         self.cursor += @divExact(@typeInfo(u64).int.bits, 8);
 
@@ -209,13 +210,15 @@ const Buffer = struct {
             return Error.WriteWhileReading;
         }
 
-        var writer = self.buffer.writer(api.VM.allocator);
+        var buffer = std.Io.Writer.Allocating.fromArrayList(api.VM.allocator, &self.buffer);
 
-        try writer.writeInt(
+        try buffer.writer.writeInt(
             u64,
             @as(u64, @bitCast(double)),
             native_endian,
         );
+
+        self.buffer = buffer.toArrayList();
     }
 
     pub fn empty(self: *Self) void {
@@ -327,6 +330,10 @@ pub export fn BufferReadInt(ctx: *api.NativeCtx) callconv(.c) c_int {
 
                 return 1;
             },
+            error.ReadFailed => {
+                ctx.vm.pushErrorEnum("errors.ReadWriteError", @errorName(err));
+                return -1;
+            },
         }
     }) |value| {
         ctx.vm.bz_push(api.Value.fromInteger(value));
@@ -347,6 +354,10 @@ pub export fn BufferReadUserData(ctx: *api.NativeCtx) callconv(.c) c_int {
                 ctx.vm.bz_push(api.Value.Null);
 
                 return 1;
+            },
+            error.ReadFailed => {
+                ctx.vm.pushErrorEnum("errors.ReadWriteError", @errorName(err));
+                return -1;
             },
         }
     }) |value| {
@@ -369,6 +380,10 @@ pub export fn BufferReadDouble(ctx: *api.NativeCtx) callconv(.c) c_int {
 
                 return 1;
             },
+            error.ReadFailed => {
+                ctx.vm.pushErrorEnum("errors.ReadWriteError", @errorName(err));
+                return -1;
+            },
         }
     }) |value| {
         ctx.vm.bz_push(api.Value.fromDouble(value));
@@ -387,7 +402,7 @@ pub export fn BufferWriteInt(ctx: *api.NativeCtx) callconv(.c) c_int {
     buffer.writeInteger(number.integer()) catch |err| {
         switch (err) {
             Buffer.Error.WriteWhileReading => ctx.vm.pushError("buffer.WriteWhileReadingError", null),
-            error.OutOfMemory => {
+            error.WriteFailed => {
                 ctx.vm.bz_panic("Out of memory", "Out of memory".len);
                 unreachable;
             },
@@ -406,7 +421,7 @@ pub export fn BufferWriteUserData(ctx: *api.NativeCtx) callconv(.c) c_int {
     buffer.writeUserData(userdata) catch |err| {
         switch (err) {
             Buffer.Error.WriteWhileReading => ctx.vm.pushError("buffer.WriteWhileReadingError", null),
-            error.OutOfMemory => {
+            error.WriteFailed => {
                 ctx.vm.bz_panic("Out of memory", "Out of memory".len);
                 unreachable;
             },
@@ -425,7 +440,7 @@ pub export fn BufferWriteDouble(ctx: *api.NativeCtx) callconv(.c) c_int {
     buffer.writeFloat(number.double()) catch |err| {
         switch (err) {
             Buffer.Error.WriteWhileReading => ctx.vm.pushError("buffer.WriteWhileReadingError", null),
-            error.OutOfMemory => {
+            error.WriteFailed => {
                 ctx.vm.bz_panic("Out of memory", "Out of memory".len);
                 unreachable;
             },
@@ -508,10 +523,10 @@ fn checkBuzzType(
     btype: api.Value,
 ) bool {
     if (!value.bz_valueIs(btype).boolean()) {
-        var err = std.ArrayList(u8).empty;
-        defer err.deinit(api.VM.allocator);
+        var err = std.Io.Writer.Allocating.init(api.VM.allocator);
+        defer err.deinit();
 
-        err.writer(api.VM.allocator).print(
+        err.writer.print(
             "Expected buzz value of type `{s}` to match FFI type `{s}`",
             .{
                 btype.bz_valueCastToString(vm).bz_valueToCString().?,
@@ -523,11 +538,17 @@ fn checkBuzzType(
             unreachable;
         };
 
+        const err_owned = err.toOwnedSlice() catch {
+            const msg = "Out of memory";
+            vm.bz_panic(msg.ptr, msg.len);
+            unreachable;
+        };
+
         vm.bz_pushError(
             "ffi.FFITypeMismatchError",
             "ffi.FFITypeMismatchError".len,
-            err.items.ptr,
-            err.items.len,
+            err_owned.ptr,
+            err_owned.len,
         );
 
         return false;
