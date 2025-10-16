@@ -761,9 +761,13 @@ pub fn reportTypeCheck(
         }
     }
 
-    actual_message.writer.print("{s}: got type `", .{message}) catch @panic("Unable to report error");
-    actual_type.toString(&actual_message.writer, false) catch @panic("Unable to report error");
-    actual_message.writer.writeAll("`") catch @panic("Unable to report error");
+    actual_message.writer.print(
+        "{s}: got type `{f}`",
+        .{
+            message,
+            actual_type,
+        },
+    ) catch @panic("Unable to report error");
 
     var expected_message = std.Io.Writer.Allocating.init(self.allocator);
     defer {
@@ -777,9 +781,12 @@ pub fn reportTypeCheck(
     else
         &actual_message;
 
-    following_message.writer.writeAll("expected `") catch @panic("Unable to report error");
-    expected_type.toString(&following_message.writer, false) catch @panic("Unable to report error");
-    following_message.writer.writeAll("`") catch @panic("Unable to report error");
+    following_message.writer.print(
+        "expected `{f}`",
+        .{
+            expected_type,
+        },
+    ) catch @panic("Unable to report error");
 
     var full_message = if (expected_location == null)
         actual_message

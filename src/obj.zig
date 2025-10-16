@@ -509,6 +509,10 @@ pub const Obj = struct {
         }
     }
 
+    pub fn format(obj: *Obj, w: *std.Io.Writer) std.Io.Writer.Error!void {
+        obj.toString(w) catch return error.WriteFailed;
+    }
+
     pub fn toString(obj: *Obj, writer: *std.Io.Writer) (Allocator.Error || std.fmt.BufPrintError || error{WriteFailed})!void {
         return switch (obj.obj_type) {
             .String => {
@@ -675,18 +679,22 @@ pub const Obj = struct {
 
                 if (bound.closure) |closure| {
                     const closure_name: []const u8 = closure.function.type_def.resolved_type.?.Function.name.string;
-                    try writer.writeAll("bound method: ");
-
-                    try (bound.receiver).toString(writer);
-
-                    try writer.print(" to {s}", .{closure_name});
+                    try writer.print(
+                        "bound method: {f} to {s}",
+                        .{
+                            bound.receiver,
+                            closure_name,
+                        },
+                    );
                 } else {
                     assert(bound.native != null);
-                    try writer.writeAll("bound method: ");
-
-                    try (bound.receiver).toString(writer);
-
-                    try writer.print(" to native 0x{}", .{@intFromPtr(bound.native.?)});
+                    try writer.print(
+                        "bound method: {f} to native 0x{}",
+                        .{
+                            bound.receiver,
+                            @intFromPtr(bound.native.?),
+                        },
+                    );
                 }
             },
             .Native => {
@@ -4898,6 +4906,10 @@ pub const ObjTypeDef = struct {
         try self.toString(&str.writer, qualified);
 
         return try str.toOwnedSlice();
+    }
+
+    pub fn format(self: *Self, w: *std.Io.Writer) std.Io.Writer.Error!void {
+        self.toString(w, false) catch return error.WriteFailed;
     }
 
     pub fn toString(self: *const Self, writer: anytype, qualified: bool) (Allocator.Error || std.fmt.BufPrintError || error{WriteFailed})!void {
