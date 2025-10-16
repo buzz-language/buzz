@@ -47,87 +47,87 @@ pub const Value = packed struct {
     // We only need this so that an NativeFn can see the error returned by its raw function
     pub const Error = Value{ .val = ErrorMask };
 
-    pub inline fn fromBoolean(val: bool) Value {
+    pub fn fromBoolean(val: bool) Value {
         return if (val) True else False;
     }
 
-    pub inline fn fromInteger(val: Integer) Value {
+    pub fn fromInteger(val: Integer) Value {
         return .{ .val = IntegerMask | @as(u48, @bitCast(val)) };
     }
 
-    pub inline fn fromDouble(val: Double) Value {
+    pub fn fromDouble(val: Double) Value {
         return .{ .val = @as(u64, @bitCast(val)) };
     }
 
-    pub inline fn fromObj(val: *o.Obj) Value {
+    pub fn fromObj(val: *o.Obj) Value {
         return .{ .val = PointerMask | @intFromPtr(val) };
     }
 
-    pub inline fn getTag(self: Value) Tag {
+    pub fn getTag(self: Value) Tag {
         return @as(Tag, @intCast(@as(u32, @intCast(self.val >> 32)) & TagMask));
     }
 
-    pub inline fn isBool(self: Value) bool {
+    pub fn isBool(self: Value) bool {
         return self.val & (TaggedPrimitiveMask | SignMask) == BooleanMask;
     }
 
-    pub inline fn isInteger(self: Value) bool {
+    pub fn isInteger(self: Value) bool {
         return self.val & (TaggedUpperValueMask | SignMask) == IntegerMask;
     }
 
-    pub inline fn isDouble(self: Value) bool {
+    pub fn isDouble(self: Value) bool {
         return !self.isBool() and !self.isError() and !self.isInteger() and !self.isNull() and !self.isObj() and !self.isVoid();
     }
 
-    pub inline fn isNumber(self: Value) bool {
+    pub fn isNumber(self: Value) bool {
         return self.isDouble() or self.isInteger();
     }
 
-    pub inline fn isObj(self: Value) bool {
+    pub fn isObj(self: Value) bool {
         return self.val & PointerMask == PointerMask;
     }
 
-    pub inline fn isNull(self: Value) bool {
+    pub fn isNull(self: Value) bool {
         return self.val == NullMask;
     }
 
-    pub inline fn isVoid(self: Value) bool {
+    pub fn isVoid(self: Value) bool {
         return self.val == VoidMask;
     }
 
-    pub inline fn isError(self: Value) bool {
+    pub fn isError(self: Value) bool {
         return self.val == ErrorMask;
     }
 
-    pub inline fn boolean(self: Value) bool {
+    pub fn boolean(self: Value) bool {
         return self.val == TrueMask;
     }
 
-    pub inline fn integer(self: Value) Integer {
+    pub fn integer(self: Value) Integer {
         return @bitCast(@as(u48, @intCast(self.val & 0xffffffffffff)));
     }
 
-    pub inline fn double(self: Value) Double {
+    pub fn double(self: Value) Double {
         return @bitCast(self.val);
     }
 
-    pub inline fn obj(self: Value) *o.Obj {
+    pub fn obj(self: Value) *o.Obj {
         return @ptrFromInt(@as(usize, @truncate(self.val & ~PointerMask)));
     }
 
-    pub inline fn booleanOrNull(self: Value) ?bool {
+    pub fn booleanOrNull(self: Value) ?bool {
         return if (self.isBool()) self.boolean() else null;
     }
 
-    pub inline fn integerOrNull(self: Value) ?Integer {
+    pub fn integerOrNull(self: Value) ?Integer {
         return if (self.isInteger()) self.integer() else null;
     }
 
-    pub inline fn doubleOrNull(self: Value) ?Double {
+    pub fn doubleOrNull(self: Value) ?Double {
         return if (self.isDouble()) self.double() else null;
     }
 
-    pub inline fn objOrNull(self: Value) ?*o.Obj {
+    pub fn objOrNull(self: Value) ?*o.Obj {
         return if (self.isObj()) self.obj() else null;
     }
 
@@ -157,6 +157,10 @@ pub const Value = packed struct {
         }
 
         return self;
+    }
+
+    pub fn format(value: Value, w: *std.Io.Writer) std.Io.Writer.Error!void {
+        value.toString(w) catch return error.WriteFailed;
     }
 
     pub fn toStringAlloc(value: Value, allocator: Allocator) (Allocator.Error || std.fmt.BufPrintError || error{WriteFailed})![]const u8 {
