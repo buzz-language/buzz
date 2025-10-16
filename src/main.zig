@@ -17,7 +17,8 @@ const clap = @import("clap");
 const GC = @import("GC.zig");
 const JIT = if (!is_wasm) @import("Jit.zig") else void;
 const is_wasm = builtin.cpu.arch.isWasm();
-const repl = if (!is_wasm) @import("repl.zig").repl else void;
+const _repl = if (!is_wasm) @import("repl.zig") else void;
+const repl = if (!is_wasm) _repl.repl else void;
 const wasm_repl = @import("wasm_repl.zig");
 const Renderer = @import("renderer.zig").Renderer;
 const io = @import("io.zig");
@@ -30,66 +31,37 @@ pub const os = if (is_wasm)
 else
     std.os;
 
-fn printBanner(out: anytype, full: bool) void {
-    out.print(
-        "👨‍🚀 buzz {f}-{s} Copyright (C) 2021-present Benoit Giannangeli\n",
-        .{
-            BuildOptions.version,
-            BuildOptions.sha,
-        },
-    ) catch unreachable;
-
-    if (full) {
-        out.print(
-            "Built with Zig {f} {s}\nAllocator: {s}, Memory limit: {} {s}\nJIT: {s}, CPU limit: {} {s}\n",
-            .{
-                builtin.zig_version,
-                @tagName(builtin.mode),
-                if (builtin.mode == .Debug)
-                    "gpa"
-                else if (BuildOptions.mimalloc) "mimalloc" else "c_allocator",
-                if (BuildOptions.memory_limit) |ml|
-                    ml
-                else
-                    0,
-                if (BuildOptions.memory_limit != null)
-                    "bytes"
-                else
-                    "(unlimited)",
-                if (BuildOptions.jit and BuildOptions.cycle_limit == null)
-                    "on"
-                else
-                    "off",
-                if (BuildOptions.cycle_limit) |cl| cl else 0,
-                if (BuildOptions.cycle_limit != null) "cycles" else "(unlimited)",
-            },
-        ) catch unreachable;
-    }
-}
-
 pub fn runFile(allocator: Allocator, file_name: []const u8, args: []const []const u8, flavor: RunFlavor) !void {
     var total_timer = if (!is_wasm) std.time.Timer.start() catch unreachable else {};
+
     var import_registry = ImportRegistry{};
+
     var gc = try GC.init(allocator);
     gc.type_registry = try TypeRegistry.init(&gc);
+
     var imports = std.StringHashMapUnmanaged(Parser.ScriptImport){};
+
     var vm = try VM.init(&gc, &import_registry, flavor);
+
     vm.jit = if (BuildOptions.jit and BuildOptions.cycle_limit == null)
         JIT.init(&vm)
     else
         null;
+
     defer {
         if (!is_wasm and vm.jit != null) {
             vm.jit.?.deinit(vm.gc.allocator);
             vm.jit = null;
         }
     }
+
     var parser = Parser.init(
         &gc,
         &imports,
         false,
         flavor,
     );
+
     var codegen = CodeGen.init(
         &gc,
         &parser,
@@ -134,7 +106,7 @@ pub fn runFile(allocator: Allocator, file_name: []const u8, args: []const []cons
             timer.reset();
         }
 
-        if (flavor == .Run or flavor == .Test) {
+        if (flavor.runs()) {
             const ast_slice = ast.slice();
 
             if (try codegen.generate(ast_slice)) |function| {
@@ -233,7 +205,7 @@ pub fn main() u8 {
     defer res.deinit();
 
     if (res.args.version == 1) {
-        printBanner(io.stdoutWriter, true);
+        _repl.printBanner(io.stdoutWriter, true);
 
         return 0;
     }

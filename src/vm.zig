@@ -15,6 +15,7 @@ const Reporter = @import("Reporter.zig");
 const FFI = if (!is_wasm) @import("FFI.zig") else void;
 const dispatch_call_modifier: std.builtin.CallModifier = if (!is_wasm) .always_tail else .auto;
 const io = @import("io.zig");
+const Debugger = @import("Debugger.zig");
 
 const dumpStack = disassembler.dumpStack;
 const jmp = if (!is_wasm) @import("jmp.zig") else void;
@@ -23,20 +24,28 @@ pub const ImportRegistry = std.AutoHashMapUnmanaged(*obj.ObjString, []const Valu
 
 pub const RunFlavor = enum {
     Run,
+    Debug,
     Test,
     Check,
     Fmt,
     Ast,
     Repl,
 
-    pub inline fn resolveImports(self: RunFlavor) bool {
+    pub fn runs(self: RunFlavor) bool {
+        return switch (self) {
+            .Run, .Debug, .Test => true,
+            else => false,
+        };
+    }
+
+    pub fn resolveImports(self: RunFlavor) bool {
         return switch (self) {
             .Check, .Fmt => false,
             else => true,
         };
     }
 
-    pub inline fn resolveDynLib(self: RunFlavor) bool {
+    pub fn resolveDynLib(self: RunFlavor) bool {
         return switch (self) {
             .Fmt, .Check, .Ast => false,
             else => true,
@@ -433,6 +442,7 @@ pub const VM = struct {
     globals_count: usize = 0,
     import_registry: *ImportRegistry,
     jit: ?JIT = null,
+    debugger: ?*Debugger = null,
     hotspots_count: u128 = 0,
     flavor: RunFlavor,
     reporter: Reporter,
@@ -606,7 +616,8 @@ pub const VM = struct {
 
         self.current_fiber.status = .Running;
 
-        return self.run();
+        // If debugging, don't start the vm right away
+        if (self.flavor != .Debug) self.run();
     }
 
     fn readPreviousInstruction(self: *Self) ?u32 {

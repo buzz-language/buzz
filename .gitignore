@@ -16,3 +16,5 @@ tests/utils/libforeign.*
 buzz_history
 
 node_modules
+out.txt
+AGENTS.md

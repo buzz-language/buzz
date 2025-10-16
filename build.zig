@@ -316,6 +316,27 @@ pub fn build(b: *Build) !void {
         b.step("test-behavior", "Test behavior").dependOn(&run_behavior.step);
     }
 
+    const debugger_exe = if (!is_wasm) b.addExecutable(
+        .{
+            .name = "buzz_debugger",
+            .use_llvm = true,
+            .root_module = b.createModule(
+                .{
+                    .root_source_file = b.path("src/Debugger.zig"),
+                    .target = target,
+                    .optimize = build_mode,
+                },
+            ),
+        },
+    ) else null;
+    if (debugger_exe) |bexe| b.installArtifact(bexe);
+
+    if (debugger_exe) |bexe| {
+        const run_debugger = b.addRunArtifact(bexe);
+        run_debugger.step.dependOn(install_step);
+        b.step("run-debugger", "Run the debugger").dependOn(&run_debugger.step);
+    }
+
     const clap = b.dependency(
         "clap",
         .{
@@ -325,6 +346,11 @@ pub fn build(b: *Build) !void {
     );
 
     exe.root_module.addImport(
+        "clap",
+        clap.module("clap"),
+    );
+
+    if (debugger_exe) |dexe| dexe.root_module.addImport(
         "clap",
         clap.module("clap"),
     );
@@ -389,6 +415,7 @@ pub fn build(b: *Build) !void {
 
     exe.root_module.sanitize_c = .off;
     if (behavior_exe) |bexe| bexe.root_module.sanitize_c = .off;
+    if (debugger_exe) |bexe| bexe.root_module.sanitize_c = .off;
     if (!is_wasm) lsp_exe.?.root_module.sanitize_c = .off;
 
     const check = b.step("check", "Check if buzz compiles");
@@ -425,13 +452,49 @@ pub fn build(b: *Build) !void {
         exe.linkLibC();
         exe_check.linkLibC();
         if (behavior_exe) |bexe| bexe.linkLibC();
+        if (debugger_exe) |dexe| dexe.linkLibC();
         if (!is_wasm) lsp_exe.?.linkLibC();
     }
 
     exe.root_module.addImport("build_options", build_option_module);
     exe_check.root_module.addImport("build_options", build_option_module);
     if (behavior_exe) |bexe| bexe.root_module.addImport("build_options", build_option_module);
+    if (debugger_exe) |dexe| dexe.root_module.addImport("build_options", build_option_module);
     if (!is_wasm) lsp_exe.?.root_module.addImport("build_options", build_option_module);
+
+    // dap_kit
+    const dap = b.dependency(
+        "dap_kit",
+        .{
+            .target = target,
+            .optimize = build_mode,
+        },
+    );
+
+    exe.root_module.addImport(
+        "dap",
+        dap.module("dap_kit"),
+    );
+
+    exe_check.root_module.addImport(
+        "dap",
+        dap.module("dap_kit"),
+    );
+
+    if (behavior_exe) |bexe| bexe.root_module.addImport(
+        "dap",
+        dap.module("dap_kit"),
+    );
+
+    if (debugger_exe) |bexe| bexe.root_module.addImport(
+        "dap",
+        dap.module("dap_kit"),
+    );
+
+    if (lsp_exe) |lexe| lexe.root_module.addImport(
+        "dap",
+        dap.module("dap_kit"),
+    );
 
     if (!is_wasm) {
         // Building buzz api library
@@ -461,10 +524,16 @@ pub fn build(b: *Build) !void {
             build_option_module,
         );
 
+        lib.root_module.addImport(
+            "dap",
+            dap.module("dap_kit"),
+        );
+
         if (lib_pcre2) |pcre| {
             lib.linkLibrary(pcre);
             exe.linkLibrary(pcre);
             if (behavior_exe) |bexe| bexe.linkLibrary(pcre);
+            if (debugger_exe) |bexe| bexe.linkLibrary(pcre);
             if (!is_wasm) lsp_exe.?.linkLibrary(pcre);
         }
 
@@ -472,11 +541,13 @@ pub fn build(b: *Build) !void {
             lib.linkLibrary(mimalloc);
             exe.linkLibrary(mimalloc);
             if (behavior_exe) |bexe| bexe.linkLibrary(mimalloc);
+            if (debugger_exe) |bexe| bexe.linkLibrary(mimalloc);
             if (!is_wasm) lsp_exe.?.linkLibrary(mimalloc);
             if (lib.root_module.resolved_target.?.result.os.tag == .windows) {
                 lib.linkSystemLibrary("bcrypt");
                 exe.linkSystemLibrary("bcrypt");
                 if (behavior_exe) |bexe| bexe.linkSystemLibrary("bcrypt");
+                if (debugger_exe) |bexe| bexe.linkSystemLibrary("bcrypt");
                 if (!is_wasm) lsp_exe.?.linkSystemLibrary("bcrypt");
             }
         }
@@ -485,17 +556,20 @@ pub fn build(b: *Build) !void {
             lib.linkLibrary(mir);
             exe.linkLibrary(mir);
             if (behavior_exe) |bexe| bexe.linkLibrary(mir);
+            if (debugger_exe) |bexe| bexe.linkLibrary(mir);
             if (!is_wasm) lsp_exe.?.linkLibrary(mir);
         }
 
         // So that JIT compiled function can reference buzz_api
         exe.linkLibrary(lib);
         if (behavior_exe) |bexe| bexe.linkLibrary(lib);
+        if (debugger_exe) |bexe| bexe.linkLibrary(lib);
         if (!is_wasm) lsp_exe.?.linkLibrary(lib);
         exe_check.linkLibrary(lib);
         if (lib_linenoise) |ln| {
             exe.linkLibrary(ln);
             if (behavior_exe) |bexe| bexe.linkLibrary(ln);
+            if (debugger_exe) |bexe| bexe.linkLibrary(ln);
             if (!is_wasm) lsp_exe.?.linkLibrary(ln);
             exe_check.linkLibrary(ln);
         }
@@ -563,6 +637,11 @@ pub fn build(b: *Build) !void {
                         },
                     ),
                 },
+            );
+
+            std_lib.root_module.addImport(
+                "dap",
+                dap.module("dap_kit"),
             );
 
             const artifact = b.addInstallArtifact(std_lib, .{});
