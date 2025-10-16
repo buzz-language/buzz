@@ -600,10 +600,10 @@ fn generateNode(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
 
 fn closeScope(self: *Self, node: Ast.Node.Index) !void {
     if (self.state.?.ast.nodes.items(.ends_scope)[node]) |closing| {
-        for (closing) |op| {
-            if (op == .OP_CLOSE_UPVALUE) {
+        for (closing) |close| {
+            if (close.opcode == .OP_CLOSE_UPVALUE) {
                 try self.buildCloseUpValues();
-            } else if (op == .OP_POP) {
+            } else if (close.opcode == .OP_POP) {
                 try self.buildPop(null);
             } else {
                 unreachable;

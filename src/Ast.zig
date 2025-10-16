@@ -919,17 +919,13 @@ pub fn slice(self: Self) Slice {
     };
 }
 
-pub inline fn appendNode(self: *Self, node: Node) !Node.Index {
+pub fn appendNode(self: *Self, node: Node) !Node.Index {
     try self.nodes.append(self.allocator, node);
 
     return @intCast(self.nodes.len - 1);
 }
 
-pub inline fn appendToken(self: *Self, token: Token) !TokenIndex {
-    // if (token.tag == .Semicolon and self.tokens.items(.tag)[self.tokens.len - 1] == .Semicolon) {
-    //     unreachable;
-    // }
-
+pub fn appendToken(self: *Self, token: Token) !TokenIndex {
     try self.tokens.append(self.allocator, token);
 
     return @intCast(self.tokens.len - 1);
@@ -942,6 +938,11 @@ pub fn swapNodes(self: *Self, from: Node.Index, to: Node.Index) void {
     self.nodes.set(from, to_node);
     self.nodes.set(to, from_node);
 }
+
+pub const Close = struct {
+    opcode: Chunk.OpCode,
+    slot: u8,
+};
 
 pub const Node = struct {
     tag: Tag,
@@ -957,7 +958,7 @@ pub const Node = struct {
     /// Wether optional jumps must be patch before generate this node bytecode
     patch_opt_jumps: bool = false,
     /// Does this node closes a scope
-    ends_scope: ?[]const Chunk.OpCode = null,
+    ends_scope: ?[]const Close = null,
 
     /// Data related to this node
     components: Components,

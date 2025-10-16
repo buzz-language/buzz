@@ -360,7 +360,20 @@ pub const Obj = struct {
             .UserData => gc.type_registry.ud_type,
             // FIXME: apart from list/map types we actually can embark typedef of objnatives at runtime
             // Or since native are ptr to unique function we can keep a map of ptr => typedef
-            .Native => unreachable,
+            .Native => try gc.type_registry.getTypeDef(
+                .{
+                    .def_type = .Function,
+                    .resolved_type = .{
+                        .Function = .{
+                            .id = 0,
+                            .name = try gc.copyString("native"),
+                            .script_name = try gc.copyString("native"),
+                            .return_type = gc.type_registry.any_type,
+                            .yield_type = gc.type_registry.any_type,
+                        },
+                    },
+                },
+            ),
         };
     }
 
@@ -1371,13 +1384,13 @@ pub const ObjFunction = struct {
         yield_type: *ObjTypeDef,
         error_types: ?[]const *ObjTypeDef = null,
         // TODO: rename 'arguments'
-        parameters: std.AutoArrayHashMapUnmanaged(*ObjString, *ObjTypeDef) = .{},
+        parameters: std.AutoArrayHashMapUnmanaged(*ObjString, *ObjTypeDef) = .empty,
         // Storing here the defaults means they can only be non-Obj values
-        defaults: std.AutoArrayHashMapUnmanaged(*ObjString, Value) = .{},
+        defaults: std.AutoArrayHashMapUnmanaged(*ObjString, Value) = .empty,
         function_type: FunctionType = .Function,
         lambda: bool = false,
 
-        generic_types: std.AutoArrayHashMapUnmanaged(*ObjString, *ObjTypeDef) = .{},
+        generic_types: std.AutoArrayHashMapUnmanaged(*ObjString, *ObjTypeDef) = .empty,
         resolved_generics: ?[]*ObjTypeDef = null,
 
         pub fn nextId() usize {
@@ -3184,19 +3197,20 @@ pub const ObjRange = struct {
 pub const ObjMap = struct {
     const Self = @This();
 
+    pub const Map = std.AutoArrayHashMapUnmanaged(Value, Value);
+
     obj: Obj = .{ .obj_type = .Map },
 
     type_def: *ObjTypeDef,
 
     // We need an ArrayHashMap for `next`
-    map: std.AutoArrayHashMapUnmanaged(Value, Value),
+    map: Map = .empty,
 
     methods: []?*ObjNative,
 
     pub fn init(allocator: Allocator, type_def: *ObjTypeDef) !Self {
         const self = Self{
             .type_def = type_def,
-            .map = std.AutoArrayHashMapUnmanaged(Value, Value){},
             .methods = try allocator.alloc(
                 ?*ObjNative,
                 Self.members.len,

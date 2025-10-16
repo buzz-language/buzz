@@ -15,6 +15,7 @@ const Reporter = @import("Reporter.zig");
 const FFI = if (!is_wasm) @import("FFI.zig") else void;
 const dispatch_call_modifier: std.builtin.CallModifier = if (!is_wasm) .always_tail else .auto;
 const io = @import("io.zig");
+const Debugger = @import("Debugger.zig");
 
 const dumpStack = disassembler.dumpStack;
 const jmp = if (!is_wasm) @import("jmp.zig") else void;
@@ -29,14 +30,21 @@ pub const RunFlavor = enum {
     Ast,
     Repl,
 
-    pub inline fn resolveImports(self: RunFlavor) bool {
+    pub fn runs(self: RunFlavor) bool {
+        return switch (self) {
+            .Run, .Test => true,
+            else => false,
+        };
+    }
+
+    pub fn resolveImports(self: RunFlavor) bool {
         return switch (self) {
             .Check, .Fmt => false,
             else => true,
         };
     }
 
-    pub inline fn resolveDynLib(self: RunFlavor) bool {
+    pub fn resolveDynLib(self: RunFlavor) bool {
         return switch (self) {
             .Fmt, .Check, .Ast => false,
             else => true,
@@ -50,7 +58,7 @@ pub const CallFrame = struct {
     closure: *obj.ObjClosure,
     /// Index into closure's chunk
     ip: usize,
-    // Frame
+    /// Frame
     slots: [*]Value,
 
     /// Default value in case of error
@@ -109,6 +117,8 @@ pub const Fiber = struct {
     stack: []Value,
     stack_top: [*]Value,
     open_upvalues: ?*obj.ObjUpValue,
+    /// Debug info
+    locals_dbg: std.ArrayList(Value) = .empty,
 
     status: Status = .Instanciated,
     /// true: we did `resolve fiber`, false: we did `resume fiber`
@@ -428,17 +438,20 @@ pub const VM = struct {
     gc: *GC,
     current_fiber: *Fiber,
     current_ast: Ast.Slice,
-    globals: std.ArrayList(Value) = .{},
+    globals: std.ArrayList(Value) = .empty,
     // FIXME: remove
     globals_count: usize = 0,
+    globals_dbg: std.ArrayList(Value) = .empty,
     import_registry: *ImportRegistry,
     jit: ?JIT = null,
+    debugger: ?*Debugger = null,
+    paused: bool = false,
     hotspots_count: u128 = 0,
     flavor: RunFlavor,
     reporter: Reporter,
     ffi: FFI,
 
-    pub fn init(gc: *GC, import_registry: *ImportRegistry, flavor: RunFlavor) !Self {
+    pub fn init(gc: *GC, import_registry: *ImportRegistry, flavor: RunFlavor, debugger: ?*Debugger) !Self {
         return .{
             .gc = gc,
             .import_registry = import_registry,
@@ -449,6 +462,7 @@ pub const VM = struct {
                 .allocator = gc.allocator,
             },
             .ffi = if (!is_wasm) FFI.init(gc) else {},
+            .debugger = debugger,
         };
     }
 
@@ -458,6 +472,7 @@ pub const VM = struct {
         if (!is_wasm) {
             self.ffi.deinit();
         }
+        self.gc.unregisterVM(self);
     }
 
     pub fn cliArgs(self: *Self, args: ?[]const []const u8) !*obj.ObjList {
@@ -596,7 +611,6 @@ pub const VM = struct {
         self.push((try self.cliArgs(args)).toValue());
 
         try self.gc.registerVM(self);
-        defer self.gc.unregisterVM(self);
 
         try self.callValue(
             self.peek(1),
@@ -606,7 +620,10 @@ pub const VM = struct {
 
         self.current_fiber.status = .Running;
 
-        return self.run();
+        // If debugging, don't run the entry point right away
+        if (self.debugger == null or function.type_def.resolved_type.?.Function.function_type != .ScriptEntryPoint) {
+            self.run();
+        }
     }
 
     fn readPreviousInstruction(self: *Self) ?u32 {
@@ -793,6 +810,10 @@ pub const VM = struct {
 
         OP_HOTSPOT,
         OP_HOTSPOT_CALL,
+
+        OP_DBG_LOCAL_ENTER,
+        OP_DBG_LOCAL_EXIT,
+        OP_DBG_GLOBAL_DEFINE,
     };
 
     fn dispatch(self: *Self, current_frame: *CallFrame, full_instruction: u32, instruction: Chunk.OpCode, arg: u24) void {
@@ -858,10 +879,19 @@ pub const VM = struct {
             }
         }
 
+        if (self.debugger) |debugger| {
+            if (debugger.onDispatch()) {
+                return;
+            }
+        }
+
         // Tail call
         @call(
             dispatch_call_modifier,
-            op_table[@intFromEnum(instruction)],
+            if (self.debugger != null and self.debugger.?.session.?.run_state == .paused)
+                OP_NOOP
+            else
+                op_table[@intFromEnum(instruction)],
             .{
                 self,
                 current_frame,
@@ -878,6 +908,24 @@ pub const VM = struct {
         self.reportRuntimeErrorWithCurrentStack(msg);
 
         unreachable;
+    }
+
+    /// Called instead of regular op_code when program is paused by the debugger
+    fn OP_NOOP(self: *Self, current_frame: *CallFrame, next_full_instruction: u32, code: Chunk.OpCode, args: u24) void {
+        // Wait a little for the user to resume the program
+        std.Thread.sleep(10_000_000);
+
+        @call(
+            dispatch_call_modifier,
+            dispatch,
+            .{
+                self,
+                current_frame,
+                next_full_instruction,
+                code,
+                args,
+            },
+        );
     }
 
     fn OP_NULL(self: *Self, _: *CallFrame, _: u32, _: Chunk.OpCode, _: u24) void {
@@ -2173,7 +2221,12 @@ pub const VM = struct {
                 unreachable;
             };
             // FIXME: give reference to JIT?
-            vm.* = VM.init(self.gc, self.import_registry, self.flavor) catch {
+            vm.* = VM.init(
+                self.gc,
+                self.import_registry,
+                self.flavor,
+                self.debugger,
+            ) catch {
                 self.panic("Out of memory");
                 unreachable;
             };
@@ -2200,13 +2253,35 @@ pub const VM = struct {
             var import_cache = std.ArrayList(Value).empty;
 
             if (exported_count > 0) {
-                var i = exported_count;
-                while (i > 0) : (i -= 1) {
+                var i: usize = @intCast(
+                    if (self.debugger != null)
+                        exported_count * 2
+                    else
+                        exported_count,
+                );
+                const increment: usize = if (self.debugger != null) 2 else 1;
+                while (i > 0) : (i -= increment) {
+                    const idx = if (self.debugger != null)
+                        vm.peek(@intCast(i - 1))
+                    else
+                        null;
+
                     const global = vm.peek(@intCast(i));
+
                     self.globals.append(self.gc.allocator, global) catch {
                         self.panic("Out of memory");
                         unreachable;
                     };
+
+                    if (self.debugger != null) {
+                        self.globals_dbg.append(
+                            self.gc.allocator,
+                            vm.globals_dbg.items[@intCast(idx.?.integer())],
+                        ) catch {
+                            self.panic("Out of memory");
+                            unreachable;
+                        };
+                    }
 
                     import_cache.append(self.gc.allocator, global) catch {
                         self.panic("Out of memory");
@@ -4455,6 +4530,107 @@ pub const VM = struct {
         );
     }
 
+    fn addDbgLocal(self: *Self, slot: usize, name_constant: Value) void {
+        const previous_len = self.current_fiber.locals_dbg.items.len;
+        const new_len = @max(slot + 1, previous_len);
+
+        self.current_fiber.locals_dbg.ensureTotalCapacity(self.gc.allocator, new_len) catch {
+            self.panic("Out of memory");
+            unreachable;
+        };
+
+        // We don't always define a new local at the end of the list
+        self.current_fiber.locals_dbg.items.len = new_len;
+
+        // We might have introduced a gap, initialize those with null
+        if (previous_len < new_len) {
+            for (previous_len..new_len) |i| {
+                self.current_fiber.locals_dbg.items[i] = Value.Null;
+            }
+        }
+
+        self.current_fiber.locals_dbg.items[slot] = name_constant;
+    }
+
+    fn OP_DBG_LOCAL_ENTER(self: *Self, current_frame: *CallFrame, _: u32, _: Chunk.OpCode, _: u24) void {
+        const arg_instruction = self.readInstruction();
+        const slot = @as(u8, @intCast(arg_instruction >> 24)) +
+            (current_frame.slots - @as([*]Value, @ptrCast(self.current_fiber.stack))) - 1;
+        const name_constant = self.readConstant(@intCast(0x00ffffff & arg_instruction));
+
+        self.addDbgLocal(slot, name_constant);
+
+        const next_full_instruction = self.readInstruction();
+        @call(
+            dispatch_call_modifier,
+            dispatch,
+            .{
+                self,
+                self.currentFrame().?,
+                next_full_instruction,
+                getCode(next_full_instruction),
+                getArg(next_full_instruction),
+            },
+        );
+    }
+
+    fn OP_DBG_LOCAL_EXIT(self: *Self, current_frame: *CallFrame, _: u32, _: Chunk.OpCode, arg: u24) void {
+        const slot = arg + (current_frame.slots - @as([*]Value, @ptrCast(self.current_fiber.stack))) - 1;
+
+        self.current_fiber.locals_dbg.items[slot] = Value.Null;
+
+        const next_full_instruction = self.readInstruction();
+        @call(
+            dispatch_call_modifier,
+            dispatch,
+            .{
+                self,
+                self.currentFrame().?,
+                next_full_instruction,
+                getCode(next_full_instruction),
+                getArg(next_full_instruction),
+            },
+        );
+    }
+
+    fn OP_DBG_GLOBAL_DEFINE(self: *Self, _: *CallFrame, _: u32, _: Chunk.OpCode, _: u24) void {
+        const slot = self.readInstruction();
+        const name_constant = self.readConstant(@intCast(self.readInstruction()));
+
+        const previous_len = self.globals_dbg.items.len;
+        const new_len = @max(slot + 1, previous_len);
+
+        self.globals_dbg.ensureTotalCapacity(self.gc.allocator, new_len) catch {
+            self.panic("Out of memory");
+            unreachable;
+        };
+
+        // We don't always define a new global at the end of the list
+        self.globals_dbg.items.len = new_len;
+
+        // We might have introduced a gap, initialize those with null
+        if (previous_len < new_len) {
+            for (previous_len..new_len) |i| {
+                self.globals_dbg.items[i] = Value.Null;
+            }
+        }
+
+        self.globals_dbg.items[slot] = name_constant;
+
+        const next_full_instruction = self.readInstruction();
+        @call(
+            dispatch_call_modifier,
+            dispatch,
+            .{
+                self,
+                self.currentFrame().?,
+                next_full_instruction,
+                getCode(next_full_instruction),
+                getArg(next_full_instruction),
+            },
+        );
+    }
+
     pub fn run(self: *Self) void {
         const next_current_frame: *CallFrame = self.currentFrame().?;
         const next_full_instruction = self.readInstruction();
@@ -4506,7 +4682,7 @@ pub const VM = struct {
         const error_site = if (previous_error_site) |perror_site|
             perror_site
         else if (self.currentFrame()) |current_frame|
-            current_frame.closure.function.chunk.lines.items[current_frame.ip - 1]
+            current_frame.closure.function.chunk.locations.items[current_frame.ip - 1]
         else
             null;
 
@@ -4602,7 +4778,7 @@ pub const VM = struct {
         self.reportRuntimeError(
             message,
             if (self.currentFrame()) |frame|
-                frame.closure.function.chunk.lines.items[frame.ip - 1]
+                frame.closure.function.chunk.locations.items[frame.ip - 1]
             else
                 null,
             self.current_fiber.frames.items,
@@ -4827,6 +5003,15 @@ pub const VM = struct {
 
         self.current_fiber.frame_count += 1;
 
+        if (self.debugger != null) {
+            for (closure.function.type_def.resolved_type.?.Function.parameters.keys(), 0..) |arg_name, i| {
+                self.addDbgLocal(
+                    (frame.slots - @as([*]Value, @ptrCast(self.current_fiber.stack))) + i,
+                    arg_name.toValue(),
+                );
+            }
+        }
+
         if (BuildOptions.jit_debug) {
             io.print(
                 "Calling uncompiled version of function `{s}.{}.n{}`\n",
@@ -4841,11 +5026,11 @@ pub const VM = struct {
 
     fn getSite(self: *Self) ?Ast.TokenIndex {
         return if (self.currentFrame()) |current_frame|
-            current_frame.closure.function.chunk.lines.items[@max(1, current_frame.ip) - 1]
+            current_frame.closure.function.chunk.locations.items[@max(1, current_frame.ip) - 1]
         else if (self.current_fiber.parent_fiber) |parent_fiber| parent: {
             const parent_frame = parent_fiber.frames.items[parent_fiber.frame_count - 1];
 
-            break :parent parent_frame.closure.function.chunk.lines.items[@max(1, parent_frame.ip - 1)];
+            break :parent parent_frame.closure.function.chunk.locations.items[@max(1, parent_frame.ip - 1)];
         } else null;
     }
 
@@ -5279,7 +5464,7 @@ pub const VM = struct {
             &hotspot_call,
         );
 
-        try chunk.lines.replaceRange(
+        try chunk.locations.replaceRange(
             chunk.allocator,
             to - hotspot_call.len,
             hotspot_call.len,

@@ -2,99 +2,6 @@ const std = @import("std");
 const builtin = @import("builtin");
 const Build = std.Build;
 
-const BuildOptions = struct {
-    version: std.SemanticVersion,
-    sha: []const u8,
-    mimalloc: bool,
-    debug: DebugOptions,
-    gc: GCOptions,
-    jit: JITOptions,
-    target: Build.ResolvedTarget,
-    cycle_limit: ?u128,
-    recursive_call_limit: ?u32,
-    stack_size: usize = 100_000,
-
-    pub fn step(self: @This(), b: *Build) *Build.Module {
-        var options = b.addOptions();
-        options.addOption(@TypeOf(self.version), "version", self.version);
-        options.addOption(@TypeOf(self.sha), "sha", self.sha);
-        options.addOption(@TypeOf(self.mimalloc), "mimalloc", self.mimalloc);
-        options.addOption(@TypeOf(self.cycle_limit), "cycle_limit", self.cycle_limit);
-        options.addOption(@TypeOf(self.recursive_call_limit), "recursive_call_limit", self.recursive_call_limit);
-        options.addOption(@TypeOf(self.stack_size), "stack_size", self.stack_size);
-
-        self.debug.step(options);
-        self.gc.step(options);
-        self.jit.step(options);
-
-        return options.createModule();
-    }
-
-    pub fn needLibC(self: @This()) bool {
-        return !self.target.result.cpu.arch.isWasm();
-    }
-
-    const DebugOptions = struct {
-        debug: bool,
-        stack: bool,
-        current_instruction: bool,
-        perf: bool,
-        stop_on_report: bool,
-        placeholders: bool,
-        type_registry: bool,
-
-        pub fn step(self: DebugOptions, options: *Build.Step.Options) void {
-            options.addOption(@TypeOf(self.debug), "debug", self.debug);
-            options.addOption(@TypeOf(self.stack), "debug_stack", self.stack);
-            options.addOption(@TypeOf(self.current_instruction), "debug_current_instruction", self.current_instruction);
-            options.addOption(@TypeOf(self.perf), "show_perf", self.perf);
-            options.addOption(@TypeOf(self.stop_on_report), "stop_on_report", self.stop_on_report);
-            options.addOption(@TypeOf(self.placeholders), "debug_placeholders", self.placeholders);
-            options.addOption(@TypeOf(self.type_registry), "debug_type_registry", self.type_registry);
-        }
-    };
-
-    const JITOptions = struct {
-        on: bool,
-        always_on: bool,
-        hotspot_always_on: bool,
-        hotspot_on: bool,
-        debug: bool,
-        prof_threshold: f128 = 0.05,
-
-        pub fn step(self: JITOptions, options: *Build.Step.Options) void {
-            options.addOption(@TypeOf(self.debug), "jit_debug", self.debug);
-            options.addOption(@TypeOf(self.always_on), "jit_always_on", self.always_on);
-            options.addOption(@TypeOf(self.hotspot_always_on), "jit_hotspot_always_on", self.hotspot_always_on);
-            options.addOption(@TypeOf(self.on), "jit", self.on);
-            options.addOption(@TypeOf(self.prof_threshold), "jit_prof_threshold", self.prof_threshold);
-            options.addOption(@TypeOf(self.hotspot_on), "jit_hotspot_on", self.hotspot_on);
-        }
-    };
-
-    const GCOptions = struct {
-        debug: bool,
-        debug_light: bool,
-        debug_access: bool,
-        on: bool,
-        initial_gc: usize,
-        next_gc_ratio: usize,
-        next_full_gc_ratio: usize,
-        memory_limit: ?usize,
-
-        pub fn step(self: GCOptions, options: *Build.Step.Options) void {
-            options.addOption(@TypeOf(self.debug), "gc_debug", self.debug);
-            options.addOption(@TypeOf(self.debug_light), "gc_debug_light", self.debug_light);
-            options.addOption(@TypeOf(self.debug_access), "gc_debug_access", self.debug_access);
-            options.addOption(@TypeOf(self.on), "gc", self.on);
-            options.addOption(@TypeOf(self.initial_gc), "initial_gc", self.initial_gc);
-            options.addOption(@TypeOf(self.next_gc_ratio), "next_gc_ratio", self.next_gc_ratio);
-            options.addOption(@TypeOf(self.next_full_gc_ratio), "next_full_gc_ratio", self.next_full_gc_ratio);
-            options.addOption(@TypeOf(self.memory_limit), "memory_limit", self.memory_limit);
-        }
-    };
-};
-
 pub fn build(b: *Build) !void {
     var envMap = try std.process.getEnvMap(b.allocator);
     defer envMap.deinit();
@@ -263,59 +170,24 @@ pub fn build(b: *Build) !void {
 
     const build_option_module = build_options.step(b);
 
-    const lib_pcre2 = if (!is_wasm)
-        try buildPcre2(b, target, build_mode)
+    // Build non-zig dependencies
+    const ext_deps: []const *std.Build.Step.Compile = if (!is_wasm and target.result.os.tag != .windows)
+        &.{
+            try buildPcre2(b, target, build_mode),
+            try buildMimalloc(b, target, build_mode),
+            try buildLinenoise(b, target, build_mode),
+            try buildMir(b, target, build_mode),
+        }
+    else if (!is_wasm)
+        &.{
+            try buildPcre2(b, target, build_mode),
+            try buildMimalloc(b, target, build_mode),
+            try buildMir(b, target, build_mode),
+        }
     else
-        null;
-    const lib_mimalloc = if (build_options.mimalloc)
-        try buildMimalloc(b, target, build_mode)
-    else
-        null;
-    const lib_linenoise = if (!is_wasm and target.result.os.tag != .windows)
-        try buildLinenoise(b, target, build_mode)
-    else
-        null;
-    const lib_mir = if (!is_wasm)
-        try buildMir(b, target, build_mode)
-    else
-        null;
+        &.{};
 
-    var exe = b.addExecutable(
-        .{
-            .name = "buzz",
-            .use_llvm = true,
-            .root_module = b.createModule(
-                .{
-                    .target = target,
-                    .optimize = build_mode,
-                    .root_source_file = b.path("src/main.zig"),
-                },
-            ),
-        },
-    );
-    b.installArtifact(exe);
-
-    const behavior_exe = if (!is_wasm) b.addExecutable(
-        .{
-            .name = "buzz_behavior",
-            .use_llvm = true,
-            .root_module = b.createModule(
-                .{
-                    .root_source_file = b.path("src/behavior.zig"),
-                    .target = target,
-                    .optimize = build_mode,
-                },
-            ),
-        },
-    ) else null;
-    if (behavior_exe) |bexe| b.installArtifact(bexe);
-
-    if (behavior_exe) |bexe| {
-        const run_behavior = b.addRunArtifact(bexe);
-        run_behavior.step.dependOn(install_step);
-        b.step("test-behavior", "Test behavior").dependOn(&run_behavior.step);
-    }
-
+    // Zig dependencies
     const clap = b.dependency(
         "clap",
         .{
@@ -324,76 +196,39 @@ pub fn build(b: *Build) !void {
         },
     );
 
-    exe.root_module.addImport(
-        "clap",
-        clap.module("clap"),
+    const lsp = b.dependency(
+        "lsp_kit",
+        .{
+            .target = target,
+            .optimize = build_mode,
+        },
     );
 
-    var lsp_exe = if (!is_wasm)
-        b.addExecutable(
-            .{
-                .name = "buzz_lsp",
-                .use_llvm = true,
-                .root_module = b.createModule(
-                    .{
-                        .root_source_file = b.path("src/lsp.zig"),
-                        .target = target,
-                        .optimize = build_mode,
-                    },
-                ),
-            },
-        )
-    else
-        null;
+    const dap = b.dependency(
+        "dap_kit",
+        .{
+            .target = target,
+            .optimize = build_mode,
+        },
+    );
 
-    if (!is_wasm) {
-        b.installArtifact(lsp_exe.?);
+    // Build executables
 
-        lsp_exe.?.root_module.addImport(
-            "clap",
-            clap.module("clap"),
-        );
-
-        const lsp = b.dependency(
-            "lsp_kit",
-            .{
-                .target = target,
-                .optimize = build_mode,
-            },
-        );
-
-        lsp_exe.?.root_module.addImport(
-            "lsp",
-            lsp.module("lsp"),
-        );
-    }
-
-    var exe_check = b.addExecutable(
+    // buzz
+    const exe = b.addExecutable(
         .{
             .name = "buzz",
             .use_llvm = true,
             .root_module = b.createModule(
                 .{
-                    .root_source_file = b.path("src/main.zig"),
                     .target = target,
                     .optimize = build_mode,
+                    .root_source_file = b.path("src/main.zig"),
+                    .sanitize_c = .off,
                 },
             ),
         },
     );
-
-    exe_check.root_module.addImport(
-        "clap",
-        clap.module("clap"),
-    );
-
-    exe.root_module.sanitize_c = .off;
-    if (behavior_exe) |bexe| bexe.root_module.sanitize_c = .off;
-    if (!is_wasm) lsp_exe.?.root_module.sanitize_c = .off;
-
-    const check = b.step("check", "Check if buzz compiles");
-    check.dependOn(&exe_check.step);
-
     if (is_wasm) {
         exe.global_base = 6560;
         exe.entry = .disabled;
@@ -404,7 +239,7 @@ pub fn build(b: *Build) !void {
         exe.initial_memory = std.wasm.page_size * 100;
         exe.max_memory = std.wasm.page_size * 1000;
     }
-
+    b.installArtifact(exe);
     const run_exe = b.addRunArtifact(exe);
     run_exe.step.dependOn(install_step);
     if (b.args) |args| {
@@ -412,192 +247,125 @@ pub fn build(b: *Build) !void {
     }
     b.step("run", "run buzz").dependOn(&run_exe.step);
 
-    if (!is_wasm) {
-        const run_lsp_exe = b.addRunArtifact(lsp_exe.?);
-        run_lsp_exe.step.dependOn(install_step);
-        if (b.args) |args| {
-            run_lsp_exe.addArgs(args);
-        }
-        b.step("lsp", "run buzz lsp").dependOn(&run_lsp_exe.step);
-    }
-
-    if (build_options.needLibC()) {
-        exe.linkLibC();
-        exe_check.linkLibC();
-        if (behavior_exe) |bexe| bexe.linkLibC();
-        if (!is_wasm) lsp_exe.?.linkLibC();
-    }
-
-    exe.root_module.addImport("build_options", build_option_module);
-    exe_check.root_module.addImport("build_options", build_option_module);
-    if (behavior_exe) |bexe| bexe.root_module.addImport("build_options", build_option_module);
-    if (!is_wasm) lsp_exe.?.root_module.addImport("build_options", build_option_module);
-
-    if (!is_wasm) {
-        // Building buzz api library
-        var lib = b.addLibrary(
-            .{
-                .name = "buzz",
-                .linkage = .dynamic,
-                .use_llvm = true,
-                .root_module = b.createModule(
-                    .{
-                        .root_source_file = b.path("src/buzz_api.zig"),
-                        .target = target,
-                        .optimize = build_mode,
-                    },
-                ),
-            },
-        );
-
-        b.installArtifact(lib);
-
-        if (build_options.needLibC()) {
-            lib.linkLibC();
-        }
-
-        lib.root_module.addImport(
-            "build_options",
-            build_option_module,
-        );
-
-        if (lib_pcre2) |pcre| {
-            lib.linkLibrary(pcre);
-            exe.linkLibrary(pcre);
-            if (behavior_exe) |bexe| bexe.linkLibrary(pcre);
-            if (!is_wasm) lsp_exe.?.linkLibrary(pcre);
-        }
-
-        if (lib_mimalloc) |mimalloc| {
-            lib.linkLibrary(mimalloc);
-            exe.linkLibrary(mimalloc);
-            if (behavior_exe) |bexe| bexe.linkLibrary(mimalloc);
-            if (!is_wasm) lsp_exe.?.linkLibrary(mimalloc);
-            if (lib.root_module.resolved_target.?.result.os.tag == .windows) {
-                lib.linkSystemLibrary("bcrypt");
-                exe.linkSystemLibrary("bcrypt");
-                if (behavior_exe) |bexe| bexe.linkSystemLibrary("bcrypt");
-                if (!is_wasm) lsp_exe.?.linkSystemLibrary("bcrypt");
-            }
-        }
-
-        if (lib_mir) |mir| {
-            lib.linkLibrary(mir);
-            exe.linkLibrary(mir);
-            if (behavior_exe) |bexe| bexe.linkLibrary(mir);
-            if (!is_wasm) lsp_exe.?.linkLibrary(mir);
-        }
-
-        // So that JIT compiled function can reference buzz_api
-        exe.linkLibrary(lib);
-        if (behavior_exe) |bexe| bexe.linkLibrary(lib);
-        if (!is_wasm) lsp_exe.?.linkLibrary(lib);
-        exe_check.linkLibrary(lib);
-        if (lib_linenoise) |ln| {
-            exe.linkLibrary(ln);
-            if (behavior_exe) |bexe| bexe.linkLibrary(ln);
-            if (!is_wasm) lsp_exe.?.linkLibrary(ln);
-            exe_check.linkLibrary(ln);
-        }
-
-        b.default_step.dependOn(&exe.step);
-        if (!is_wasm) b.default_step.dependOn(&lsp_exe.?.step);
-        b.default_step.dependOn(&lib.step);
-
-        // Building std libraries
-        const Lib = struct {
-            path: ?[]const u8 = null,
-            name: []const u8,
-            wasm_compatible: bool = true,
-        };
-
-        const libraries = [_]Lib{
-            .{ .name = "std", .path = "src/lib/buzz_std.zig" },
-            .{ .name = "io", .path = "src/lib/buzz_io.zig", .wasm_compatible = false },
-            .{ .name = "gc", .path = "src/lib/buzz_gc.zig" },
-            .{ .name = "os", .path = "src/lib/buzz_os.zig", .wasm_compatible = false },
-            .{ .name = "fs", .path = "src/lib/buzz_fs.zig", .wasm_compatible = false },
-            .{ .name = "math", .path = "src/lib/buzz_math.zig" },
-            .{ .name = "debug", .path = "src/lib/buzz_debug.zig" },
-            .{ .name = "buffer", .path = "src/lib/buzz_buffer.zig" },
-            .{ .name = "crypto", .path = "src/lib/buzz_crypto.zig" },
-            // FIXME: API has changed
-            // .{ .name = "http", .path = "src/lib/buzz_http.zig", .wasm_compatible = false },
-            .{ .name = "ffi", .path = "src/lib/buzz_ffi.zig", .wasm_compatible = false },
-            .{ .name = "serialize", .path = "src/lib/buzz_serialize.zig" },
-            .{ .name = "testing" },
-            .{ .name = "errors" },
-        };
-
-        var library_steps = std.ArrayList(*std.Build.Step.Compile){};
-        for (libraries) |library| {
-            // Copy buzz definitions
-            const step = b.addInstallLibFile(
-                b.path(
-                    b.fmt(
-                        "src/lib/{s}.buzz",
-                        .{library.name},
-                    ),
-                ),
-                b.fmt(
-                    "buzz/{s}.buzz",
-                    .{library.name},
-                ),
-            );
-            install_step.dependOn(&step.step);
-
-            if (library.path == null or (!library.wasm_compatible and is_wasm)) {
-                continue;
-            }
-
-            var std_lib = b.addLibrary(
+    // buzz_behavior
+    const behavior_exe = b.addExecutable(
+        .{
+            .name = "buzz_behavior",
+            .use_llvm = true,
+            .root_module = b.createModule(
                 .{
-                    .name = library.name,
-                    .linkage = .dynamic,
-                    .use_llvm = true,
-                    .root_module = b.createModule(
-                        .{
-                            .root_source_file = b.path(library.path.?),
-                            .target = target,
-                            .optimize = build_mode,
-                        },
-                    ),
+                    .root_source_file = b.path("src/behavior.zig"),
+                    .target = target,
+                    .optimize = build_mode,
+                    .sanitize_c = .off,
                 },
-            );
+            ),
+        },
+    );
+    b.installArtifact(behavior_exe);
+    const run_behavior = b.addRunArtifact(behavior_exe);
+    run_behavior.step.dependOn(install_step);
+    b.step("test-behavior", "Test behavior").dependOn(&run_behavior.step);
 
-            const artifact = b.addInstallArtifact(std_lib, .{});
-            install_step.dependOn(&artifact.step);
-            artifact.dest_dir = .{ .custom = "lib/buzz" };
+    // buzz_debugger
+    const debugger_exe = b.addExecutable(
+        .{
+            .name = "buzz_debugger",
+            .use_llvm = true,
+            .root_module = b.createModule(
+                .{
+                    .root_source_file = b.path("src/Debugger.zig"),
+                    .target = target,
+                    .optimize = build_mode,
+                    .sanitize_c = .off,
+                },
+            ),
+        },
+    );
+    b.installArtifact(debugger_exe);
+    const run_debugger = b.addRunArtifact(debugger_exe);
+    run_debugger.step.dependOn(install_step);
+    b.step("run-debugger", "Run the debugger").dependOn(&run_debugger.step);
 
-            // No need to link anything when building for wasm since everything is static
-            if (build_options.needLibC()) {
-                std_lib.linkLibC();
-            }
-
-            if (lib_pcre2) |pcre| {
-                std_lib.linkLibrary(pcre);
-            }
-
-            if (lib_mimalloc) |mimalloc| {
-                std_lib.linkLibrary(mimalloc);
-                if (std_lib.root_module.resolved_target.?.result.os.tag == .windows) {
-                    std_lib.linkSystemLibrary("bcrypt");
-                }
-            }
-
-            if (lib_mir) |mir| {
-                std_lib.linkLibrary(mir);
-            }
-
-            std_lib.linkLibrary(lib);
-            std_lib.root_module.addImport("build_options", build_option_module);
-
-            b.default_step.dependOn(&std_lib.step);
-
-            library_steps.append(b.allocator, std_lib) catch unreachable;
-        }
+    // buzz_lsp
+    const lsp_exe = b.addExecutable(
+        .{
+            .name = "buzz_lsp",
+            .use_llvm = true,
+            .root_module = b.createModule(
+                .{
+                    .root_source_file = b.path("src/lsp.zig"),
+                    .target = target,
+                    .optimize = build_mode,
+                    .sanitize_c = .off,
+                },
+            ),
+        },
+    );
+    lsp_exe.root_module.addImport(
+        "lsp",
+        lsp.module("lsp"),
+    );
+    b.installArtifact(lsp_exe);
+    const run_lsp_exe = b.addRunArtifact(lsp_exe);
+    run_lsp_exe.step.dependOn(install_step);
+    if (b.args) |args| {
+        run_lsp_exe.addArgs(args);
     }
+    b.step("lsp", "run buzz lsp").dependOn(&run_lsp_exe.step);
 
+    // check (exe not installed)
+    const check_exe = b.addExecutable(
+        .{
+            .name = "buzz",
+            .use_llvm = true,
+            .root_module = b.createModule(
+                .{
+                    .root_source_file = b.path("src/main.zig"),
+                    .target = target,
+                    .optimize = build_mode,
+                    .sanitize_c = .off,
+                },
+            ),
+        },
+    );
+    const check = b.step("check", "Check if buzz compiles");
+    check.dependOn(&check_exe.step);
+
+    // Building buzz api library
+    const lib = b.addLibrary(
+        .{
+            .name = "buzz",
+            .linkage = .dynamic,
+            .use_llvm = true,
+            .root_module = b.createModule(
+                .{
+                    .root_source_file = b.path("src/buzz_api.zig"),
+                    .target = target,
+                    .optimize = build_mode,
+                },
+            ),
+        },
+    );
+    b.installArtifact(lib);
+
+    const static_lib = b.addLibrary(
+        .{
+            .name = "buzz",
+            .linkage = .static,
+            .use_llvm = true,
+            .root_module = b.createModule(
+                .{
+                    .root_source_file = b.path("src/buzz_api.zig"),
+                    .target = target,
+                    .optimize = build_mode,
+                },
+            ),
+        },
+    );
+    b.installArtifact(static_lib);
+
+    // Test
     const tests = b.addTest(
         .{
             .use_llvm = true,
@@ -606,33 +374,144 @@ pub fn build(b: *Build) !void {
                     .root_source_file = b.path("src/main.zig"),
                     .target = target,
                     .optimize = build_mode,
+                    .sanitize_c = .off,
                 },
             ),
         },
     );
-    if (build_options.needLibC()) {
-        tests.linkLibC();
-    }
-    if (lib_pcre2) |pcre| {
-        tests.linkLibrary(pcre);
-    }
-    if (lib_mimalloc) |mimalloc| {
-        tests.linkLibrary(mimalloc);
-        if (tests.root_module.resolved_target.?.result.os.tag == .windows) {
-            tests.linkSystemLibrary("bcrypt");
-        }
-    }
-    if (lib_mir) |mir| {
-        tests.linkLibrary(mir);
-    }
     tests.root_module.addImport("build_options", build_option_module);
-
     const test_step = b.step("test", "Run all the tests");
     const run_tests = b.addRunArtifact(tests);
     run_tests.cwd = b.path(".");
     run_tests.setEnvironmentVariable("BUZZ_PATH", envMap.get("BUZZ_PATH") orelse std.fs.path.dirname(b.exe_dir).?);
     run_tests.step.dependOn(install_step); // wait for libraries to be installed
     test_step.dependOn(&run_tests.step);
+
+    for ([_]*std.Build.Step.Compile{ static_lib, lib, exe, behavior_exe, debugger_exe, lsp_exe, check_exe, tests }) |c| {
+        // BuildOptions
+        c.root_module.addImport("build_options", build_option_module);
+
+        // Link non-zig deps to executables and library
+        for (ext_deps) |dep| {
+            c.linkLibrary(dep);
+
+            if (target.result.os.tag == .windows) {
+                c.linkSystemLibrary("bcrypt");
+            }
+
+            if (build_options.needLibC()) {
+                c.linkLibC();
+            }
+        }
+    }
+
+    // So that JIT compiled function can reference buzz_api
+    for ([_]*std.Build.Step.Compile{ exe, behavior_exe, debugger_exe, lsp_exe, check_exe }) |c| {
+        c.linkLibrary(static_lib);
+    }
+
+    for ([_]*std.Build.Step.Compile{ static_lib, lib, exe, debugger_exe, lsp_exe, behavior_exe, check_exe }) |c| {
+        c.root_module.addImport(
+            "dap",
+            dap.module("dap_kit"),
+        );
+    }
+
+    for ([_]*std.Build.Step.Compile{ exe, debugger_exe, lsp_exe, check_exe }) |c| {
+        c.root_module.addImport(
+            "clap",
+            clap.module("clap"),
+        );
+    }
+
+    for ([_]*std.Build.Step.Compile{ exe, debugger_exe, lsp_exe }) |c| {
+        b.default_step.dependOn(&c.step);
+    }
+
+    // Building std libraries
+    const Lib = struct {
+        path: ?[]const u8 = null,
+        name: []const u8,
+        wasm_compatible: bool = true,
+    };
+
+    const libraries = [_]Lib{
+        .{ .name = "std", .path = "src/lib/buzz_std.zig" },
+        .{ .name = "io", .path = "src/lib/buzz_io.zig", .wasm_compatible = false },
+        .{ .name = "gc", .path = "src/lib/buzz_gc.zig" },
+        .{ .name = "os", .path = "src/lib/buzz_os.zig", .wasm_compatible = false },
+        .{ .name = "fs", .path = "src/lib/buzz_fs.zig", .wasm_compatible = false },
+        .{ .name = "math", .path = "src/lib/buzz_math.zig" },
+        .{ .name = "debug", .path = "src/lib/buzz_debug.zig" },
+        .{ .name = "buffer", .path = "src/lib/buzz_buffer.zig" },
+        .{ .name = "crypto", .path = "src/lib/buzz_crypto.zig" },
+        // FIXME: API has changed
+        // .{ .name = "http", .path = "src/lib/buzz_http.zig", .wasm_compatible = false },
+        .{ .name = "ffi", .path = "src/lib/buzz_ffi.zig", .wasm_compatible = false },
+        .{ .name = "serialize", .path = "src/lib/buzz_serialize.zig" },
+        .{ .name = "testing" },
+        .{ .name = "errors" },
+    };
+
+    for (libraries) |library| {
+        // Copy buzz definitions
+        const step = b.addInstallLibFile(
+            b.path(
+                b.fmt(
+                    "src/lib/{s}.buzz",
+                    .{library.name},
+                ),
+            ),
+            b.fmt(
+                "buzz/{s}.buzz",
+                .{library.name},
+            ),
+        );
+        install_step.dependOn(&step.step);
+
+        if (library.path == null or (!library.wasm_compatible and is_wasm)) {
+            continue;
+        }
+
+        var std_lib = b.addLibrary(
+            .{
+                .name = library.name,
+                .linkage = .dynamic,
+                .use_llvm = true,
+                .root_module = b.createModule(
+                    .{
+                        .root_source_file = b.path(library.path.?),
+                        .target = target,
+                        .optimize = build_mode,
+                        .sanitize_c = .off,
+                    },
+                ),
+            },
+        );
+
+        std_lib.root_module.addImport(
+            "dap",
+            dap.module("dap_kit"),
+        );
+
+        const artifact = b.addInstallArtifact(std_lib, .{});
+        install_step.dependOn(&artifact.step);
+        artifact.dest_dir = .{ .custom = "lib/buzz" };
+
+        // No need to link anything when building for wasm since everything is static
+        if (build_options.needLibC()) {
+            std_lib.linkLibC();
+        }
+
+        for (ext_deps) |dep| {
+            std_lib.linkLibrary(dep);
+        }
+
+        std_lib.linkLibrary(static_lib);
+        std_lib.root_module.addImport("build_options", build_option_module);
+
+        b.default_step.dependOn(&std_lib.step);
+    }
 }
 
 pub fn buildPcre2(b: *Build, target: Build.ResolvedTarget, optimize: std.builtin.OptimizeMode) !*Build.Step.Compile {
@@ -891,3 +770,96 @@ pub fn buildMir(b: *Build, target: Build.ResolvedTarget, optimize: std.builtin.O
 
     return lib;
 }
+
+const BuildOptions = struct {
+    version: std.SemanticVersion,
+    sha: []const u8,
+    mimalloc: bool,
+    debug: DebugOptions,
+    gc: GCOptions,
+    jit: JITOptions,
+    target: Build.ResolvedTarget,
+    cycle_limit: ?u128,
+    recursive_call_limit: ?u32,
+    stack_size: usize = 100_000,
+
+    pub fn step(self: @This(), b: *Build) *Build.Module {
+        var options = b.addOptions();
+        options.addOption(@TypeOf(self.version), "version", self.version);
+        options.addOption(@TypeOf(self.sha), "sha", self.sha);
+        options.addOption(@TypeOf(self.mimalloc), "mimalloc", self.mimalloc);
+        options.addOption(@TypeOf(self.cycle_limit), "cycle_limit", self.cycle_limit);
+        options.addOption(@TypeOf(self.recursive_call_limit), "recursive_call_limit", self.recursive_call_limit);
+        options.addOption(@TypeOf(self.stack_size), "stack_size", self.stack_size);
+
+        self.debug.step(options);
+        self.gc.step(options);
+        self.jit.step(options);
+
+        return options.createModule();
+    }
+
+    pub fn needLibC(self: @This()) bool {
+        return !self.target.result.cpu.arch.isWasm();
+    }
+
+    const DebugOptions = struct {
+        debug: bool,
+        stack: bool,
+        current_instruction: bool,
+        perf: bool,
+        stop_on_report: bool,
+        placeholders: bool,
+        type_registry: bool,
+
+        pub fn step(self: DebugOptions, options: *Build.Step.Options) void {
+            options.addOption(@TypeOf(self.debug), "debug", self.debug);
+            options.addOption(@TypeOf(self.stack), "debug_stack", self.stack);
+            options.addOption(@TypeOf(self.current_instruction), "debug_current_instruction", self.current_instruction);
+            options.addOption(@TypeOf(self.perf), "show_perf", self.perf);
+            options.addOption(@TypeOf(self.stop_on_report), "stop_on_report", self.stop_on_report);
+            options.addOption(@TypeOf(self.placeholders), "debug_placeholders", self.placeholders);
+            options.addOption(@TypeOf(self.type_registry), "debug_type_registry", self.type_registry);
+        }
+    };
+
+    const JITOptions = struct {
+        on: bool,
+        always_on: bool,
+        hotspot_always_on: bool,
+        hotspot_on: bool,
+        debug: bool,
+        prof_threshold: f128 = 0.05,
+
+        pub fn step(self: JITOptions, options: *Build.Step.Options) void {
+            options.addOption(@TypeOf(self.debug), "jit_debug", self.debug);
+            options.addOption(@TypeOf(self.always_on), "jit_always_on", self.always_on);
+            options.addOption(@TypeOf(self.hotspot_always_on), "jit_hotspot_always_on", self.hotspot_always_on);
+            options.addOption(@TypeOf(self.on), "jit", self.on);
+            options.addOption(@TypeOf(self.prof_threshold), "jit_prof_threshold", self.prof_threshold);
+            options.addOption(@TypeOf(self.hotspot_on), "jit_hotspot_on", self.hotspot_on);
+        }
+    };
+
+    const GCOptions = struct {
+        debug: bool,
+        debug_light: bool,
+        debug_access: bool,
+        on: bool,
+        initial_gc: usize,
+        next_gc_ratio: usize,
+        next_full_gc_ratio: usize,
+        memory_limit: ?usize,
+
+        pub fn step(self: GCOptions, options: *Build.Step.Options) void {
+            options.addOption(@TypeOf(self.debug), "gc_debug", self.debug);
+            options.addOption(@TypeOf(self.debug_light), "gc_debug_light", self.debug_light);
+            options.addOption(@TypeOf(self.debug_access), "gc_debug_access", self.debug_access);
+            options.addOption(@TypeOf(self.on), "gc", self.on);
+            options.addOption(@TypeOf(self.initial_gc), "initial_gc", self.initial_gc);
+            options.addOption(@TypeOf(self.next_gc_ratio), "next_gc_ratio", self.next_gc_ratio);
+            options.addOption(@TypeOf(self.next_full_gc_ratio), "next_full_gc_ratio", self.next_full_gc_ratio);
+            options.addOption(@TypeOf(self.memory_limit), "memory_limit", self.memory_limit);
+        }
+    };
+};

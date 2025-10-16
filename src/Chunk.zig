@@ -4,6 +4,42 @@ const Value = @import("value.zig").Value;
 const VM = @import("vm.zig").VM;
 const Token = @import("Token.zig");
 
+allocator: std.mem.Allocator,
+/// AST
+ast: Ast.Slice,
+/// List of opcodes to execute
+code: std.ArrayList(u32) = .empty,
+/// List of locations
+locations: std.ArrayList(Ast.TokenIndex) = .empty,
+/// List of constants defined in this chunk
+constants: std.ArrayList(Value) = .empty,
+
+pub fn init(allocator: std.mem.Allocator, ast: Ast.Slice) Self {
+    return Self{
+        .allocator = allocator,
+        .ast = ast,
+    };
+}
+
+pub fn deinit(self: *Self) void {
+    self.code.deinit(self.allocator);
+    self.constants.deinit(self.allocator);
+    self.locations.deinit(self.allocator);
+}
+
+pub fn write(self: *Self, code: u32, where: Ast.TokenIndex) !void {
+    try self.code.append(self.allocator, code);
+    try self.locations.append(self.allocator, where);
+}
+
+pub fn addConstant(self: *Self, vm: ?*VM, value: Value) !u24 {
+    if (vm) |uvm| uvm.push(value);
+    try self.constants.append(self.allocator, value);
+    if (vm) |uvm| _ = uvm.pop();
+
+    return @intCast(self.constants.items.len - 1);
+}
+
 pub const OpCode = enum(u8) {
     OP_CONSTANT,
     OP_NULL,
@@ -138,6 +174,10 @@ pub const OpCode = enum(u8) {
 
     OP_HOTSPOT,
     OP_HOTSPOT_CALL,
+
+    OP_DBG_LOCAL_ENTER,
+    OP_DBG_LOCAL_EXIT,
+    OP_DBG_GLOBAL_DEFINE,
 };
 
 /// A chunk of code to execute
@@ -166,44 +206,4 @@ pub fn HashMap(V: type) type {
         RegistryContext,
         std.hash_map.default_max_load_percentage,
     );
-}
-
-allocator: std.mem.Allocator,
-/// AST
-ast: Ast.Slice,
-// TODO: merge `code` and `lines` in a multiarray
-/// List of opcodes to execute
-code: std.ArrayList(u32),
-/// List of locations
-lines: std.ArrayList(Ast.TokenIndex),
-/// List of constants defined in this chunk
-constants: std.ArrayList(Value),
-
-pub fn init(allocator: std.mem.Allocator, ast: Ast.Slice) Self {
-    return Self{
-        .allocator = allocator,
-        .ast = ast,
-        .code = .{},
-        .constants = .{},
-        .lines = .{},
-    };
-}
-
-pub fn deinit(self: *Self) void {
-    self.code.deinit(self.allocator);
-    self.constants.deinit(self.allocator);
-    self.lines.deinit(self.allocator);
-}
-
-pub fn write(self: *Self, code: u32, where: Ast.TokenIndex) !void {
-    try self.code.append(self.allocator, code);
-    try self.lines.append(self.allocator, where);
-}
-
-pub fn addConstant(self: *Self, vm: ?*VM, value: Value) !u24 {
-    if (vm) |uvm| uvm.push(value);
-    try self.constants.append(self.allocator, value);
-    if (vm) |uvm| _ = uvm.pop();
-
-    return @intCast(self.constants.items.len - 1);
 }

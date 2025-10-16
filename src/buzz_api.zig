@@ -597,6 +597,7 @@ export fn bz_newVM() *VM {
         gc,
         import_registry,
         .Run,
+        null,
     ) catch @panic("Out of memory");
 
     return vm;
@@ -636,6 +637,7 @@ export fn bz_run(
         &parser,
         self.flavor,
         null,
+        self.debugger != null,
     );
     defer {
         codegen.deinit();

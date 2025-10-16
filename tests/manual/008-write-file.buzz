@@ -1,0 +1,22 @@
+import "io";
+
+final list = [1, 2, 3];
+
+final map = { list: "hello" };
+
+fun writeFile(file: io\File, a: str, b: int, c: bool) > void !> any {
+    final data = "hello world";
+
+    file.write(data);
+}
+
+fun main() > void !> any {
+    final file = io\File.open(
+        "/Users/giann/git/buzz/ooout.txt",
+        mode: io\FileMode.write,
+    );
+
+    writeFile(file, a: "hey", b: 12, c: true);
+
+    file.close();
+}
