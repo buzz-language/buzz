@@ -773,12 +773,11 @@ pub fn reportTypeCheck(
     }
 
     var following_message = if (expected_location != null)
-        expected_message
+        &expected_message
     else
-        actual_message;
+        &actual_message;
 
     following_message.writer.writeAll("expected `") catch @panic("Unable to report error");
-
     expected_type.toString(&following_message.writer, false) catch @panic("Unable to report error");
     following_message.writer.writeAll("`") catch @panic("Unable to report error");
 
