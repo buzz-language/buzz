@@ -77,7 +77,7 @@ pub fn repl(allocator: std.mem.Allocator) !void {
     var gc = try GC.init(allocator);
     gc.type_registry = try TypeRegistry.init(&gc);
     var imports = std.StringHashMapUnmanaged(Parser.ScriptImport){};
-    var vm = try v.VM.init(&gc, &import_registry, .Repl);
+    var vm = try v.VM.init(&gc, &import_registry, .Repl, null);
     vm.jit = if (BuildOptions.jit and BuildOptions.cycle_limit == null)
         JIT.init(&vm)
     else
@@ -99,6 +99,7 @@ pub fn repl(allocator: std.mem.Allocator) !void {
         &parser,
         .Repl,
         if (vm.jit) |*jit| jit else null,
+        false,
     );
     defer {
         codegen.deinit();

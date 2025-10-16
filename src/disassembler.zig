@@ -212,10 +212,10 @@ pub fn disassembleInstruction(chunk: *Chunk, offset: usize) usize {
     print("\n{:0>3} ", .{offset});
     const lines = chunk.ast.tokens.items(.line);
 
-    if (offset > 0 and lines[chunk.lines.items[offset]] == lines[chunk.lines.items[offset - 1]]) {
+    if (offset > 0 and lines[chunk.locations.items[offset]] == lines[chunk.locations.items[offset - 1]]) {
         print("|   ", .{});
     } else {
-        print("{:0>3} ", .{lines[chunk.lines.items[offset]]});
+        print("{:0>3} ", .{lines[chunk.locations.items[offset]]});
     }
 
     const full_instruction: u32 = chunk.code.items[offset];
@@ -314,6 +314,7 @@ pub fn disassembleInstruction(chunk: *Chunk, offset: usize) usize {
         .OP_GET_FCONTAINER_INSTANCE_PROPERTY,
         .OP_SET_FCONTAINER_INSTANCE_PROPERTY,
         .OP_COPY,
+        .OP_DBG_LOCAL_EXIT,
         => byteInstruction(instruction, chunk, offset),
 
         .OP_OBJECT,
@@ -351,6 +352,43 @@ pub fn disassembleInstruction(chunk: *Chunk, offset: usize) usize {
         .OP_CALL,
         .OP_TAIL_CALL,
         => triInstruction(instruction, chunk, offset),
+
+        .OP_DBG_GLOBAL_DEFINE => {
+            const slot = chunk.code.items[offset + 1];
+            const constant: u24 = @intCast(chunk.code.items[offset + 2]);
+            const value_str = chunk.constants.items[constant].toStringAlloc(global_allocator) catch @panic("Out of memory");
+            defer global_allocator.free(value_str);
+
+            print(
+                "OP_DBG_GLOBAL_DEFINE\t{} {} {s}",
+                .{
+                    slot,
+                    constant,
+                    value_str,
+                },
+            );
+
+            return offset + 3;
+        },
+
+        .OP_DBG_LOCAL_ENTER => {
+            const arg_instruction = chunk.code.items[offset + 1];
+            const slot: u8 = @intCast(arg_instruction >> 24);
+            const constant: u24 = @intCast(0x00ffffff & arg_instruction);
+            const value_str = chunk.constants.items[constant].toStringAlloc(global_allocator) catch @panic("Out of memory");
+            defer global_allocator.free(value_str);
+
+            print(
+                "OP_DBG_LOCAL_ENTER\t{} {} {s}",
+                .{
+                    slot,
+                    constant,
+                    value_str,
+                },
+            );
+
+            return offset + 2;
+        },
 
         .OP_CLOSURE => closure: {
             const constant: u24 = arg;

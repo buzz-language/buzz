@@ -61,6 +61,7 @@ const Document = struct {
             &parser,
             .Ast,
             null,
+            false,
         );
 
         const owned_uri = try allocator.dupe(u8, uri);

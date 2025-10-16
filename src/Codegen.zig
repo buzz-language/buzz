@@ -68,6 +68,8 @@ opt_jumps: std.ArrayList(std.ArrayList(usize)) = .{},
 /// Used to generate error messages
 parser: *Parser,
 jit: ?*JIT,
+/// Wether we are debugging the program
+debugging: bool,
 
 reporter: Reporter,
 
@@ -142,6 +144,7 @@ pub fn init(
     parser: *Parser,
     flavor: RunFlavor,
     jit: ?*JIT,
+    debugging: bool,
 ) Self {
     return .{
         .gc = gc,
@@ -153,6 +156,7 @@ pub fn init(
             .collect = flavor == .Ast,
         },
         .jit = jit,
+        .debugging = debugging,
     };
 }
 
@@ -400,8 +404,9 @@ fn endScope(self: *Self, node: Ast.Node.Index) Error!void {
     const location = self.ast.nodes.items(.location)[node];
 
     if (self.ast.nodes.items(.ends_scope)[node]) |closing| {
-        for (closing) |op| {
-            try self.emitOpCode(location, op);
+        for (closing) |cls| {
+            try self.emitOpCode(location, cls.opcode);
+            try self.OP_DBG_LOCAL_EXIT(location, cls.slot);
         }
     }
 }
@@ -2081,6 +2086,7 @@ fn generateEnum(self: *Self, node: Ast.Node.Index, _: ?*Breaks) Error!?*obj.ObjF
     try self.OP_DEFINE_GLOBAL(
         locations[node],
         @intCast(components.slot),
+        (try self.gc.copyString(self.ast.tokens.items(.lexeme)[components.name])).toValue(),
     );
 
     try self.patchOptJumps(node);
@@ -2702,6 +2708,13 @@ fn generateFunction(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?
                 var index: usize = 0;
                 while (index < components.entry.?.exported_count) : (index += 1) {
                     try self.OP_GET_GLOBAL(locations[node], @intCast(index));
+
+                    if (self.debugging) {
+                        try self.emitConstant(
+                            locations[node],
+                            Value.fromInteger(@intCast(index)),
+                        );
+                    }
                 }
 
                 try self.OP_EXPORT(locations[node], @intCast(components.entry.?.exported_count));
@@ -2718,7 +2731,7 @@ fn generateFunction(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?
         {
             // Repl and last expression is a lone statement, remove OP_POP, add OP_RETURN
             std.debug.assert(vm.VM.getCode(self.current.?.function.?.chunk.code.pop().?) == .OP_POP);
-            _ = self.current.?.function.?.chunk.lines.pop();
+            _ = self.current.?.function.?.chunk.locations.pop();
 
             try self.emitReturn(locations[node]);
         } else if (self.current.?.function.?.type_def.resolved_type.?.Function.return_type.def_type == .Void and !self.current.?.return_emitted) {
@@ -2788,6 +2801,7 @@ fn generateFunDeclaration(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) E
         try self.OP_DEFINE_GLOBAL(
             self.ast.nodes.items(.location)[node],
             @intCast(components.slot),
+            self.ast.nodes.items(.type_def)[node].?.resolved_type.?.Function.name.toValue(),
         );
     }
 
@@ -3467,7 +3481,11 @@ fn generateObjectDeclaration(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks
 
     // Put  object on the stack and define global with it
     try self.OP_OBJECT(location, object_type.toValue());
-    try self.OP_DEFINE_GLOBAL(location, @intCast(components.slot));
+    try self.OP_DEFINE_GLOBAL(
+        location,
+        @intCast(components.slot),
+        (try self.gc.copyString(self.ast.tokens.items(.lexeme)[components.name])).toValue(),
+    );
 
     // Put the object on the stack to set its fields
     try self.OP_GET_GLOBAL(location, @intCast(components.slot));
@@ -3784,7 +3802,11 @@ fn generateProtocolDeclaration(self: *Self, node: Ast.Node.Index, _: ?*Breaks) E
     const type_def = self.ast.nodes.items(.type_def)[node].?;
 
     try self.emitConstant(location, type_def.toValue());
-    try self.OP_DEFINE_GLOBAL(location, @intCast(components.slot));
+    try self.OP_DEFINE_GLOBAL(
+        location,
+        @intCast(components.slot),
+        (try self.gc.copyString(self.ast.tokens.items(.lexeme)[components.name])).toValue(),
+    );
 
     try self.patchOptJumps(node);
     try self.endScope(node);
@@ -4539,8 +4561,20 @@ fn generateVarDeclaration(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) E
         try self.OP_NULL(location);
     }
 
-    if (components.slot_type == .Global) {
-        try self.OP_DEFINE_GLOBAL(location, @intCast(components.slot));
+    switch (components.slot_type) {
+        .Global => try self.OP_DEFINE_GLOBAL(
+            location,
+            @intCast(components.slot),
+            (try self.gc.copyString(self.ast.tokens.items(.lexeme)[components.name])).toValue(),
+        ),
+        .Local => {
+            try self.OP_DBG_LOCAL_ENTER(
+                location,
+                @intCast(components.slot),
+                (try self.gc.copyString(self.ast.tokens.items(.lexeme)[components.name])).toValue(),
+            );
+        },
+        .UpValue => {}, // TODO: ??
     }
 
     try self.patchOptJumps(node);
@@ -4719,7 +4753,11 @@ fn generateZdef(self: *Self, node: Ast.Node.Index, _: ?*Breaks) Error!?*obj.ObjF
                 },
                 else => unreachable,
             }
-            try self.OP_DEFINE_GLOBAL(location, @intCast(element.slot));
+            try self.OP_DEFINE_GLOBAL(
+                location,
+                @intCast(element.slot),
+                (try self.gc.copyString(self.ast.tokens.items(.lexeme)[components.lib_name])).toValue(),
+            );
         }
     }
 
@@ -4751,6 +4789,30 @@ pub fn populateEmptyCollectionType(self: *Self, value: Ast.Node.Index, target_ty
     {
         self.ast.nodes.items(.type_def)[value] = target_type;
     }
+}
+
+fn OP_DBG_LOCAL_ENTER(self: *Self, location: Ast.TokenIndex, slot: u8, name: Value) !void {
+    // Don't emit those if we are not debugging
+    if (!self.debugging) return;
+
+    try self.emitOpCode(location, .OP_DBG_LOCAL_ENTER);
+    try self.emitTwo(location, slot, try self.makeConstant(name));
+}
+
+fn OP_DBG_LOCAL_EXIT(self: *Self, location: Ast.TokenIndex, slot: u8) !void {
+    // Don't emit those if we are not debugging
+    if (!self.debugging) return;
+
+    try self.emitCodeArg(location, .OP_DBG_LOCAL_EXIT, slot);
+}
+
+fn OP_DBG_GLOBAL_DEFINE(self: *Self, location: Ast.TokenIndex, slot: u24, name: Value) !void {
+    // Don't emit those if we are not debugging
+    if (!self.debugging) return;
+
+    try self.emitOpCode(location, .OP_DBG_GLOBAL_DEFINE);
+    try self.emit(location, slot);
+    try self.emit(location, try self.makeConstant(name));
 }
 
 fn OP_SWAP(self: *Self, location: Ast.TokenIndex, slotA: u8, slotB: u8) !void {
@@ -4981,11 +5043,17 @@ fn OP_HOTSPOT_CALL(self: *Self, location: Ast.TokenIndex) !void {
     try self.emitOpCode(location, .OP_HOTSPOT_CALL);
 }
 
-fn OP_DEFINE_GLOBAL(self: *Self, location: Ast.TokenIndex, slot: u24) !void {
+fn OP_DEFINE_GLOBAL(self: *Self, location: Ast.TokenIndex, slot: u24, name: Value) !void {
     try self.emitCodeArg(
         location,
         .OP_DEFINE_GLOBAL,
         slot,
+    );
+
+    try self.OP_DBG_GLOBAL_DEFINE(
+        location,
+        slot,
+        name,
     );
 }
 

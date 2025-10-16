@@ -1,5 +1,5 @@
 const std = @import("std");
-const runFile = @import("main.zig").runFile;
+const Runner = @import("Runner.zig");
 const io = @import("io.zig");
 const Parser = @import("Parser.zig");
 
@@ -44,12 +44,15 @@ fn testBehaviors(allocator: std.mem.Allocator) !Result {
                 continue;
             }
 
+            var runner: Runner = undefined;
+
             var had_error: bool = false;
-            runFile(
+            runner.runFile(
                 allocator,
                 file_name,
                 &[_][:0]u8{},
                 .Test,
+                null,
             ) catch {
                 io.print("\u{001b}[31m[{s} ✕]\u{001b}[0m\n", .{file.name});
                 had_error = true;

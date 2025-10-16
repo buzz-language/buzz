@@ -1242,19 +1242,31 @@ fn beginScope(self: *Self, at: ?Ast.Node.Index) !void {
     self.current.?.scope_depth += 1;
 }
 
-fn endScope(self: *Self) ![]Chunk.OpCode {
+fn endScope(self: *Self) ![]Ast.Close {
     const current = self.current.?;
     _ = current.scopes.pop();
-    var closing = std.ArrayList(Chunk.OpCode).empty;
+    var closing = std.ArrayList(Ast.Close).empty;
     current.scope_depth -= 1;
 
     while (current.local_count > 0 and current.locals[current.local_count - 1].depth > current.scope_depth) {
         const local = current.locals[current.local_count - 1];
 
         if (local.captured) {
-            try closing.append(self.gc.allocator, .OP_CLOSE_UPVALUE);
+            try closing.append(
+                self.gc.allocator,
+                .{
+                    .opcode = .OP_CLOSE_UPVALUE,
+                    .slot = current.local_count - 1,
+                },
+            );
         } else {
-            try closing.append(self.gc.allocator, .OP_POP);
+            try closing.append(
+                self.gc.allocator,
+                .{
+                    .opcode = .OP_POP,
+                    .slot = current.local_count - 1,
+                },
+            );
         }
 
         current.local_count -= 1;
@@ -1263,16 +1275,28 @@ fn endScope(self: *Self) ![]Chunk.OpCode {
     return try closing.toOwnedSlice(self.gc.allocator);
 }
 
-fn closeScope(self: *Self, upto_depth: usize) ![]Chunk.OpCode {
+fn closeScope(self: *Self, upto_depth: usize) ![]Ast.Close {
     const current = self.current.?;
-    var closing = std.ArrayList(Chunk.OpCode).empty;
+    var closing = std.ArrayList(Ast.Close).empty;
 
     var local_count = current.local_count;
     while (local_count > 0 and current.locals[local_count - 1].depth > upto_depth - 1) {
         if (current.locals[local_count - 1].captured) {
-            try closing.append(self.gc.allocator, .OP_CLOSE_UPVALUE);
+            try closing.append(
+                self.gc.allocator,
+                .{
+                    .opcode = .OP_CLOSE_UPVALUE,
+                    .slot = local_count - 1,
+                },
+            );
         } else {
-            try closing.append(self.gc.allocator, .OP_POP);
+            try closing.append(
+                self.gc.allocator,
+                .{
+                    .opcode = .OP_POP,
+                    .slot = local_count - 1,
+                },
+            );
         }
 
         local_count -= 1;

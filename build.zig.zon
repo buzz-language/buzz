@@ -12,6 +12,10 @@
             .url = "git+https://github.com/zigtools/lsp-kit.git#6274eebace9a6a82ce182e24468fef88e0b95f37",
             .hash = "lsp_kit-0.1.0-bi_PLzAyCgClDh8_M0U9Q50ysdsQBuRuBTZfwg6rZPd6",
         },
+        .dap_kit = .{
+            .url = "../dap-kit",
+            .hash = "dap_kit-0.0.0-OvEgyI5jAgAV-WFDuv3llJSM-P_DW4u9ATM2rhpm9gNE",
+        },
     },
     .paths = .{""},
 }
