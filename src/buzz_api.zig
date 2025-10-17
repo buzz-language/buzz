@@ -597,6 +597,7 @@ export fn bz_newVM() *VM {
         gc,
         import_registry,
         .Run,
+        null,
     ) catch @panic("Out of memory");
 
     return vm;

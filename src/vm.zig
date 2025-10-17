@@ -24,7 +24,6 @@ pub const ImportRegistry = std.AutoHashMapUnmanaged(*obj.ObjString, []const Valu
 
 pub const RunFlavor = enum {
     Run,
-    Debug,
     Test,
     Check,
     Fmt,
@@ -33,7 +32,7 @@ pub const RunFlavor = enum {
 
     pub fn runs(self: RunFlavor) bool {
         return switch (self) {
-            .Run, .Debug, .Test => true,
+            .Run, .Test => true,
             else => false,
         };
     }
@@ -448,7 +447,7 @@ pub const VM = struct {
     reporter: Reporter,
     ffi: FFI,
 
-    pub fn init(gc: *GC, import_registry: *ImportRegistry, flavor: RunFlavor) !Self {
+    pub fn init(gc: *GC, import_registry: *ImportRegistry, flavor: RunFlavor, debugger: ?*Debugger) !Self {
         return .{
             .gc = gc,
             .import_registry = import_registry,
@@ -459,6 +458,7 @@ pub const VM = struct {
                 .allocator = gc.allocator,
             },
             .ffi = if (!is_wasm) FFI.init(gc) else {},
+            .debugger = debugger,
         };
     }
 
@@ -616,8 +616,10 @@ pub const VM = struct {
 
         self.current_fiber.status = .Running;
 
-        // If debugging, don't start the vm right away
-        if (self.flavor != .Debug) self.run();
+        // If debugging, don't run the entry point right away
+        if (self.debugger == null or function.type_def.resolved_type.?.Function.function_type != .ScriptEntryPoint) {
+            self.run();
+        }
     }
 
     fn readPreviousInstruction(self: *Self) ?u32 {
@@ -2184,7 +2186,12 @@ pub const VM = struct {
                 unreachable;
             };
             // FIXME: give reference to JIT?
-            vm.* = VM.init(self.gc, self.import_registry, self.flavor) catch {
+            vm.* = VM.init(
+                self.gc,
+                self.import_registry,
+                self.flavor,
+                self.debugger,
+            ) catch {
                 self.panic("Out of memory");
                 unreachable;
             };

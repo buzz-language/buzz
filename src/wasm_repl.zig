@@ -47,6 +47,7 @@ pub export fn initRepl() *ReplCtx {
         gc,
         import_registry,
         .Repl,
+        null,
     );
 
     const parser = vm.gc.allocator.create(Parser) catch unreachable;
