@@ -113,7 +113,7 @@ pub fn runFile(
             timer.reset();
         }
 
-        if (flavor.runs()) {
+        if (flavor != .Fmt) {
             const ast_slice = ast.slice();
 
             if (try runner.codegen.generate(ast_slice)) |function| {
@@ -122,11 +122,13 @@ pub fn runFile(
                     timer.reset();
                 }
 
-                try runner.vm.interpret(
-                    ast_slice,
-                    function,
-                    args,
-                );
+                if (flavor.runs()) {
+                    try runner.vm.interpret(
+                        ast_slice,
+                        function,
+                        args,
+                    );
+                }
 
                 if (!is_wasm) {
                     running_time = timer.read();
@@ -154,7 +156,7 @@ pub fn runFile(
                     },
                 );
             }
-        } else if (flavor == .Fmt) {
+        } else {
             var arena = std.heap.ArenaAllocator.init(allocator);
             defer arena.deinit();
 
@@ -163,8 +165,6 @@ pub fn runFile(
                 io.stdoutWriter,
                 ast,
             );
-        } else {
-            io.print("Formatting and Ast dump is deactivated", .{});
         }
     } else {
         return Parser.CompileError.Recoverable;
