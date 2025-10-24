@@ -18,6 +18,39 @@ const Value = @import("value.zig").Value;
 
 const Debugger = @This();
 
+const OutputStream = enum { stdout, stderr };
+
+var log_file: std.fs.File = undefined;
+var log_mutex = std.Thread.Mutex{};
+
+pub const std_options: std.Options = .{
+    .log_level = if (builtin.mode == .Debug) .debug else .info,
+    .logFn = logFn,
+};
+
+/// We log to file to avoid polluting the program output forwarded to the client since
+pub fn logFn(
+    comptime level: std.log.Level,
+    comptime scope: @Type(.enum_literal),
+    comptime format: []const u8,
+    args: anytype,
+) void {
+    log_mutex.lock();
+    defer log_mutex.unlock();
+
+    // Ensure we append to the file
+    log_file.seekFromEnd(0) catch {};
+
+    var writer = log_file.writerStreaming(&.{});
+    writer.interface.print(
+        "[{s}] {s} " ++ format ++ "\n",
+        .{
+            @tagName(scope),
+            @tagName(level),
+        } ++ args,
+    ) catch {};
+}
+
 allocator: std.mem.Allocator,
 /// Queues to/from debugger/debuggee
 transport: Server.Transport,
@@ -27,6 +60,12 @@ server_thread: std.Thread,
 adapter: Adapter(Debugger),
 /// Debug session
 session: ?DebugSession = null,
+/// Stdout pipe so we can relay the output to the client
+stdout_pipe: [2]std.posix.fd_t,
+/// Stderr pipe so we can relay the output to the client
+stderr_pipe: [2]std.posix.fd_t,
+/// Output poller
+out_poller: std.Io.Poller(OutputStream),
 
 const Error = error{
     InvalidArguments,
@@ -35,6 +74,7 @@ const Error = error{
     SessionNotStarted,
     OutOfMemory,
     FiberNotFound,
+    CantCaptureOutput,
 };
 
 const DebugSession = struct {
@@ -120,7 +160,7 @@ const BreakpointKey = struct {
     };
 };
 
-pub fn start(self: *Debugger, allocator: std.mem.Allocator, address: std.net.Address) (std.Thread.SpawnError || error{OutOfMemory})!void {
+pub fn start(self: *Debugger, allocator: std.mem.Allocator, address: std.net.Address) (std.Thread.SpawnError || error{OutOfMemory} || Error)!void {
     self.* = Debugger{
         .allocator = allocator,
         .transport = .{
@@ -129,7 +169,30 @@ pub fn start(self: *Debugger, allocator: std.mem.Allocator, address: std.net.Add
         },
         .server_thread = undefined,
         .adapter = undefined,
+        .stdout_pipe = std.posix.pipe() catch return error.CantCaptureOutput,
+        .stderr_pipe = std.posix.pipe() catch return error.CantCaptureOutput,
+        .out_poller = undefined,
     };
+
+    // FIXME: do this for windows with CreatePipe (https://github.com/ziglang/zig/blob/master/lib/std/os/windows.zig#L187)
+
+    // Duplicate output pipe's ends to stdout/stderr
+    std.posix.dup2(self.stdout_pipe[1], std.posix.STDOUT_FILENO) catch return error.CantCaptureOutput;
+    std.posix.dup2(self.stderr_pipe[1], std.posix.STDERR_FILENO) catch return error.CantCaptureOutput;
+
+    // Create poller on the read ends of the pipes
+    self.out_poller = std.Io.poll(
+        self.allocator,
+        OutputStream,
+        .{
+            .stdout = std.fs.File{
+                .handle = self.stdout_pipe[0],
+            },
+            .stderr = std.fs.File{
+                .handle = self.stderr_pipe[0],
+            },
+        },
+    );
 
     self.adapter = .{
         .handler = self,
@@ -144,7 +207,7 @@ pub fn start(self: *Debugger, allocator: std.mem.Allocator, address: std.net.Add
 }
 
 /// Returns true if program has been terminated
-pub fn onDispatch(self: *Debugger) bool {
+pub fn onDispatch(self: *Debugger) Error!bool {
     _ = self.adapter.handleRequest();
 
     if (self.session.?.run_state == .terminated) {
@@ -202,6 +265,39 @@ pub fn onDispatch(self: *Debugger) bool {
         }
     }
 
+    // Do we have output to relay to the client
+    if (self.out_poller.pollTimeout(500_000) catch false) {
+        const stdout = try self.out_poller.toOwnedSlice(.stdout);
+        if (stdout.len > 0) {
+            self.adapter.emitEvent(
+                .{
+                    .event = .output,
+                    .body = .{
+                        .output = .{
+                            .category = .stdout,
+                            .output = stdout,
+                        },
+                    },
+                },
+            );
+        }
+
+        const stderr = try self.out_poller.toOwnedSlice(.stderr);
+        if (stderr.len > 0) {
+            self.adapter.emitEvent(
+                .{
+                    .event = .output,
+                    .body = .{
+                        .output = .{
+                            .category = .stderr,
+                            .output = stderr,
+                        },
+                    },
+                },
+            );
+        }
+    }
+
     return false;
 }
 
@@ -210,8 +306,6 @@ pub fn onDispatch(self: *Debugger) bool {
 //
 
 pub fn initialize(_: *Debugger, _: Arguments(.initialize)) Error!Response(.initialize) {
-    std.log.debug("Handling `initialize request...`", .{});
-
     return .{
         .supportsConfigurationDoneRequest = true,
     };
@@ -869,6 +963,7 @@ pub fn main() !u8 {
         \\-p, --port <u16>       On which port the debugger should be listening
         \\-v, --version          Print version and exit
         \\-L, --library <str>... Add search path for external libraries
+        \\-o, --output <str>     File where any log output will be written (defaults to $PWD/log.txt)
         \\
     );
 
@@ -918,6 +1013,25 @@ pub fn main() !u8 {
 
         return 0;
     }
+
+    // Open log file
+    const output_file = res.args.output orelse "./log.txt";
+    log_file = if (std.fs.path.isAbsolute(output_file))
+        try std.fs.createFileAbsolute(
+            output_file,
+            .{
+                .truncate = false,
+                .read = false,
+            },
+        )
+    else
+        try std.fs.cwd().createFile(
+            output_file,
+            .{
+                .truncate = false,
+                .read = false,
+            },
+        );
 
     // Start the debugger
     var debugger: Debugger = undefined;

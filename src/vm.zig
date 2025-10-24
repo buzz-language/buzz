@@ -880,7 +880,7 @@ pub const VM = struct {
         }
 
         if (self.debugger) |debugger| {
-            if (debugger.onDispatch()) {
+            if (debugger.onDispatch() catch false) {
                 return;
             }
         }
