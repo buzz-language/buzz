@@ -114,9 +114,7 @@ pub fn registerVM(self: *GC, vm: *v.VM) !void {
 }
 
 pub fn unregisterVM(self: *GC, vm: *v.VM) void {
-    const removed = self.active_vms.remove(vm);
-
-    std.debug.assert(removed);
+    _ = self.active_vms.remove(vm);
 }
 
 pub fn deinit(self: *GC) void {

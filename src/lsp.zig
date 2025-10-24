@@ -70,18 +70,23 @@ const Document = struct {
         const ast = (parser.parse(std.mem.span(src), null, owned_uri) catch parser.ast) orelse
             parser.ast;
 
-        const errors = if (parser.reporter.reports.items.len == 0 and
-            (codegen.generate(ast.slice()) catch undefined) == null)
+        const codegen_errors = if (parser.reporter.last_error == null and
+            ((codegen.generate(ast.slice()) catch return error.OutOfMemory) == null) or codegen.reporter.reports.items.len > 0)
             try codegen.reporter.reports.toOwnedSlice(allocator)
         else
-            try parser.reporter.reports.toOwnedSlice(allocator);
+            &.{};
+        const parse_errors = try parser.reporter.reports.toOwnedSlice(allocator);
+
+        var errors = std.ArrayList(Reporter.Report).empty;
+        try errors.appendSlice(allocator, parse_errors);
+        try errors.appendSlice(allocator, codegen_errors);
 
         var doc = Document{
             .arena = arena,
             .src = src,
             .uri = owned_uri,
             .ast = ast,
-            .errors = errors,
+            .errors = errors.items,
         };
 
         if (ast.root != null) {

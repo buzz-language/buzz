@@ -32,7 +32,7 @@ pub const RunFlavor = enum {
 
     pub fn runs(self: RunFlavor) bool {
         return switch (self) {
-            .Run, .Test => true,
+            .Run, .Test, .Repl => true,
             else => false,
         };
     }
