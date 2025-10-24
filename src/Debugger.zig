@@ -75,12 +75,13 @@ const Error = error{
     OutOfMemory,
     FiberNotFound,
     CantCaptureOutput,
+    BadState,
 };
 
 const DebugSession = struct {
     runner: Runner,
     /// If true, program must terminate
-    run_state: ?RunState = .resumed,
+    run_state: RunState = .resumed,
     /// List of breakpoints to enforce
     breakpoints: std.ArrayHashMapUnmanaged(
         BreakpointKey,
@@ -95,11 +96,31 @@ const DebugSession = struct {
         self.variables.deinit(allocator);
     }
 
-    pub const RunState = enum {
-        paused,
-        terminated,
-        resumed,
+    pub const Step = struct {
+        line: u32,
+        frame: *v.CallFrame,
+        frame_count: usize,
     };
+
+    pub const RunState = union(enum) {
+        paused: void,
+        /// Should stop at the next line after this value
+        step_over: Step,
+        step_in: Step,
+        /// Index of the frame that was paused, we pause when that frame_count is inferior to it
+        step_out: usize,
+        terminated: void,
+        resumed: void,
+    };
+
+    pub fn setState(self: *DebugSession, new_state: RunState) void {
+        self.run_state = new_state;
+
+        // Reset variable cache (but keep globals)
+        if (self.variables.items.len > 1) {
+            self.variables.shrinkRetainingCapacity(1);
+        }
+    }
 
     pub fn deinit(self: *DebugSession) void {
         self.breakpoints.deinit(self.runner.gc.allocator);
@@ -107,21 +128,17 @@ const DebugSession = struct {
     }
 };
 
-const MapEntry = struct {
-    map_type: *o.ObjTypeDef,
-    key: Value,
-    value: Value,
-};
-
-const BoundEntry = struct {
-    receiver: Value,
-    method: Value,
-};
-
 const VariableValue = union(enum) {
     value: Value,
-    map_entry: MapEntry,
-    bound_entry: BoundEntry,
+    map_entry: struct {
+        map_type: *o.ObjTypeDef,
+        key: Value,
+        value: Value,
+    },
+    bound_entry: struct {
+        receiver: Value,
+        method: Value,
+    },
     scope: union(enum) {
         global: void,
         frame: struct {
@@ -206,30 +223,28 @@ pub fn start(self: *Debugger, allocator: std.mem.Allocator, address: std.net.Add
     );
 }
 
+fn currentLine(self: *Debugger, current_frame: *v.CallFrame) u32 {
+    const location = current_frame.closure.function.chunk.locations.items[current_frame.ip];
+    return @intCast(self.session.?.runner.vm.current_ast.tokens.items(.line)[location] + 1);
+}
+
 /// Returns true if program has been terminated
 pub fn onDispatch(self: *Debugger) Error!bool {
     _ = self.adapter.handleRequest();
 
-    if (self.session.?.run_state == .terminated) {
-        return true;
-    } else if (self.session.?.run_state != .paused) {
-        // Did we reach a breakpoint?
-        const current_frame = self.session.?.runner.vm.currentFrame();
+    switch (self.session.?.run_state) {
+        .paused => {},
+        .terminated => return true,
+        .step_over => |step| {
+            const current_frame = self.session.?.runner.vm.currentFrame();
 
-        if (current_frame != null and
-            current_frame.?.ip < current_frame.?.closure.function.chunk.locations.items.len)
-        {
-            const location = current_frame.?.closure.function.chunk.locations.items[current_frame.?.ip];
-            const line = self.session.?.runner.vm.current_ast.tokens.items(.line)[location] + 1;
-            const script = self.session.?.runner.vm.current_ast.tokens.items(.script_name)[location];
-
-            if (self.session.?.breakpoints.getPtr(
-                .{
-                    .line = @intCast(line),
-                    .script = script,
-                },
-            )) |breakpoint| {
-                self.session.?.run_state = .paused;
+            // We pause on the next line in the same frame
+            if (current_frame != null and
+                (current_frame == step.frame or self.session.?.runner.vm.current_fiber.frame_count < step.frame_count) and
+                current_frame.?.ip < current_frame.?.closure.function.chunk.locations.items.len and
+                self.currentLine(current_frame.?) != step.line)
+            {
+                self.session.?.setState(.paused);
 
                 // Notifiy we stopped
                 self.adapter.emitEvent(
@@ -237,32 +252,114 @@ pub fn onDispatch(self: *Debugger) Error!bool {
                         .event = .stopped,
                         .body = .{
                             .stopped = .{
-                                .reason = .breakpoint,
+                                .reason = .step,
                                 .threadId = @intFromPtr(self.session.?.runner.vm.current_fiber),
-                                .hitBreakpointIds = if (breakpoint.id) |bid| &.{bid} else null,
                             },
                         },
                     },
                 );
+            }
+        },
+        .step_out => |frame_count| {
+            const current_frame = self.session.?.runner.vm.currentFrame();
 
-                // If breakpoint breviously unverified, notify that too
-                if (!breakpoint.verified) {
-                    breakpoint.verified = true;
+            // We pause when we got out of the frame
+            if (current_frame != null and
+                self.session.?.runner.vm.current_fiber.frame_count < frame_count)
+            {
+                self.session.?.setState(.paused);
 
+                // Notifiy we stopped
+                self.adapter.emitEvent(
+                    .{
+                        .event = .stopped,
+                        .body = .{
+                            .stopped = .{
+                                .reason = .step,
+                                .threadId = @intFromPtr(self.session.?.runner.vm.current_fiber),
+                            },
+                        },
+                    },
+                );
+            }
+        },
+        .step_in => |step| {
+            const current_frame = self.session.?.runner.vm.currentFrame();
+
+            // We step when the frame or the line changes
+            if (current_frame != null and
+                (current_frame != step.frame or
+                    (current_frame.?.ip < current_frame.?.closure.function.chunk.locations.items.len and
+                        self.currentLine(current_frame.?) != step.line)))
+            {
+                self.session.?.setState(.paused);
+
+                // Notifiy we stopped
+                self.adapter.emitEvent(
+                    .{
+                        .event = .stopped,
+                        .body = .{
+                            .stopped = .{
+                                .reason = .step,
+                                .threadId = @intFromPtr(self.session.?.runner.vm.current_fiber),
+                            },
+                        },
+                    },
+                );
+            }
+        },
+        .resumed => {
+            // Did we reach a breakpoint?
+            const current_frame = self.session.?.runner.vm.currentFrame();
+
+            if (current_frame != null and
+                current_frame.?.ip < current_frame.?.closure.function.chunk.locations.items.len)
+            {
+                const location = current_frame.?.closure.function.chunk.locations.items[current_frame.?.ip];
+                const line = self.session.?.runner.vm.current_ast.tokens.items(.line)[location] + 1;
+                const script = self.session.?.runner.vm.current_ast.tokens.items(.script_name)[location];
+
+                if (self.session.?.breakpoints.getPtr(
+                    .{
+                        .line = @intCast(line),
+                        .script = script,
+                    },
+                )) |breakpoint| {
+                    self.session.?.setState(.paused);
+
+                    // Notifiy we stopped
                     self.adapter.emitEvent(
                         .{
-                            .event = .breakpoint,
+                            .event = .stopped,
                             .body = .{
-                                .breakpoint = .{
-                                    .breakpoint = breakpoint.*,
-                                    .reason = .changed,
+                                .stopped = .{
+                                    .reason = .breakpoint,
+                                    .threadId = @intFromPtr(self.session.?.runner.vm.current_fiber),
+                                    .hitBreakpointIds = if (breakpoint.id) |bid| &.{bid} else null,
                                 },
                             },
                         },
                     );
+
+                    // If breakpoint breviously unverified, notify that too
+                    if (!breakpoint.verified) {
+                        breakpoint.verified = true;
+
+                        self.adapter.emitEvent(
+                            .{
+                                .event = .breakpoint,
+                                .body = .{
+                                    .breakpoint = .{
+                                        .breakpoint = breakpoint.*,
+                                        .reason = .changed,
+                                    },
+                                },
+                            },
+                        );
+                    }
                 }
             }
-        }
+        },
     }
 
     // Do we have output to relay to the client
@@ -282,6 +379,7 @@ pub fn onDispatch(self: *Debugger) Error!bool {
             );
         }
 
+        // FIXME: stderr doesn't seem to be relayed here?
         const stderr = try self.out_poller.toOwnedSlice(.stderr);
         if (stderr.len > 0) {
             self.adapter.emitEvent(
@@ -389,6 +487,77 @@ pub fn setExceptionBreakpoints(_: *Debugger, _: Arguments(.setExceptionBreakpoin
     return .{};
 }
 
+pub fn next(self: *Debugger, _: Arguments(.next)) Error!Response(.next) {
+    // We ignore the threadId for now, until we actually support multi threading
+    if (self.session) |*session| {
+        if (session.run_state != .paused) {
+            return error.BadState;
+        }
+
+        session.setState(
+            .{
+                .step_over = .{
+                    .frame_count = session.runner.vm.current_fiber.frame_count,
+                    .frame = session.runner.vm.currentFrame().?,
+                    .line = self.currentLine(session.runner.vm.currentFrame().?),
+                },
+            },
+        );
+    }
+
+    return error.SessionNotStarted;
+}
+
+pub fn stepIn(self: *Debugger, _: Arguments(.stepIn)) Error!Response(.stepIn) {
+    // We ignore the threadId for now, until we actually support multi threading
+    if (self.session) |*session| {
+        if (session.run_state != .paused) {
+            return error.BadState;
+        }
+
+        session.setState(
+            .{
+                .step_in = .{
+                    .frame_count = session.runner.vm.current_fiber.frame_count,
+                    .frame = session.runner.vm.currentFrame().?,
+                    .line = self.currentLine(session.runner.vm.currentFrame().?),
+                },
+            },
+        );
+    }
+
+    return error.SessionNotStarted;
+}
+
+pub fn stepOut(self: *Debugger, _: Arguments(.stepOut)) Error!Response(.stepOut) {
+    // We ignore the threadId for now, until we actually support multi threading
+    if (self.session) |*session| {
+        if (session.run_state != .paused) {
+            return error.BadState;
+        }
+
+        session.setState(
+            .{
+                .step_out = session.runner.vm.current_fiber.frame_count,
+            },
+        );
+    }
+
+    return error.SessionNotStarted;
+}
+
+pub fn @"continue"(self: *Debugger, _: Arguments(.@"continue")) Error!Response(.@"continue") {
+    if (self.session) |*session| {
+        session.setState(.resumed);
+
+        return .{};
+    }
+
+    return error.SessionNotStarted;
+}
+
+// FIXME: right now we're saying fibers are threads but really threads should be threads. When the thread std lib will land,
+// how will we reconciliate the two with DAP?
 pub fn threads(self: *Debugger, _: Arguments(.threads)) Error!Response(.threads) {
     if (self.session) |*session| {
         var thds = std.ArrayList(ProtocolMessage.Thread).empty;
@@ -588,7 +757,7 @@ pub fn variables(self: *Debugger, arguments: Arguments(.variables)) Error!Respon
                             };
                             const top_idx = top - stack;
 
-                            for (frame_base_idx..top_idx - 1) |idx| {
+                            for (frame_base_idx..@min(top_idx - 1, fiber.locals_dbg.items.len)) |idx| {
                                 if (!fiber.locals_dbg.items[idx].isNull()) {
                                     try result.append(
                                         self.allocator,
@@ -668,7 +837,7 @@ pub fn configurationDone(self: *Debugger, _: Arguments(.configurationDone)) Erro
 
 pub fn disconnect(self: *Debugger, _: Arguments(.disconnect)) Error!Response(.disconnect) {
     if (self.session) |*session| {
-        session.run_state = .terminated;
+        session.setState(.terminated);
     }
 
     return error.SessionNotStarted;
@@ -676,7 +845,7 @@ pub fn disconnect(self: *Debugger, _: Arguments(.disconnect)) Error!Response(.di
 
 pub fn pause(self: *Debugger, _: Arguments(.pause)) Error!Response(.pause) {
     if (self.session) |*session| {
-        session.run_state = .paused;
+        session.setState(.paused);
     }
 
     return error.SessionNotStarted;
