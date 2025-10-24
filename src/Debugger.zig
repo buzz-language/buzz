@@ -84,7 +84,10 @@ const VariableValue = union(enum) {
     bound_entry: BoundEntry,
     scope: union(enum) {
         global: void,
-        frame: *v.CallFrame,
+        frame: struct {
+            fiber: *v.Fiber,
+            frame: *v.CallFrame,
+        },
     },
 };
 
@@ -377,35 +380,42 @@ pub fn scopes(self: *Debugger, args: Arguments(.scopes)) Error!Response(.scopes)
         // Locals of the current frame
         var found = false;
         for (session.variables.items) |vbl| {
-            if (vbl.value == .scope and vbl.value.scope == .frame and @intFromPtr(vbl.value.scope.frame) == args.frameId) {
+            if (vbl.value == .scope and vbl.value.scope == .frame and @intFromPtr(vbl.value.scope.frame.frame) == args.frameId) {
                 try scps.append(self.allocator, vbl.variable.scope);
                 found = true;
                 break;
             }
         }
 
+        // Otherwise search the appropriate frame
         if (!found) {
-            for (session.runner.vm.current_fiber.frames.items) |*frame| {
-                if (@intFromPtr(frame) == args.frameId) {
-                    const scope = Variable{
-                        .value = .{
-                            .scope = .{
-                                .frame = frame,
+            var fiber: ?*v.Fiber = session.runner.vm.current_fiber;
+            while (fiber) |fb| : (fiber = fb.parent_fiber) fiber: {
+                for (fb.frames.items) |*frame| {
+                    if (@intFromPtr(frame) == args.frameId) {
+                        const scope = Variable{
+                            .value = .{
+                                .scope = .{
+                                    .frame = .{
+                                        .frame = frame,
+                                        .fiber = fb,
+                                    },
+                                },
                             },
-                        },
-                        .variable = .{
-                            .scope = .{
-                                .name = "Locals",
-                                .variablesReference = session.variables.items.len + 1,
-                                .expensive = false,
+                            .variable = .{
+                                .scope = .{
+                                    .name = "Locals",
+                                    .variablesReference = session.variables.items.len + 1,
+                                    .expensive = false,
+                                },
                             },
-                        },
-                    };
+                        };
 
-                    try session.variables.append(self.allocator, scope);
-                    try scps.append(self.allocator, scope.variable.scope);
+                        try session.variables.append(self.allocator, scope);
+                        try scps.append(self.allocator, scope.variable.scope);
 
-                    break;
+                        break :fiber;
+                    }
                 }
             }
         }
@@ -462,33 +472,35 @@ pub fn variables(self: *Debugger, arguments: Arguments(.variables)) Error!Respon
                                 }
                             }
                         },
-                        .frame => |frame| {
-                            const stack = @as([*]Value, @ptrCast(session.runner.vm.current_fiber.stack));
+                        .frame => |ctx| {
+                            const frame = ctx.frame;
+                            const fiber = ctx.fiber;
+                            const stack = @as([*]Value, @ptrCast(fiber.stack));
                             const frame_base_idx = frame.slots - stack;
                             const top = if (session.runner.vm.currentFrame() == frame)
-                                session.runner.vm.current_fiber.stack_top
+                                fiber.stack_top
                             else top: {
                                 var idx: ?usize = 0;
-                                for (session.runner.vm.current_fiber.frames.items, 0..) |*f, i| {
+                                for (fiber.frames.items, 0..) |*f, i| {
                                     if (frame == f) {
                                         idx = i;
                                         break;
                                     }
                                 }
 
-                                std.debug.assert(idx != null and idx.? < session.runner.vm.current_fiber.frames.items.len);
+                                std.debug.assert(idx != null and idx.? < fiber.frames.items.len);
 
-                                break :top session.runner.vm.current_fiber.frames.items[idx.? + 1].slots;
+                                break :top fiber.frames.items[idx.? + 1].slots;
                             };
                             const top_idx = top - stack;
 
                             for (frame_base_idx..top_idx - 1) |idx| {
-                                if (!session.runner.vm.current_fiber.locals_dbg.items[idx].isNull()) {
+                                if (!fiber.locals_dbg.items[idx].isNull()) {
                                     try result.append(
                                         self.allocator,
                                         try self.variable(
-                                            session.runner.vm.current_fiber.stack[idx + 1],
-                                            session.runner.vm.current_fiber.locals_dbg.items[idx],
+                                            fiber.stack[idx + 1],
+                                            fiber.locals_dbg.items[idx],
                                             null,
                                         ),
                                     );
