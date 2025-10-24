@@ -14,7 +14,7 @@
         },
         .dap_kit = .{
             .url = "../dap-kit",
-            .hash = "dap_kit-0.0.0-OvEgyI5jAgAV-WFDuv3llJSM-P_DW4u9ATM2rhpm9gNE",
+            .hash = "dap_kit-0.0.0-OvEgyFdeAgCICFkifJ7HryViQ3lkeqwJmrKrhqZ7u6LY",
         },
     },
     .paths = .{""},
