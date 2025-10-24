@@ -1,6 +1,6 @@
 import "std";
 
-test "fiber" {
+fun main() > void !> any {
     // Async call, creates a new fiber, yield type must be nullable because resume will return null when nothing yielded
     final counter = &count(10);
 
