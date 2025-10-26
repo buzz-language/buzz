@@ -1,1 +1,0 @@
-Got something 0 on stdout and 0 on stderr

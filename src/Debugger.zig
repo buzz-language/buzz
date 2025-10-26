@@ -15,6 +15,7 @@ const VM = v.VM;
 const Runner = @import("Runner.zig");
 const o = @import("obj.zig");
 const Value = @import("value.zig").Value;
+const assert = std.debug.assert;
 
 const Debugger = @This();
 
@@ -76,6 +77,7 @@ const Error = error{
     FiberNotFound,
     CantCaptureOutput,
     BadState,
+    CantEvaluate,
 };
 
 const DebugSession = struct {
@@ -195,7 +197,7 @@ pub fn start(self: *Debugger, allocator: std.mem.Allocator, address: std.net.Add
 
     // Duplicate output pipe's ends to stdout/stderr
     std.posix.dup2(self.stdout_pipe[1], std.posix.STDOUT_FILENO) catch return error.CantCaptureOutput;
-    std.posix.dup2(self.stderr_pipe[1], std.posix.STDERR_FILENO) catch return error.CantCaptureOutput;
+    // std.posix.dup2(self.stderr_pipe[1], std.posix.STDERR_FILENO) catch return error.CantCaptureOutput;
 
     // Create poller on the read ends of the pipes
     self.out_poller = std.Io.poll(
@@ -425,6 +427,12 @@ pub fn launch(self: *Debugger, arguments: Arguments(.launch)) Error!Response(.la
         .runner = undefined,
     };
 
+    self.session.?.runner.init(
+        self.allocator,
+        .Run,
+        self,
+    ) catch return error.LaunchFailed;
+
     try self.session.?.variables.append(
         self.allocator,
         .{
@@ -447,11 +455,8 @@ pub fn launch(self: *Debugger, arguments: Arguments(.launch)) Error!Response(.la
     // While debugger is active, the program won't start right away
     // FIXME: needs to report stdout of the program with `output` events
     self.session.?.runner.runFile(
-        self.allocator,
         program,
         &.{}, // TODO
-        .Run, // TODO: we should be able to debug tests too
-        self,
     ) catch return error.LaunchFailed;
 }
 
@@ -597,7 +602,7 @@ pub fn stackTrace(self: *Debugger, arguments: Arguments(.stackTrace)) Error!Resp
             var i = if (fb.frame_count > 0) fb.frame_count - 1 else fb.frame_count;
             while (i >= 0) : (i -= 1) {
                 const frame = &fb.frames.items[i];
-                const location = frame.closure.function.chunk.ast.tokens
+                const location = session.runner.vm.current_ast.tokens
                     .get(frame.closure.function.chunk.locations.items[frame.ip]);
 
                 try stack_frames.append(
@@ -633,6 +638,21 @@ pub fn stackTrace(self: *Debugger, arguments: Arguments(.stackTrace)) Error!Resp
     return error.SessionNotStarted;
 }
 
+fn findFrame(self: *Debugger, frameId: u64) ?struct { *v.CallFrame, *v.Fiber } {
+    if (self.session) |*session| {
+        var fiber: ?*v.Fiber = session.runner.vm.current_fiber;
+        while (fiber) |fb| : (fiber = fb.parent_fiber) {
+            for (fb.frames.items) |*frame| {
+                if (@intFromPtr(frame) == frameId) {
+                    return .{ frame, fb };
+                }
+            }
+        }
+    }
+
+    return null;
+}
+
 pub fn scopes(self: *Debugger, args: Arguments(.scopes)) Error!Response(.scopes) {
     if (self.session) |*session| {
         var scps = try std.ArrayList(ProtocolMessage.Scope).initCapacity(
@@ -652,34 +672,27 @@ pub fn scopes(self: *Debugger, args: Arguments(.scopes)) Error!Response(.scopes)
 
         // Otherwise search the appropriate frame
         if (!found) {
-            var fiber: ?*v.Fiber = session.runner.vm.current_fiber;
-            while (fiber) |fb| : (fiber = fb.parent_fiber) fiber: {
-                for (fb.frames.items) |*frame| {
-                    if (@intFromPtr(frame) == args.frameId) {
-                        const scope = Variable{
-                            .value = .{
-                                .scope = .{
-                                    .frame = .{
-                                        .frame = frame,
-                                        .fiber = fb,
-                                    },
-                                },
+            if (self.findFrame(args.frameId)) |frame_fiber| {
+                const scope = Variable{
+                    .value = .{
+                        .scope = .{
+                            .frame = .{
+                                .frame = frame_fiber.@"0",
+                                .fiber = frame_fiber.@"1",
                             },
-                            .variable = .{
-                                .scope = .{
-                                    .name = "Locals",
-                                    .variablesReference = session.variables.items.len + 1,
-                                    .expensive = false,
-                                },
-                            },
-                        };
+                        },
+                    },
+                    .variable = .{
+                        .scope = .{
+                            .name = "Locals",
+                            .variablesReference = session.variables.items.len + 1,
+                            .expensive = false,
+                        },
+                    },
+                };
 
-                        try session.variables.append(self.allocator, scope);
-                        try scps.append(self.allocator, scope.variable.scope);
-
-                        break :fiber;
-                    }
-                }
+                try session.variables.append(self.allocator, scope);
+                try scps.append(self.allocator, scope.variable.scope);
             }
         }
 
@@ -740,33 +753,24 @@ pub fn variables(self: *Debugger, arguments: Arguments(.variables)) Error!Respon
                             const fiber = ctx.fiber;
                             const stack = @as([*]Value, @ptrCast(fiber.stack));
                             const frame_base_idx = frame.slots - stack;
-                            const top = if (session.runner.vm.currentFrame() == frame)
-                                fiber.stack_top
-                            else top: {
-                                var idx: ?usize = 0;
-                                for (fiber.frames.items, 0..) |*f, i| {
-                                    if (frame == f) {
-                                        idx = i;
-                                        break;
-                                    }
-                                }
-
-                                std.debug.assert(idx != null and idx.? < fiber.frames.items.len);
-
-                                break :top fiber.frames.items[idx.? + 1].slots;
-                            };
+                            const top = session.runner.frameTop(fiber, frame);
                             const top_idx = top - stack;
 
                             for (frame_base_idx..@min(top_idx - 1, fiber.locals_dbg.items.len)) |idx| {
                                 if (!fiber.locals_dbg.items[idx].isNull()) {
-                                    try result.append(
-                                        self.allocator,
-                                        try self.variable(
-                                            fiber.stack[idx + 1],
-                                            fiber.locals_dbg.items[idx],
-                                            null,
-                                        ),
-                                    );
+                                    const name = fiber.locals_dbg.items[idx];
+
+                                    // "Hidden" locals start with `$`
+                                    if (o.ObjString.cast(name.obj()).?.string[0] != '$') {
+                                        try result.append(
+                                            self.allocator,
+                                            try self.variable(
+                                                fiber.stack[idx + 1],
+                                                name,
+                                                null,
+                                            ),
+                                        );
+                                    }
                                 }
                             }
                         },
@@ -819,12 +823,47 @@ pub fn variables(self: *Debugger, arguments: Arguments(.variables)) Error!Respon
 
                 // Populate children cache
                 session.variables.items[ref].children = session.variables.items[previous_len..];
-                std.debug.assert(session.variables.items[ref].children.?.len == result.items.len);
+                assert(session.variables.items[ref].children.?.len == result.items.len);
             }
         }
 
         return .{
             .variables = try result.toOwnedSlice(self.allocator),
+        };
+    }
+
+    return error.SessionNotStarted;
+}
+
+pub fn evaluate(self: *Debugger, args: Arguments(.evaluate)) Error!Response(.evaluate) {
+    if (self.session) |*session| {
+        const frame, const fiber = if (args.frameId) |frameId|
+            self.findFrame(frameId) orelse .{ null, null }
+        else
+            .{ null, null };
+
+        const result = session.runner.evaluate(
+            fiber orelse session.runner.vm.current_fiber,
+            frame orelse session.runner.vm.currentFrame().?,
+            args.expression,
+        ) catch return error.CantEvaluate;
+
+        if (result.isObj()) {
+            _ = try self.variable(
+                result,
+                (session.runner.gc.copyString("__eval__") catch return error.OutOfMemory).toValue(),
+                null,
+            );
+        }
+
+        return .{
+            .result = result.toStringAlloc(self.allocator) catch return error.OutOfMemory,
+            .type = (result.typeOf(&session.runner.gc) catch return error.OutOfMemory)
+                .toStringAlloc(self.allocator, false) catch return error.OutOfMemory,
+            .variablesReference = if (result.isObj())
+                session.variables.items.len - 1
+            else
+                0,
         };
     }
 
@@ -839,8 +878,6 @@ pub fn disconnect(self: *Debugger, _: Arguments(.disconnect)) Error!Response(.di
     if (self.session) |*session| {
         session.setState(.terminated);
     }
-
-    return error.SessionNotStarted;
 }
 
 pub fn pause(self: *Debugger, _: Arguments(.pause)) Error!Response(.pause) {
@@ -1211,6 +1248,7 @@ pub fn main() !u8 {
             res.args.port orelse 9000,
         ),
     );
+    errdefer debugger.server_thread.join();
 
     // Read requests
     while (true) {

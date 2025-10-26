@@ -410,7 +410,7 @@ pub fn build(b: *Build) !void {
         c.linkLibrary(static_lib);
     }
 
-    for ([_]*std.Build.Step.Compile{ static_lib, lib, exe, debugger_exe, lsp_exe, behavior_exe, check_exe }) |c| {
+    for ([_]*std.Build.Step.Compile{ tests, static_lib, lib, exe, debugger_exe, lsp_exe, behavior_exe, check_exe }) |c| {
         c.root_module.addImport(
             "dap",
             dap.module("dap_kit"),
