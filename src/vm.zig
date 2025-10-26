@@ -129,6 +129,10 @@ pub const Fiber = struct {
 
     type_def: *obj.ObjTypeDef,
 
+    /// If true, this fiber was created in order to evaluate an expression while debugging
+    /// This prevents the eval result to be lost
+    is_eval: bool = false,
+
     pub fn init(
         allocator: std.mem.Allocator,
         type_def: *obj.ObjTypeDef,
@@ -162,7 +166,6 @@ pub const Fiber = struct {
 
     pub fn deinit(self: *Self) void {
         self.allocator.free(self.stack);
-
         self.frames.deinit(self.allocator);
     }
 
@@ -554,14 +557,14 @@ pub const VM = struct {
         }
     }
 
-    pub inline fn cloneValue(self: *Self, value: Value) !Value {
+    pub fn cloneValue(self: *Self, value: Value) !Value {
         return if (value.isObj())
             try obj.cloneObject(value.obj(), self)
         else
             value;
     }
 
-    pub inline fn currentFrame(self: *Self) ?*CallFrame {
+    pub fn currentFrame(self: *Self) ?*CallFrame {
         std.debug.assert(self.current_fiber.frame_count <= self.current_fiber.frames.items.len);
 
         if (self.current_fiber.frame_count == 0) {
@@ -571,7 +574,7 @@ pub const VM = struct {
         return &self.current_fiber.frames.items[self.current_fiber.frame_count - 1];
     }
 
-    pub inline fn currentGlobals(self: *Self) *std.ArrayList(Value) {
+    pub fn currentGlobals(self: *Self) *std.ArrayList(Value) {
         return self.currentFrame().?.closure.globals;
     }
 
@@ -600,13 +603,15 @@ pub const VM = struct {
             null,
         );
 
-        self.push((try self.gc.allocateObject(
-            try obj.ObjClosure.init(
-                self.gc.allocator,
-                self,
-                function,
-            ),
-        )).toValue());
+        self.push(
+            (try self.gc.allocateObject(
+                try obj.ObjClosure.init(
+                    self.gc.allocator,
+                    self,
+                    function,
+                ),
+            )).toValue(),
+        );
 
         self.push((try self.cliArgs(args)).toValue());
 
@@ -636,7 +641,7 @@ pub const VM = struct {
         return null;
     }
 
-    inline fn readInstruction(self: *Self) u32 {
+    fn readInstruction(self: *Self) u32 {
         const current_frame = self.currentFrame().?;
         const instruction = current_frame.closure.function.chunk.code.items[current_frame.ip];
 
@@ -645,27 +650,27 @@ pub const VM = struct {
         return instruction;
     }
 
-    pub inline fn getCode(instruction: u32) Chunk.OpCode {
+    pub fn getCode(instruction: u32) Chunk.OpCode {
         return @enumFromInt(@as(u8, @intCast(instruction >> 24)));
     }
 
-    inline fn replaceCode(instruction: u32, new_code: Chunk.OpCode) u32 {
+    fn replaceCode(instruction: u32, new_code: Chunk.OpCode) u32 {
         return (@as(u32, @intCast(@intFromEnum(new_code))) << 24) | @as(u32, @intCast(getArg(instruction)));
     }
 
-    inline fn getArg(instruction: u32) u24 {
+    fn getArg(instruction: u32) u24 {
         return @as(u24, @intCast(0x00ffffff & instruction));
     }
 
-    inline fn readByte(self: *Self) u8 {
+    fn readByte(self: *Self) u8 {
         return @as(u8, @intCast(self.readInstruction()));
     }
 
-    pub inline fn readConstant(self: *Self, arg: u24) Value {
+    pub fn readConstant(self: *Self, arg: u24) Value {
         return self.currentFrame().?.closure.function.chunk.constants.items[arg];
     }
 
-    inline fn readString(self: *Self, arg: u24) *obj.ObjString {
+    fn readString(self: *Self, arg: u24) *obj.ObjString {
         return self.readConstant(arg).obj().access(
             obj.ObjString,
             .String,
@@ -2111,7 +2116,7 @@ pub const VM = struct {
     }
 
     // result_count > 0 when the return is `export`
-    inline fn returnFrame(self: *Self) bool {
+    fn returnFrame(self: *Self) bool {
         const result = self.pop();
 
         const frame = self.currentFrame().?.*;
@@ -2135,6 +2140,11 @@ pub const VM = struct {
             if (self.flavor != .Repl) {
                 _ = self.pop();
             }
+
+            if (self.current_fiber.is_eval) {
+                self.push(result);
+            }
+
             return true;
         }
 
@@ -4774,7 +4784,7 @@ pub const VM = struct {
         }
     }
 
-    inline fn reportRuntimeErrorWithCurrentStack(self: *Self, message: []const u8) void {
+    fn reportRuntimeErrorWithCurrentStack(self: *Self, message: []const u8) void {
         self.reportRuntimeError(
             message,
             if (self.currentFrame()) |frame|

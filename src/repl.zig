@@ -15,6 +15,7 @@ const Scanner = @import("Scanner.zig");
 const io = @import("io.zig");
 const GC = @import("GC.zig");
 const TypeRegistry = @import("TypeRegistry.zig");
+const Runner = @import("Runner.zig");
 
 pub const PROMPT = ">>> ";
 pub const MULTILINE_PROMPT = "... ";
@@ -73,46 +74,9 @@ pub fn repl(allocator: std.mem.Allocator) !void {
     else
         false;
 
-    var import_registry = v.ImportRegistry{};
-    var gc = try GC.init(allocator);
-    gc.type_registry = try TypeRegistry.init(&gc);
-    var imports = std.StringHashMapUnmanaged(Parser.ScriptImport){};
-    var vm = try v.VM.init(&gc, &import_registry, .Repl, null);
-    vm.jit = if (BuildOptions.jit and BuildOptions.cycle_limit == null)
-        JIT.init(&vm)
-    else
-        null;
-    defer {
-        if (vm.jit != null) {
-            vm.jit.?.deinit(vm.gc.allocator);
-            vm.jit = null;
-        }
-    }
-    var parser = Parser.init(
-        &gc,
-        &imports,
-        false,
-        .Repl,
-    );
-    var codegen = CodeGen.init(
-        &gc,
-        &parser,
-        .Repl,
-        if (vm.jit) |*jit| jit else null,
-        false,
-    );
-    defer {
-        codegen.deinit();
-        vm.deinit();
-        parser.deinit();
-        // gc.deinit();
-        var it = imports.iterator();
-        while (it.next()) |kv| {
-            kv.value_ptr.*.globals.deinit(vm.gc.allocator);
-        }
-        imports.deinit(allocator);
-        // TODO: free type_registry and its keys which are on the heap
-    }
+    var runner: Runner = undefined;
+    try runner.init(allocator, .Repl, null);
+    defer runner.deinit();
 
     var stdout = io.stdoutWriter;
     var stderr = io.stderrWriter;
@@ -126,25 +90,19 @@ pub fn repl(allocator: std.mem.Allocator) !void {
         .{envMap.get("HOME") orelse "."},
     );
 
-    if (builtin.os.tag != .windows) {
+    // Setup linenoise
+    if (ln != void) {
         _ = ln.linenoiseHistorySetMaxLen(100);
         _ = ln.linenoiseHistoryLoad(@ptrCast(buzz_history_path.written().ptr));
     }
 
     // Import std and debug as commodity
-    _ = runSource(
-        "import \"std\"; import \"debug\";",
-        "REPL",
-        &vm,
-        &codegen,
-        &parser,
-        &gc,
-    ) catch unreachable;
+    _ = runner.runSource("import \"std\"; import \"debug\";", "REPL") catch unreachable;
 
-    var previous_global_top = vm.globals_count;
-    var previous_parser_globals = try parser.globals.clone(allocator);
-    var previous_globals = try vm.globals.clone(allocator);
-    var previous_type_registry = try gc.type_registry.registry.clone(allocator);
+    var previous_global_top = runner.vm.globals_count;
+    var previous_parser_globals = try runner.parser.globals.clone(allocator);
+    var previous_globals = try runner.vm.globals.clone(allocator);
+    var previous_type_registry = try runner.gc.type_registry.registry.clone(allocator);
     var previous_input: ?[]u8 = null;
 
     var reader_buffer = [_]u8{0};
@@ -165,7 +123,7 @@ pub fn repl(allocator: std.mem.Allocator) !void {
             ) catch @panic("Could not write to stdout");
         }
 
-        const read_source = if (builtin.os.tag != .windows)
+        const read_source = if (ln != void)
             ln.linenoise(
                 if (previous_input != null)
                     MULTILINE_PROMPT
@@ -185,7 +143,7 @@ pub fn repl(allocator: std.mem.Allocator) !void {
         if (source.len > 0) {
             // Highlight input
             var source_scanner = Scanner.init(
-                gc.allocator,
+                runner.gc.allocator,
                 "REPL",
                 original_source,
             );
@@ -208,7 +166,7 @@ pub fn repl(allocator: std.mem.Allocator) !void {
 
             if (previous_input) |previous| {
                 source = std.mem.concatWithSentinel(
-                    gc.allocator,
+                    runner.gc.allocator,
                     u8,
                     &.{
                         previous,
@@ -216,18 +174,11 @@ pub fn repl(allocator: std.mem.Allocator) !void {
                     },
                     0,
                 ) catch @panic("Out of memory");
-                gc.allocator.free(previous);
+                runner.gc.allocator.free(previous);
                 previous_input = null;
             }
 
-            const expr = runSource(
-                source,
-                "REPL",
-                &vm,
-                &codegen,
-                &parser,
-                &gc,
-            ) catch |err| failed: {
+            const expr = runner.runSource(source, "REPL") catch |err| failed: {
                 if (BuildOptions.debug) {
                     stderr.print("Failed with error {}\n", .{err}) catch unreachable;
                 }
@@ -235,30 +186,30 @@ pub fn repl(allocator: std.mem.Allocator) !void {
                 break :failed null;
             };
 
-            if (parser.reporter.last_error == null and codegen.reporter.last_error == null) {
-                if (builtin.os.tag != .windows) {
+            if (runner.parser.reporter.last_error == null and runner.codegen.reporter.last_error == null) {
+                if (ln != void) {
                     _ = ln.linenoiseHistoryAdd(source);
                     _ = ln.linenoiseHistorySave(@ptrCast(buzz_history_path.written().ptr));
                 }
                 // FIXME: why can't I deinit those?
                 // previous_parser_globals.deinit();
-                previous_parser_globals = try parser.globals.clone(allocator);
+                previous_parser_globals = try runner.parser.globals.clone(allocator);
                 // previous_globals.deinit();
-                previous_globals = try vm.globals.clone(allocator);
+                previous_globals = try runner.vm.globals.clone(allocator);
                 // previous_type_registry.deinit();
-                previous_type_registry = try gc.type_registry.registry.clone(allocator);
+                previous_type_registry = try runner.gc.type_registry.registry.clone(allocator);
 
                 // Dump top of stack
-                if (previous_global_top != vm.globals_count or expr != null) {
-                    previous_global_top = vm.globals_count;
+                if (previous_global_top != runner.vm.globals_count or expr != null) {
+                    previous_global_top = runner.vm.globals_count;
 
-                    const value = expr orelse vm.globals.items[previous_global_top];
+                    const value = expr orelse runner.vm.globals.items[previous_global_top];
 
-                    var value_str = std.Io.Writer.Allocating.init(vm.gc.allocator);
+                    var value_str = std.Io.Writer.Allocating.init(runner.vm.gc.allocator);
                     defer value_str.deinit();
 
                     var state = disassembler.DumpState{
-                        .vm = &vm,
+                        .vm = &runner.vm,
                     };
 
                     state.valueDump(
@@ -268,7 +219,7 @@ pub fn repl(allocator: std.mem.Allocator) !void {
                     );
 
                     var scanner = Scanner.init(
-                        gc.allocator,
+                        runner.gc.allocator,
                         "REPL",
                         value_str.written(),
                     );
@@ -280,96 +231,29 @@ pub fn repl(allocator: std.mem.Allocator) !void {
                 // We might have declared new globals, types, etc. and encounter an error
                 // FIXME: why can't I deinit those?
                 // parser.globals.deinit();
-                parser.globals = previous_parser_globals;
+                runner.parser.globals = previous_parser_globals;
 
                 // vm.globals.deinit();
-                vm.globals = previous_globals;
-                vm.globals_count = previous_global_top;
+                runner.vm.globals = previous_globals;
+                runner.vm.globals_count = previous_global_top;
 
                 // gc.type_registry.registry.deinit();
-                gc.type_registry.registry = previous_type_registry;
+                runner.gc.type_registry.registry = previous_type_registry;
 
                 // If syntax error was unclosed block, keep previous input
-                if (parser.reporter.last_error == .unclosed) {
-                    previous_input = gc.allocator.alloc(u8, source.len) catch @panic("Out of memory");
+                if (runner.parser.reporter.last_error == .unclosed) {
+                    previous_input = runner.gc.allocator.alloc(u8, source.len) catch @panic("Out of memory");
                     std.mem.copyForwards(u8, previous_input.?, source);
-                } else if (builtin.os.tag != .windows) {
+                } else if (ln != void) {
                     _ = ln.linenoiseHistoryAdd(source);
                     _ = ln.linenoiseHistorySave(@ptrCast(buzz_history_path.written().ptr));
                 }
             }
 
-            parser.reporter.last_error = null;
-            parser.reporter.panic_mode = false;
-            codegen.reporter.last_error = null;
-            codegen.reporter.panic_mode = false;
+            runner.parser.reporter.last_error = null;
+            runner.parser.reporter.panic_mode = false;
+            runner.codegen.reporter.last_error = null;
+            runner.codegen.reporter.panic_mode = false;
         }
     }
-}
-
-fn runSource(
-    source: []const u8,
-    file_name: []const u8,
-    vm: *v.VM,
-    codegen: *CodeGen,
-    parser: *Parser,
-    gc: *GC,
-) !?Value {
-    var total_timer = std.time.Timer.start() catch unreachable;
-    var timer = try std.time.Timer.start();
-    var parsing_time: u64 = undefined;
-    var codegen_time: u64 = undefined;
-    var running_time: u64 = undefined;
-
-    if (try parser.parse(source, null, file_name)) |ast| {
-        parsing_time = timer.read();
-        timer.reset();
-
-        const ast_slice = ast.slice();
-        if (try codegen.generate(ast_slice)) |function| {
-            codegen_time = timer.read();
-            timer.reset();
-
-            try vm.interpret(
-                ast_slice,
-                function,
-                null,
-            );
-
-            // Does the user code ends with a lone expression?
-            const fnode = ast.nodes.items(.components)[ast.root.?].Function;
-            const statements = ast.nodes.items(.components)[fnode.body.?].Block;
-            const last_statement = if (statements.len > 0) statements[statements.len - 1] else null;
-            if (last_statement != null and ast.nodes.items(.tag)[last_statement.?] == .Expression) {
-                return vm.pop();
-            }
-
-            running_time = timer.read();
-        } else {
-            return Parser.CompileError.Recoverable;
-        }
-
-        if (BuildOptions.show_perf) {
-            io.print(
-                "\u{001b}[2mParsing: {D}\nCodegen: {D}\nRun: {D}\nJIT: {D}\nGC: {D}\nTotal: {D}\nFull GC: {} | GC: {} | Max allocated: {B} bytes\n\u{001b}[0m",
-                .{
-                    parsing_time,
-                    codegen_time,
-                    running_time,
-                    if (vm.jit) |jit| jit.jit_time else 0,
-                    gc.gc_time,
-                    total_timer.read(),
-                    gc.full_collection_count,
-                    gc.light_collection_count,
-                    gc.max_allocated,
-                },
-            );
-        }
-    } else if (parser.reporter.last_error == .unclosed) {
-        return null;
-    } else {
-        return Parser.CompileError.Recoverable;
-    }
-
-    return null;
 }

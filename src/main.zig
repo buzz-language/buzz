@@ -37,10 +37,12 @@ pub fn main() u8 {
         return 1;
     }
 
-    var gpa = std.heap.DebugAllocator(.{ .safety = builtin.mode == .Debug }){};
-    const allocator = if (builtin.mode == .Debug or is_wasm)
-        gpa.allocator()
-    else if (BuildOptions.mimalloc)
+    // DebugAllocator recently got super slow, will put this back on once its fixed
+    // var gpa = std.heap.DebugAllocator(.{ .safety = builtin.mode == .Debug }){};
+    // const allocator = if (builtin.mode == .Debug or is_wasm)
+    //     gpa.allocator()
+    // else
+    const allocator = if (BuildOptions.mimalloc)
         @import("mimalloc.zig").mim_allocator
     else
         std.heap.c_allocator;
@@ -130,13 +132,13 @@ pub fn main() u8 {
         };
     } else if (!is_wasm and res.positionals[0].len > 0) {
         var runner: Runner = undefined;
+        runner.init(allocator, flavor, null) catch {
+            return 1;
+        };
 
         runner.runFile(
-            allocator,
             res.positionals[0][0],
             res.positionals[0][1..],
-            flavor,
-            null,
         ) catch {
             return 1;
         };
