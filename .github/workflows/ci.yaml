@@ -14,6 +14,14 @@ jobs:
           zig-version:
               - "master"
           operating-system: [ ubuntu-latest, macos-latest ]
+          optimize:
+            - "Debug"
+            - "ReleaseSafe"
+            - "ReleaseFast"
+            - "ReleaseSmall"
+          options:
+            - ""
+            - "-Djit_always_on"
     
     steps:
       - name: Install homebrew
@@ -29,36 +37,13 @@ jobs:
       - name: Build test ffi lib
         run: zig build-lib -dynamic tests/utils/foreign.zig && mv libforeign.* tests/utils/
 
-      - name: Run behavior tests Debug
-        run: zig build test && zig build test-behavior
+      - name: Run tests ${{ matrix.optimize }}
+        run: zig build -Doptimize=${{ matrix.optimize }} ${{ matrix.options }} test
+      - name: Run behavior tests ${{ matrix.optimize }}
+        run: zig build -Doptimize=${{ matrix.optimize }} ${{ matrix.options }} test-behavior
       - name: Cleanup
         run: rm -rf zig-out zig-cache
-
-      - name: Run behavior tests Debug with JIT always on
-        run: zig build -Djit_always_on test && zig build -Djit_always_on test-behavior
-      - name: Cleanup
-        run: rm -rf zig-out zig-cache
-
-      - name: Run behavior tests ReleaseSafe
-        run: zig build -Doptimize=ReleaseSafe test && zig build -Doptimize=ReleaseSafe test-behavior
-      - name: Cleanup
-        run: rm -rf zig-out zig-cache
-
-      - name: Run behavior tests ReleaseSafe with JIT always on
-        run: zig build -Doptimize=ReleaseSafe -Djit_always_on test && zig build -Doptimize=ReleaseSafe -Djit_always_on test-behavior
-      - name: Cleanup
-        run: rm -rf zig-out zig-cache
-
-      - name: Run behavior tests ReleaseFast
-        run: zig build -Doptimize=ReleaseFast test && zig build -Doptimize=ReleaseFast test-behavior
-      - name: Cleanup
-        run: rm -rf zig-out zig-cache
-
-      - name: Run behavior tests ReleaseFast with JIT always on
-        run: zig build -Doptimize=ReleaseFast -Djit_always_on test && zig build -Doptimize=ReleaseFast -Djit_always_on test-behavior
-      - name: Cleanup
-        run: rm -rf zig-out zig-cache
-  
+ 
   wasm-build:
     runs-on: ubuntu-latest
     steps:
@@ -71,7 +56,7 @@ jobs:
         with:
           version: master
       - name: Build for wasm
-        run: zig build -Dtarget=wasm32-freestanding -freference-trace -Doptimize=ReleaseSmall
+        run: zig build -Dtarget=wasm32-freestanding -Doptimize=ReleaseSmall
       - name: Cleanup
         run: rm -rf zig-out zig-cache
 
