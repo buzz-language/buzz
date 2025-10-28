@@ -197,7 +197,7 @@ pub fn start(self: *Debugger, allocator: std.mem.Allocator, address: std.net.Add
 
     // Duplicate output pipe's ends to stdout/stderr
     std.posix.dup2(self.stdout_pipe[1], std.posix.STDOUT_FILENO) catch return error.CantCaptureOutput;
-    // std.posix.dup2(self.stderr_pipe[1], std.posix.STDERR_FILENO) catch return error.CantCaptureOutput;
+    std.posix.dup2(self.stderr_pipe[1], std.posix.STDERR_FILENO) catch return error.CantCaptureOutput;
 
     // Create poller on the read ends of the pipes
     self.out_poller = std.Io.poll(

@@ -2,7 +2,9 @@
 
 # Added
 
-- First working version of a LSP thanks to [zig-lsp-kit](https://github.com/kristoff-it/zig-lsp-kit) (https://github.com/buzz-language/buzz/issues/16)
+- First working version of a LSP thanks to [lsp-kit](https://github.com/zigtools/lsp-kit) (https://github.com/buzz-language/buzz/issues/16)
+- First working version of the debugger that implements the [Debugger Adapater Protocol](https://microsoft.github.io/debug-adapter-protocol/) thanks to [buzz-language/dap-kit](https://github.com/buzz-language/dap-kit) (https://github.com/buzz-language/buzz/issues/88)
+- Code formatter (`buzz --fmt`) (https://github.com/buzz-language/buzz/issues/96)
 - File polling API: `File.getPoller`, `FilePoller` (see example https://github.com/buzz-language/buzz/blob/main/tests/manual/007-fd-poller.buzz)
 - _Shortcut_ operators: `+=`, `-=`, `*=`, etc. (https://github.com/buzz-language/buzz/issues/78)
 - `rg.contains`

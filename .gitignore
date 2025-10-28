@@ -17,4 +17,5 @@ buzz_history
 
 node_modules
 out.txt
+log.txt
 AGENTS.md
