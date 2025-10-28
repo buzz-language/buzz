@@ -24,13 +24,11 @@ jobs:
             - "-Djit_always_on"
     
     steps:
-      - name: Install homebrew
-        run: /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
       - name: Checkout project
         uses: actions/checkout@v3.0.0
       - name: Checkout submodules
         run: git submodule update --init --recursive
-      - name: Setup nightly Zig
+      - name: Setup Zig
         uses: mlugg/setup-zig@v2
         with:
           version: ${{ matrix.zig-version }}
@@ -64,7 +62,7 @@ jobs:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v3.0.0
-      - name: Setup nightly Zig
+      - name: Setup Zig
         uses: mlugg/setup-zig@v2
         with:
           version: master

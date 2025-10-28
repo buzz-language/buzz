@@ -2,7 +2,7 @@
     .name = .buzz,
     .fingerprint = 0x87514371589e863a,
     .version = "0.6.0",
-    .minimum_zig_version = "0.15.0-dev.190+bfbf4badd",
+    .minimum_zig_version = "0.16.0-dev.747+493ad58ff",
     .dependencies = .{
         .clap = .{
             .url = "git+https://github.com/Hejsil/zig-clap.git#5289e0753cd274d65344bef1c114284c633536ea",
