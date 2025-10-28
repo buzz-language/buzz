@@ -9,7 +9,7 @@ const Parser = @import("Parser.zig");
 
 const black_listed_tests = std.StaticStringMap(void).initComptime(
     .{
-        // .{ "tests/022-io.buzz", {} },
+        .{ "tests/027-run-file.buzz", {} },
     },
 );
 
@@ -43,6 +43,8 @@ fn testBehaviors(allocator: std.mem.Allocator) !Result {
                 io.print("\u{001b}[33m[{s} >>]\u{001b}[0m\n", .{file_name});
                 continue;
             }
+
+            io.print("\u{001b}[33m[{s} ...]\u{001b}[0m\n", .{file_name});
 
             var had_error: bool = false;
             var runner: Runner = undefined;

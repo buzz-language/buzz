@@ -15,7 +15,7 @@ const Reporter = @import("Reporter.zig");
 const FFI = if (!is_wasm) @import("FFI.zig") else void;
 const dispatch_call_modifier: std.builtin.CallModifier = if (!is_wasm) .always_tail else .auto;
 const io = @import("io.zig");
-const Debugger = @import("Debugger.zig");
+const Debugger = if (!is_wasm) @import("Debugger.zig") else void;
 
 const dumpStack = disassembler.dumpStack;
 const jmp = if (!is_wasm) @import("jmp.zig") else void;
@@ -884,16 +884,19 @@ pub const VM = struct {
             }
         }
 
-        if (self.debugger) |debugger| {
-            if (debugger.onDispatch() catch false) {
-                return;
-            }
+        if (!is_wasm and
+            self.debugger != null and
+            self.debugger.?.onDispatch() catch false)
+        {
+            return;
         }
 
         // Tail call
         @call(
             dispatch_call_modifier,
-            if (self.debugger != null and self.debugger.?.session.?.run_state == .paused)
+            if (!is_wasm and
+                self.debugger != null and
+                self.debugger.?.session.?.run_state == .paused)
                 OP_NOOP
             else
                 op_table[@intFromEnum(instruction)],
