@@ -248,71 +248,86 @@ pub fn build(b: *Build) !void {
     b.step("run", "run buzz").dependOn(&run_exe.step);
 
     // buzz_behavior
-    const behavior_exe = b.addExecutable(
-        .{
-            .name = "buzz_behavior",
-            .use_llvm = true,
-            .root_module = b.createModule(
-                .{
-                    .root_source_file = b.path("src/behavior.zig"),
-                    .target = target,
-                    .optimize = build_mode,
-                    .sanitize_c = .off,
-                },
-            ),
-        },
-    );
-    b.installArtifact(behavior_exe);
-    const run_behavior = b.addRunArtifact(behavior_exe);
-    run_behavior.step.dependOn(install_step);
-    b.step("test-behavior", "Test behavior").dependOn(&run_behavior.step);
+    const behavior_exe = if (!is_wasm)
+        b.addExecutable(
+            .{
+                .name = "buzz_behavior",
+                .use_llvm = true,
+                .root_module = b.createModule(
+                    .{
+                        .root_source_file = b.path("src/behavior.zig"),
+                        .target = target,
+                        .optimize = build_mode,
+                        .sanitize_c = .off,
+                    },
+                ),
+            },
+        )
+    else
+        null;
+    if (!is_wasm) {
+        b.installArtifact(behavior_exe.?);
+        const run_behavior = b.addRunArtifact(behavior_exe.?);
+        run_behavior.step.dependOn(install_step);
+        b.step("test-behavior", "Test behavior").dependOn(&run_behavior.step);
+    }
 
     // buzz_debugger
-    const debugger_exe = b.addExecutable(
-        .{
-            .name = "buzz_debugger",
-            .use_llvm = true,
-            .root_module = b.createModule(
-                .{
-                    .root_source_file = b.path("src/Debugger.zig"),
-                    .target = target,
-                    .optimize = build_mode,
-                    .sanitize_c = .off,
-                },
-            ),
-        },
-    );
-    b.installArtifact(debugger_exe);
-    const run_debugger = b.addRunArtifact(debugger_exe);
-    run_debugger.step.dependOn(install_step);
-    b.step("run-debugger", "Run the debugger").dependOn(&run_debugger.step);
+    const debugger_exe = if (!is_wasm)
+        b.addExecutable(
+            .{
+                .name = "buzz_debugger",
+                .use_llvm = true,
+                .root_module = b.createModule(
+                    .{
+                        .root_source_file = b.path("src/Debugger.zig"),
+                        .target = target,
+                        .optimize = build_mode,
+                        .sanitize_c = .off,
+                    },
+                ),
+            },
+        )
+    else
+        null;
+    if (!is_wasm) {
+        b.installArtifact(debugger_exe.?);
+        const run_debugger = b.addRunArtifact(debugger_exe.?);
+        run_debugger.step.dependOn(install_step);
+        b.step("run-debugger", "Run the debugger").dependOn(&run_debugger.step);
+    }
 
     // buzz_lsp
-    const lsp_exe = b.addExecutable(
-        .{
-            .name = "buzz_lsp",
-            .use_llvm = true,
-            .root_module = b.createModule(
-                .{
-                    .root_source_file = b.path("src/lsp.zig"),
-                    .target = target,
-                    .optimize = build_mode,
-                    .sanitize_c = .off,
-                },
-            ),
-        },
-    );
-    lsp_exe.root_module.addImport(
-        "lsp",
-        lsp.module("lsp"),
-    );
-    b.installArtifact(lsp_exe);
-    const run_lsp_exe = b.addRunArtifact(lsp_exe);
-    run_lsp_exe.step.dependOn(install_step);
-    if (b.args) |args| {
-        run_lsp_exe.addArgs(args);
+    const lsp_exe = if (!is_wasm)
+        b.addExecutable(
+            .{
+                .name = "buzz_lsp",
+                .use_llvm = true,
+                .root_module = b.createModule(
+                    .{
+                        .root_source_file = b.path("src/lsp.zig"),
+                        .target = target,
+                        .optimize = build_mode,
+                        .sanitize_c = .off,
+                    },
+                ),
+            },
+        )
+    else
+        null;
+    if (!is_wasm) {
+        lsp_exe.?.root_module.addImport(
+            "lsp",
+            lsp.module("lsp"),
+        );
+        b.installArtifact(lsp_exe.?);
+        const run_lsp_exe = b.addRunArtifact(lsp_exe.?);
+        run_lsp_exe.step.dependOn(install_step);
+        if (b.args) |args| {
+            run_lsp_exe.addArgs(args);
+        }
+        b.step("lsp", "run buzz lsp").dependOn(&run_lsp_exe.step);
     }
-    b.step("lsp", "run buzz lsp").dependOn(&run_lsp_exe.step);
 
     // check (exe not installed)
     const check_exe = b.addExecutable(
@@ -333,7 +348,7 @@ pub fn build(b: *Build) !void {
     check.dependOn(&check_exe.step);
 
     // Building buzz api library
-    const lib = b.addLibrary(
+    const lib = if (!is_wasm) b.addLibrary(
         .{
             .name = "buzz",
             .linkage = .dynamic,
@@ -346,8 +361,10 @@ pub fn build(b: *Build) !void {
                 },
             ),
         },
-    );
-    b.installArtifact(lib);
+    ) else null;
+    if (!is_wasm) {
+        b.installArtifact(lib.?);
+    }
 
     const static_lib = b.addLibrary(
         .{
@@ -387,67 +404,76 @@ pub fn build(b: *Build) !void {
     run_tests.step.dependOn(install_step); // wait for libraries to be installed
     test_step.dependOn(&run_tests.step);
 
-    for ([_]*std.Build.Step.Compile{ static_lib, lib, exe, behavior_exe, debugger_exe, lsp_exe, check_exe, tests }) |c| {
-        // BuildOptions
-        c.root_module.addImport("build_options", build_option_module);
+    for ([_]?*std.Build.Step.Compile{ static_lib, lib, exe, behavior_exe, debugger_exe, lsp_exe, check_exe, tests }) |comp| {
+        if (comp) |c| {
+            // BuildOptions
+            c.root_module.addImport("build_options", build_option_module);
 
-        // Link non-zig deps to executables and library
-        for (ext_deps) |dep| {
-            c.linkLibrary(dep);
+            // Link non-zig deps to executables and library
+            for (ext_deps) |dep| {
+                c.linkLibrary(dep);
 
-            if (target.result.os.tag == .windows) {
-                c.linkSystemLibrary("bcrypt");
-            }
+                if (target.result.os.tag == .windows) {
+                    c.linkSystemLibrary("bcrypt");
+                }
 
-            if (build_options.needLibC()) {
-                c.linkLibC();
+                if (build_options.needLibC()) {
+                    c.linkLibC();
+                }
             }
         }
     }
 
     // So that JIT compiled function can reference buzz_api
-    for ([_]*std.Build.Step.Compile{ exe, behavior_exe, debugger_exe, lsp_exe, check_exe }) |c| {
-        c.linkLibrary(static_lib);
+    for ([_]?*std.Build.Step.Compile{ exe, behavior_exe, debugger_exe, lsp_exe, check_exe }) |comp| {
+        if (comp) |c| {
+            c.linkLibrary(static_lib);
+        }
     }
 
-    for ([_]*std.Build.Step.Compile{ tests, static_lib, lib, exe, debugger_exe, lsp_exe, behavior_exe, check_exe }) |c| {
-        c.root_module.addImport(
-            "dap",
-            dap.module("dap_kit"),
-        );
+    for ([_]?*std.Build.Step.Compile{ tests, static_lib, lib, exe, debugger_exe, lsp_exe, behavior_exe, check_exe }) |comp| {
+        if (comp) |c| {
+            c.root_module.addImport(
+                "dap",
+                dap.module("dap_kit"),
+            );
+        }
     }
 
-    for ([_]*std.Build.Step.Compile{ exe, debugger_exe, lsp_exe, check_exe }) |c| {
-        c.root_module.addImport(
-            "clap",
-            clap.module("clap"),
-        );
+    for ([_]?*std.Build.Step.Compile{ exe, debugger_exe, lsp_exe, check_exe }) |comp| {
+        if (comp) |c| {
+            c.root_module.addImport(
+                "clap",
+                clap.module("clap"),
+            );
+        }
     }
 
-    for ([_]*std.Build.Step.Compile{ exe, debugger_exe, lsp_exe }) |c| {
-        b.default_step.dependOn(&c.step);
+    for ([_]?*std.Build.Step.Compile{ exe, debugger_exe, lsp_exe }) |comp| {
+        if (comp) |c| {
+            b.default_step.dependOn(&c.step);
+        }
     }
 
     // Building std libraries
     const Lib = struct {
         path: ?[]const u8 = null,
         name: []const u8,
-        wasm_compatible: bool = true,
     };
 
     const libraries = [_]Lib{
         .{ .name = "std", .path = "src/lib/buzz_std.zig" },
-        .{ .name = "io", .path = "src/lib/buzz_io.zig", .wasm_compatible = false },
+        .{ .name = "io", .path = "src/lib/buzz_io.zig" },
         .{ .name = "gc", .path = "src/lib/buzz_gc.zig" },
-        .{ .name = "os", .path = "src/lib/buzz_os.zig", .wasm_compatible = false },
-        .{ .name = "fs", .path = "src/lib/buzz_fs.zig", .wasm_compatible = false },
+        .{ .name = "os", .path = "src/lib/buzz_os.zig" },
+        .{ .name = "fs", .path = "src/lib/buzz_fs.zig" },
         .{ .name = "math", .path = "src/lib/buzz_math.zig" },
         .{ .name = "debug", .path = "src/lib/buzz_debug.zig" },
         .{ .name = "buffer", .path = "src/lib/buzz_buffer.zig" },
         .{ .name = "crypto", .path = "src/lib/buzz_crypto.zig" },
         // FIXME: API has changed
-        // .{ .name = "http", .path = "src/lib/buzz_http.zig", .wasm_compatible = false },
-        .{ .name = "ffi", .path = "src/lib/buzz_ffi.zig", .wasm_compatible = false },
+        // .{ .name = "http", .path = "src/lib/buzz_http.zig" },
+        .{ .name = "ffi", .path = "src/lib/buzz_ffi.zig" },
         .{ .name = "serialize", .path = "src/lib/buzz_serialize.zig" },
         .{ .name = "testing" },
         .{ .name = "errors" },
@@ -469,7 +495,7 @@ pub fn build(b: *Build) !void {
         );
         install_step.dependOn(&step.step);
 
-        if (library.path == null or (!library.wasm_compatible and is_wasm)) {
+        if (library.path == null or is_wasm) {
             continue;
         }
 
