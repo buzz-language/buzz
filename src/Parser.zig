@@ -7827,7 +7827,7 @@ fn objectDeclaration(self: *Self) Error!Ast.Node.Index {
 fn method(self: *Self, abstract: bool, static: bool, this: *obj.ObjTypeDef) Error!Ast.Node.Index {
     try self.consume(.Identifier, "Expected method name.");
 
-    return try self.function(
+    const func = try self.function(
         self.current_token.? - 1,
         if (abstract)
             .Abstract
@@ -7837,6 +7837,12 @@ fn method(self: *Self, abstract: bool, static: bool, this: *obj.ObjTypeDef) Erro
             .Method,
         this,
     );
+
+    if (self.ast.nodes.items(.type_def)[func].?.resolved_type.?.Function.lambda) {
+        try self.consume(.Semicolon, "Expected `;`.");
+    }
+
+    return func;
 }
 
 fn protocolDeclaration(self: *Self) Error!Ast.Node.Index {

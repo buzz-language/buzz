@@ -874,6 +874,12 @@ pub fn configurationDone(self: *Debugger, _: Arguments(.configurationDone)) Erro
     if (self.session == null) return error.SessionNotStarted;
 }
 
+pub fn terminate(self: *Debugger, _: Arguments(.terminate)) Error!Response(.terminate) {
+    if (self.session) |*session| {
+        session.setState(.terminated);
+    }
+}
+
 pub fn disconnect(self: *Debugger, _: Arguments(.disconnect)) Error!Response(.disconnect) {
     if (self.session) |*session| {
         session.setState(.terminated);

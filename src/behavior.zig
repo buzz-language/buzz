@@ -2,6 +2,7 @@ const std = @import("std");
 const Runner = @import("Runner.zig");
 const io = @import("io.zig");
 const Parser = @import("Parser.zig");
+const BuildOptions = @import("build_options");
 
 // Because of https://github.com/ziglang/zig/issues/15091 test that write to stdout will hang
 // However I think its completely legitimate for a tested code to output to stdout and I
@@ -162,10 +163,15 @@ fn testCompileErrors(allocator: std.mem.Allocator) !Result {
 }
 
 pub fn main() !u8 {
-    var gpa = std.heap.GeneralPurposeAllocator(.{
-        .safety = true,
-    }){};
-    const allocator = gpa.allocator();
+    // DebugAllocator recently got super slow, will put this back on once its fixed
+    // var gpa = std.heap.DebugAllocator(.{ .safety = builtin.mode == .Debug }){};
+    // const allocator = if (builtin.mode == .Debug or is_wasm)
+    //     gpa.allocator()
+    // else
+    const allocator = if (BuildOptions.mimalloc)
+        @import("mimalloc.zig").mim_allocator
+    else
+        std.heap.c_allocator;
     var count: usize = 0;
     var fail_count: usize = 0;
     var skipped: usize = 0;

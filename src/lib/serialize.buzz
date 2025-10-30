@@ -64,17 +64,17 @@ export object Boxed {
     }
 
     /// @return wrapped data string value or empty string if not a string
-    fun stringValue() > str => this.string() ?? ""
+    fun stringValue() > str => this.string() ?? "";
     /// @return wrapped data boolean value or `false` if not a boolean
-    fun booleanValue() > bool => this.boolean() ?? false
+    fun booleanValue() > bool => this.boolean() ?? false;
     /// @return wrapped data number value or `0` if not an integer
-    fun integerValue() > int => this.integer() ?? 0
+    fun integerValue() > int => this.integer() ?? 0;
     /// @return wrapped data number value or `0` if not a double
-    fun floatValue() > double => this.float() ?? 0.0
+    fun floatValue() > double => this.float() ?? 0.0;
     /// @return wrapped data map value or empty map if not a map
-    fun mapValue() > {str: Boxed} => this.map() ?? {<str: Boxed>}
+    fun mapValue() > {str: Boxed} => this.map() ?? {<str: Boxed>};
     /// @return wrapped data list value or empty list if not a list
-    fun listValue() > [Boxed] => this.list() ?? [<Boxed>]
+    fun listValue() > [Boxed] => this.list() ?? [<Boxed>];
 
     /// Query the json element at `path`, if nothing matches return `Boxed{}`
     /// @param path Path to query
