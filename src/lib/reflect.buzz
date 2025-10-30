@@ -1,0 +1,105 @@
+namespace reflect;
+
+export protocol Type {}
+
+export object<Type> Bool {}
+
+export object<Type> Int {}
+
+export object<Type> Double {}
+
+export object<Type> Void {}
+
+export object<Type> Pattern {}
+
+export object<Type> Any {}
+
+export object<Type> String {}
+
+export object<Type> UserData {}
+
+export object<Type> Optional {
+    @"type": Type,
+}
+
+export object<Type> List {
+    item: Type,
+}
+
+export object<Type> Map {
+    key: Type,
+    value: Type,
+}
+
+export object<Type> Enum {
+    cases: {str: any},
+    caseType: Type,
+    name: str,
+    qualifiedName: str,
+}
+
+export object<Type> EnumInstance {
+    of: Enum,
+}
+
+export object<Type> Fiber {
+    returnType: Type,
+    yieldType: Type,
+}
+
+export object<Type> @"Function" {
+    defaults: {str: any},
+    errorTypes: [Type],
+    generics: [str],
+    name: str?,
+    parameters: {str: Type},
+    qualifiedName: str?,
+    returnType: Type,
+    yieldType: Type,
+}
+
+export object<Type> ObjectProperty {
+    @"final": bool,
+    @"type": Type,
+    default: any,
+    name: str,
+}
+
+export object<Type> ObjectMethod {
+    function: @"Function",
+    mutates: bool,
+}
+
+export object<Type> Protocol {
+    methods: [ObjectMethod],
+    name: str,
+    qualifiedName: str,
+}
+
+export object<Type> ProtocolInstance {
+    mutable: bool,
+    of: Protocol,
+}
+
+export object<Type> Object {
+    name: str?,
+    qualifiedName: str?,
+    protocols: [Protocol],
+    generics: [str],
+    staticProperties: [ObjectProperty],
+    properties: [ObjectProperty],
+    staticMethods: [ObjectMethod],
+    methods: [ObjectMethod],
+}
+
+
+export object<Type> ObjectInstance {
+    mutable: bool,
+    of: Object,
+}
+
+export object<Type> ForeignContainer {
+    properties: {str: Type},
+}
+
+export extern fun reflect(value: any) > Type;

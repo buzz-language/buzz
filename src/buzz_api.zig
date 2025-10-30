@@ -1811,3 +1811,226 @@ export fn bz_writeZigValueToBuffer(
         else => {},
     }
 }
+
+fn reflect(vm: *VM, type_def: *o.ObjTypeDef) v.Value {
+    const result = switch (type_def.def_type) {
+        .Integer => bz_newQualifiedObjectInstance(
+            vm,
+            "reflect.Int",
+            "reflect.Int".len,
+            false,
+        ),
+        .Bool => bz_newQualifiedObjectInstance(
+            vm,
+            "reflect.Bool",
+            "reflect.Bool".len,
+            false,
+        ),
+        .Double => bz_newQualifiedObjectInstance(
+            vm,
+            "reflect.Double",
+            "reflect.Double".len,
+            false,
+        ),
+        .Void => bz_newQualifiedObjectInstance(
+            vm,
+            "reflect.Void",
+            "reflect.Void".len,
+            false,
+        ),
+        .Pattern => bz_newQualifiedObjectInstance(
+            vm,
+            "reflect.Pattern",
+            "reflect.Pattern".len,
+            false,
+        ),
+        .Any => bz_newQualifiedObjectInstance(
+            vm,
+            "reflect.Any",
+            "reflect.Any".len,
+            false,
+        ),
+        .String => bz_newQualifiedObjectInstance(
+            vm,
+            "reflect.String",
+            "reflect.String".len,
+            false,
+        ),
+        .UserData => bz_newQualifiedObjectInstance(
+            vm,
+            "reflect.UserData",
+            "reflect.UserData".len,
+            false,
+        ),
+        .List => list: {
+            const list = bz_newQualifiedObjectInstance(
+                vm,
+                "reflect.List",
+                "reflect.List".len,
+                false,
+            );
+
+            bz_setObjectInstanceProperty(
+                list,
+                0,
+                bz_reflect(
+                    vm,
+                    type_def.resolved_type.?.List.item_type.toValue(),
+                ),
+                vm,
+            );
+
+            break :list list;
+        },
+        .Map => map: {
+            const map = bz_newQualifiedObjectInstance(
+                vm,
+                "reflect.Map",
+                "reflect.Map".len,
+                false,
+            );
+
+            bz_setObjectInstanceProperty(
+                map,
+                0,
+                bz_reflect(
+                    vm,
+                    type_def.resolved_type.?.Map.key_type.toValue(),
+                ),
+                vm,
+            );
+
+            bz_setObjectInstanceProperty(
+                map,
+                1,
+                bz_reflect(
+                    vm,
+                    type_def.resolved_type.?.Map.value_type.toValue(),
+                ),
+                vm,
+            );
+
+            break :map map;
+        },
+        .Enum => @"enum": {
+            const @"enum" = bz_newQualifiedObjectInstance(
+                vm,
+                "reflect.Enum",
+                "reflect.Enum".len,
+                false,
+            );
+
+            const cases = bz_newMap(vm, (vm.gc.type_registry.getTypeDef(
+                .{
+                    .def_type = .Map,
+                    .resolved_type = .{
+                        .Map = .{
+                            .key_type = vm.gc.type_registry.str_type,
+                            .value_type = type_def.resolved_type.?.Enum.enum_type,
+                            .mutable = false,
+                        },
+                    },
+                },
+            ) catch {
+                vm.panic("Out of memory");
+                unreachable;
+            }).toValue());
+
+            for (type_def.resolved_type.?.Enum.value.?.cases, 0..) |val, i| {
+                bz_mapSet(
+                    cases,
+                    (vm.gc.copyString(type_def.resolved_type.?.Enum.cases[i]) catch {
+                        vm.panic("Out of memory");
+                        unreachable;
+                    }).toValue(),
+                    val,
+                    vm,
+                );
+            }
+
+            bz_setObjectInstanceProperty(
+                @"enum",
+                0,
+                cases,
+                vm,
+            );
+
+            bz_setObjectInstanceProperty(
+                @"enum",
+                1,
+                bz_reflect(
+                    vm,
+                    bz_reflect(
+                        vm,
+                        type_def.resolved_type.?.Enum.enum_type.toValue(),
+                    ),
+                ),
+                vm,
+            );
+
+            bz_setObjectInstanceProperty(
+                @"enum",
+                2,
+                type_def.resolved_type.?.Enum.name.toValue(),
+                vm,
+            );
+
+            bz_setObjectInstanceProperty(
+                @"enum",
+                3,
+                type_def.resolved_type.?.Enum.qualified_name.toValue(),
+                vm,
+            );
+
+            break :@"enum" @"enum";
+        },
+        .EnumInstance => enum_instance: {
+            const enum_instance = bz_newQualifiedObjectInstance(
+                vm,
+                "reflect.EnumInstance,",
+                "reflect.EnumInstance,".len,
+                false,
+            );
+
+            bz_setObjectInstanceProperty(
+                enum_instance,
+                0,
+                bz_reflect(vm, (type_def.resolved_type.?.EnumInstance.of).toValue()),
+                vm,
+            );
+
+            break :enum_instance enum_instance;
+        },
+        else => unreachable,
+    };
+
+    if (type_def.optional) {
+        const optional = bz_newQualifiedObjectInstance(
+            vm,
+            "reflect.Optional",
+            "reflect.Optional".len,
+            false,
+        );
+
+        bz_setObjectInstanceProperty(
+            optional,
+            0,
+            result,
+            vm,
+        );
+
+        return optional;
+    }
+
+    return result;
+}
+
+export fn bz_reflect(vm: *VM, value: v.Value) callconv(.c) v.Value {
+    return reflect(
+        vm,
+        value.typeOf(vm.gc) catch {
+            vm.panic("Out of memory");
+            unreachable;
+        },
+    );
+}

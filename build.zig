@@ -326,6 +326,7 @@ pub fn build(b: *Build) !void {
         .{ .name = "serialize", .path = "src/lib/buzz_serialize.zig" },
         .{ .name = "testing" },
         .{ .name = "errors" },
+        .{ .name = "reflect", .path = "src/lib/buzz_reflect.zig" },
     };
 
     for (libraries) |library| {

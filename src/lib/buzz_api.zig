@@ -265,6 +265,7 @@ pub const VM = opaque {
     pub extern fn bz_newForeignContainerFromSlice(vm: *VM, type_def: Value, ptr: [*]u8, len: usize) callconv(.c) Value;
     pub extern fn bz_readZigValueFromBuffer(vm: *VM, ztype: *ZigType, at: usize, buf: [*]u8, len: usize) callconv(.c) Value;
     pub extern fn bz_writeZigValueToBuffer(vm: *VM, value: Value, ztype: *const ZigType, at: usize, buf: [*]u8, capacity: usize) callconv(.c) void;
+    pub extern fn bz_reflect(vm: *VM, value: Value) callconv(.c) Value;
 };
 
 pub extern fn bz_memcpy(dest: [*]u8, dest_len: usize, source: [*]u8, source_len: usize) callconv(.c) void;

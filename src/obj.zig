@@ -3352,14 +3352,13 @@ pub const ObjMap = struct {
         value_type: *ObjTypeDef,
         mutable: bool,
 
-        methods: std.StringHashMapUnmanaged(Method),
+        methods: std.StringHashMapUnmanaged(Method) = .empty,
 
         pub fn init(key_type: *ObjTypeDef, value_type: *ObjTypeDef, mutable: bool) SelfMapDef {
             return .{
                 .key_type = key_type,
                 .value_type = value_type,
                 .mutable = mutable,
-                .methods = std.StringHashMapUnmanaged(Method){},
             };
         }
 
