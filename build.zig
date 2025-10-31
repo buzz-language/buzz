@@ -178,6 +178,12 @@ pub fn build(b: *Build) !void {
         b.step("lsp", "run buzz lsp").dependOn(&run_lsp_exe.step);
     }
 
+    // fuzz
+    const fuzz = if (!is_wasm)
+        buildFuzz(b, target, build_mode, ext_deps)
+    else
+        null;
+
     // check (exe not installed)
     const check_exe = b.addExecutable(
         .{
@@ -253,7 +259,7 @@ pub fn build(b: *Build) !void {
     run_tests.step.dependOn(install_step); // wait for libraries to be installed
     test_step.dependOn(&run_tests.step);
 
-    for ([_]?*std.Build.Step.Compile{ static_lib, lib, exe, behavior_exe, debugger_exe, lsp_exe, check_exe, tests }) |comp| {
+    for ([_]?*std.Build.Step.Compile{ static_lib, lib, exe, behavior_exe, debugger_exe, lsp_exe, check_exe, tests, fuzz }) |comp| {
         if (comp) |c| {
             // BuildOptions
             c.root_module.addImport("build_options", build_option_module);
@@ -274,13 +280,13 @@ pub fn build(b: *Build) !void {
     }
 
     // So that JIT compiled function can reference buzz_api
-    for ([_]?*std.Build.Step.Compile{ exe, behavior_exe, debugger_exe, lsp_exe, check_exe }) |comp| {
+    for ([_]?*std.Build.Step.Compile{ exe, behavior_exe, debugger_exe, lsp_exe, check_exe, fuzz }) |comp| {
         if (comp) |c| {
             c.linkLibrary(static_lib);
         }
     }
 
-    for ([_]?*std.Build.Step.Compile{ tests, static_lib, lib, exe, debugger_exe, lsp_exe, behavior_exe, check_exe }) |comp| {
+    for ([_]?*std.Build.Step.Compile{ tests, static_lib, lib, exe, debugger_exe, lsp_exe, behavior_exe, check_exe, fuzz }) |comp| {
         if (comp) |c| {
             c.root_module.addImport(
                 "dap",
@@ -289,7 +295,7 @@ pub fn build(b: *Build) !void {
         }
     }
 
-    for ([_]?*std.Build.Step.Compile{ exe, debugger_exe, lsp_exe, check_exe }) |comp| {
+    for ([_]?*std.Build.Step.Compile{ behavior_exe, exe, debugger_exe, lsp_exe, check_exe, fuzz }) |comp| {
         if (comp) |c| {
             c.root_module.addImport(
                 "clap",
@@ -642,8 +648,116 @@ pub fn buildMir(b: *Build, target: Build.ResolvedTarget, optimize: std.builtin.O
         lib.linkSystemLibrary("kernel32");
         lib.linkSystemLibrary("psapi");
     }
+    b.installArtifact(lib);
 
     return lib;
+}
+
+pub fn buildFuzz(
+    b: *Build,
+    target: Build.ResolvedTarget,
+    optimize: std.builtin.OptimizeMode,
+    ext_deps: []const *std.Build.Step.Compile,
+) *Build.Step.Compile {
+    // Define a step for generating fuzzing tooling:
+    const fuzz = b.step("fuzz", "Generate an instrumented executable for AFL++");
+
+    // Define an oblect file that contains your test function:
+    const afl_obj = b.addObject(
+        .{
+            .name = "fuzz_obj",
+            .root_module = b.createModule(
+                .{
+                    .target = target,
+                    .optimize = optimize,
+                    .root_source_file = b.path("src/fuzz.zig"),
+                    .stack_check = false, // not linking with compiler-rt
+                    .sanitize_c = .off,
+                    .link_libc = true,
+                },
+            ),
+        },
+    );
+
+    // Generate an instrumented executable:
+    var run_afl_cc: *std.Build.Step.Run = undefined;
+    if (false) { // Turn on to use .zon dependency
+        const afl = b.lazyDependency("AFLplusplus", .{
+            .target = target,
+            .optimize = optimize,
+            .@"llvm-config-path" = &[_][]const u8{},
+        }) orelse return null;
+
+        const install_tools = b.addInstallDirectory(.{
+            .source_dir = std.Build.LazyPath{
+                .cwd_relative = afl.builder.install_path,
+            },
+            .install_dir = .prefix,
+            .install_subdir = "AFLplusplus",
+        });
+
+        install_tools.step.dependOn(afl.builder.getInstallStep());
+        run_afl_cc = b.addSystemCommand(&.{
+            b.pathJoin(&.{ afl.builder.exe_dir, "afl-cc" }),
+            "-O3",
+            "-o",
+        });
+        for (ext_deps) |dep| {
+            run_afl_cc.addArg("-L");
+            run_afl_cc.addFileArg(dep.getEmittedBin());
+        }
+        run_afl_cc.step.dependOn(&afl.builder.top_level_steps.get("llvm_exes").?.step);
+        run_afl_cc.step.dependOn(&install_tools.step);
+    } else {
+        run_afl_cc = b.addSystemCommand(
+            &.{
+                b.findProgram(&.{"afl-cc"}, &.{}) catch @panic("Could not find 'afl-cc', which is required to build"),
+            },
+        );
+
+        _ = afl_obj.getEmittedBin(); // hack around build system bug
+
+        for (ext_deps) |dep| {
+            run_afl_cc.addFileArg(dep.getEmittedBin());
+        }
+
+        // On darwin we need compiler-rt
+        if (target.result.os.tag.isDarwin()) {
+            const compiler_rt = b.addLibrary(
+                .{
+                    .name = "zig-compiler-rt",
+                    .linkage = .static,
+                    .root_module = b.createModule(
+                        .{
+                            .root_source_file = b.path("build/compiler_rt.zig"),
+                            .target = target,
+                            .optimize = optimize,
+                            .link_libc = false,
+                            .stack_check = false,
+                        },
+                    ),
+                },
+            );
+
+            run_afl_cc.addFileArg(compiler_rt.getEmittedBin());
+        }
+
+        run_afl_cc.addArgs(
+            &.{
+                "-O3",
+                "-o",
+            },
+        );
+    }
+
+    const fuzz_exe = run_afl_cc.addOutputFileArg(afl_obj.name);
+    run_afl_cc.addFileArg(b.path("src/afl.c"));
+    run_afl_cc.addFileArg(afl_obj.getEmittedLlvmBc());
+
+    // Install it
+    fuzz.dependOn(&b.addInstallBinFile(fuzz_exe, "fuzz_afl").step);
+
+    return afl_obj;
 }
 
 const BuildOptions = struct {
