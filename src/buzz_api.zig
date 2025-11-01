@@ -710,7 +710,8 @@ pub export fn bz_invoke(
 
     // If not compiled, run it with the VM loop
     if (!calleeIsCompiled(callee)) {
-        self.run();
+        // TODO: catch properly
+        self.run() catch unreachable;
     }
 
     self.currentFrame().?.in_native_call = was_in_native_call;
@@ -722,7 +723,7 @@ pub export fn bz_call(
     arguments: ?[*]const *const v.Value,
     len: u8,
     catch_value: ?*v.Value,
-) callconv(.c) void {
+) callconv(.c) bool {
     std.debug.assert(closure_value.obj().obj_type == .Closure);
 
     self.push(closure_value);
@@ -731,12 +732,11 @@ pub export fn bz_call(
         self.push(arguments.?[i].*);
     }
 
-    // TODO: catch properly
     self.callValue(
         closure_value,
         len,
         if (catch_value) |val| val.* else null,
-    ) catch unreachable;
+    ) catch return false;
 
     // If not compiled, run it with the VM loop
     if (closure_value.obj().access(
@@ -744,8 +744,12 @@ pub export fn bz_call(
         .Closure,
         self.gc,
     ).?.function.native == null) {
-        self.run();
+        self.run() catch return false;
+
+        return true;
     }
+
+    return false;
 }
 
 export fn bz_newQualifiedObjectInstance(self: *VM, qualified_name: [*]const u8, len: usize, mutable: bool) callconv(.c) v.Value {

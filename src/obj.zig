@@ -4463,13 +4463,10 @@ pub const ObjTypeDef = struct {
                 break :placeholder placeholder;
             },
 
-            .Generic => generic: {
-                if (self.resolved_type.?.Generic.origin == origin) {
-                    break :generic generics[self.resolved_type.?.Generic.index];
-                }
-
-                break :generic self;
-            },
+            .Generic => if (self.resolved_type.?.Generic.origin == origin and generics.len > self.resolved_type.?.Generic.index)
+                generics[self.resolved_type.?.Generic.index]
+            else
+                self,
 
             .Fiber => fiber: {
                 const new_fiber_def = ObjFiber.FiberDef{
@@ -4852,12 +4849,14 @@ pub const ObjTypeDef = struct {
 
                 // Link won't be made if parent already exists
                 placeholder.resolved_type.?.Placeholder.parent = null;
-                try PlaceholderDef.link(
-                    type_registry.gc.allocator,
-                    clone.resolved_type.?.Placeholder.parent.?,
-                    placeholder,
-                    clone.resolved_type.?.Placeholder.parent_relation.?,
-                );
+                if (clone.resolved_type.?.Placeholder.parent) |parent| {
+                    try PlaceholderDef.link(
+                        type_registry.gc.allocator,
+                        parent,
+                        placeholder,
+                        clone.resolved_type.?.Placeholder.parent_relation.?,
+                    );
+                }
 
                 // FIXME: this previous clone placeholder becomes useless?
 

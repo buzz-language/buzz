@@ -315,7 +315,7 @@ pub fn evaluate(self: *Runner, parent_fiber: *Fiber, parent_frame: *CallFrame, e
             );
 
             // Run it
-            self.vm.run();
+            try self.vm.run();
 
             // This will only have defined our eval function as a new global,
             // now we get that global and call it with the locals as arguments
@@ -352,7 +352,7 @@ pub fn evaluate(self: *Runner, parent_fiber: *Fiber, parent_frame: *CallFrame, e
             );
 
             // Run again
-            self.vm.run();
+            try self.vm.run();
 
             // We always return something, even void
             return self.vm.pop();

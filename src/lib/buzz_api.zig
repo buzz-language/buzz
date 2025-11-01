@@ -203,7 +203,7 @@ pub const VM = opaque {
     pub extern fn bz_deinitVM(self: *VM) callconv(.c) void;
     pub extern fn bz_panic(vm: *VM, msg: [*]const u8, len: usize) callconv(.c) void;
     pub extern fn bz_run(self: *VM, source: ?[*]const u8, source_len: usize, file_name: ?[*]const u8, file_name_len: usize) callconv(.c) bool;
-    pub extern fn bz_call(self: *VM, closure: Value, arguments: ?[*]const *const Value, len: usize, catch_value: ?*Value) callconv(.c) void;
+    pub extern fn bz_call(self: *VM, closure: Value, arguments: ?[*]const *const Value, len: usize, catch_value: ?*Value) callconv(.c) bool;
     pub extern fn bz_push(self: *VM, value: Value) callconv(.c) void;
     pub extern fn bz_pop(self: *VM) callconv(.c) Value;
     pub extern fn bz_peek(self: *VM, distance: u32) callconv(.c) Value;

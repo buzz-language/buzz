@@ -1158,7 +1158,7 @@ fn generateCall(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj
         );
     }
 
-    if (components.arguments.len > args.count()) {
+    if (components.arguments.len > arg_count) {
         self.reporter.reportErrorAt(
             .call_arguments,
             self.ast.tokens.get(locations[node]),
@@ -1170,6 +1170,10 @@ fn generateCall(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj
     // First push on the stack arguments has they are parsed
     var needs_reorder = false;
     for (components.arguments, 0..) |argument, index| {
+        if (index >= arg_count) {
+            break;
+        }
+
         var argument_type_def = type_defs[argument.value].?;
         const arg_key = if (argument.name) |arg_name|
             try self.gc.copyString(lexemes[arg_name])
@@ -1251,6 +1255,7 @@ fn generateCall(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj
         }
     }
 
+    // Not enough arguments?
     if (missing_arguments.count() > 0) {
         var missing = std.Io.Writer.Allocating.init(self.gc.allocator);
         defer missing.deinit();
@@ -1283,8 +1288,8 @@ fn generateCall(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj
         );
     }
 
-    // Reorder arguments
-    if (needs_reorder) {
+    // Reorder arguments (don't bother is something failed before)
+    if (self.reporter.last_error == null and needs_reorder) {
         // Until ordered
         while (true) {
             var ordered = true;
@@ -4751,7 +4756,7 @@ fn generateZdef(self: *Self, node: Ast.Node.Index, _: ?*Breaks) Error!?*obj.ObjF
 
                     try self.emitConstant(location, element.zdef.type_def.toValue());
                 },
-                else => unreachable,
+                else => {},
             }
             try self.OP_DEFINE_GLOBAL(
                 location,

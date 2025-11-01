@@ -83,7 +83,7 @@ pub const Type = union(enum) {
 
                 break :uni union_size;
             },
-            else => unreachable,
+            else => 0,
         };
     }
 
@@ -115,7 +115,7 @@ pub const Type = union(enum) {
                 break :uni max_align;
             },
             .Pointer => 8,
-            else => unreachable,
+            else => 1,
         };
     }
 

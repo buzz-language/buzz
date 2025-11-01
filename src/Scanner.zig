@@ -256,8 +256,13 @@ fn atIdentifier(self: *Self) Token {
     self.current.start_line = self.current.line;
     self.current.start_column = self.current.column;
 
-    if (self.advance() != '"') {
-        return self.makeToken(.Error, .{ .String = "Unterminated identifier." });
+    if (self.current.offset >= self.source.len or self.advance() != '"') {
+        return self.makeToken(
+            .Error,
+            .{
+                .String = "Unterminated identifier.",
+            },
+        );
     }
 
     const string_token = self.string(false);
@@ -395,12 +400,22 @@ fn hexa(self: *Self) Token {
         return self.makeToken(.Error, .{ .String = "'_' must be between digits" });
     }
 
+    if (self.isEOF()) {
+        return self.makeToken(.Error, .{ .String = "Unterminated hexa literal" });
+    }
+
     _ = self.advance(); // Consume 'x'
     var peeked: u8 = self.peek();
-    while (isNumber(peeked) or (peeked >= 'A' and peeked <= 'F') or (peeked >= 'a' and peeked <= 'f') or peeked == '_') {
+    var digits: usize = 0;
+    while (!self.isEOF() and (isNumber(peeked) or (peeked >= 'A' and peeked <= 'F') or (peeked >= 'a' and peeked <= 'f') or peeked == '_')) {
         _ = self.advance();
 
         peeked = self.peek();
+        digits += 1;
+    }
+
+    if (self.isEOF() or digits == 0) {
+        return self.makeToken(.Error, .{ .String = "Unterminated hexa literal" });
     }
 
     if (self.source[self.current.offset - 1] == '_') {
@@ -418,7 +433,7 @@ fn hexa(self: *Self) Token {
 }
 
 fn pattern(self: *Self) Token {
-    if (self.advance() != '"') {
+    if (self.isEOF() or self.advance() != '"') {
         return self.makeToken(.Error, .{ .String = "Unterminated pattern." });
     }
 

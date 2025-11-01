@@ -1271,7 +1271,9 @@ pub fn main() !u8 {
                 ),
                 .configurationDone => {
                     // Now the configuration phase is done, we start the program and it's up to the VM to call handlRequest at safepoints
-                    debugger.session.?.runner.vm.run();
+                    debugger.session.?.runner.vm.run() catch {
+                        // TODO
+                    };
 
                     // Program is over, send terminated and stop event
                     debugger.adapter.emitEvent(

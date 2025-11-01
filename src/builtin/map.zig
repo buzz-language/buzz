@@ -52,13 +52,15 @@ pub fn reduce(ctx: *o.NativeCtx) callconv(.c) c_int {
     while (it.next()) |kv| {
         var args = [_]*const v.Value{ kv.key_ptr, kv.value_ptr, &accumulator };
 
-        buzz_api.bz_call(
+        if (!buzz_api.bz_call(
             ctx.vm,
             closure,
             @ptrCast(&args),
             @intCast(args.len),
             null,
-        );
+        )) {
+            return -2;
+        }
 
         accumulator = ctx.vm.pop();
     }
@@ -89,13 +91,15 @@ pub fn filter(ctx: *o.NativeCtx) callconv(.c) c_int {
     while (it.next()) |kv| {
         var args = [_]*const v.Value{ kv.key_ptr, kv.value_ptr };
 
-        buzz_api.bz_call(
+        if (!buzz_api.bz_call(
             ctx.vm,
             closure,
             @ptrCast(&args),
             @intCast(args.len),
             null,
-        );
+        )) {
+            return -2;
+        }
 
         if (ctx.vm.pop().boolean()) {
             new_map.set(ctx.vm.gc, kv.key_ptr.*, kv.value_ptr.*) catch {
@@ -118,13 +122,15 @@ pub fn forEach(ctx: *o.NativeCtx) callconv(.c) c_int {
     while (it.next()) |kv| {
         var args = [_]*const v.Value{ kv.key_ptr, kv.value_ptr };
 
-        buzz_api.bz_call(
+        if (!buzz_api.bz_call(
             ctx.vm,
             closure,
             @ptrCast(&args),
             @intCast(args.len),
             null,
-        );
+        )) {
+            return -2;
+        }
     }
 
     return 0;
@@ -170,13 +176,15 @@ pub fn map(ctx: *o.NativeCtx) callconv(.c) c_int {
     while (it.next()) |kv| {
         var args = [_]*const v.Value{ kv.key_ptr, kv.value_ptr };
 
-        buzz_api.bz_call(
+        if (!buzz_api.bz_call(
             ctx.vm,
             closure,
             @ptrCast(&args),
             @intCast(args.len),
             null,
-        );
+        )) {
+            return -2;
+        }
 
         const instance = o.ObjObjectInstance.cast(ctx.vm.pop().obj()).?;
         const object_def = instance.type_def.resolved_type.?.ObjectInstance.of
@@ -201,21 +209,25 @@ const SortContext = struct {
     sort_closure: v.Value,
     ctx: *o.NativeCtx,
     map: *o.ObjMap,
+    had_error: bool = false,
 
-    pub fn lessThan(context: SortContext, lhs_index: usize, rhs_index: usize) bool {
+    pub fn lessThan(context: *SortContext, lhs_index: usize, rhs_index: usize) bool {
         const map_keys = context.map.map.keys();
         const lhs = map_keys[lhs_index];
         const rhs = map_keys[rhs_index];
 
         var args = [_]*const v.Value{ &lhs, &rhs };
 
-        buzz_api.bz_call(
+        if (!buzz_api.bz_call(
             context.ctx.vm,
             context.sort_closure,
             @ptrCast(&args),
             @intCast(args.len),
             null,
-        );
+        )) {
+            context.had_error = true;
+            return false;
+        }
 
         return context.ctx.vm.pop().boolean();
     }
@@ -225,13 +237,17 @@ pub fn sort(ctx: *o.NativeCtx) callconv(.c) c_int {
     const self = o.ObjMap.cast(ctx.vm.peek(1).obj()).?;
     const sort_closure = ctx.vm.peek(0);
 
-    self.map.sort(
-        SortContext{
-            .sort_closure = sort_closure,
-            .ctx = ctx,
-            .map = self,
-        },
-    );
+    var context = SortContext{
+        .sort_closure = sort_closure,
+        .ctx = ctx,
+        .map = self,
+    };
+    self.map.sort(&context);
+
+    if (context.had_error) {
+        return -2;
+    }
+
     ctx.vm.gc.markObjDirty(self.toObj()) catch @panic("Out of memory");
 
     ctx.vm.push(self.toValue());

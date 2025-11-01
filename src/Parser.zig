@@ -677,6 +677,8 @@ pub fn advance(self: *Self) !void {
                             "Unknown Error",
                     },
                 );
+
+                return error.CantCompile;
             }
 
             _ = try self.ast.appendToken(new_token);
@@ -700,8 +702,8 @@ fn advancePastEof(self: *Self) !void {
                 self.current_token = if (self.current_token) |ct| ct - 1 else 0;
                 self.reporter.reportErrorFmt(
                     .unknown,
-                    self.ast.tokens.get(self.current_token.? - 1),
-                    self.ast.tokens.get(self.current_token.? - 1),
+                    self.ast.tokens.get(self.current_token.?),
+                    self.ast.tokens.get(self.current_token.?),
                     "{s}",
                     .{
                         if (new_token.literal == .String)
@@ -873,7 +875,7 @@ fn synchronize(self: *Self) !void {
     self.reporter.panic_mode = false;
 
     while (self.ast.tokens.items(.tag)[self.current_token.?] != .Eof) : (try self.advance()) {
-        if (self.ast.tokens.items(.tag)[self.current_token.? - 1] == .Semicolon) {
+        if (self.current_token.? == 0 or self.ast.tokens.items(.tag)[self.current_token.? - 1] == .Semicolon) {
             return;
         }
 
@@ -916,7 +918,31 @@ pub fn parse(self: *Self, source: []const u8, file_name: ?[]const u8, name: []co
         self.scanner = null;
     }
 
-    self.scanner = Scanner.init(self.gc.allocator, file_name orelse name, source);
+    // Source must be valid UTF8
+    if (!std.unicode.utf8ValidateSlice(source)) {
+        const loc = Token{
+            .column = 0,
+            .line = 0,
+            .source = source,
+            .script_name = file_name orelse name,
+            .tag = .Error,
+            .lexeme = "",
+        };
+        self.reporter.report(
+            .source_not_utf8,
+            loc,
+            loc,
+            "Script must be valid UTF-8.",
+        );
+
+        return null;
+    }
+
+    self.scanner = Scanner.init(
+        self.gc.allocator,
+        file_name orelse name,
+        source,
+    );
 
     const function_type: obj.ObjFunction.FunctionType = if (!self.imported and self.flavor == .Repl)
         .Repl
@@ -1314,6 +1340,18 @@ fn parsePrecedence(self: *Self, precedence: Precedence, hanging: bool) Error!Ast
     // Exemple: canBeNull?.aMap[expression] <- here `expression` should not be transformed into an optional
     const previous_opt_jumps = self.opt_jumps;
     self.opt_jumps = null;
+
+    if (self.ast.tokens.items(.tag)[self.current_token.?] == .Eof) {
+        const loc = self.ast.tokens.get(self.current_token.?);
+        self.reporter.reportErrorAt(
+            .syntax,
+            loc,
+            loc,
+            "Expected expression, got EOF.",
+        );
+
+        return error.CantCompile;
+    }
 
     // If hanging is true, that means we already read the start of the expression
     if (!hanging) {
@@ -3741,27 +3779,29 @@ fn parseUserType(self: *Self, instance: bool, mutable: bool) Error!Ast.Node.Inde
                 location,
                 "Expected at least one type",
             );
+        } else if (var_type.?.def_type == .Object) {
+            var_type = try var_type.?.populateGenerics(
+                self.current_token.? - 1,
+                var_type.?.resolved_type.?.Object.id,
+                try resolved_generics.toOwnedSlice(self.gc.allocator),
+                &self.gc.type_registry,
+                self.gc.allocator,
+                null,
+            );
+            break :gn try self.ast.appendNode(
+                .{
+                    .tag = .GenericResolveType,
+                    .location = generic_start,
+                    .end_location = self.current_token.? - 1,
+                    .type_def = var_type,
+                    .components = .{
+                        .GenericResolveType = try generic_nodes.toOwnedSlice(self.gc.allocator),
+                    },
+                },
+            );
         }
 
-        var_type = try var_type.?.populateGenerics(
-            self.current_token.? - 1,
-            var_type.?.resolved_type.?.Object.id,
-            try resolved_generics.toOwnedSlice(self.gc.allocator),
-            &self.gc.type_registry,
-            self.gc.allocator,
-            null,
-        );
-        break :gn try self.ast.appendNode(
-            .{
-                .tag = .GenericResolveType,
-                .location = generic_start,
-                .end_location = self.current_token.? - 1,
-                .type_def = var_type,
-                .components = .{
-                    .GenericResolveType = try generic_nodes.toOwnedSlice(self.gc.allocator),
-                },
-            },
-        );
+        break :gn null;
     } else null;
 
     std.debug.assert(!mutable or self.ast.tokens.items(.tag)[user_type_name[0] - 1] == .Mut);
@@ -3860,13 +3900,13 @@ fn parseGenericResolve(self: *Self, callee_type_def: *obj.ObjTypeDef, expr: ?Ast
 fn subscript(self: *Self, can_assign: bool, subscripted: Ast.Node.Index) Error!Ast.Node.Index {
     const start_location = self.ast.nodes.items(.location)[subscripted];
 
-    const subscript_type_def = self.ast.nodes.items(.type_def)[subscripted];
+    const subscript_type_def = self.ast.nodes.items(.type_def)[subscripted] orelse self.gc.type_registry.any_type;
     const checked = try self.match(.Question);
     const index = try self.expression(false);
     const index_type_def = self.ast.nodes.items(.type_def)[index];
 
     const type_defs = self.ast.nodes.items(.type_def);
-    if (subscript_type_def.?.def_type == .Placeholder and index_type_def.?.def_type == .Placeholder) {
+    if (subscript_type_def.def_type == .Placeholder and index_type_def.?.def_type == .Placeholder) {
         try obj.PlaceholderDef.link(
             self.gc.allocator,
             type_defs[subscripted].?,
@@ -3928,14 +3968,14 @@ fn subscript(self: *Self, can_assign: bool, subscripted: Ast.Node.Index) Error!A
     try self.consume(.RightBracket, "Expected `]`.");
 
     var value: ?Ast.Node.Index = null;
-    if (can_assign and (subscript_type_def == null or subscript_type_def.?.def_type != .String) and try self.match(.Equal)) {
+    if (can_assign and (subscript_type_def.def_type != .Any or subscript_type_def.def_type != .String) and try self.match(.Equal)) {
         value = try self.expression(false);
         const value_type_def = self.ast.nodes.items(.type_def)[value.?];
 
-        if (subscript_type_def.?.def_type == .Placeholder and value_type_def.?.def_type == .Placeholder) {
+        if (subscript_type_def.def_type == .Placeholder and value_type_def.?.def_type == .Placeholder) {
             try obj.PlaceholderDef.link(
                 self.gc.allocator,
-                subscript_type_def.?,
+                subscript_type_def,
                 value_type_def.?,
                 .Subscript,
             );
@@ -5108,7 +5148,7 @@ fn dot(self: *Self, can_assign: bool, callee: Ast.Node.Index) Error!Ast.Node.Ind
                 }
 
                 const generic_resolve = if (try self.match(.DoubleColon))
-                    try self.parseGenericResolve(property_type.?, null)
+                    try self.parseGenericResolve(property_type orelse self.gc.type_registry.any_type, null)
                 else
                     null;
 
@@ -5138,7 +5178,7 @@ fn dot(self: *Self, can_assign: bool, callee: Ast.Node.Index) Error!Ast.Node.Ind
                 } else if (try self.match(.LeftParen)) { // Do we call it
                     // `call` will look to the parent node for the function definition
                     self.ast.nodes.items(.type_def)[dot_node] = property_type;
-                    components[dot_node].Dot.member_type_def = property_type.?;
+                    components[dot_node].Dot.member_type_def = property_type orelse self.gc.type_registry.any_type;
                     const call_node = try self.call(can_assign, dot_node);
                     components = self.ast.nodes.items(.components); // ptr might have been invalidated
                     components[dot_node].Dot.member_kind = .Call;
@@ -5178,7 +5218,7 @@ fn dot(self: *Self, can_assign: bool, callee: Ast.Node.Index) Error!Ast.Node.Ind
                         .property_does_not_exists,
                         location,
                         location,
-                        "Property `{s}` does not exists in object `{s}`",
+                        "Property `{s}` does not exists in container `{s}`",
                         .{
                             member_name,
                             f_def.name.string,
@@ -5238,6 +5278,8 @@ fn dot(self: *Self, can_assign: bool, callee: Ast.Node.Index) Error!Ast.Node.Ind
 
                     property_type = placeholder;
                 } else if (property_type == null) {
+                    property_type = self.gc.type_registry.any_type;
+
                     const location = self.ast.tokens.get(member_name_token);
                     self.reporter.reportErrorFmt(
                         .property_does_not_exists,
@@ -5249,7 +5291,7 @@ fn dot(self: *Self, can_assign: bool, callee: Ast.Node.Index) Error!Ast.Node.Ind
                 }
 
                 const generic_resolve = if (try self.match(.DoubleColon))
-                    try self.parseGenericResolve(property_type.?, null)
+                    try self.parseGenericResolve(property_type orelse self.gc.type_registry.any_type, null)
                 else
                     null;
 
@@ -5280,7 +5322,7 @@ fn dot(self: *Self, can_assign: bool, callee: Ast.Node.Index) Error!Ast.Node.Ind
                     // `call` will look to the parent node for the function definition
                     self.ast.nodes.items(.type_def)[dot_node] = property_type;
                     components[dot_node].Dot.member_kind = .Call;
-                    components[dot_node].Dot.member_type_def = property_type.?;
+                    components[dot_node].Dot.member_type_def = property_type orelse self.gc.type_registry.any_type;
                     const call_node = try self.call(can_assign, dot_node);
                     components = self.ast.nodes.items(.components); // ptr might have been invalidated
                     components[dot_node].Dot.value_or_call_or_enum = .{
@@ -5333,7 +5375,7 @@ fn dot(self: *Self, can_assign: bool, callee: Ast.Node.Index) Error!Ast.Node.Ind
                     // `call` will look to the parent node for the function definition
                     self.ast.nodes.items(.type_def)[dot_node] = method_type;
                     components[dot_node].Dot.member_kind = .Call;
-                    components[dot_node].Dot.member_type_def = method_type.?;
+                    components[dot_node].Dot.member_type_def = method_type orelse self.gc.type_registry.any_type;
                     const call_node = try self.call(can_assign, dot_node);
                     components = self.ast.nodes.items(.components); // ptr might have been invalidated
                     components[dot_node].Dot.value_or_call_or_enum = .{
@@ -5350,22 +5392,29 @@ fn dot(self: *Self, can_assign: bool, callee: Ast.Node.Index) Error!Ast.Node.Ind
             .Enum => {
                 const enum_def = callee_type_def.?.resolved_type.?.Enum;
 
+                self.ast.nodes.items(.type_def)[dot_node] = try self.gc.type_registry.getTypeDef(
+                    .{
+                        .optional = false,
+                        .def_type = .EnumInstance,
+                        .resolved_type = .{
+                            .EnumInstance = .{
+                                .of = callee_type_def orelse self.gc.type_registry.any_type,
+                                .mutable = false,
+                            },
+                        },
+                    },
+                );
+
+                const components = self.ast.nodes.items(.components);
+                components[dot_node].Dot.member_kind = .EnumCase;
+                components[dot_node].Dot.value_or_call_or_enum = .{
+                    .EnumCase = 0, // We put it at 0 in the event that the requested case does not exists
+                };
+
+                var found = false;
                 for (enum_def.cases, 0..) |case, index| {
                     if (std.mem.eql(u8, case, member_name)) {
-                        self.ast.nodes.items(.type_def)[dot_node] = try self.gc.type_registry.getTypeDef(
-                            .{
-                                .optional = false,
-                                .def_type = .EnumInstance,
-                                .resolved_type = .{
-                                    .EnumInstance = .{
-                                        .of = callee_type_def.?,
-                                        .mutable = false,
-                                    },
-                                },
-                            },
-                        );
-                        const components = self.ast.nodes.items(.components);
-                        components[dot_node].Dot.member_kind = .EnumCase;
+                        found = true;
                         components[dot_node].Dot.value_or_call_or_enum = .{
                             .EnumCase = @intCast(index),
                         };
@@ -5373,7 +5422,7 @@ fn dot(self: *Self, can_assign: bool, callee: Ast.Node.Index) Error!Ast.Node.Ind
                     }
                 }
 
-                if (self.ast.nodes.items(.type_def)[dot_node] == null) {
+                if (!found) {
                     const location = self.ast.tokens.get(member_name_token);
                     self.reporter.reportErrorFmt(
                         .enum_case,
@@ -5443,6 +5492,8 @@ fn dot(self: *Self, can_assign: bool, callee: Ast.Node.Index) Error!Ast.Node.Ind
                         location,
                         "List property doesn't exist.",
                     );
+
+                    self.ast.nodes.items(.type_def)[dot_node] = self.gc.type_registry.any_type;
                 }
             },
             .Map => {
@@ -5553,6 +5604,8 @@ fn dot(self: *Self, can_assign: bool, callee: Ast.Node.Index) Error!Ast.Node.Ind
                 }
             },
             else => {
+                self.ast.nodes.items(.type_def)[dot_node] = self.gc.type_registry.any_type;
+
                 self.reportErrorAtNode(
                     .field_access,
                     callee,
@@ -5579,7 +5632,7 @@ fn forceUnwrap(self: *Self, _: bool, unwrapped: Ast.Node.Index) Error!Ast.Node.I
 }
 
 fn unwrap(self: *Self, force: bool, unwrapped: Ast.Node.Index) Error!Ast.Node.Index {
-    const unwrapped_type_def = self.ast.nodes.items(.type_def)[unwrapped].?;
+    const unwrapped_type_def = self.ast.nodes.items(.type_def)[unwrapped] orelse self.gc.type_registry.any_type;
 
     const node = self.ast.appendNode(
         .{
@@ -5643,7 +5696,10 @@ fn unary(self: *Self, _: bool) Error!Ast.Node.Index {
 }
 
 fn genericResolve(self: *Self, _: bool, expr: Ast.Node.Index) Error!Ast.Node.Index {
-    return try self.parseGenericResolve(self.ast.nodes.items(.type_def)[expr].?, expr);
+    return try self.parseGenericResolve(
+        self.ast.nodes.items(.type_def)[expr] orelse self.gc.type_registry.any_type,
+        expr,
+    );
 }
 
 fn @"or"(self: *Self, _: bool, left: Ast.Node.Index) Error!Ast.Node.Index {
@@ -6534,8 +6590,8 @@ fn asyncCall(self: *Self, _: bool) Error!Ast.Node.Index {
         .{
             .tag = .AsyncCall,
             .location = start_location,
-            .end_location = undefined,
-            .type_def = null,
+            .end_location = start_location,
+            .type_def = self.gc.type_registry.any_type,
             .components = .{
                 .AsyncCall = callable_node,
             },
@@ -6622,15 +6678,6 @@ fn asyncCall(self: *Self, _: bool) Error!Ast.Node.Index {
         );
     } else {
         if (function_type.def_type != .Function) {
-            io.print(
-                "function_type.def_type {}\ncall_components.Call.callee {}\ncallable.tag {}\ncall_node tag {}\n",
-                .{
-                    function_type.def_type,
-                    self.ast.nodes.items(.tag)[call_components.Call.callee],
-                    callable.tag,
-                    self.ast.nodes.items(.tag)[call_node],
-                },
-            );
             self.reportErrorAtNode(
                 .callable,
                 self.ast.nodes.items(.components)[call_node].Call.callee,
@@ -9309,9 +9356,9 @@ fn zdefStatement(self: *Self) Error!Ast.Node.Index {
     const zdefs = if (!is_wasm)
         (self.ffi.parse(self, source, null) catch {
             return Error.CantCompile;
-        }) orelse &[_]*FFI.Zdef{}
+        }) orelse return Error.CantCompile
     else
-        &[_]*FFI.Zdef{};
+        return Error.CantCompile;
 
     var elements = std.ArrayList(Ast.Zdef.ZdefElement).empty;
     if (!is_wasm) {
@@ -9775,7 +9822,7 @@ fn forEachStatement(self: *Self) Error!Ast.Node.Index {
     );
 
     const iterable = try self.expression(false);
-    const iterable_type_def = self.ast.nodes.items(.type_def)[iterable].?;
+    const iterable_type_def = self.ast.nodes.items(.type_def)[iterable] orelse self.gc.type_registry.any_type;
 
     self.current.?.locals[iterable_slot].type_def = iterable_type_def;
 
