@@ -894,7 +894,7 @@ pub const Slice = struct {
             };
         }
 
-        return value.*.?;
+        return value.* orelse Value.Void;
     }
 };
 

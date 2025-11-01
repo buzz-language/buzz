@@ -5563,7 +5563,7 @@ pub fn compileZdef(self: *Self, buzz_ast: Ast.Slice, zdef: Ast.Zdef.ZdefElement)
     );
 }
 
-fn zigToMIRType(zig_type: ZigType) m.MIR_type_t {
+fn zigToMIRType(zig_type: ZigType) Error!m.MIR_type_t {
     return switch (zig_type) {
         .Int => if (zig_type.Int.signedness == .signed)
             switch (zig_type.Int.bits) {
@@ -5591,8 +5591,8 @@ fn zigToMIRType(zig_type: ZigType) m.MIR_type_t {
         .Optional,
         => m.MIR_T_I64,
         // See https://github.com/vnmakarov/mir/issues/332 passing struct by values will need some work
-        .Struct => unreachable, //m.MIR_T_BLK,
-        else => unreachable,
+        .Struct => error.CantCompile, //m.MIR_T_BLK,
+        else => error.CantCompile,
     };
 }
 
@@ -5690,7 +5690,7 @@ fn buildZdefWrapper(self: *Self, zdef_element: Ast.Zdef.ZdefElement) Error!m.MIR
         try arg_types.append(
             self.vm.gc.allocator,
             .{
-                .type = zigToMIRType(
+                .type = try zigToMIRType(
                     if (param.type) |param_type|
                         param_type.*
                     else
@@ -5910,7 +5910,7 @@ fn buildZdefUnionGetter(
 
             const field_ptr = m.MIR_new_mem_op(
                 self.ctx,
-                zigToMIRType(zig_type.*),
+                try zigToMIRType(zig_type.*),
                 0,
                 data_reg,
                 index,
@@ -6027,7 +6027,7 @@ fn buildZdefUnionSetter(
 
             const field_ptr = m.MIR_new_mem_op(
                 self.ctx,
-                zigToMIRType(zig_type.*),
+                try zigToMIRType(zig_type.*),
                 0,
                 data_reg,
                 index,
@@ -6113,7 +6113,7 @@ fn buildZdefContainerGetter(
 
     const field_ptr = m.MIR_new_mem_op(
         self.ctx,
-        zigToMIRType(zig_type.*),
+        try zigToMIRType(zig_type.*),
         @intCast(offset),
         data_reg,
         index,
@@ -6218,7 +6218,7 @@ fn buildZdefContainerSetter(
 
     const field_ptr = m.MIR_new_mem_op(
         self.ctx,
-        zigToMIRType(zig_type.*),
+        try zigToMIRType(zig_type.*),
         @intCast(offset),
         data_reg,
         index,

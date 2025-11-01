@@ -256,8 +256,13 @@ fn atIdentifier(self: *Self) Token {
     self.current.start_line = self.current.line;
     self.current.start_column = self.current.column;
 
-    if (self.advance() != '"') {
-        return self.makeToken(.Error, .{ .String = "Unterminated identifier." });
+    if (self.current.offset >= self.source.len or self.advance() != '"') {
+        return self.makeToken(
+            .Error,
+            .{
+                .String = "Unterminated identifier.",
+            },
+        );
     }
 
     const string_token = self.string(false);
@@ -418,7 +423,7 @@ fn hexa(self: *Self) Token {
 }
 
 fn pattern(self: *Self) Token {
-    if (self.advance() != '"') {
+    if (self.isEOF() or self.advance() != '"') {
         return self.makeToken(.Error, .{ .String = "Unterminated pattern." });
     }
 
