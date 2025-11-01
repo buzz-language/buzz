@@ -11,6 +11,13 @@ const GC = @import("GC.zig");
 
 const Self = @This();
 
+pub const Error = error{
+    CantCompile,
+    NoSpaceLeft,
+    OutOfMemory,
+    WriteFailed,
+};
+
 const basic_types = std.StaticStringMap(o.ObjTypeDef).initComptime(
     .{
         .{ "u8", o.ObjTypeDef{ .def_type = .Integer } },
@@ -278,7 +285,7 @@ pub fn parse(self: *Self, parser: ?*Parser, source: Ast.TokenIndex, type_expr: ?
     const root_decls = self.state.?.ast.rootDecls();
 
     if (root_decls.len == 0) {
-        const location = self.state.?.buzz_ast.?.tokens.get(self.state.?.source);
+        const location = self.state.?.buzz_ast.?.tokens.get(self.state.?.source - 4);
 
         self.reporter.report(
             .zdef,
@@ -296,6 +303,11 @@ pub fn parse(self: *Self, parser: ?*Parser, source: Ast.TokenIndex, type_expr: ?
         if (try self.getZdef(decl)) |zdef| {
             try zdefs.append(self.gc.allocator, zdef);
         }
+    }
+
+    if (self.reporter.last_error != null) {
+        zdefs.deinit(self.gc.allocator);
+        return Error.CantCompile;
     }
 
     return try zdefs.toOwnedSlice(self.gc.allocator);
@@ -355,7 +367,7 @@ fn getZdef(self: *Self, decl_index: Ast.Node.Index) !?*Zdef {
                 else => {},
             }
 
-            const location = self.state.?.buzz_ast.?.tokens.get(self.state.?.source);
+            const location = self.state.?.buzz_ast.?.tokens.get(self.state.?.source - 4);
             self.reporter.reportErrorFmt(
                 .zdef,
                 location,
@@ -387,7 +399,7 @@ fn getZdef(self: *Self, decl_index: Ast.Node.Index) !?*Zdef {
                 };
 
                 if (uzdef.zig_type != .Pointer) {
-                    const location = self.state.?.buzz_ast.?.tokens.get(self.state.?.source);
+                    const location = self.state.?.buzz_ast.?.tokens.get(self.state.?.source - 4);
 
                     self.reporter.reportErrorAt(
                         .zdef,
@@ -404,7 +416,7 @@ fn getZdef(self: *Self, decl_index: Ast.Node.Index) !?*Zdef {
         },
 
         else => fail: {
-            const location = self.state.?.buzz_ast.?.tokens.get(self.state.?.source);
+            const location = self.state.?.buzz_ast.?.tokens.get(self.state.?.source - 4);
             self.reporter.reportErrorFmt(
                 .zdef,
                 location,
@@ -419,7 +431,7 @@ fn getZdef(self: *Self, decl_index: Ast.Node.Index) !?*Zdef {
     };
 }
 
-fn containerDecl(self: *Self, name: []const u8, decl_index: Ast.Node.Index) anyerror!*Zdef {
+fn containerDecl(self: *Self, name: []const u8, decl_index: Ast.Node.Index) Error!*Zdef {
     const container_node_tag = self.state.?.ast.nodeTag(decl_index);
 
     var buf: [2]Ast.Node.Index = undefined;
@@ -435,7 +447,7 @@ fn containerDecl(self: *Self, name: []const u8, decl_index: Ast.Node.Index) anye
 
     const main_token = self.state.?.ast.tokens.get(container.ast.main_token).tag;
     if ((container.layout_token == null or self.state.?.ast.tokens.get(container.layout_token.?).tag != .keyword_extern) and main_token != .keyword_opaque) {
-        const location = self.state.?.buzz_ast.?.tokens.get(self.state.?.source);
+        const location = self.state.?.buzz_ast.?.tokens.get(self.state.?.source - 4);
         self.reporter.reportErrorAt(
             .zdef,
             location,
@@ -449,7 +461,7 @@ fn containerDecl(self: *Self, name: []const u8, decl_index: Ast.Node.Index) anye
         .keyword_union => self.unionContainer(name, container),
 
         else => unsupported: {
-            const location = self.state.?.buzz_ast.?.tokens.get(self.state.?.source);
+            const location = self.state.?.buzz_ast.?.tokens.get(self.state.?.source - 4);
             self.reporter.reportErrorFmt(
                 .zdef,
                 location,
@@ -470,52 +482,52 @@ fn containerDecl(self: *Self, name: []const u8, decl_index: Ast.Node.Index) anye
     };
 }
 
-fn unionContainer(self: *Self, name: []const u8, container: Ast.full.ContainerDecl) anyerror!*Zdef {
+fn unionContainer(self: *Self, name: []const u8, container: Ast.full.ContainerDecl) Error!*Zdef {
     var fields = std.ArrayList(ZigType.UnionField).empty;
     var get_set_fields = std.StringArrayHashMapUnmanaged(o.ObjForeignContainer.ContainerDef.Field).empty;
     var buzz_fields = std.StringArrayHashMapUnmanaged(*o.ObjTypeDef).empty;
     var decls = std.ArrayList(ZigType.Declaration).empty;
     var next_field: ?*Zdef = null;
     for (container.ast.members, 0..) |member, idx| {
-        const member_zdef = next_field orelse try self.getZdef(member);
+        if (next_field orelse try self.getZdef(member)) |member_zdef| {
+            next_field = if (idx < container.ast.members.len - 1)
+                try self.getZdef(container.ast.members[idx + 1])
+            else
+                null;
 
-        next_field = if (idx < container.ast.members.len - 1)
-            try self.getZdef(container.ast.members[idx + 1])
-        else
-            null;
+            try fields.append(
+                self.gc.allocator,
+                ZigType.UnionField{
+                    .name = member_zdef.name,
+                    .type = &member_zdef.zig_type,
+                    .alignment = member_zdef.zig_type.alignment(),
+                },
+            );
 
-        try fields.append(
-            self.gc.allocator,
-            ZigType.UnionField{
-                .name = member_zdef.?.name,
-                .type = &member_zdef.?.zig_type,
-                .alignment = member_zdef.?.zig_type.alignment(),
-            },
-        );
+            try decls.append(
+                self.gc.allocator,
+                ZigType.Declaration{
+                    .name = member_zdef.name,
+                },
+            );
 
-        try decls.append(
-            self.gc.allocator,
-            ZigType.Declaration{
-                .name = member_zdef.?.name,
-            },
-        );
+            try buzz_fields.put(
+                self.gc.allocator,
+                member_zdef.name,
+                member_zdef.type_def,
+            );
 
-        try buzz_fields.put(
-            self.gc.allocator,
-            member_zdef.?.name,
-            member_zdef.?.type_def,
-        );
-
-        try get_set_fields.put(
-            self.gc.allocator,
-            member_zdef.?.name,
-            .{
-                // Always 0 since this is an enum
-                .offset = 0,
-                .getter = undefined,
-                .setter = undefined,
-            },
-        );
+            try get_set_fields.put(
+                self.gc.allocator,
+                member_zdef.name,
+                .{
+                    // Always 0 since this is an enum
+                    .offset = 0,
+                    .getter = undefined,
+                    .setter = undefined,
+                },
+            );
+        }
     }
 
     const zig_type = ZigType{
@@ -563,7 +575,7 @@ fn unionContainer(self: *Self, name: []const u8, container: Ast.full.ContainerDe
     return zdef;
 }
 
-fn structContainer(self: *Self, name: []const u8, container: Ast.full.ContainerDecl) anyerror!*Zdef {
+fn structContainer(self: *Self, name: []const u8, container: Ast.full.ContainerDecl) Error!*Zdef {
     var fields = std.ArrayList(ZigType.StructField).empty;
     var get_set_fields = std.StringArrayHashMapUnmanaged(o.ObjForeignContainer.ContainerDef.Field).empty;
     var buzz_fields = std.StringArrayHashMapUnmanaged(*o.ObjTypeDef).empty;
@@ -571,59 +583,59 @@ fn structContainer(self: *Self, name: []const u8, container: Ast.full.ContainerD
     var offset: usize = 0;
     var next_field: ?*Zdef = null;
     for (container.ast.members, 0..) |member, idx| {
-        const member_zdef = next_field orelse try self.getZdef(member);
+        if (next_field orelse try self.getZdef(member)) |member_zdef| {
+            next_field = if (idx < container.ast.members.len - 1)
+                try self.getZdef(container.ast.members[idx + 1])
+            else
+                null;
 
-        next_field = if (idx < container.ast.members.len - 1)
-            try self.getZdef(container.ast.members[idx + 1])
-        else
-            null;
+            try fields.append(
+                self.gc.allocator,
+                ZigType.StructField{
+                    .name = member_zdef.name,
+                    .type = &member_zdef.zig_type,
+                    .default_value = null,
+                    .is_comptime = false,
+                    .alignment = member_zdef.zig_type.alignment(),
+                },
+            );
 
-        try fields.append(
-            self.gc.allocator,
-            ZigType.StructField{
-                .name = member_zdef.?.name,
-                .type = &member_zdef.?.zig_type,
-                .default_value = null,
-                .is_comptime = false,
-                .alignment = member_zdef.?.zig_type.alignment(),
-            },
-        );
+            try decls.append(
+                self.gc.allocator,
+                ZigType.Declaration{
+                    .name = member_zdef.name,
+                },
+            );
 
-        try decls.append(
-            self.gc.allocator,
-            ZigType.Declaration{
-                .name = member_zdef.?.name,
-            },
-        );
+            try buzz_fields.put(
+                self.gc.allocator,
+                member_zdef.name,
+                member_zdef.type_def,
+            );
 
-        try buzz_fields.put(
-            self.gc.allocator,
-            member_zdef.?.name,
-            member_zdef.?.type_def,
-        );
+            try get_set_fields.put(
+                self.gc.allocator,
+                member_zdef.name,
+                .{
+                    .offset = offset,
+                    .getter = undefined,
+                    .setter = undefined,
+                },
+            );
 
-        try get_set_fields.put(
-            self.gc.allocator,
-            member_zdef.?.name,
-            .{
-                .offset = offset,
-                .getter = undefined,
-                .setter = undefined,
-            },
-        );
+            offset += member_zdef.zig_type.size();
 
-        offset += member_zdef.?.zig_type.size();
+            // Round up the end of the previous field to a multiple of the next field's alignment
+            if (next_field) |next| {
+                const next_field_align = next.zig_type.alignment();
+                const current_field_size = member_zdef.zig_type.size();
 
-        // Round up the end of the previous field to a multiple of the next field's alignment
-        if (next_field) |next| {
-            const next_field_align = next.zig_type.alignment();
-            const current_field_size = member_zdef.?.zig_type.size();
+                const div = @as(f64, @floatFromInt(current_field_size)) / @as(f64, @floatFromInt(next_field_align));
+                const fpart = std.math.modf(div).fpart;
+                const padding = @as(usize, @intFromFloat(fpart * @as(f64, @floatFromInt(next_field_align))));
 
-            const div = @as(f64, @floatFromInt(current_field_size)) / @as(f64, @floatFromInt(next_field_align));
-            const fpart = std.math.modf(div).fpart;
-            const padding = @as(usize, @intFromFloat(fpart * @as(f64, @floatFromInt(next_field_align))));
-
-            offset += padding;
+                offset += padding;
+            }
         }
     }
 
@@ -661,16 +673,18 @@ fn structContainer(self: *Self, name: []const u8, container: Ast.full.ContainerD
     return zdef;
 }
 
-fn containerField(self: *Self, decl_index: Ast.Node.Index) anyerror!*Zdef {
+fn containerField(self: *Self, decl_index: Ast.Node.Index) Error!?*Zdef {
     const container_field = self.state.?.ast.containerFieldInit(decl_index);
 
-    var zdef = (try self.getZdef(container_field.ast.type_expr.unwrap().?)).?;
-    zdef.name = self.state.?.ast.tokenSlice(self.state.?.ast.nodeMainToken(decl_index));
+    if (try self.getZdef(container_field.ast.type_expr.unwrap().?)) |zdef| {
+        zdef.name = self.state.?.ast.tokenSlice(self.state.?.ast.nodeMainToken(decl_index));
+        return zdef;
+    }
 
-    return zdef;
+    return null;
 }
 
-fn identifier(self: *Self, decl_index: Ast.Node.Index) anyerror!*Zdef {
+fn identifier(self: *Self, decl_index: Ast.Node.Index) Error!*Zdef {
     const id = self.state.?.ast.tokenSlice(self.state.?.ast.nodeMainToken(decl_index));
 
     var type_def = if (basic_types.get(id)) |basic_type|
@@ -716,7 +730,7 @@ fn identifier(self: *Self, decl_index: Ast.Node.Index) anyerror!*Zdef {
     }
 
     if (type_def == null or zig_type == null) {
-        const location = self.state.?.buzz_ast.?.tokens.get(self.state.?.source);
+        const location = self.state.?.buzz_ast.?.tokens.get(self.state.?.source - 4);
 
         self.reporter.reportErrorFmt(
             .zdef,
@@ -725,6 +739,8 @@ fn identifier(self: *Self, decl_index: Ast.Node.Index) anyerror!*Zdef {
             "Unknown or unsupported type `{s}`",
             .{id},
         );
+
+        zig_type = null;
     }
 
     const zdef = try self.gc.allocator.create(Zdef);
@@ -737,7 +753,7 @@ fn identifier(self: *Self, decl_index: Ast.Node.Index) anyerror!*Zdef {
     return zdef;
 }
 
-fn ptrType(self: *Self, tag: Ast.Node.Tag, decl_index: Ast.Node.Index) anyerror!*Zdef {
+fn ptrType(self: *Self, tag: Ast.Node.Tag, decl_index: Ast.Node.Index) Error!*Zdef {
     const ptr_type = switch (tag) {
         .ptr_type_aligned => self.state.?.ast.ptrTypeAligned(decl_index),
         .ptr_type_sentinel => self.state.?.ast.ptrTypeSentinel(decl_index),
@@ -745,72 +761,75 @@ fn ptrType(self: *Self, tag: Ast.Node.Tag, decl_index: Ast.Node.Index) anyerror!
         else => unreachable,
     };
 
-    const child_type = (try self.getZdef(ptr_type.ast.child_type)).?;
-    const sentinel_node_tag = if (ptr_type.ast.sentinel.unwrap()) |sentinel| self.state.?.ast.nodeTag(sentinel) else null;
-    const sentinel_node_main_token = if (ptr_type.ast.sentinel.unwrap()) |sentinel| self.state.?.ast.nodeMainToken(sentinel) else null;
+    if (try self.getZdef(ptr_type.ast.child_type)) |child_type| {
+        const sentinel_node_tag = if (ptr_type.ast.sentinel.unwrap()) |sentinel| self.state.?.ast.nodeTag(sentinel) else null;
+        const sentinel_node_main_token = if (ptr_type.ast.sentinel.unwrap()) |sentinel| self.state.?.ast.nodeMainToken(sentinel) else null;
 
-    // Is it a null terminated string?
-    const zdef = try self.gc.allocator.create(Zdef);
-    zdef.* = if (ptr_type.const_token != null and
-        child_type.zig_type == .Int and
-        child_type.zig_type.Int.bits == 8 and
-        sentinel_node_tag == .number_literal and
-        std.mem.eql(u8, self.state.?.ast.tokenSlice(sentinel_node_main_token.?), "0"))
-        .{
-            .type_def = self.gc.type_registry.str_type,
-            .zig_type = ZigType{
-                .Pointer = .{
-                    .size = .c,
-                    .is_const = ptr_type.const_token != null,
-                    .is_volatile = undefined,
-                    .alignment = undefined,
-                    .address_space = undefined,
-                    .child = &child_type.zig_type,
-                    .is_allowzero = undefined,
-                    .sentinel = undefined,
+        // Is it a null terminated string?
+        const zdef = try self.gc.allocator.create(Zdef);
+        zdef.* = if (ptr_type.const_token != null and
+            child_type.zig_type == .Int and
+            child_type.zig_type.Int.bits == 8 and
+            sentinel_node_tag == .number_literal and
+            std.mem.eql(u8, self.state.?.ast.tokenSlice(sentinel_node_main_token.?), "0"))
+            .{
+                .type_def = self.gc.type_registry.str_type,
+                .zig_type = ZigType{
+                    .Pointer = .{
+                        .size = .c,
+                        .is_const = ptr_type.const_token != null,
+                        .is_volatile = undefined,
+                        .alignment = undefined,
+                        .address_space = undefined,
+                        .child = &child_type.zig_type,
+                        .is_allowzero = undefined,
+                        .sentinel = undefined,
+                    },
                 },
-            },
-            .name = "ptr",
-        }
-    else if (child_type.type_def.def_type == .ForeignContainer)
-        .{
-            .type_def = child_type.type_def,
-            .zig_type = ZigType{
-                .Pointer = .{
-                    .size = .c,
-                    .is_const = ptr_type.const_token != null,
-                    .is_volatile = undefined,
-                    .alignment = undefined,
-                    .address_space = undefined,
-                    .child = &child_type.zig_type,
-                    .is_allowzero = undefined,
-                    .sentinel = undefined,
+                .name = "ptr",
+            }
+        else if (child_type.type_def.def_type == .ForeignContainer)
+            .{
+                .type_def = child_type.type_def,
+                .zig_type = ZigType{
+                    .Pointer = .{
+                        .size = .c,
+                        .is_const = ptr_type.const_token != null,
+                        .is_volatile = undefined,
+                        .alignment = undefined,
+                        .address_space = undefined,
+                        .child = &child_type.zig_type,
+                        .is_allowzero = undefined,
+                        .sentinel = undefined,
+                    },
                 },
-            },
-            .name = "ptr",
-        }
-    else
-        .{
-            .type_def = self.gc.type_registry.ud_type,
-            .zig_type = ZigType{
-                .Pointer = .{
-                    .size = .c,
-                    .is_const = ptr_type.const_token != null,
-                    .is_volatile = undefined,
-                    .alignment = undefined,
-                    .address_space = undefined,
-                    .child = &child_type.zig_type,
-                    .is_allowzero = undefined,
-                    .sentinel = undefined,
+                .name = "ptr",
+            }
+        else
+            .{
+                .type_def = self.gc.type_registry.ud_type,
+                .zig_type = ZigType{
+                    .Pointer = .{
+                        .size = .c,
+                        .is_const = ptr_type.const_token != null,
+                        .is_volatile = undefined,
+                        .alignment = undefined,
+                        .address_space = undefined,
+                        .child = &child_type.zig_type,
+                        .is_allowzero = undefined,
+                        .sentinel = undefined,
+                    },
                 },
-            },
-            .name = "ptr",
-        };
+                .name = "ptr",
+            };
 
-    return zdef;
+        return zdef;
+    }
+
+    return error.CantCompile;
 }
 
-fn fnProto(self: *Self, tag: Ast.Node.Tag, decl_index: Ast.Node.Index) anyerror!*Zdef {
+fn fnProto(self: *Self, tag: Ast.Node.Tag, decl_index: Ast.Node.Index) Error!*Zdef {
     var buffer = [1]Ast.Node.Index{undefined};
     const fn_proto = switch (tag) {
         .fn_proto_simple => self.state.?.ast.fnProtoSimple(&buffer, decl_index),
@@ -824,7 +843,7 @@ fn fnProto(self: *Self, tag: Ast.Node.Tag, decl_index: Ast.Node.Index) anyerror!
     const name = if (fn_proto.name_token) |token| self.state.?.ast.tokenSlice(token) else null;
 
     if (name == null) {
-        const location = self.state.?.buzz_ast.?.tokens.get(self.state.?.source);
+        const location = self.state.?.buzz_ast.?.tokens.get(self.state.?.source - 4);
         self.reporter.report(
             .zdef,
             location,
@@ -869,7 +888,7 @@ fn fnProto(self: *Self, tag: Ast.Node.Tag, decl_index: Ast.Node.Index) anyerror!
             null;
 
         if (param_name == null) {
-            const location = self.state.?.buzz_ast.?.tokens.get(self.state.?.source);
+            const location = self.state.?.buzz_ast.?.tokens.get(self.state.?.source - 4);
             self.reporter.report(
                 .zdef,
                 location,
@@ -923,7 +942,7 @@ fn reportZigError(self: *Self, err: Ast.Error) void {
 
     message.writer.print("zdef could not be parsed: {}", .{err.tag}) catch unreachable;
 
-    const location = self.state.?.buzz_ast.?.tokens.get(self.state.?.source);
+    const location = self.state.?.buzz_ast.?.tokens.get(self.state.?.source - 4);
     self.reporter.report(
         .zdef,
         location,

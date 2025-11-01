@@ -627,7 +627,7 @@ pub const VM = struct {
 
         // If debugging, don't run the entry point right away
         if (self.debugger == null or function.type_def.resolved_type.?.Function.function_type != .ScriptEntryPoint) {
-            self.run();
+            try self.run();
         }
     }
 
@@ -3856,6 +3856,11 @@ pub const VM = struct {
         const right = self.pop();
         const left = self.pop();
 
+        if (right.integer() == 0) {
+            self.reportRuntimeErrorWithCurrentStack("Division by zero.");
+            return;
+        }
+
         self.push(
             Value.fromInteger(@divTrunc(left.integer(), right.integer())),
         );
@@ -3877,6 +3882,11 @@ pub const VM = struct {
     fn OP_DIVIDE_F(self: *Self, _: *CallFrame, _: u32, _: Chunk.OpCode, _: u24) void {
         const right = self.pop();
         const left = self.pop();
+
+        if (right.double() == 0) {
+            self.reportRuntimeErrorWithCurrentStack("Division by zero.");
+            return;
+        }
 
         self.push(
             Value.fromDouble(
@@ -3902,6 +3912,11 @@ pub const VM = struct {
         const right = self.pop();
         const left = self.pop();
 
+        if (right.integer() == 0) {
+            self.reportRuntimeErrorWithCurrentStack("Division by zero.");
+            return;
+        }
+
         self.push(
             Value.fromInteger(
                 @mod(left.integer(), right.integer()),
@@ -3925,6 +3940,11 @@ pub const VM = struct {
     fn OP_MOD_F(self: *Self, _: *CallFrame, _: u32, _: Chunk.OpCode, _: u24) void {
         const right = self.pop();
         const left = self.pop();
+
+        if (right.double() == 0) {
+            self.reportRuntimeErrorWithCurrentStack("Division by zero.");
+            return;
+        }
 
         self.push(
             Value.fromDouble(
@@ -4644,7 +4664,7 @@ pub const VM = struct {
         );
     }
 
-    pub fn run(self: *Self) void {
+    pub fn run(self: *Self) error{RuntimeError}!void {
         const next_current_frame: *CallFrame = self.currentFrame().?;
         const next_full_instruction = self.readInstruction();
         const next_instruction: Chunk.OpCode = getCode(next_full_instruction);
@@ -4674,6 +4694,10 @@ pub const VM = struct {
             next_instruction,
             next_arg,
         );
+
+        if (self.reporter.last_error != null) {
+            return error.RuntimeError;
+        }
     }
 
     pub fn throw(self: *Self, code: Error, payload: Value, previous_stack: ?*std.ArrayList(CallFrame), previous_error_site: ?Ast.TokenIndex) Error!void {
@@ -4889,6 +4913,8 @@ pub const VM = struct {
         };
 
         err_report.reportStderr(&self.reporter) catch @panic("Could not report error");
+
+        self.reporter.last_error = .runtime;
     }
 
     fn compileAndCall(self: *Self, closure: *obj.ObjClosure, arg_count: u8, catch_value: ?Value) Error!bool {
@@ -5093,7 +5119,7 @@ pub const VM = struct {
 
             self.current_fiber.stack_top = self.current_fiber.stack_top - arg_count - 1;
             self.push(result);
-        } else {
+        } else if (native_return == -1) {
             // An error occured within the native function -> call error handlers
             if (catch_value != null) {
                 // We discard the error
@@ -5118,6 +5144,9 @@ pub const VM = struct {
                     null,
                 );
             }
+        } else if (native_return == -2) {
+            // A non-catchable runtime error happened
+            return error.RuntimeError;
         }
     }
 

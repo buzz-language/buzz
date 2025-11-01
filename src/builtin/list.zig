@@ -113,18 +113,23 @@ pub fn remove(ctx: *o.NativeCtx) callconv(.c) c_int {
 const SortContext = struct {
     sort_closure: v.Value,
     ctx: *o.NativeCtx,
+    had_error: bool = false,
 };
 
-fn lessThan(context: SortContext, lhs: v.Value, rhs: v.Value) bool {
+fn lessThan(context: *SortContext, lhs: v.Value, rhs: v.Value) bool {
     var args = [_]*const v.Value{ &lhs, &rhs };
 
-    buzz_api.bz_call(
+    if (!buzz_api.bz_call(
         context.ctx.vm,
         context.sort_closure,
         @ptrCast(&args),
         @intCast(args.len),
         null,
-    );
+    )) {
+        context.had_error = true;
+
+        return false;
+    }
 
     return context.ctx.vm.pop().boolean();
 }
@@ -134,15 +139,21 @@ pub fn sort(ctx: *o.NativeCtx) callconv(.c) c_int {
     // fun compare(T lhs, T rhs) > bool
     const sort_closure = ctx.vm.peek(0);
 
+    var context = SortContext{
+        .sort_closure = sort_closure,
+        .ctx = ctx,
+    };
     std.sort.insertion(
         v.Value,
         self.items.items,
-        SortContext{
-            .sort_closure = sort_closure,
-            .ctx = ctx,
-        },
+        &context,
         lessThan,
     );
+
+    if (context.had_error) {
+        return -2;
+    }
+
     ctx.vm.gc.markObjDirty(self.toObj()) catch @panic("Out of memory");
 
     ctx.vm.push(self.toValue());
@@ -325,13 +336,15 @@ pub fn forEach(ctx: *o.NativeCtx) callconv(.c) c_int {
 
         var args = [_]*const v.Value{ &index_value, &item };
 
-        buzz_api.bz_call(
+        if (!buzz_api.bz_call(
             ctx.vm,
             closure,
             @ptrCast(&args),
             @intCast(args.len),
             null,
-        );
+        )) {
+            return -2;
+        }
     }
 
     return 0;
@@ -351,13 +364,15 @@ pub fn reduce(ctx: *o.NativeCtx) callconv(.c) c_int {
             &accumulator,
         };
 
-        buzz_api.bz_call(
+        if (!buzz_api.bz_call(
             ctx.vm,
             closure,
             @ptrCast(&args),
             @intCast(args.len),
             null,
-        );
+        )) {
+            return -2;
+        }
 
         accumulator = ctx.vm.pop();
     }
@@ -388,13 +403,15 @@ pub fn filter(ctx: *o.NativeCtx) callconv(.c) c_int {
         const index_value = v.Value.fromInteger(@as(v.Integer, @intCast(index)));
         var args = [_]*const v.Value{ &index_value, &item };
 
-        buzz_api.bz_call(
+        if (!buzz_api.bz_call(
             ctx.vm,
             closure,
             @ptrCast(&args),
             @intCast(args.len),
             null,
-        );
+        )) {
+            return -2;
+        }
 
         if (ctx.vm.pop().boolean()) {
             new_list.rawAppend(ctx.vm.gc, item) catch {
@@ -448,13 +465,15 @@ pub fn map(ctx: *o.NativeCtx) callconv(.c) c_int {
         const index_value = v.Value.fromInteger(@as(v.Integer, @intCast(index)));
         var args = [_]*const v.Value{ &index_value, &item };
 
-        buzz_api.bz_call(
+        if (!buzz_api.bz_call(
             ctx.vm,
             closure,
             @ptrCast(&args),
             @intCast(args.len),
             null,
-        );
+        )) {
+            return -2;
+        }
 
         new_list.rawAppend(ctx.vm.gc, ctx.vm.pop()) catch {
             ctx.vm.panic("Out of memory");
