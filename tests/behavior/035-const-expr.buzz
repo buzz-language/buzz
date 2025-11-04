@@ -1,8 +1,8 @@
 import "std";
 
 fun hello(
-    name: mut [str] = [ "John", "Doe" ],
-    address: mut {str: str} = {
+    name: mut [str] = mut [ "John", "Doe" ],
+    address: mut {str: str} = mut {
         "street": "somewhere street",
         "town": "New York",
     },

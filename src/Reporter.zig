@@ -134,6 +134,7 @@ pub const Error = enum(u8) {
     mutable_forbidden = 101,
     unassigned_final_local = 102,
     source_not_utf8 = 103,
+    default_value_type = 104,
 };
 
 // Inspired by https://github.com/zesterer/ariadne
@@ -553,6 +554,8 @@ pub const Report = struct {
 };
 
 pub fn warn(self: *Self, error_type: Error, location: Token, end_location: Token, message: []const u8) void {
+    const previous_error = self.last_error;
+
     const items = [_]ReportItem{
         .{
             .kind = .warning,
@@ -581,6 +584,10 @@ pub fn warn(self: *Self, error_type: Error, location: Token, end_location: Token
     };
 
     error_report.reportStderr(self) catch @panic("Unable to report error");
+
+    // last_error is often used to know if an error occurred and stop codegen at some points,
+    // we don't want that behavior after a warning
+    self.last_error = previous_error;
 }
 
 pub fn report(self: *Self, error_type: Error, location: Token, end_location: Token, message: []const u8) void {

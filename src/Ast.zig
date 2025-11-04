@@ -9,6 +9,8 @@ const Parser = @import("Parser.zig");
 const GC = @import("GC.zig");
 // TODO: cleanup Error sets!
 const Error = @import("Codegen.zig").Error;
+const Reporter = @import("Reporter.zig");
+const TypeChecker = @import("TypeChecker.zig");
 
 const Self = @This();
 
@@ -484,13 +486,13 @@ pub const Slice = struct {
         return ctx.result orelse false;
     }
 
-    fn binaryValue(self: Self.Slice, node: Node.Index, gc: *GC) !?Value {
+    fn binaryValue(self: Self.Slice, node: Node.Index, reporter: *Reporter, gc: *GC) !?Value {
         const components = self.nodes.items(.components)[node].Binary;
 
-        const left = try self.toValue(components.left, gc);
+        const left = try self.toValue(components.left, reporter, gc);
         const left_integer = if (left.isInteger()) left.integer() else null;
         const left_float = if (left.isDouble()) left.double() else null;
-        const right = try self.toValue(components.right, gc);
+        const right = try self.toValue(components.right, reporter, gc);
         const right_integer = if (right.isInteger()) right.integer() else null;
         const right_float = if (right.isDouble()) right.double() else null;
 
@@ -700,8 +702,25 @@ pub const Slice = struct {
         }
     }
 
-    pub fn toValue(self: Self.Slice, node: Node.Index, gc: *GC) Error!Value {
+    pub fn toValue(
+        self: Self.Slice,
+        node: Node.Index,
+        reporter: *Reporter,
+        gc: *GC,
+    ) Error!Value {
+        if (try TypeChecker.check(
+            self,
+            reporter,
+            gc,
+            null,
+            node,
+        )) {
+            return Value.Void;
+        }
+
         const value = &self.nodes.items(.value)[node];
+        // const type_defs = self.nodes.items(.type_def);
+        const components = self.nodes.items(.components);
 
         if (value.* == null and try self.isConstant(gc.allocator, node)) {
             value.* = switch (self.nodes.items(.tag)[node]) {
@@ -715,43 +734,44 @@ pub const Slice = struct {
                 .SimpleType,
                 .UserType,
                 => self.nodes.items(.type_def)[node].?.toValue(),
-                .StringLiteral => self.nodes.items(.components)[node].StringLiteral.literal.toValue(),
+                .StringLiteral => components[node].StringLiteral.literal.toValue(),
                 .TypeOfExpression => (try (try self.toValue(
-                    self.nodes.items(.components)[node].TypeOfExpression,
+                    components[node].TypeOfExpression,
+                    reporter,
                     gc,
                 )).typeOf(gc)).toValue(),
-                .TypeExpression => self.nodes.items(.type_def)[self.nodes.items(.components)[node].TypeExpression].?.toValue(),
-                .Pattern => self.nodes.items(.components)[node].Pattern.toValue(),
+                .TypeExpression => self.nodes.items(.type_def)[components[node].TypeExpression].?.toValue(),
+                .Pattern => components[node].Pattern.toValue(),
                 .Void => Value.Void,
                 .Null => Value.Null,
-                .Double => Value.fromDouble(self.nodes.items(.components)[node].Double),
-                .Integer => Value.fromInteger(self.nodes.items(.components)[node].Integer),
-                .Boolean => Value.fromBoolean(self.nodes.items(.components)[node].Boolean),
-                .As => try self.toValue(self.nodes.items(.components)[node].As.left, gc),
+                .Double => Value.fromDouble(components[node].Double),
+                .Integer => Value.fromInteger(components[node].Integer),
+                .Boolean => Value.fromBoolean(components[node].Boolean),
+                .As => try self.toValue(components[node].As.left, reporter, gc),
                 .Is => is: {
-                    const components = self.nodes.items(.components)[node].Is;
+                    const is_components = components[node].Is;
                     break :is Value.fromBoolean(
-                        (try self.toValue(components.constant, gc))
-                            .is(try self.toValue(components.left, gc)),
+                        (try self.toValue(is_components.constant, reporter, gc))
+                            .is(try self.toValue(is_components.left, reporter, gc)),
                     );
                 },
-                .Binary => try self.binaryValue(node, gc),
+                .Binary => try self.binaryValue(node, reporter, gc),
                 .Dot => dot: {
                     // Only Enum.case can be constant
-                    const components = self.nodes.items(.components)[node].Dot;
-                    const type_def = self.nodes.items(.type_def)[components.callee].?;
+                    const dot_components = components[node].Dot;
+                    const type_def = self.nodes.items(.type_def)[dot_components.callee].?;
 
                     break :dot (try gc.allocateObject(
                         obj.ObjEnumInstance{
                             .enum_ref = type_def.resolved_type.?.Enum.value.?,
-                            .case = @intCast(components.value_or_call_or_enum.EnumCase),
+                            .case = @intCast(dot_components.value_or_call_or_enum.EnumCase),
                         },
                     )).toValue();
                 },
-                .Expression => try self.toValue(self.nodes.items(.components)[node].Expression, gc),
-                .Grouping => try self.toValue(self.nodes.items(.components)[node].Grouping, gc),
+                .Expression => try self.toValue(components[node].Expression, reporter, gc),
+                .Grouping => try self.toValue(components[node].Grouping, reporter, gc),
                 .ForceUnwrap => fc: {
-                    const unwrapped = try self.toValue(self.nodes.items(.components)[node].ForceUnwrap.unwrapped, gc);
+                    const unwrapped = try self.toValue(components[node].ForceUnwrap.unwrapped, reporter, gc);
 
                     if (unwrapped.isNull()) {
                         return Error.UnwrappedNull;
@@ -759,26 +779,26 @@ pub const Slice = struct {
 
                     break :fc unwrapped;
                 },
-                .GenericResolve => try self.toValue(self.nodes.items(.components)[node].GenericResolve.expression, gc),
+                .GenericResolve => try self.toValue(components[node].GenericResolve.expression, reporter, gc),
                 .If => @"if": {
-                    const components = self.nodes.items(.components)[node].If;
-                    break :@"if" if ((try self.toValue(components.condition, gc)).boolean())
-                        try self.toValue(components.body, gc)
+                    const if_components = components[node].If;
+                    break :@"if" if ((try self.toValue(if_components.condition, reporter, gc)).boolean())
+                        try self.toValue(if_components.body, reporter, gc)
                     else
-                        try self.toValue(components.else_branch.?, gc);
+                        try self.toValue(if_components.else_branch.?, reporter, gc);
                 },
                 .Range => range: {
-                    const components = self.nodes.items(.components)[node].Range;
+                    const rg_components = components[node].Range;
 
                     break :range (try gc.allocateObject(
                         obj.ObjRange{
-                            .low = (try self.toValue(components.low, gc)).integer(),
-                            .high = (try self.toValue(components.high, gc)).integer(),
+                            .low = (try self.toValue(rg_components.low, reporter, gc)).integer(),
+                            .high = (try self.toValue(rg_components.high, reporter, gc)).integer(),
                         },
                     )).toValue();
                 },
                 .List => list: {
-                    const components = self.nodes.items(.components)[node].List;
+                    const list_components = components[node].List;
                     const type_def = self.nodes.items(.type_def)[node];
 
                     std.debug.assert(type_def != null and type_def.?.def_type != .Placeholder);
@@ -787,17 +807,17 @@ pub const Slice = struct {
                         try obj.ObjList.init(gc.allocator, type_def.?),
                     );
 
-                    for (components.items) |item| {
+                    for (list_components.items) |item| {
                         try list.items.append(
                             gc.allocator,
-                            try self.toValue(item, gc),
+                            try self.toValue(item, reporter, gc),
                         );
                     }
 
                     break :list list.toValue();
                 },
                 .Map => map: {
-                    const components = self.nodes.items(.components)[node].Map;
+                    const map_components = components[node].Map;
                     const type_def = self.nodes.items(.type_def)[node];
 
                     std.debug.assert(type_def != null and type_def.?.def_type != .Placeholder);
@@ -806,33 +826,33 @@ pub const Slice = struct {
                         try obj.ObjMap.init(gc.allocator, type_def.?),
                     );
 
-                    for (components.entries) |entry| {
+                    for (map_components.entries) |entry| {
                         try map.map.put(
                             gc.allocator,
-                            try self.toValue(entry.key, gc),
-                            try self.toValue(entry.value, gc),
+                            try self.toValue(entry.key, reporter, gc),
+                            try self.toValue(entry.value, reporter, gc),
                         );
                     }
 
                     break :map map.toValue();
                 },
                 .String => string: {
-                    const elements = self.nodes.items(.components)[node].String;
+                    const elements = components[node].String;
 
                     var string = std.Io.Writer.Allocating.init(gc.allocator);
                     defer string.deinit();
 
                     for (elements) |element| {
-                        try (try self.toValue(element, gc)).toString(&string.writer);
+                        try (try self.toValue(element, reporter, gc)).toString(&string.writer);
                     }
 
                     break :string (try gc.copyString(string.written())).toValue();
                 },
                 .Subscript => subscript: {
-                    const components = self.nodes.items(.components)[node].Subscript;
+                    const subscript_components = components[node].Subscript;
 
-                    const subscriptable = (try self.toValue(components.subscripted, gc)).obj();
-                    const key = try self.toValue(components.index, gc);
+                    const subscriptable = (try self.toValue(subscript_components.subscripted, reporter, gc)).obj();
+                    const key = try self.toValue(subscript_components.index, reporter, gc);
 
                     switch (subscriptable.obj_type) {
                         .List => {
@@ -840,7 +860,7 @@ pub const Slice = struct {
                             const index: usize = @intCast(key.integer());
 
                             if (index < 0 or index >= list.items.items.len) {
-                                if (components.checked) {
+                                if (subscript_components.checked) {
                                     break :subscript Value.Null;
                                 }
 
@@ -859,7 +879,7 @@ pub const Slice = struct {
                             const index: usize = @intCast(key.integer());
 
                             if (index < 0 or index >= str.string.len) {
-                                if (components.checked) {
+                                if (subscript_components.checked) {
                                     break :subscript Value.Null;
                                 }
 
@@ -873,13 +893,13 @@ pub const Slice = struct {
                         else => unreachable,
                     }
 
-                    break :subscript self.nodes.items(.components)[node].Subscript.toValue();
+                    break :subscript components[node].Subscript.toValue();
                 },
                 .Unary => unary: {
-                    const components = self.nodes.items(.components)[node].Unary;
-                    const val = try self.toValue(components.expression, gc);
+                    const unary_components = components[node].Unary;
+                    const val = try self.toValue(unary_components.expression, reporter, gc);
 
-                    break :unary switch (components.operator) {
+                    break :unary switch (unary_components.operator) {
                         .Bnot => Value.fromInteger(~val.integer()),
                         .Bang => Value.fromBoolean(!val.boolean()),
                         .Minus => if (val.isInteger())
@@ -889,7 +909,7 @@ pub const Slice = struct {
                         else => unreachable,
                     };
                 },
-                .Unwrap => try self.toValue(self.nodes.items(.components)[node].Unwrap.unwrapped, gc),
+                .Unwrap => try self.toValue(components[node].Unwrap.unwrapped, reporter, gc),
                 else => null,
             };
         }

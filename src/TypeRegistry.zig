@@ -29,6 +29,7 @@ any_type: *o.ObjTypeDef,
 pat_type: *o.ObjTypeDef,
 ud_type: *o.ObjTypeDef,
 rg_type: *o.ObjTypeDef,
+type_type: *o.ObjTypeDef,
 
 pub fn init(gc: *GC) !TypeRegistry {
     var self = TypeRegistry{
@@ -42,6 +43,7 @@ pub fn init(gc: *GC) !TypeRegistry {
         .pat_type = undefined,
         .ud_type = undefined,
         .rg_type = undefined,
+        .type_type = undefined,
     };
 
     self.void_type = try self.getTypeDef(.{ .def_type = .Void });
@@ -60,6 +62,7 @@ pub fn init(gc: *GC) !TypeRegistry {
     self.pat_type = try self.getTypeDef(.{ .def_type = .Pattern });
     self.ud_type = try self.getTypeDef(.{ .def_type = .UserData });
     self.rg_type = try self.getTypeDef(.{ .def_type = .Range });
+    self.type_type = try self.getTypeDef(.{ .def_type = .Type });
 
     return self;
 }

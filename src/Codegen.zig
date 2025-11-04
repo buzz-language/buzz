@@ -16,6 +16,7 @@ const BuildOptions = @import("build_options");
 const JIT = if (!is_wasm) @import("Jit.zig") else void;
 const disassembler = @import("disassembler.zig");
 const io = @import("io.zig");
+const TypeChecker = @import("TypeChecker.zig");
 
 const Self = @This();
 
@@ -416,6 +417,14 @@ fn generateNode(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj
         return null;
     }
 
+    _ = try TypeChecker.check(
+        self.ast,
+        &self.reporter,
+        self.gc,
+        if (self.current) |current| current.function_node else null,
+        node,
+    );
+
     if (Self.generators[@intFromEnum(self.ast.nodes.items(.tag)[node])]) |generator| {
         return generator(self, node, breaks);
     }
@@ -428,7 +437,11 @@ fn nodeValue(self: *Self, node: Ast.Node.Index) Error!?Value {
 
     if (value.* == null) {
         if (self.ast.isConstant(node)) {
-            value.* = try self.ast.toValue(node, self.gc);
+            value.* = try self.ast.toValue(
+                node,
+                &self.reporter,
+                self.gc,
+            );
         }
     }
 
@@ -440,16 +453,13 @@ fn generateAs(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.O
     const node_location = locations[node];
     const components = self.ast.nodes.items(.components)[node].As;
 
-    const constant = try self.ast.toValue(components.constant, self.gc);
+    const constant = try self.ast.toValue(
+        components.constant,
+        &self.reporter,
+        self.gc,
+    );
 
     std.debug.assert(constant.isObj() and constant.obj().obj_type == .Type);
-
-    if (obj.ObjTypeDef.cast(constant.obj()).?.def_type == .Placeholder) {
-        self.reporter.reportPlaceholder(
-            self.ast,
-            obj.ObjTypeDef.cast(constant.obj()).?.resolved_type.?.Placeholder,
-        );
-    }
 
     _ = try self.generateNode(components.left, breaks);
 
@@ -498,107 +508,11 @@ fn generateBinary(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*o
     const components = self.ast.nodes.items(.components)[node].Binary;
 
     const locations = self.ast.nodes.items(.location);
-    const end_locations = self.ast.nodes.items(.end_location);
     const type_defs = self.ast.nodes.items(.type_def);
     const left_type = type_defs[components.left].?;
-    const right_type = type_defs[components.right].?;
-
-    if (left_type.def_type == .Placeholder) {
-        self.reporter.reportPlaceholder(self.ast, left_type.resolved_type.?.Placeholder);
-    }
-
-    if (right_type.def_type == .Placeholder) {
-        self.reporter.reportPlaceholder(self.ast, right_type.resolved_type.?.Placeholder);
-    }
-
-    switch (components.operator) {
-        .QuestionQuestion,
-        .Ampersand,
-        .Bor,
-        .Xor,
-        .ShiftLeft,
-        .ShiftRight,
-        .Plus,
-        .Minus,
-        .Star,
-        .Slash,
-        .Percent,
-        .And,
-        .Or,
-        => {
-            if (!left_type.eql(right_type)) {
-                self.reporter.reportTypeCheck(
-                    .binary_operand_type,
-                    self.ast.tokens.get(locations[components.left]),
-                    self.ast.tokens.get(end_locations[components.left]),
-                    left_type,
-                    self.ast.tokens.get(locations[components.right]),
-                    self.ast.tokens.get(end_locations[components.right]),
-                    right_type,
-                    "Type mismatch",
-                );
-            }
-        },
-
-        .Greater,
-        .Less,
-        .GreaterEqual,
-        .LessEqual,
-        .BangEqual,
-        .EqualEqual,
-        => {
-            // We allow comparison between double and int so raise error if type != and one operand is not a number
-            if (!left_type.eql(right_type) and
-                !right_type.eql(left_type) and
-                ((left_type.def_type != .Integer and left_type.def_type != .Double) or (right_type.def_type != .Integer and right_type.def_type != .Double)))
-            {
-                self.reporter.reportTypeCheck(
-                    .comparison_operand_type,
-                    self.ast.tokens.get(locations[components.left]),
-                    self.ast.tokens.get(end_locations[components.left]),
-                    left_type,
-                    self.ast.tokens.get(locations[components.right]),
-                    self.ast.tokens.get(end_locations[components.right]),
-                    right_type,
-                    "Type mismatch",
-                );
-            }
-        },
-
-        else => unreachable,
-    }
-
-    if (components.operator != .QuestionQuestion and components.operator != .EqualEqual and components.operator != .BangEqual) {
-        if (left_type.optional) {
-            self.reporter.reportErrorAt(
-                .binary_operand_type,
-                self.ast.tokens.get(locations[components.left]),
-                self.ast.tokens.get(end_locations[components.left]),
-                "Binary operand can't be optional",
-            );
-        }
-
-        if (right_type.optional) {
-            self.reporter.reportErrorAt(
-                .binary_operand_type,
-                self.ast.tokens.get(locations[components.right]),
-                self.ast.tokens.get(end_locations[components.right]),
-                "Binary operand can't be optional",
-            );
-        }
-    }
 
     switch (components.operator) {
         .QuestionQuestion => {
-            if (!left_type.optional) {
-                self.reporter.reportErrorAt(
-                    .optional,
-                    self.ast.tokens.get(locations[components.left]),
-                    self.ast.tokens.get(end_locations[components.left]),
-                    "Not an optional",
-                );
-            }
-
             _ = try self.generateNode(components.left, breaks);
 
             const end_jump: usize = try self.OP_JUMP_IF_NOT_NULL(locations[node]);
@@ -609,134 +523,47 @@ fn generateBinary(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*o
             self.patchJump(end_jump);
         },
         .Ampersand => {
-            // Checking only left operand since we asserted earlier that both operand have the same type
-            if (left_type.def_type != .Integer) {
-                self.reporter.reportErrorAt(
-                    .bitwise_operand_type,
-                    self.ast.tokens.get(locations[components.left]),
-                    self.ast.tokens.get(end_locations[components.left]),
-                    "Expected `int`.",
-                );
-            }
-
             _ = try self.generateNode(components.left, breaks);
             _ = try self.generateNode(components.right, breaks);
             try self.OP_BAND(locations[node]);
         },
         .Bor => {
-            // Checking only left operand since we asserted earlier that both operand have the same type
-            if (left_type.def_type != .Integer) {
-                self.reporter.reportErrorAt(
-                    .bitwise_operand_type,
-                    self.ast.tokens.get(locations[components.left]),
-                    self.ast.tokens.get(end_locations[components.left]),
-                    "Expected `int`.",
-                );
-            }
-
             _ = try self.generateNode(components.left, breaks);
             _ = try self.generateNode(components.right, breaks);
             try self.OP_BOR(locations[node]);
         },
         .Xor => {
-            // Checking only left operand since we asserted earlier that both operand have the same type
-            if (left_type.def_type != .Integer) {
-                self.reporter.reportErrorAt(
-                    .bitwise_operand_type,
-                    self.ast.tokens.get(locations[components.left]),
-                    self.ast.tokens.get(end_locations[components.left]),
-                    "Expected `int`.",
-                );
-            }
-
             _ = try self.generateNode(components.left, breaks);
             _ = try self.generateNode(components.right, breaks);
             try self.OP_XOR(locations[node]);
         },
         .ShiftLeft => {
-            // Checking only left operand since we asserted earlier that both operand have the same type
-            if (left_type.def_type != .Integer) {
-                self.reporter.reportErrorAt(
-                    .bitwise_operand_type,
-                    self.ast.tokens.get(locations[components.left]),
-                    self.ast.tokens.get(end_locations[components.left]),
-                    "Expected `int`.",
-                );
-            }
-
             _ = try self.generateNode(components.left, breaks);
             _ = try self.generateNode(components.right, breaks);
             try self.OP_SHL(locations[node]);
         },
         .ShiftRight => {
-            // Checking only left operand since we asserted earlier that both operand have the same type
-            if (left_type.def_type != .Integer) {
-                self.reporter.reportErrorAt(
-                    .bitwise_operand_type,
-                    self.ast.tokens.get(locations[components.left]),
-                    self.ast.tokens.get(end_locations[components.left]),
-                    "Expected `int`.",
-                );
-            }
-
             _ = try self.generateNode(components.left, breaks);
             _ = try self.generateNode(components.right, breaks);
             try self.OP_SHR(locations[node]);
         },
         .Greater => {
-            // Checking only left operand since we asserted earlier that both operand have the same type
-            if (left_type.def_type != .Integer and left_type.def_type != .Double) {
-                self.reporter.reportErrorAt(
-                    .comparison_operand_type,
-                    self.ast.tokens.get(locations[components.left]),
-                    self.ast.tokens.get(end_locations[components.left]),
-                    "Expected `int` or `double`.",
-                );
-            }
-
             _ = try self.generateNode(components.left, breaks);
             _ = try self.generateNode(components.right, breaks);
             try self.OP_GREATER(locations[node]);
         },
         .Less => {
-            if (left_type.def_type != .Integer and left_type.def_type != .Double) {
-                self.reporter.reportErrorAt(
-                    .comparison_operand_type,
-                    self.ast.tokens.get(locations[components.left]),
-                    self.ast.tokens.get(end_locations[components.left]),
-                    "Expected `int` or `double`.",
-                );
-            }
-
             _ = try self.generateNode(components.left, breaks);
             _ = try self.generateNode(components.right, breaks);
             try self.OP_LESS(locations[node]);
         },
         .GreaterEqual => {
-            if (left_type.def_type != .Integer and left_type.def_type != .Double) {
-                self.reporter.reportErrorAt(
-                    .comparison_operand_type,
-                    self.ast.tokens.get(locations[components.left]),
-                    self.ast.tokens.get(end_locations[components.left]),
-                    "Expected `int` or `double`.",
-                );
-            }
-
             _ = try self.generateNode(components.left, breaks);
             _ = try self.generateNode(components.right, breaks);
             try self.OP_LESS(locations[node]);
             try self.OP_NOT(locations[node]);
         },
         .LessEqual => {
-            if (left_type.def_type != .Integer and left_type.def_type != .Double) {
-                self.reporter.reportErrorAt(
-                    .comparison_operand_type,
-                    self.ast.tokens.get(locations[components.left]),
-                    self.ast.tokens.get(end_locations[components.left]),
-                    "Expected `int` or `double`.",
-                );
-            }
-
             _ = try self.generateNode(components.left, breaks);
             _ = try self.generateNode(components.right, breaks);
             try self.OP_GREATER(locations[node]);
@@ -754,20 +581,6 @@ fn generateBinary(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*o
             try self.OP_EQUAL(locations[node]);
         },
         .Plus => {
-            if (left_type.def_type != .Integer and
-                left_type.def_type != .Double and
-                left_type.def_type != .String and
-                left_type.def_type != .List and
-                left_type.def_type != .Map)
-            {
-                self.reporter.reportErrorAt(
-                    .arithmetic_operand_type,
-                    self.ast.tokens.get(locations[components.left]),
-                    self.ast.tokens.get(end_locations[components.left]),
-                    "Expected a `int`, `double`, `str`, list or map.",
-                );
-            }
-
             _ = try self.generateNode(components.left, breaks);
             _ = try self.generateNode(components.right, breaks);
             try self.emitOpCode(locations[node], switch (left_type.def_type) {
@@ -789,15 +602,9 @@ fn generateBinary(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*o
 
             if (left_type.def_type == .Integer) {
                 try self.OP_SUBTRACT_I(locations[node]);
-            } else if (left_type.def_type == .Double) {
-                try self.OP_SUBTRACT_F(locations[node]);
             } else {
-                self.reporter.reportErrorAt(
-                    .arithmetic_operand_type,
-                    self.ast.tokens.get(locations[components.left]),
-                    self.ast.tokens.get(end_locations[components.left]),
-                    "Expected `int` or `double`.",
-                );
+                std.debug.assert(left_type.def_type == .Double);
+                try self.OP_SUBTRACT_F(locations[node]);
             }
         },
         .Star => {
@@ -806,15 +613,8 @@ fn generateBinary(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*o
 
             if (left_type.def_type == .Integer) {
                 try self.OP_MULTIPLY_I(locations[node]);
-            } else if (left_type.def_type == .Double) {
-                try self.OP_MULTIPLY_F(locations[node]);
             } else {
-                self.reporter.reportErrorAt(
-                    .arithmetic_operand_type,
-                    self.ast.tokens.get(locations[components.left]),
-                    self.ast.tokens.get(end_locations[components.left]),
-                    "Expected `int` or `double`.",
-                );
+                try self.OP_MULTIPLY_F(locations[node]);
             }
         },
         .Slash => {
@@ -823,15 +623,8 @@ fn generateBinary(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*o
 
             if (left_type.def_type == .Integer) {
                 try self.OP_DIVIDE_I(locations[node]);
-            } else if (left_type.def_type == .Double) {
-                try self.OP_DIVIDE_F(locations[node]);
             } else {
-                self.reporter.reportErrorAt(
-                    .arithmetic_operand_type,
-                    self.ast.tokens.get(locations[components.left]),
-                    self.ast.tokens.get(end_locations[components.left]),
-                    "Expected `int` or `double`.",
-                );
+                try self.OP_DIVIDE_F(locations[node]);
             }
         },
         .Percent => {
@@ -840,27 +633,11 @@ fn generateBinary(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*o
 
             if (left_type.def_type == .Integer) {
                 try self.OP_MOD_I(locations[node]);
-            } else if (left_type.def_type == .Double) {
-                try self.OP_MOD_F(locations[node]);
             } else {
-                self.reporter.reportErrorAt(
-                    .arithmetic_operand_type,
-                    self.ast.tokens.get(locations[components.left]),
-                    self.ast.tokens.get(end_locations[components.left]),
-                    "Expected `int` or `double`.",
-                );
+                try self.OP_MOD_F(locations[node]);
             }
         },
         .And => {
-            if (left_type.def_type != .Bool) {
-                self.reporter.reportErrorAt(
-                    .logical_operand_type,
-                    self.ast.tokens.get(locations[node]),
-                    self.ast.tokens.get(end_locations[node]),
-                    "`and` expects operands to be `bool`",
-                );
-            }
-
             _ = try self.generateNode(components.left, breaks);
 
             const end_jump: usize = try self.OP_JUMP_IF_FALSE(locations[node]);
@@ -871,15 +648,6 @@ fn generateBinary(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*o
             self.patchJump(end_jump);
         },
         .Or => {
-            if (left_type.def_type != .Bool) {
-                self.reporter.reportErrorAt(
-                    .logical_operand_type,
-                    self.ast.tokens.get(locations[node]),
-                    self.ast.tokens.get(end_locations[node]),
-                    "`and` expects operands to be `bool`",
-                );
-            }
-
             _ = try self.generateNode(components.left, breaks);
 
             const else_jump: usize = try self.OP_JUMP_IF_FALSE(locations[node]);
@@ -1011,44 +779,10 @@ fn generateCall(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj
     const components = node_components[node].Call;
 
     const callee_type_def = type_defs[components.callee].?;
-    if (callee_type_def.def_type == .Placeholder) {
-        self.reporter.reportPlaceholder(self.ast, callee_type_def.resolved_type.?.Placeholder);
-    }
 
     // This is not a call but an Enum(value)
     if (callee_type_def.def_type == .Enum) {
-        if (components.is_async) {
-            self.reporter.reportErrorAt(
-                .fiber_call_not_allowed,
-                self.ast.tokens.get(locations[components.callee]),
-                self.ast.tokens.get(end_locations[components.callee]),
-                "Can't be wrapped in a fiber",
-            );
-        }
-
-        if (components.catch_default != null) {
-            self.reporter.reportErrorAt(
-                .no_error,
-                self.ast.tokens.get(locations[components.callee]),
-                self.ast.tokens.get(end_locations[components.callee]),
-                "Doesn't raise any error",
-            );
-        }
-
-        if (components.arguments.len != 1) {
-            self.reporter.reportErrorAt(
-                .enum_argument,
-                self.ast.tokens.get(locations[components.callee]),
-                self.ast.tokens.get(end_locations[components.callee]),
-                "Enum instanciation requires only value argument",
-            );
-        }
-
         const value = components.arguments[0].value;
-
-        if (type_defs[value].?.def_type == .Placeholder) {
-            self.reporter.reportPlaceholder(self.ast, type_defs[value].?.resolved_type.?.Placeholder);
-        }
 
         _ = try self.generateNode(components.callee, breaks);
         _ = try self.generateNode(value, breaks);
@@ -1085,39 +819,10 @@ fn generateCall(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj
         else => type_defs[components.callee],
     };
 
-    if (callee_type == null) {
-        self.reporter.reportErrorAt(
-            .undefined,
-            self.ast.tokens.get(locations[components.callee]),
-            self.ast.tokens.get(end_locations[components.callee]),
-            "Callee is not defined",
-        );
-    } else if (callee_type.?.def_type == .Placeholder) {
-        self.reporter.reportPlaceholder(self.ast, callee_type.?.resolved_type.?.Placeholder);
-
-        // We know nothing about the function being called, no need to go any further
-        return null;
-    } else if (callee_type.?.def_type != .Function) {
-        self.reporter.reportErrorAt(
-            .callable,
-            self.ast.tokens.get(locations[node]),
-            self.ast.tokens.get(end_locations[node]),
-            "Can't be called",
-        );
-
-        return null;
-    } else if (callee_type.?.optional) {
-        self.reporter.reportErrorAt(
-            .callable,
-            self.ast.tokens.get(locations[node]),
-            self.ast.tokens.get(end_locations[node]),
-            "Function maybe null and can't be called",
-        );
-    }
-
     const yield_type = callee_type.?.resolved_type.?.Function.yield_type;
 
     // Function being called and current function should have matching yield type unless the current function is an entrypoint
+    // We do this type checking here because we need access to the current function node
     if (!components.is_async) {
         const current_function_typedef = type_defs[self.current.?.function_node].?.resolved_type.?.Function;
         const current_function_type = current_function_typedef.function_type;
@@ -1158,15 +863,6 @@ fn generateCall(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj
         );
     }
 
-    if (components.arguments.len > arg_count) {
-        self.reporter.reportErrorAt(
-            .call_arguments,
-            self.ast.tokens.get(locations[node]),
-            self.ast.tokens.get(end_locations[node]),
-            "Too many arguments.",
-        );
-    }
-
     // First push on the stack arguments has they are parsed
     var needs_reorder = false;
     for (components.arguments, 0..) |argument, index| {
@@ -1174,7 +870,6 @@ fn generateCall(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj
             break;
         }
 
-        var argument_type_def = type_defs[argument.value].?;
         const arg_key = if (argument.name) |arg_name|
             try self.gc.copyString(lexemes[arg_name])
         else
@@ -1183,44 +878,13 @@ fn generateCall(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj
             arg_keys[0]
         else
             arg_key.?;
-        const def_arg_type = args.get(actual_arg_key);
 
         const ref_index = args.getIndex(actual_arg_key);
         if (index != ref_index) {
             needs_reorder = true;
         }
 
-        // Type check the argument
-        if (def_arg_type) |arg_type| {
-            self.populateEmptyCollectionType(argument.value, arg_type);
-            argument_type_def = type_defs[argument.value].?;
-
-            if (argument_type_def.def_type == .Placeholder) {
-                self.reporter.reportPlaceholder(self.ast, argument_type_def.resolved_type.?.Placeholder);
-            } else if (!arg_type.eql(argument_type_def)) {
-                self.reporter.reportTypeCheck(
-                    .call_argument_type,
-                    self.ast.tokens.get(locations[components.callee]),
-                    self.ast.tokens.get(end_locations[components.callee]),
-                    arg_type,
-                    self.ast.tokens.get(locations[argument.value]),
-                    self.ast.tokens.get(end_locations[argument.value]),
-                    argument_type_def,
-                    "Bad argument type",
-                );
-            }
-
-            _ = missing_arguments.orderedRemove(actual_arg_key.string);
-        } else {
-            self.reporter.reportErrorFmt(
-                .call_arguments,
-                self.ast.tokens.get(locations[argument.value]),
-                self.ast.tokens.get(end_locations[argument.value]),
-                "Argument `{s}` does not exists.",
-                .{if (arg_key) |key| key.string else "unknown"},
-            );
-        }
-
+        _ = missing_arguments.orderedRemove(actual_arg_key.string);
         _ = try self.generateNode(argument.value, breaks);
     }
 
@@ -1244,7 +908,6 @@ fn generateCall(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj
         const missing_keys = tmp_missing_arguments.keys();
         for (missing_keys) |missing_key| {
             if (defaults.get(try self.gc.copyString(missing_key))) |default| {
-                // TODO: like ObjTypeDef, avoid generating constants multiple time for the same value
                 try self.emitConstant(locations[node], default);
                 try self.OP_CLONE(locations[node]);
 
@@ -1253,39 +916,6 @@ fn generateCall(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj
                 needs_reorder = true;
             }
         }
-    }
-
-    // Not enough arguments?
-    if (missing_arguments.count() > 0) {
-        var missing = std.Io.Writer.Allocating.init(self.gc.allocator);
-        defer missing.deinit();
-
-        for (missing_arguments.keys(), 0..) |key, i| {
-            try missing.writer.print(
-                "{s}{s}",
-                .{
-                    key,
-                    if (i < missing_arguments.keys().len - 1)
-                        ", "
-                    else
-                        "",
-                },
-            );
-        }
-
-        self.reporter.reportErrorFmt(
-            .call_arguments,
-            self.ast.tokens.get(locations[node]),
-            self.ast.tokens.get(end_locations[node]),
-            "Missing argument{s}: {s}",
-            .{
-                if (missing_arguments.count() > 1)
-                    "s"
-                else
-                    "",
-                missing.written(),
-            },
-        );
     }
 
     // Reorder arguments (don't bother is something failed before)
@@ -1326,34 +956,7 @@ fn generateCall(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj
     // Catch clause
     const error_types = callee_type.?.resolved_type.?.Function.error_types;
     if (components.catch_default) |catch_default| {
-        const catch_default_type_def = type_defs[catch_default].?;
-        if (error_types == null or error_types.?.len == 0) {
-            self.reporter.reportErrorAt(
-                .no_error,
-                self.ast.tokens.get(locations[node]),
-                self.ast.tokens.get(end_locations[node]),
-                "Function doesn't raise any error",
-            );
-        } else if (error_types != null) {
-            if (catch_default_type_def.def_type == .Placeholder) {
-                self.reporter.reportPlaceholder(self.ast, catch_default_type_def.resolved_type.?.Placeholder);
-            } else {
-                const node_type_def = type_defs[node].?;
-                // Expression
-                if (!node_type_def.eql(catch_default_type_def) and !(try node_type_def.cloneOptional(&self.gc.type_registry)).eql(catch_default_type_def)) {
-                    self.reporter.reportTypeCheck(
-                        .inline_catch_type,
-                        self.ast.tokens.get(locations[components.callee]),
-                        self.ast.tokens.get(end_locations[components.callee]),
-                        node_type_def,
-                        self.ast.tokens.get(locations[catch_default]),
-                        self.ast.tokens.get(end_locations[catch_default]),
-                        catch_default_type_def,
-                        "Bad inline catch value type",
-                    );
-                }
-            }
-
+        if (error_types != null and error_types.?.len > 0) {
             _ = try self.generateNode(catch_default, breaks);
         }
     } else if (error_types) |errors| {
@@ -1514,12 +1117,10 @@ fn generateCall(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj
     return null;
 }
 
-// FIXME: this is become a unreadable mess
 fn generateDot(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.ObjFunction {
     const node_components = self.ast.nodes.items(.components);
     const type_defs = self.ast.nodes.items(.type_def);
     const locations = self.ast.nodes.items(.location);
-    const end_locations = self.ast.nodes.items(.end_location);
     const tags = self.ast.tokens.items(.tag);
 
     const components = node_components[node].Dot;
@@ -1527,42 +1128,7 @@ fn generateDot(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.
 
     _ = try self.generateNode(components.callee, breaks);
 
-    const callee_type = type_defs[components.callee].?;
-
-    if (callee_type.def_type == .Placeholder) {
-        self.reporter.reportPlaceholder(self.ast, callee_type.resolved_type.?.Placeholder);
-    }
-
-    switch (callee_type.def_type) {
-        .ObjectInstance,
-        .Object,
-        .ProtocolInstance,
-        .Enum,
-        .EnumInstance,
-        .List,
-        .Map,
-        .String,
-        .Pattern,
-        .Fiber,
-        .ForeignContainer,
-        .Range,
-        => {},
-        else => self.reporter.reportErrorAt(
-            .field_access,
-            self.ast.tokens.get(locations[node]),
-            self.ast.tokens.get(end_locations[node]),
-            "Doesn't have field access",
-        ),
-    }
-
-    if (callee_type.optional) {
-        self.reporter.reportErrorAt(
-            .field_access,
-            self.ast.tokens.get(locations[node]),
-            self.ast.tokens.get(end_locations[node]),
-            "Optional doesn't have field access",
-        );
-    }
+    const callee_type = type_defs[components.callee] orelse self.gc.type_registry.any_type;
 
     const get_code: ?Chunk.OpCode = switch (callee_type.def_type) {
         .Object => .OP_GET_OBJECT_PROPERTY,
@@ -1624,89 +1190,6 @@ fn generateDot(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.
                         self.reporter.reportPlaceholder(self.ast, value_type_def.resolved_type.?.Placeholder);
                     }
 
-                    // Type check value
-                    switch (callee_type.def_type) {
-                        .ForeignContainer => {
-                            const field_type = callee_type.resolved_type.?.ForeignContainer.buzz_type.get(field_name).?;
-
-                            if (!field_type.eql(value_type_def)) {
-                                self.reporter.reportTypeCheck(
-                                    .assignment_value_type,
-                                    self.ast.tokens.get(callee_type.resolved_type.?.ForeignContainer.location),
-                                    self.ast.tokens.get(callee_type.resolved_type.?.ForeignContainer.location),
-                                    field_type,
-                                    self.ast.tokens.get(locations[value]),
-                                    self.ast.tokens.get(end_locations[value]),
-                                    value_type_def,
-                                    "Bad property type",
-                                );
-                            }
-                        },
-                        .ObjectInstance, .Object => {
-                            if (field.?.method or
-                                (callee_type.def_type == .ObjectInstance and field.?.static) or
-                                (callee_type.def_type == .Object and !field.?.static))
-                            {
-                                self.reporter.reportErrorFmt(
-                                    .assignable,
-                                    self.ast.tokens.get(locations[components.callee]),
-                                    self.ast.tokens.get(end_locations[components.callee]),
-                                    "`{s}` is not assignable",
-                                    .{
-                                        field_name,
-                                    },
-                                );
-                            } else if (field.?.final) {
-                                self.reporter.reportErrorFmt(
-                                    .constant_property,
-                                    self.ast.tokens.get(locations[components.callee]),
-                                    self.ast.tokens.get(end_locations[components.callee]),
-                                    "`{s}` is final",
-                                    .{
-                                        field_name,
-                                    },
-                                );
-                            } else if (callee_type.def_type == .ObjectInstance and !callee_type.resolved_type.?.ObjectInstance.mutable) {
-                                self.reporter.reportWithOrigin(
-                                    .not_mutable,
-                                    self.ast.tokens.get(locations[components.callee]),
-                                    self.ast.tokens.get(end_locations[components.callee]),
-                                    self.ast.tokens.get(
-                                        callee_type.resolved_type.?.ObjectInstance.of
-                                            .resolved_type.?.Object.location,
-                                    ),
-                                    self.ast.tokens.get(
-                                        callee_type.resolved_type.?.ObjectInstance.of
-                                            .resolved_type.?.Object.location,
-                                    ),
-                                    "Instance of `{s}` is not mutable",
-                                    .{
-                                        callee_type.resolved_type.?.ObjectInstance.of
-                                            .resolved_type.?.Object.qualified_name.string,
-                                    },
-                                    "declared here",
-                                );
-                            }
-
-                            self.populateEmptyCollectionType(value, field.?.type_def);
-                            value_type_def = type_defs[value].?;
-
-                            if (!field.?.type_def.eql(value_type_def)) {
-                                self.reporter.reportTypeCheck(
-                                    .assignment_value_type,
-                                    self.ast.tokens.get(field.?.location),
-                                    self.ast.tokens.get(field.?.location),
-                                    field.?.type_def,
-                                    self.ast.tokens.get(locations[value]),
-                                    self.ast.tokens.get(end_locations[value]),
-                                    value_type_def,
-                                    "Bad property type",
-                                );
-                            }
-                        },
-                        else => unreachable,
-                    }
-
                     switch (tags[assign_token]) {
                         .PlusEqual,
                         .MinusEqual,
@@ -1730,52 +1213,6 @@ fn generateDot(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.
                                 else
                                     get_code.?,
                                 @intCast(field_index),
-                            );
-                        },
-                        else => {},
-                    }
-
-                    // Type check that operator is allowed
-                    switch (tags[assign_token]) {
-                        .PlusEqual => switch (type_defs[value].?.def_type) {
-                            .Integer,
-                            .Double,
-                            .List,
-                            .Map,
-                            .String,
-                            => {},
-                            else => self.reporter.report(
-                                .arithmetic_operand_type,
-                                self.ast.tokens.get(assign_token),
-                                self.ast.tokens.get(assign_token),
-                                "Addition is only allowed for types `int`, `double`, list, map and `str`",
-                            ),
-                        },
-                        .MinusEqual,
-                        .StarEqual,
-                        .SlashEqual,
-                        .PercentEqual,
-                        => switch (type_defs[value].?.def_type) {
-                            .Integer, .Double => {},
-                            else => self.reporter.report(
-                                .arithmetic_operand_type,
-                                self.ast.tokens.get(assign_token),
-                                self.ast.tokens.get(assign_token),
-                                "Operator is only allowed for types `int`, `double`",
-                            ),
-                        },
-                        .ShiftRightEqual,
-                        .ShiftLeftEqual,
-                        .XorEqual,
-                        .BorEqual,
-                        .BnotEqual,
-                        .AmpersandEqual,
-                        => if (type_defs[value].?.def_type != .Integer) {
-                            self.reporter.report(
-                                .arithmetic_operand_type,
-                                self.ast.tokens.get(assign_token),
-                                self.ast.tokens.get(assign_token),
-                                "Operator is only allowed for `int`",
                             );
                         },
                         else => {},
@@ -1832,28 +1269,12 @@ fn generateDot(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.
                     );
                 },
                 .Call => {
-                    if (callee_type.def_type == .ForeignContainer) {
-                        self.reporter.reportErrorAt(
-                            .callable,
-                            self.ast.tokens.get(locations[components.callee]),
-                            self.ast.tokens.get(end_locations[components.callee]),
-                            "Not callable",
-                        );
-                    }
-
                     // Static call
                     if (callee_type.def_type == .Object) {
                         try self.emitCodeArg(
                             locations[node],
                             get_code.?,
                             @intCast(field.?.index),
-                        );
-                    } else if (field.?.mutable and !callee_type.resolved_type.?.ObjectInstance.mutable) {
-                        self.reporter.report(
-                            .not_mutable,
-                            self.ast.tokens.get(components.identifier),
-                            self.ast.tokens.get(components.identifier),
-                            "Method requires mutable instance",
                         );
                     }
 
@@ -1872,21 +1293,6 @@ fn generateDot(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.
         },
         .ProtocolInstance => {
             if (components.member_kind == .Call) {
-                const field_name = self.ast.tokens.items(.lexeme)[components.identifier];
-                const field = callee_type.resolved_type.?.ProtocolInstance.of
-                    .resolved_type.?.Protocol
-                    .methods
-                    .get(field_name);
-
-                if (field.?.mutable and !callee_type.resolved_type.?.ProtocolInstance.mutable) {
-                    self.reporter.report(
-                        .not_mutable,
-                        self.ast.tokens.get(components.identifier),
-                        self.ast.tokens.get(components.identifier),
-                        "Method requires mutable instance",
-                    );
-                }
-
                 _ = try self.generateNode(components.value_or_call_or_enum.Call, breaks);
             } else {
                 std.debug.assert(components.member_kind == .Ref);
@@ -1910,40 +1316,7 @@ fn generateDot(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.
         },
         .List, .Map, .Range => {
             if (components.member_kind == .Call) {
-                const identifier = self.ast.tokens.items(.lexeme)[components.identifier];
-
                 try self.OP_COPY(locations[node], 0);
-
-                switch (callee_type.def_type) {
-                    .List => if (callee_type.resolved_type.?.List.methods.get(identifier).?.mutable and
-                        !callee_type.resolved_type.?.List.mutable)
-                    {
-                        self.reporter.reportErrorFmt(
-                            .not_mutable,
-                            self.ast.tokens.get(components.identifier),
-                            self.ast.tokens.get(components.identifier),
-                            "Method `{s}` requires mutable list",
-                            .{
-                                identifier,
-                            },
-                        );
-                    },
-                    .Map => if (callee_type.resolved_type.?.Map.methods.get(identifier).?.mutable and
-                        !callee_type.resolved_type.?.Map.mutable)
-                    {
-                        self.reporter.reportErrorFmt(
-                            .not_mutable,
-                            self.ast.tokens.get(components.identifier),
-                            self.ast.tokens.get(components.identifier),
-                            "Method `{s}` requires mutable list",
-                            .{
-                                identifier,
-                            },
-                        );
-                    },
-                    else => {},
-                }
-
                 _ = try self.generateNode(components.value_or_call_or_enum.Call, breaks);
             } else {
                 std.debug.assert(components.member_kind != .Value);
@@ -1971,8 +1344,6 @@ fn generateDot(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.
 
 fn generateDoUntil(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.ObjFunction {
     const locations = self.ast.nodes.items(.location);
-    const end_locations = self.ast.nodes.items(.end_location);
-    const type_defs = self.ast.nodes.items(.type_def);
     const node_components = self.ast.nodes.items(.components);
     const components = node_components[node].DoUntil;
 
@@ -1982,22 +1353,6 @@ fn generateDoUntil(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*
     defer lbreaks.deinit(self.gc.allocator);
 
     _ = try self.generateNode(components.body, &lbreaks);
-
-    const condition_type_def = type_defs[components.condition].?;
-
-    if (condition_type_def.def_type == .Placeholder) {
-        self.reporter.reportPlaceholder(self.ast, condition_type_def.resolved_type.?.Placeholder);
-    }
-
-    if (condition_type_def.def_type != .Bool) {
-        self.reporter.reportErrorAt(
-            .do_condition_type,
-            self.ast.tokens.get(locations[components.condition]),
-            self.ast.tokens.get(end_locations[components.condition]),
-            "`do` condition must be bool",
-        );
-    }
-
     _ = try self.generateNode(components.condition, &lbreaks);
 
     try self.OP_NOT(locations[node]);
@@ -2025,68 +1380,16 @@ fn generateDoUntil(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*
 
 fn generateEnum(self: *Self, node: Ast.Node.Index, _: ?*Breaks) Error!?*obj.ObjFunction {
     const locations = self.ast.nodes.items(.location);
-    const end_locations = self.ast.nodes.items(.end_location);
-    const type_defs = self.ast.nodes.items(.type_def);
     const node_components = self.ast.nodes.items(.components);
     const components = node_components[node].Enum;
 
-    const enum_type = type_defs[node].?.resolved_type.?.Enum.enum_type;
-    if (enum_type.def_type == .Placeholder) {
-        self.reporter.reportPlaceholder(self.ast, enum_type.resolved_type.?.Placeholder);
-
-        return null;
-    }
-
-    switch (enum_type.def_type) {
-        .String,
-        .Integer,
-        .Double,
-        .Pattern,
-        .UserData,
-        .Void,
-        .Range,
-        => {},
-        else => {
-            self.reporter.reportErrorAt(
-                .syntax,
-                self.ast.tokens.get(locations[node]),
-                self.ast.tokens.get(end_locations[node]),
-                "Type not allowed as enum value",
-            );
-            return null;
-        },
-    }
-
-    for (components.cases) |case| {
-        const case_type_def = if (case.value) |value|
-            type_defs[value].?
-        else
-            null;
-
-        if (case_type_def) |case_type| {
-            if (case_type.def_type == .Placeholder) {
-                self.reporter.reportPlaceholder(self.ast, case_type.resolved_type.?.Placeholder);
-            } else if (!((try enum_type.toInstance(&self.gc.type_registry, false))).eql(case_type)) {
-                self.reporter.reportTypeCheck(
-                    .enum_case_type,
-                    self.ast.tokens.get(locations[node]),
-                    self.ast.tokens.get(end_locations[node]),
-                    (try enum_type.toInstance(
-                        &self.gc.type_registry,
-                        false,
-                    )),
-                    self.ast.tokens.get(locations[case.value.?]),
-                    self.ast.tokens.get(end_locations[case.value.?]),
-                    case_type,
-                    "Bad enum case type",
-                );
-            }
-        }
-    }
-
     try self.OP_CONSTANT(
         locations[node],
-        try self.ast.toValue(node, self.gc),
+        try self.ast.toValue(
+            node,
+            &self.reporter,
+            self.gc,
+        ),
     );
     try self.OP_DEFINE_GLOBAL(
         locations[node],
@@ -2155,7 +1458,11 @@ fn generateExpression(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error
 fn generateFloat(self: *Self, node: Ast.Node.Index, _: ?*Breaks) Error!?*obj.ObjFunction {
     try self.emitConstant(
         self.ast.nodes.items(.location)[node],
-        try self.ast.toValue(node, self.gc),
+        try self.ast.toValue(
+            node,
+            &self.reporter,
+            self.gc,
+        ),
     );
 
     try self.patchOptJumps(node);
@@ -2171,7 +1478,11 @@ fn generateFor(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.
     const node_components = self.ast.nodes.items(.components);
 
     const components = node_components[node].For;
-    if (try self.ast.isConstant(self.gc.allocator, components.condition) and !(try self.ast.toValue(components.condition, self.gc)).boolean()) {
+    if (try self.ast.isConstant(self.gc.allocator, components.condition) and !(try self.ast.toValue(
+        components.condition,
+        &self.reporter,
+        self.gc,
+    )).boolean()) {
         try self.patchOptJumps(node);
 
         return null;
@@ -2251,23 +1562,7 @@ fn generateFor(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.
 
 fn generateForceUnwrap(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.ObjFunction {
     const locations = self.ast.nodes.items(.location);
-    const end_locations = self.ast.nodes.items(.end_location);
     const components = self.ast.nodes.items(.components)[node].ForceUnwrap;
-
-    if (components.original_type.def_type == .Placeholder) {
-        self.reporter.reportPlaceholder(self.ast, components.original_type.resolved_type.?.Placeholder);
-
-        return null;
-    }
-
-    if (!components.original_type.optional) {
-        self.reporter.reportErrorAt(
-            .optional,
-            self.ast.tokens.get(locations[components.unwrapped]),
-            self.ast.tokens.get(end_locations[components.unwrapped]),
-            "Not an optional",
-        );
-    }
 
     _ = try self.generateNode(components.unwrapped, breaks);
 
@@ -2282,184 +1577,18 @@ fn generateForceUnwrap(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Erro
 fn generateForEach(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.ObjFunction {
     const node_components = self.ast.nodes.items(.components);
     const locations = self.ast.nodes.items(.location);
-    const end_locations = self.ast.nodes.items(.end_location);
     const type_defs = self.ast.nodes.items(.type_def);
     const components = node_components[node].ForEach;
 
-    // Type checking
     const iterable_type_def = type_defs[components.iterable].?;
-    var key_type_def = type_defs[components.key].?;
-    const value_type_def = type_defs[components.value].?;
-    if (iterable_type_def.def_type == .Placeholder) {
-        self.reporter.reportPlaceholder(self.ast, iterable_type_def.resolved_type.?.Placeholder);
-    } else {
-        if (!components.key_omitted) {
-            if (key_type_def.def_type == .Placeholder) {
-                self.reporter.reportPlaceholder(self.ast, key_type_def.resolved_type.?.Placeholder);
-            }
-
-            switch (iterable_type_def.def_type) {
-                .String, .List => {
-                    if (key_type_def.def_type != .Integer) {
-                        self.reporter.reportErrorAt(
-                            .foreach_key_type,
-                            self.ast.tokens.get(locations[components.key]),
-                            self.ast.tokens.get(end_locations[components.key]),
-                            "Expected `int`.",
-                        );
-                    }
-                },
-                .Map => {
-                    if (!iterable_type_def.resolved_type.?.Map.key_type.strictEql(key_type_def)) {
-                        self.reporter.reportTypeCheck(
-                            .foreach_key_type,
-                            self.ast.tokens.get(locations[components.iterable]),
-                            self.ast.tokens.get(end_locations[components.iterable]),
-                            iterable_type_def.resolved_type.?.Map.key_type,
-                            self.ast.tokens.get(locations[components.key]),
-                            self.ast.tokens.get(end_locations[components.key]),
-                            key_type_def,
-                            "Bad key type",
-                        );
-                    }
-                },
-                .Enum => self.reporter.reportErrorAt(
-                    .foreach_key_type,
-                    self.ast.tokens.get(locations[components.key]),
-                    self.ast.tokens.get(end_locations[components.key]),
-                    "No key available when iterating over enum.",
-                ),
-                .Range => self.reporter.reportErrorAt(
-                    .foreach_key_type,
-                    self.ast.tokens.get(locations[components.key]),
-                    self.ast.tokens.get(end_locations[components.key]),
-                    "No key available when iterating over range.",
-                ),
-                else => self.reporter.reportErrorAt(
-                    .foreach_iterable,
-                    self.ast.tokens.get(locations[components.iterable]),
-                    self.ast.tokens.get(end_locations[components.iterable]),
-                    "Not iterable.",
-                ),
-            }
-        } else {
-            // Key was omitted, put the correct type in the key var declation to avoid raising errors
-            switch (iterable_type_def.def_type) {
-                .Map => key_type_def = iterable_type_def.resolved_type.?.Map.key_type,
-                .String, .List => key_type_def = self.gc.type_registry.int_type,
-                else => {},
-            }
-        }
-
-        if (value_type_def.def_type == .Placeholder) {
-            self.reporter.reportPlaceholder(self.ast, value_type_def.resolved_type.?.Placeholder);
-        }
-
-        switch (iterable_type_def.def_type) {
-            .Map => {
-                if (!iterable_type_def.resolved_type.?.Map.value_type.strictEql(value_type_def)) {
-                    self.reporter.reportTypeCheck(
-                        .foreach_value_type,
-                        self.ast.tokens.get(locations[components.iterable]),
-                        self.ast.tokens.get(end_locations[components.iterable]),
-                        iterable_type_def.resolved_type.?.Map.value_type,
-                        self.ast.tokens.get(locations[components.value]),
-                        self.ast.tokens.get(end_locations[components.value]),
-                        value_type_def,
-                        "Bad value type",
-                    );
-                }
-            },
-            .List => {
-                if (!iterable_type_def.resolved_type.?.List.item_type.strictEql(value_type_def)) {
-                    self.reporter.reportTypeCheck(
-                        .foreach_value_type,
-                        self.ast.tokens.get(locations[components.iterable]),
-                        self.ast.tokens.get(end_locations[components.iterable]),
-                        iterable_type_def.resolved_type.?.List.item_type,
-                        self.ast.tokens.get(locations[components.value]),
-                        self.ast.tokens.get(end_locations[components.value]),
-                        value_type_def,
-                        "Bad value type",
-                    );
-                }
-            },
-            .Range => {
-                if (value_type_def.def_type != .Integer or value_type_def.optional) {
-                    self.reporter.reportTypeCheck(
-                        .foreach_value_type,
-                        self.ast.tokens.get(locations[components.iterable]),
-                        self.ast.tokens.get(end_locations[components.iterable]),
-                        self.gc.type_registry.int_type,
-                        self.ast.tokens.get(locations[components.value]),
-                        self.ast.tokens.get(end_locations[components.value]),
-                        value_type_def,
-                        "Bad value type",
-                    );
-                }
-            },
-            .String => {
-                if (value_type_def.def_type != .String) {
-                    self.reporter.reportTypeCheck(
-                        .foreach_value_type,
-                        self.ast.tokens.get(locations[components.iterable]),
-                        self.ast.tokens.get(end_locations[components.iterable]),
-                        self.gc.type_registry.str_type,
-                        self.ast.tokens.get(locations[components.value]),
-                        self.ast.tokens.get(end_locations[components.value]),
-                        value_type_def,
-                        "Bad value type",
-                    );
-                }
-            },
-            .Enum => {
-                const iterable_type = try iterable_type_def.toInstance(
-                    &self.gc.type_registry,
-                    false,
-                );
-                if (!iterable_type.strictEql(value_type_def)) {
-                    self.reporter.reportTypeCheck(
-                        .foreach_value_type,
-                        self.ast.tokens.get(locations[components.iterable]),
-                        self.ast.tokens.get(end_locations[components.iterable]),
-                        iterable_type,
-                        self.ast.tokens.get(locations[components.value]),
-                        self.ast.tokens.get(end_locations[components.value]),
-                        value_type_def,
-                        "Bad value type",
-                    );
-                }
-            },
-            .Fiber => {
-                const iterable_type = try iterable_type_def.resolved_type.?.Fiber.yield_type.toInstance(
-                    &self.gc.type_registry,
-                    false,
-                );
-                if (!iterable_type.strictEql(value_type_def)) {
-                    self.reporter.reportTypeCheck(
-                        .foreach_value_type,
-                        self.ast.tokens.get(locations[components.iterable]),
-                        self.ast.tokens.get(end_locations[components.iterable]),
-                        iterable_type,
-                        self.ast.tokens.get(locations[components.value]),
-                        self.ast.tokens.get(end_locations[components.value]),
-                        value_type_def,
-                        "Bad value type",
-                    );
-                }
-            },
-            else => self.reporter.reportErrorAt(
-                .foreach_iterable,
-                self.ast.tokens.get(locations[components.iterable]),
-                self.ast.tokens.get(end_locations[components.iterable]),
-                "Not iterable.",
-            ),
-        }
-    }
 
     // If iterable constant and empty, skip the node
     if (try self.ast.isConstant(self.gc.allocator, components.iterable)) {
-        const iterable = (try self.ast.toValue(components.iterable, self.gc)).obj();
+        const iterable = (try self.ast.toValue(
+            components.iterable,
+            &self.reporter,
+            self.gc,
+        )).obj();
 
         if (switch (iterable.obj_type) {
             .List => obj.ObjList.cast(iterable).?.items.items.len == 0,
@@ -2598,7 +1727,11 @@ fn generateFunction(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?
                         try node_type_def.resolved_type.?.Function.defaults.put(
                             self.gc.allocator,
                             try self.gc.copyString(self.ast.tokens.items(.lexeme)[argument.name]),
-                            try self.ast.toValue(default, self.gc),
+                            try self.ast.toValue(
+                                default,
+                                &self.reporter,
+                                self.gc,
+                            ),
                         );
                     }
                 }
@@ -2817,99 +1950,10 @@ fn generateFunDeclaration(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) E
 }
 
 fn generateGenericResolve(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.ObjFunction {
-    const type_def = self.ast.nodes.items(.type_def)[node].?;
-    const expr = self.ast.nodes.items(.components)[node].GenericResolve.expression;
-    const node_location = self.ast.nodes.items(.location)[node];
-    const node_end_location = self.ast.nodes.items(.end_location)[node];
-
-    switch (type_def.def_type) {
-        .Function => {
-            const function_type = type_def.resolved_type.?.Function;
-
-            if (function_type.generic_types.count() > 0 and
-                (function_type.resolved_generics == null or function_type.resolved_generics.?.len < function_type.generic_types.count()))
-            {
-                self.reporter.reportErrorFmt(
-                    .generic_type,
-                    self.ast.tokens.get(node_location),
-                    self.ast.tokens.get(node_end_location),
-                    "Missing generic types. Expected {} got {}.",
-                    .{
-                        function_type.generic_types.count(),
-                        if (function_type.resolved_generics == null)
-                            0
-                        else
-                            function_type.resolved_generics.?.len,
-                    },
-                );
-            } else if (function_type.resolved_generics != null and function_type.resolved_generics.?.len > function_type.generic_types.count()) {
-                self.reporter.reportErrorFmt(
-                    .generic_type,
-                    self.ast.tokens.get(node_location),
-                    self.ast.tokens.get(node_end_location),
-                    "Too many generic types. Expected {} got {}.",
-                    .{
-                        function_type.generic_types.count(),
-                        if (function_type.resolved_generics == null)
-                            0
-                        else
-                            function_type.resolved_generics.?.len,
-                    },
-                );
-            }
-        },
-        .Object => {
-            const object_type = type_def.resolved_type.?.Object;
-
-            if (object_type.generic_types.count() > 0 and
-                (object_type.resolved_generics == null or object_type.resolved_generics.?.len < object_type.generic_types.count()))
-            {
-                self.reporter.reportErrorFmt(
-                    .generic_type,
-                    self.ast.tokens.get(node_location),
-                    self.ast.tokens.get(node_end_location),
-                    "Missing generic types. Expected {} got {}.",
-                    .{
-                        object_type.generic_types.count(),
-                        if (object_type.resolved_generics == null)
-                            0
-                        else
-                            object_type.resolved_generics.?.len,
-                    },
-                );
-            } else if (object_type.resolved_generics != null and object_type.resolved_generics.?.len > object_type.generic_types.count()) {
-                self.reporter.reportErrorFmt(
-                    .generic_type,
-                    self.ast.tokens.get(node_location),
-                    self.ast.tokens.get(node_end_location),
-                    "Too many generic types. Expected {} got {}.",
-                    .{
-                        object_type.generic_types.count(),
-                        if (object_type.resolved_generics == null)
-                            0
-                        else
-                            object_type.resolved_generics.?.len,
-                    },
-                );
-            }
-        },
-        else => {
-            const type_def_str = type_def.toStringAlloc(self.gc.allocator, false) catch unreachable;
-            defer self.gc.allocator.free(type_def_str);
-
-            self.reporter.reportErrorFmt(
-                .generic_type,
-                self.ast.tokens.get(node_location),
-                self.ast.tokens.get(node_end_location),
-                "Type `{s}` does not support generic types",
-                .{
-                    type_def_str,
-                },
-            );
-        },
-    }
-
-    _ = try self.generateNode(expr, breaks);
+    _ = try self.generateNode(
+        self.ast.nodes.items(.components)[node].GenericResolve.expression,
+        breaks,
+    );
 
     try self.patchOptJumps(node);
     try self.endScope(node);
@@ -2932,79 +1976,20 @@ fn generateGrouping(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?
 fn generateIf(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.ObjFunction {
     const type_defs = self.ast.nodes.items(.type_def);
     const locations = self.ast.nodes.items(.location);
-    const end_locations = self.ast.nodes.items(.end_location);
     const node_components = self.ast.nodes.items(.components);
     const components = node_components[node].If;
     const location = locations[node];
-
-    // Type checking
-    if (type_defs[components.condition].?.def_type == .Placeholder) {
-        self.reporter.reportPlaceholder(self.ast, type_defs[components.condition].?.resolved_type.?.Placeholder);
-    }
-
-    if (!components.is_statement) {
-        if (type_defs[components.body].?.def_type == .Placeholder) {
-            self.reporter.reportPlaceholder(self.ast, type_defs[components.body].?.resolved_type.?.Placeholder);
-        }
-
-        if (type_defs[components.else_branch.?].?.def_type == .Placeholder) {
-            self.reporter.reportPlaceholder(self.ast, type_defs[components.else_branch.?].?.resolved_type.?.Placeholder);
-        }
-
-        // Both should have same type
-        if (!type_defs[node].?.eql(type_defs[components.body].?)) {
-            self.reporter.reportTypeCheck(
-                .inline_if_body_type,
-                self.ast.tokens.get(location),
-                self.ast.tokens.get(end_locations[node]),
-                type_defs[node].?,
-                self.ast.tokens.get(locations[components.body]),
-                self.ast.tokens.get(end_locations[components.body]),
-                type_defs[components.body].?,
-                "Inline if body type not matching",
-            );
-        }
-
-        if (!type_defs[node].?.eql(type_defs[components.else_branch.?].?)) {
-            self.reporter.reportTypeCheck(
-                .inline_if_else_type,
-                self.ast.tokens.get(location),
-                self.ast.tokens.get(end_locations[node]),
-                type_defs[node].?,
-                self.ast.tokens.get(locations[components.else_branch.?]),
-                self.ast.tokens.get(end_locations[components.else_branch.?]),
-                type_defs[components.else_branch.?].?,
-                "Inline if else type not matching",
-            );
-        }
-    }
-
-    if (components.casted_type == null and components.unwrapped_identifier == null) {
-        if (type_defs[components.condition].?.def_type != .Bool) {
-            self.reporter.reportErrorAt(
-                .if_condition_type,
-                self.ast.tokens.get(locations[components.condition]),
-                self.ast.tokens.get(end_locations[components.condition]),
-                "`if` condition must be bool",
-            );
-        }
-    } else if (components.casted_type == null) {
-        if (!type_defs[components.condition].?.optional) {
-            self.reporter.reportErrorAt(
-                .optional,
-                self.ast.tokens.get(locations[components.condition]),
-                self.ast.tokens.get(end_locations[components.condition]),
-                "Expected optional",
-            );
-        }
-    }
 
     // If condition is a constant expression, no need to generate branches
     if (try self.ast.isConstant(self.gc.allocator, components.condition) and
         components.unwrapped_identifier == null and
         components.casted_type == null)
     {
-        const condition = try self.ast.toValue(components.condition, self.gc);
+        const condition = try self.ast.toValue(
+            components.condition,
+            &self.reporter,
+            self.gc,
+        );
 
         if (condition.boolean()) {
             _ = try self.generateNode(components.body, breaks);
@@ -3079,7 +2064,11 @@ fn generateImport(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*o
 fn generateInteger(self: *Self, node: Ast.Node.Index, _: ?*Breaks) Error!?*obj.ObjFunction {
     try self.emitConstant(
         self.ast.nodes.items(.location)[node],
-        try self.ast.toValue(node, self.gc),
+        try self.ast.toValue(
+            node,
+            &self.reporter,
+            self.gc,
+        ),
     );
 
     try self.patchOptJumps(node);
@@ -3091,7 +2080,11 @@ fn generateInteger(self: *Self, node: Ast.Node.Index, _: ?*Breaks) Error!?*obj.O
 fn generateIs(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.ObjFunction {
     const components = self.ast.nodes.items(.components)[node].Is;
     const location = self.ast.nodes.items(.location)[node];
-    const constant = try self.ast.toValue(components.constant, self.gc);
+    const constant = try self.ast.toValue(
+        components.constant,
+        &self.reporter,
+        self.gc,
+    );
 
     std.debug.assert(constant.isObj());
     std.debug.assert(constant.obj().obj_type == .Type);
@@ -3114,11 +2107,8 @@ fn generateIs(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.O
 
 fn generateList(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.ObjFunction {
     const locations = self.ast.nodes.items(.location);
-    const end_locations = self.ast.nodes.items(.end_location);
     const components = self.ast.nodes.items(.components)[node].List;
     const type_defs = self.ast.nodes.items(.type_def);
-
-    const item_type = type_defs[node].?.resolved_type.?.List.item_type;
 
     try self.OP_LIST(
         locations[node],
@@ -3126,22 +2116,7 @@ fn generateList(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj
     );
 
     for (components.items) |item| {
-        if (item_type.def_type == .Placeholder) {
-            self.reporter.reportPlaceholder(self.ast, type_defs[item].?.resolved_type.?.Placeholder);
-        } else if (!item_type.eql(type_defs[item].?)) {
-            self.reporter.reportTypeCheck(
-                .list_item_type,
-                self.ast.tokens.get(locations[node]),
-                self.ast.tokens.get(end_locations[node]),
-                item_type,
-                self.ast.tokens.get(locations[item]),
-                self.ast.tokens.get(end_locations[item]),
-                type_defs[item].?,
-                "Bad list type",
-            );
-        } else {
-            _ = try self.generateNode(item, breaks);
-        }
+        _ = try self.generateNode(item, breaks);
     }
 
     if (components.items.len > 0) {
@@ -3159,19 +2134,8 @@ fn generateList(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj
 
 fn generateMap(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.ObjFunction {
     const locations = self.ast.nodes.items(.location);
-    const end_locations = self.ast.nodes.items(.end_location);
     const components = self.ast.nodes.items(.components)[node].Map;
     const type_defs = self.ast.nodes.items(.type_def);
-
-    const key_type = if (components.explicit_key_type) |kt|
-        type_defs[kt]
-    else
-        null;
-
-    const value_type = if (components.explicit_value_type) |vt|
-        type_defs[vt]
-    else
-        null;
 
     try self.OP_MAP(
         locations[node],
@@ -3181,40 +2145,6 @@ fn generateMap(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.
     for (components.entries) |entry| {
         _ = try self.generateNode(entry.key, breaks);
         _ = try self.generateNode(entry.value, breaks);
-
-        if (type_defs[entry.key].?.def_type == .Placeholder) {
-            self.reporter.reportPlaceholder(self.ast, type_defs[entry.key].?.resolved_type.?.Placeholder);
-        }
-
-        if (type_defs[entry.value].?.def_type == .Placeholder) {
-            self.reporter.reportPlaceholder(self.ast, type_defs[entry.value].?.resolved_type.?.Placeholder);
-        }
-
-        if (key_type != null and !key_type.?.eql(type_defs[entry.key].?)) {
-            self.reporter.reportTypeCheck(
-                .map_key_type,
-                self.ast.tokens.get(locations[node]),
-                self.ast.tokens.get(end_locations[node]),
-                key_type.?,
-                self.ast.tokens.get(locations[entry.key]),
-                self.ast.tokens.get(end_locations[entry.key]),
-                type_defs[entry.key].?,
-                "Bad key type",
-            );
-        }
-
-        if (value_type != null and !value_type.?.eql(type_defs[entry.value].?)) {
-            self.reporter.reportTypeCheck(
-                .map_value_type,
-                self.ast.tokens.get(locations[node]),
-                self.ast.tokens.get(end_locations[node]),
-                value_type.?,
-                self.ast.tokens.get(locations[entry.value]),
-                self.ast.tokens.get(end_locations[entry.value]),
-                type_defs[entry.value].?,
-                "Bad value type",
-            );
-        }
     }
 
     if (components.entries.len > 0) {
@@ -3233,7 +2163,6 @@ fn generateMap(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.
 fn generateNamedVariable(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.ObjFunction {
     const components = self.ast.nodes.items(.components)[node].NamedVariable;
     const locations = self.ast.nodes.items(.location);
-    const end_locations = self.ast.nodes.items(.end_location);
     const type_defs = self.ast.nodes.items(.type_def);
     const tags = self.ast.tokens.items(.tag);
 
@@ -3256,24 +2185,6 @@ fn generateNamedVariable(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Er
     }
 
     if (components.value) |value| {
-        // Type checking
-        if (type_defs[node].?.def_type == .Placeholder) {
-            self.reporter.reportPlaceholder(self.ast, type_defs[node].?.resolved_type.?.Placeholder);
-        }
-
-        if (!type_defs[node].?.eql(type_defs[value].?)) {
-            self.reporter.reportTypeCheck(
-                .assignment_value_type,
-                self.ast.tokens.get(locations[node]),
-                self.ast.tokens.get(end_locations[node]),
-                type_defs[node].?,
-                self.ast.tokens.get(locations[value]),
-                self.ast.tokens.get(end_locations[value]),
-                type_defs[value].?,
-                "Bad value type",
-            );
-        }
-
         switch (tags[components.assign_token.?]) {
             .PlusEqual,
             .MinusEqual,
@@ -3291,52 +2202,6 @@ fn generateNamedVariable(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Er
                 get_op,
                 @intCast(components.slot),
             ),
-            else => {},
-        }
-
-        // Type check that operator is allowed
-        switch (tags[components.assign_token.?]) {
-            .PlusEqual => switch (type_defs[node].?.def_type) {
-                .Integer,
-                .Double,
-                .List,
-                .Map,
-                .String,
-                => {},
-                else => self.reporter.report(
-                    .arithmetic_operand_type,
-                    self.ast.tokens.get(components.assign_token.?),
-                    self.ast.tokens.get(components.assign_token.?),
-                    "Addition is only allowed for types `int`, `double`, list, map and `str`",
-                ),
-            },
-            .MinusEqual,
-            .StarEqual,
-            .SlashEqual,
-            .PercentEqual,
-            => switch (type_defs[node].?.def_type) {
-                .Integer, .Double => {},
-                else => self.reporter.report(
-                    .arithmetic_operand_type,
-                    self.ast.tokens.get(components.assign_token.?),
-                    self.ast.tokens.get(components.assign_token.?),
-                    "Operator is only allowed for types `int`, `double`",
-                ),
-            },
-            .ShiftRightEqual,
-            .ShiftLeftEqual,
-            .XorEqual,
-            .BorEqual,
-            .BnotEqual,
-            .AmpersandEqual,
-            => if (type_defs[node].?.def_type != .Integer) {
-                self.reporter.report(
-                    .arithmetic_operand_type,
-                    self.ast.tokens.get(components.assign_token.?),
-                    self.ast.tokens.get(components.assign_token.?),
-                    "Operator is only allowed for `int`",
-                );
-            },
             else => {},
         }
 
@@ -3409,7 +2274,6 @@ fn generateNull(self: *Self, node: Ast.Node.Index, _: ?*Breaks) Error!?*obj.ObjF
 
 fn generateObjectDeclaration(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.ObjFunction {
     const locations = self.ast.nodes.items(.location);
-    const end_locations = self.ast.nodes.items(.end_location);
     const type_defs = self.ast.nodes.items(.type_def);
     const lexemes = self.ast.tokens.items(.lexeme);
     const components = self.ast.nodes.items(.components)[node].ObjectDeclaration;
@@ -3417,72 +2281,6 @@ fn generateObjectDeclaration(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks
 
     const object_type = type_defs[node].?;
     const object_def = object_type.resolved_type.?.Object;
-
-    // Check object conforms to declared protocols
-    var protocol_it = object_def.conforms_to.iterator();
-    while (protocol_it.next()) |kv| {
-        const protocol_type_def = kv.key_ptr.*;
-
-        if (protocol_type_def.def_type == .Placeholder) {
-            self.reporter.reportPlaceholder(self.ast, protocol_type_def.resolved_type.?.Placeholder);
-        } else {
-            const protocol_def = protocol_type_def.resolved_type.?.Protocol;
-
-            var method_it = protocol_def.methods.iterator();
-            while (method_it.next()) |mkv| {
-                var found = false;
-                for (components.members) |member| {
-                    if (member.method and std.mem.eql(u8, self.ast.tokens.items(.lexeme)[member.name], mkv.key_ptr.*)) {
-                        found = true;
-                        if (type_defs[member.method_or_default_value.?].?.def_type == .Placeholder) {
-                            self.reporter.reportPlaceholder(
-                                self.ast,
-                                type_defs[member.method_or_default_value.?].?.resolved_type.?.Placeholder,
-                            );
-                        } else if (!mkv.value_ptr.*.type_def.eql(type_defs[member.method_or_default_value.?].?) or
-                            mkv.value_ptr.*.mutable != object_def.fields.get(mkv.key_ptr.*).?.mutable)
-                        {
-                            self.reporter.reportTypeCheck(
-                                .protocol_conforming,
-                                self.ast.tokens.get(protocol_def.location),
-                                self.ast.tokens.get(protocol_def.location),
-                                mkv.value_ptr.*.type_def,
-                                self.ast.tokens.get(locations[member.method_or_default_value.?]),
-                                self.ast.tokens.get(end_locations[member.method_or_default_value.?]),
-                                type_defs[member.method_or_default_value.?].?,
-                                "Method not conforming to protocol",
-                            );
-                        }
-                        break;
-                    }
-                }
-
-                if (!found) {
-                    self.reporter.reportWithOrigin(
-                        .protocol_conforming,
-                        self.ast.tokens.get(location),
-                        self.ast.tokens.get(end_locations[node]),
-                        self.ast.tokens.get(
-                            protocol_def.methods_locations.get(
-                                mkv.value_ptr.*.type_def.resolved_type.?.Function.name.string,
-                            ).?,
-                        ),
-                        self.ast.tokens.get(
-                            protocol_def.methods_locations.get(
-                                mkv.value_ptr.*.type_def.resolved_type.?.Function.name.string,
-                            ).?,
-                        ),
-                        "Object declared as conforming to protocol `{s}` but doesn't implement method `{s}`",
-                        .{
-                            protocol_def.name.string,
-                            mkv.value_ptr.*.type_def.resolved_type.?.Function.name.string,
-                        },
-                        null,
-                    );
-                }
-            }
-        }
-    }
 
     // Put  object on the stack and define global with it
     try self.OP_OBJECT(location, object_type.toValue());
@@ -3501,85 +2299,17 @@ fn generateObjectDeclaration(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks
         if (member.method) {
             // Method
             const member_field = object_def.fields.get(member_name).?;
-            const member_type_def = member_field.type_def;
             const member_idx = member_field.index;
-
-            if (member_type_def.def_type == .Placeholder) {
-                self.reporter.reportPlaceholder(self.ast, member_type_def.resolved_type.?.Placeholder);
-            }
-
-            // Enforce "collect" method signature
-            if (std.mem.eql(u8, member_name, "collect")) {
-                const collect_def = member_type_def.resolved_type.?.Function;
-
-                if (collect_def.parameters.count() > 0 or
-                    collect_def.return_type.def_type != .Void or
-                    collect_def.yield_type.def_type != .Void or
-                    collect_def.error_types != null)
-                {
-                    const collect_def_str = member_type_def.toStringAlloc(self.gc.allocator, false) catch @panic("Out of memory");
-                    defer self.gc.allocator.free(collect_def_str);
-                    self.reporter.reportErrorFmt(
-                        .collect_signature,
-                        self.ast.tokens.get(locations[member.method_or_default_value.?]),
-                        self.ast.tokens.get(end_locations[member.method_or_default_value.?]),
-                        "Expected `collect` method to be `fun collect() > void` got {s}",
-                        .{
-                            collect_def_str,
-                        },
-                    );
-                }
-            } else if (std.mem.eql(u8, member_name, "toString")) { // Enforce "toString" method signature
-                const tostring_def = member_type_def.resolved_type.?.Function;
-
-                if (tostring_def.parameters.count() > 0 or
-                    tostring_def.return_type.def_type != .String or
-                    tostring_def.yield_type.def_type != .Void or
-                    tostring_def.error_types != null or
-                    tostring_def.generic_types.count() > 0)
-                {
-                    const tostring_def_str = member_type_def.toStringAlloc(self.gc.allocator, false) catch @panic("Out of memory");
-                    defer self.gc.allocator.free(tostring_def_str);
-                    self.reporter.reportErrorFmt(
-                        .tostring_signature,
-                        self.ast.tokens.get(locations[member.method_or_default_value.?]),
-                        self.ast.tokens.get(end_locations[member.method_or_default_value.?]),
-                        "Expected `toString` method to be `fun toString() > str` got {s}",
-                        .{
-                            tostring_def_str,
-                        },
-                    );
-                }
-            }
 
             _ = try self.generateNode(member.method_or_default_value.?, breaks);
             try self.OP_PROPERTY(location, @intCast(member_idx));
         } else {
             // Property
             const property_field = object_def.fields.get(member_name).?;
-            const property_type = property_field.type_def;
             const property_idx = property_field.index;
 
             // Create property default value
             if (member.method_or_default_value) |default| {
-                self.populateEmptyCollectionType(default, property_type);
-                const default_type_def = type_defs[default].?;
-
-                if (default_type_def.def_type == .Placeholder) {
-                    self.reporter.reportPlaceholder(self.ast, default_type_def.resolved_type.?.Placeholder);
-                } else if (!property_type.eql(default_type_def)) {
-                    self.reporter.reportTypeCheck(
-                        .property_default_value,
-                        self.ast.tokens.get(object_def.location),
-                        self.ast.tokens.get(object_def.location),
-                        property_type,
-                        self.ast.tokens.get(locations[default]),
-                        self.ast.tokens.get(end_locations[default]),
-                        default_type_def,
-                        "Wrong property default value type",
-                    );
-                }
-
                 if (property_field.static) {
                     try self.OP_COPY(location, 0);
                 }
@@ -3611,7 +2341,6 @@ fn generateObjectDeclaration(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks
 
 fn generateObjectInit(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.ObjFunction {
     const locations = self.ast.nodes.items(.location);
-    const end_locations = self.ast.nodes.items(.end_location);
     const type_defs = self.ast.nodes.items(.type_def);
     const lexemes = self.ast.tokens.items(.lexeme);
     const components = self.ast.nodes.items(.components)[node].ObjectInit;
@@ -3626,21 +2355,6 @@ fn generateObjectInit(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error
 
     try self.OP_CONSTANT(location, node_type_def.toValue());
 
-    if (node_type_def.def_type == .Placeholder) {
-        self.reporter.reportPlaceholder(self.ast, node_type_def.resolved_type.?.Placeholder);
-
-        return null;
-    } else if (node_type_def.def_type != .ObjectInstance and node_type_def.def_type != .ForeignContainer) {
-        self.reporter.reportErrorAt(
-            .expected_object,
-            self.ast.tokens.get(location),
-            self.ast.tokens.get(end_locations[node]),
-            "Expected object or foreign struct.",
-        );
-
-        return null;
-    }
-
     try self.emitOpCode(
         location,
         if (node_type_def.def_type == .ObjectInstance)
@@ -3648,33 +2362,6 @@ fn generateObjectInit(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error
         else
             .OP_FCONTAINER_INSTANCE,
     );
-
-    var fields = if (node_type_def.def_type == .ObjectInstance) inst: {
-        const fields = node_type_def.resolved_type.?.ObjectInstance.of.resolved_type.?.Object.fields;
-        var fields_type_defs = std.StringArrayHashMapUnmanaged(*obj.ObjTypeDef).empty;
-        var it = fields.iterator();
-        while (it.next()) |kv| {
-            try fields_type_defs.put(
-                self.gc.allocator,
-                kv.value_ptr.*.name,
-                kv.value_ptr.*.type_def,
-            );
-        }
-        break :inst fields_type_defs;
-    } else node_type_def.resolved_type.?.ForeignContainer.buzz_type;
-
-    defer if (node_type_def.def_type == .ObjectInstance) {
-        fields.deinit(self.gc.allocator);
-    };
-
-    const object_location = if (node_type_def.def_type == .ObjectInstance)
-        node_type_def.resolved_type.?.ObjectInstance.of.resolved_type.?.Object.location
-    else
-        node_type_def.resolved_type.?.ForeignContainer.location;
-
-    // Keep track of what's been initialized or not by this statement
-    var init_properties = std.StringHashMapUnmanaged(void).empty;
-    defer init_properties.deinit(self.gc.allocator);
 
     for (components.properties) |property| {
         const property_name = lexemes[property.name];
@@ -3689,98 +2376,20 @@ fn generateObjectInit(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error
             node_type_def.resolved_type.?.ForeignContainer
                 .fields.getIndex(property_name);
 
-        if (fields.get(property_name)) |prop| {
-            try self.OP_COPY(location, 0); // Will be popped by OP_SET_PROPERTY
+        try self.OP_COPY(location, 0); // Will be popped by OP_SET_PROPERTY
 
-            self.populateEmptyCollectionType(property.value, prop);
-            const value_type_def = type_defs[property.value].?;
+        _ = try self.generateNode(property.value, breaks);
 
-            if (value_type_def.def_type == .Placeholder) {
-                self.reporter.reportPlaceholder(self.ast, value_type_def.resolved_type.?.Placeholder);
-            } else if (!prop.eql(value_type_def)) {
-                if (BuildOptions.debug_placeholders) {
-                    io.print(
-                        "prop {}({}), value {}({})\n",
-                        .{
-                            @intFromPtr(prop.resolved_type.?.ObjectInstance.of),
-                            prop.optional,
-                            @intFromPtr(value_type_def.resolved_type.?.ObjectInstance.of),
-                            value_type_def.optional,
-                        },
-                    );
-                }
+        try self.emitCodeArg(
+            location,
+            if (node_type_def.def_type == .ObjectInstance)
+                .OP_SET_INSTANCE_PROPERTY
+            else
+                .OP_SET_FCONTAINER_INSTANCE_PROPERTY,
+            @intCast(property_idx.?),
+        );
+        try self.OP_POP(location); // Pop property value
 
-                const err_location = self.ast.tokens.get(
-                    if (node_type_def.def_type == .ObjectInstance)
-                        node_type_def.resolved_type.?.ObjectInstance.of
-                            .resolved_type.?.Object.fields.get(property_name).?.location
-                    else
-                        object_location,
-                );
-
-                self.reporter.reportTypeCheck(
-                    .property_type,
-                    err_location,
-                    err_location,
-                    prop,
-                    self.ast.tokens.get(locations[property.value]),
-                    self.ast.tokens.get(end_locations[property.value]),
-                    value_type_def,
-                    "Wrong property type",
-                );
-            }
-
-            _ = try self.generateNode(property.value, breaks);
-
-            try init_properties.put(self.gc.allocator, property_name, {});
-
-            try self.emitCodeArg(
-                location,
-                if (node_type_def.def_type == .ObjectInstance)
-                    .OP_SET_INSTANCE_PROPERTY
-                else
-                    .OP_SET_FCONTAINER_INSTANCE_PROPERTY,
-                @intCast(property_idx.?),
-            );
-            try self.OP_POP(location); // Pop property value
-        } else {
-            self.reporter.reportWithOrigin(
-                .property_does_not_exists,
-                self.ast.tokens.get(location),
-                self.ast.tokens.get(end_locations[node]),
-                self.ast.tokens.get(object_location),
-                self.ast.tokens.get(object_location),
-                "Property `{s}` does not exists",
-                .{property_name},
-                null,
-            );
-        }
-    }
-
-    // Did we initialized all properties without a default value?
-    // If union we're statisfied with only on field initialized
-    if (node_type_def.def_type != .ForeignContainer or node_type_def.resolved_type.?.ForeignContainer.zig_type != .Union or init_properties.count() == 0) {
-        const field_defs = if (node_type_def.def_type == .ObjectInstance)
-            node_type_def.resolved_type.?.ObjectInstance.of.resolved_type.?.Object.fields
-        else
-            null;
-
-        var it = fields.iterator();
-        while (it.next()) |kv| {
-            const field = if (field_defs) |fd| fd.get(kv.key_ptr.*) else null;
-            // If ommitted in initialization and doesn't have default value
-            if (init_properties.get(kv.key_ptr.*) == null and
-                (field == null or (!field.?.has_default and !field.?.method and !field.?.static)))
-            {
-                self.reporter.reportErrorFmt(
-                    .property_not_initialized,
-                    self.ast.tokens.get(location),
-                    self.ast.tokens.get(end_locations[node]),
-                    "Property `{s}` was not initialized and has no default value",
-                    .{kv.key_ptr.*},
-                );
-            }
-        }
     }
 
     try self.patchOptJumps(node);
@@ -3792,7 +2401,11 @@ fn generateObjectInit(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error
 fn generatePattern(self: *Self, node: Ast.Node.Index, _: ?*Breaks) Error!?*obj.ObjFunction {
     try self.emitConstant(
         self.ast.nodes.items(.location)[node],
-        try self.ast.toValue(node, self.gc),
+        try self.ast.toValue(
+            node,
+            &self.reporter,
+            self.gc,
+        ),
     );
 
     try self.patchOptJumps(node);
@@ -3820,45 +2433,8 @@ fn generateProtocolDeclaration(self: *Self, node: Ast.Node.Index, _: ?*Breaks) E
 }
 
 fn generateRange(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.ObjFunction {
-    const type_defs = self.ast.nodes.items(.type_def);
     const components = self.ast.nodes.items(.components)[node].Range;
     const locations = self.ast.nodes.items(.location);
-    const end_locations = self.ast.nodes.items(.end_location);
-
-    // Type checking
-    if (type_defs[components.low].?.def_type == .Placeholder) {
-        self.reporter.reportPlaceholder(self.ast, type_defs[components.low].?.resolved_type.?.Placeholder);
-    }
-
-    if (type_defs[components.high].?.def_type == .Placeholder) {
-        self.reporter.reportPlaceholder(self.ast, type_defs[components.high].?.resolved_type.?.Placeholder);
-    }
-
-    if (type_defs[components.low].?.def_type != .Integer) {
-        self.reporter.reportTypeCheck(
-            .range_type,
-            null,
-            null,
-            self.gc.type_registry.int_type,
-            self.ast.tokens.get(locations[components.low]),
-            self.ast.tokens.get(end_locations[components.low]),
-            type_defs[components.low].?,
-            "Bad low range limit type",
-        );
-    }
-
-    if (type_defs[components.high].?.def_type != .Integer) {
-        self.reporter.reportTypeCheck(
-            .range_type,
-            null,
-            null,
-            self.gc.type_registry.int_type,
-            self.ast.tokens.get(locations[components.high]),
-            self.ast.tokens.get(end_locations[components.high]),
-            type_defs[components.high].?,
-            "Bad high range limit type",
-        );
-    }
 
     _ = try self.generateNode(components.low, breaks);
     _ = try self.generateNode(components.high, breaks);
@@ -3873,24 +2449,7 @@ fn generateRange(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*ob
 
 fn generateResolve(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.ObjFunction {
     const fiber = self.ast.nodes.items(.components)[node].Resolve;
-    const fiber_type_def = self.ast.nodes.items(.type_def)[fiber].?;
     const locations = self.ast.nodes.items(.location);
-    const end_locations = self.ast.nodes.items(.end_location);
-
-    if (fiber_type_def.def_type == .Placeholder) {
-        self.reporter.reportPlaceholder(self.ast, fiber_type_def.resolved_type.?.Placeholder);
-
-        return null;
-    }
-
-    if (fiber_type_def.def_type != .Fiber) {
-        self.reporter.reportErrorAt(
-            .fiber,
-            self.ast.tokens.get(locations[fiber]),
-            self.ast.tokens.get(end_locations[fiber]),
-            "Not a fiber",
-        );
-    }
 
     _ = try self.generateNode(fiber, breaks);
 
@@ -3904,24 +2463,7 @@ fn generateResolve(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*
 
 fn generateResume(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.ObjFunction {
     const fiber = self.ast.nodes.items(.components)[node].Resume;
-    const fiber_type_def = self.ast.nodes.items(.type_def)[fiber].?;
     const locations = self.ast.nodes.items(.location);
-    const end_locations = self.ast.nodes.items(.end_location);
-
-    if (fiber_type_def.def_type == .Placeholder) {
-        self.reporter.reportPlaceholder(self.ast, fiber_type_def.resolved_type.?.Placeholder);
-
-        return null;
-    }
-
-    if (fiber_type_def.def_type != .Fiber) {
-        self.reporter.reportErrorAt(
-            .fiber,
-            self.ast.tokens.get(locations[fiber]),
-            self.ast.tokens.get(end_locations[fiber]),
-            "Not a fiber",
-        );
-    }
 
     _ = try self.generateNode(fiber, breaks);
 
@@ -3935,53 +2477,15 @@ fn generateResume(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*o
 
 fn generateReturn(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.ObjFunction {
     const components = self.ast.nodes.items(.components)[node].Return;
-    const type_defs = self.ast.nodes.items(.type_def);
     const locations = self.ast.nodes.items(.location);
-    const end_locations = self.ast.nodes.items(.end_location);
 
     if (components.unconditional) {
         self.current.?.return_emitted = true;
     }
 
     if (components.value) |value| {
-        const value_type_def = type_defs[value];
-        if (value_type_def == null) {
-            self.reporter.reportErrorAt(
-                .undefined,
-                self.ast.tokens.get(locations[value]),
-                self.ast.tokens.get(end_locations[value]),
-                "Unknown type.",
-            );
-        } else if (value_type_def.?.def_type == .Placeholder) {
-            self.reporter.reportPlaceholder(self.ast, value_type_def.?.resolved_type.?.Placeholder);
-        } else if (!self.current.?.function.?.type_def.resolved_type.?.Function.return_type.eql(value_type_def.?)) {
-            self.reporter.reportTypeCheck(
-                .return_type,
-                self.ast.tokens.get(locations[self.current.?.function_node]),
-                self.ast.tokens.get(end_locations[self.current.?.function_node]),
-                self.current.?.function.?.type_def.resolved_type.?.Function.return_type,
-                self.ast.tokens.get(locations[value]),
-                self.ast.tokens.get(end_locations[value]),
-                value_type_def.?,
-                "Return value",
-            );
-        }
-
         _ = try self.generateNode(value, breaks);
     } else {
-        if (self.current.?.function.?.type_def.resolved_type.?.Function.return_type.def_type != .Void) {
-            self.reporter.reportTypeCheck(
-                .return_type,
-                self.ast.tokens.get(locations[self.current.?.function_node]),
-                self.ast.tokens.get(end_locations[self.current.?.function_node]),
-                self.current.?.function.?.type_def.resolved_type.?.Function.return_type,
-                self.ast.tokens.get(locations[node]),
-                self.ast.tokens.get(end_locations[node]),
-                self.gc.type_registry.void_type,
-                "Return value",
-            );
-        }
-
         try self.OP_VOID(locations[node]);
     }
 
@@ -4009,12 +2513,6 @@ fn generateString(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*o
 
     for (elements, 0..) |element, index| {
         const element_type_def = type_defs[element].?;
-
-        if (element_type_def.def_type == .Placeholder) {
-            self.reporter.reportPlaceholder(self.ast, element_type_def.resolved_type.?.Placeholder);
-
-            continue;
-        }
 
         _ = try self.generateNode(element, breaks);
         if (element_type_def.def_type != .String or element_type_def.optional) {
@@ -4046,7 +2544,6 @@ fn generateStringLiteral(self: *Self, node: Ast.Node.Index, _: ?*Breaks) Error!?
 
 fn generateSubscript(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.ObjFunction {
     const locations = self.ast.nodes.items(.location);
-    const end_locations = self.ast.nodes.items(.end_location);
     const location = locations[node];
     const type_defs = self.ast.nodes.items(.type_def);
     const components = self.ast.nodes.items(.components)[node].Subscript;
@@ -4054,129 +2551,21 @@ fn generateSubscript(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!
     _ = try self.generateNode(components.subscripted, breaks);
 
     const subscripted_type_def = type_defs[components.subscripted].?;
-    const index_type_def = type_defs[components.index].?;
-    const value_type_def = if (components.value) |value| type_defs[value] else null;
-
-    if (subscripted_type_def.def_type == .Placeholder) {
-        self.reporter.reportPlaceholder(self.ast, subscripted_type_def.resolved_type.?.Placeholder);
-    }
-
-    if (index_type_def.def_type == .Placeholder) {
-        self.reporter.reportPlaceholder(self.ast, index_type_def.resolved_type.?.Placeholder);
-    }
-
-    if (components.value != null and value_type_def.?.def_type == .Placeholder) {
-        self.reporter.reportPlaceholder(self.ast, value_type_def.?.resolved_type.?.Placeholder);
-    }
 
     var get_code: Chunk.OpCode = .OP_GET_LIST_SUBSCRIPT;
     var set_code: Chunk.OpCode = .OP_SET_LIST_SUBSCRIPT;
     switch (subscripted_type_def.def_type) {
         .String => {
-            if (index_type_def.def_type != .Integer) {
-                self.reporter.reportErrorAt(
-                    .subscript_key_type,
-                    self.ast.tokens.get(locations[components.index]),
-                    self.ast.tokens.get(end_locations[components.index]),
-                    "Expected `int` index.",
-                );
-            }
-
             get_code = .OP_GET_STRING_SUBSCRIPT;
 
             std.debug.assert(components.value == null);
         },
-        .List => {
-            if (index_type_def.def_type != .Integer) {
-                self.reporter.reportErrorAt(
-                    .subscript_key_type,
-                    self.ast.tokens.get(locations[components.index]),
-                    self.ast.tokens.get(end_locations[components.index]),
-                    "Expected `int` index.",
-                );
-            }
 
-            if (components.value) |value| {
-                if (!type_defs[components.subscripted].?.isMutable()) {
-                    const callee_type_str = type_defs[components.subscripted].?.toStringAlloc(self.gc.allocator, false) catch unreachable;
-                    defer self.gc.allocator.free(callee_type_str);
-                    self.reporter.reportErrorFmt(
-                        .not_mutable,
-                        self.ast.tokens.get(locations[components.subscripted]),
-                        self.ast.tokens.get(end_locations[components.subscripted]),
-                        "`{s}` not mutable",
-                        .{
-                            callee_type_str,
-                        },
-                    );
-                }
-
-                if (!subscripted_type_def.resolved_type.?.List.item_type.eql(value_type_def.?)) {
-                    self.reporter.reportTypeCheck(
-                        .subscript_value_type,
-                        self.ast.tokens.get(locations[components.subscripted]),
-                        self.ast.tokens.get(end_locations[components.subscripted]),
-                        subscripted_type_def.resolved_type.?.List.item_type,
-                        self.ast.tokens.get(locations[value]),
-                        self.ast.tokens.get(end_locations[value]),
-                        value_type_def.?,
-                        "Bad value type",
-                    );
-                }
-            }
-        },
         .Map => {
-            if (!subscripted_type_def.resolved_type.?.Map.key_type.eql(index_type_def)) {
-                self.reporter.reportTypeCheck(
-                    .subscript_key_type,
-                    self.ast.tokens.get(locations[components.subscripted]),
-                    self.ast.tokens.get(end_locations[components.subscripted]),
-                    subscripted_type_def.resolved_type.?.Map.key_type,
-                    self.ast.tokens.get(locations[components.index]),
-                    self.ast.tokens.get(end_locations[components.index]),
-                    index_type_def,
-                    "Bad key type",
-                );
-            }
-
-            if (components.value) |value| {
-                if (!type_defs[components.subscripted].?.isMutable()) {
-                    const callee_type_str = type_defs[components.subscripted].?.toStringAlloc(self.gc.allocator, false) catch unreachable;
-                    defer self.gc.allocator.free(callee_type_str);
-                    self.reporter.reportErrorFmt(
-                        .not_mutable,
-                        self.ast.tokens.get(locations[components.subscripted]),
-                        self.ast.tokens.get(end_locations[components.subscripted]),
-                        "`{s}` not mutable",
-                        .{
-                            callee_type_str,
-                        },
-                    );
-                }
-
-                if (!subscripted_type_def.resolved_type.?.Map.value_type.eql(value_type_def.?)) {
-                    self.reporter.reportTypeCheck(
-                        .subscript_value_type,
-                        self.ast.tokens.get(locations[components.subscripted]),
-                        self.ast.tokens.get(end_locations[components.subscripted]),
-                        subscripted_type_def.resolved_type.?.Map.value_type,
-                        self.ast.tokens.get(locations[value]),
-                        self.ast.tokens.get(end_locations[value]),
-                        value_type_def.?,
-                        "Bad value type",
-                    );
-                }
-            }
-
             get_code = .OP_GET_MAP_SUBSCRIPT;
             set_code = .OP_SET_MAP_SUBSCRIPT;
         },
-        else => self.reporter.reportErrorAt(
-            .subscriptable,
-            self.ast.tokens.get(location),
-            self.ast.tokens.get(end_locations[node]),
-            "Not subscriptable.",
-        ),
+        else => {},
     }
 
     _ = try self.generateNode(components.index, breaks);
@@ -4336,42 +2725,38 @@ fn generateThrow(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*ob
     }
 
     const expression_type_def = type_defs[components.expression].?;
-    if (expression_type_def.def_type == .Placeholder) {
-        self.reporter.reportPlaceholder(self.ast, expression_type_def.resolved_type.?.Placeholder);
-    } else {
-        const current_error_types = self.current.?.function.?.type_def.resolved_type.?.Function.error_types;
+    const current_error_types = self.current.?.function.?.type_def.resolved_type.?.Function.error_types;
 
-        var found_match = false;
-        if (current_error_types != null) {
-            for (current_error_types.?) |error_type| {
-                if (error_type.eql(expression_type_def)) {
-                    found_match = true;
-                    break;
-                }
+    var found_match = false;
+    if (current_error_types != null) {
+        for (current_error_types.?) |error_type| {
+            if (error_type.eql(expression_type_def)) {
+                found_match = true;
+                break;
             }
         }
+    }
 
-        if (!found_match) {
-            if (self.current.?.try_should_handle != null) {
-                // In a try catch remember to check that we handle that error when finishing parsing the try-catch
-                try self.current.?.try_should_handle.?.put(
-                    self.gc.allocator,
-                    expression_type_def,
-                    location,
-                );
-            } else {
-                // Not in a try-catch and function signature does not expect this error type
-                const error_str = try type_defs[components.expression].?.toStringAlloc(self.gc.allocator, false);
-                defer self.gc.allocator.free(error_str);
+    if (!found_match) {
+        if (self.current.?.try_should_handle != null) {
+            // In a try catch remember to check that we handle that error when finishing parsing the try-catch
+            try self.current.?.try_should_handle.?.put(
+                self.gc.allocator,
+                expression_type_def,
+                location,
+            );
+        } else {
+            // Not in a try-catch and function signature does not expect this error type
+            const error_str = try type_defs[components.expression].?.toStringAlloc(self.gc.allocator, false);
+            defer self.gc.allocator.free(error_str);
 
-                self.reporter.reportErrorFmt(
-                    .unexpected_error_type,
-                    self.ast.tokens.get(location),
-                    self.ast.tokens.get(end_locations[node]),
-                    "Error type `{s}` not expected",
-                    .{error_str},
-                );
-            }
+            self.reporter.reportErrorFmt(
+                .unexpected_error_type,
+                self.ast.tokens.get(location),
+                self.ast.tokens.get(end_locations[node]),
+                "Error type `{s}` not expected",
+                .{error_str},
+            );
         }
     }
 
@@ -4414,66 +2799,17 @@ fn generateTypeOfExpression(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks)
 fn generateUnary(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.ObjFunction {
     const components = self.ast.nodes.items(.components)[node].Unary;
     const location = self.ast.nodes.items(.location)[node];
-    const end_locations = self.ast.nodes.items(.end_location);
-    const expression_location = self.ast.nodes.items(.location)[components.expression];
     const expression_type_def = self.ast.nodes.items(.type_def)[components.expression].?;
-
-    if (expression_type_def.def_type == .Placeholder) {
-        self.reporter.reportPlaceholder(self.ast, expression_type_def.resolved_type.?.Placeholder);
-
-        return null;
-    }
 
     _ = try self.generateNode(components.expression, breaks);
 
     switch (components.operator) {
-        .Bnot => {
-            if (expression_type_def.def_type != .Integer) {
-                self.reporter.reportErrorFmt(
-                    .bitwise_operand_type,
-                    self.ast.tokens.get(expression_location),
-                    self.ast.tokens.get(end_locations[components.expression]),
-                    "Expected type `int`, got `{s}`",
-                    .{
-                        try expression_type_def.toStringAlloc(self.gc.allocator, false),
-                    },
-                );
-            }
-
-            try self.OP_BNOT(location);
-        },
-        .Bang => {
-            if (expression_type_def.def_type != .Bool) {
-                self.reporter.reportErrorFmt(
-                    .bitwise_operand_type,
-                    self.ast.tokens.get(expression_location),
-                    self.ast.tokens.get(end_locations[components.expression]),
-                    "Expected type `bool`, got `{s}`",
-                    .{
-                        try expression_type_def.toStringAlloc(self.gc.allocator, false),
-                    },
-                );
-            }
-
-            try self.OP_NOT(location);
-        },
-        .Minus => {
-            if (expression_type_def.def_type == .Integer) {
-                try self.OP_NEGATE_I(location);
-            } else if (expression_type_def.def_type == .Double) {
-                try self.OP_NEGATE_F(location);
-            } else {
-                self.reporter.reportErrorFmt(
-                    .arithmetic_operand_type,
-                    self.ast.tokens.get(expression_location),
-                    self.ast.tokens.get(end_locations[components.expression]),
-                    "Expected type `int` or `double`, got `{s}`",
-                    .{
-                        try expression_type_def.toStringAlloc(self.gc.allocator, false),
-                    },
-                );
-            }
-        },
+        .Bnot => try self.OP_BNOT(location),
+        .Bang => try self.OP_NOT(location),
+        .Minus => if (expression_type_def.def_type == .Integer)
+            try self.OP_NEGATE_I(location)
+        else if (expression_type_def.def_type == .Double)
+            try self.OP_NEGATE_F(location),
         else => unreachable,
     }
 
@@ -4485,24 +2821,8 @@ fn generateUnary(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*ob
 
 fn generateUnwrap(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.ObjFunction {
     const locations = self.ast.nodes.items(.location);
-    const end_locations = self.ast.nodes.items(.end_location);
     const location = locations[node];
     const components = self.ast.nodes.items(.components)[node].Unwrap;
-
-    if (components.original_type.def_type == .Placeholder) {
-        self.reporter.reportPlaceholder(self.ast, components.original_type.resolved_type.?.Placeholder);
-
-        return null;
-    }
-
-    if (!components.original_type.optional) {
-        self.reporter.reportErrorAt(
-            .optional,
-            self.ast.tokens.get(locations[components.unwrapped]),
-            self.ast.tokens.get(end_locations[components.unwrapped]),
-            "Not an optional",
-        );
-    }
 
     _ = try self.generateNode(components.unwrapped, breaks);
 
@@ -4531,37 +2851,11 @@ fn generateUnwrap(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*o
 
 fn generateVarDeclaration(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.ObjFunction {
     const components = self.ast.nodes.items(.components)[node].VarDeclaration;
-    const type_defs = self.ast.nodes.items(.type_def);
-    const type_def = type_defs[node].?;
-    const value_type_def = if (components.value) |value|
-        self.ast.nodes.items(.type_def)[value]
-    else
-        null;
     const locations = self.ast.nodes.items(.location);
-    const end_locations = self.ast.nodes.items(.end_location);
     const location = locations[node];
 
     if (components.value) |value| {
         _ = try self.generateNode(value, breaks);
-
-        if (value_type_def.?.def_type == .Placeholder) {
-            self.reporter.reportPlaceholder(self.ast, value_type_def.?.resolved_type.?.Placeholder);
-        } else if (type_def.def_type == .Placeholder) {
-            self.reporter.reportPlaceholder(self.ast, type_def.resolved_type.?.Placeholder);
-        } else if (!(try type_def.toInstance(&self.gc.type_registry, type_def.isMutable())).eql(value_type_def.?) and
-            !(try (try type_def.toInstance(&self.gc.type_registry, type_def.isMutable())).cloneNonOptional(&self.gc.type_registry)).eql(value_type_def.?))
-        {
-            self.reporter.reportTypeCheck(
-                .assignment_value_type,
-                self.ast.tokens.get(location),
-                self.ast.tokens.get(end_locations[node]),
-                try type_def.toInstance(&self.gc.type_registry, type_def.isMutable()),
-                self.ast.tokens.get(locations[value]),
-                self.ast.tokens.get(end_locations[value]),
-                value_type_def.?,
-                "Wrong variable type",
-            );
-        }
     } else {
         try self.OP_NULL(location);
     }
@@ -4599,14 +2893,15 @@ fn generateVoid(self: *Self, node: Ast.Node.Index, _: ?*Breaks) Error!?*obj.ObjF
 
 fn generateWhile(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.ObjFunction {
     const components = self.ast.nodes.items(.components)[node].While;
-    const type_defs = self.ast.nodes.items(.type_def);
     const locations = self.ast.nodes.items(.location);
-    const end_locations = self.ast.nodes.items(.end_location);
     const location = locations[node];
-    const condition_type_def = type_defs[components.condition].?;
 
     // If condition constant and false, skip the node
-    if (try self.ast.isConstant(self.gc.allocator, components.condition) and !(try self.ast.toValue(components.condition, self.gc)).boolean()) {
+    if (try self.ast.isConstant(self.gc.allocator, components.condition) and !(try self.ast.toValue(
+        components.condition,
+        &self.reporter,
+        self.gc,
+    )).boolean()) {
         try self.patchOptJumps(node);
         try self.endScope(node);
 
@@ -4617,19 +2912,6 @@ fn generateWhile(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*ob
 
     const jit_jump = if (!is_wasm) try self.emitJump(locations[node], .OP_HOTSPOT) else {};
     if (!is_wasm) try self.emit(locations[node], node);
-
-    if (condition_type_def.def_type == .Placeholder) {
-        self.reporter.reportPlaceholder(self.ast, condition_type_def.resolved_type.?.Placeholder);
-    }
-
-    if (condition_type_def.def_type != .Bool) {
-        self.reporter.reportErrorAt(
-            .while_condition_type,
-            self.ast.tokens.get(locations[components.condition]),
-            self.ast.tokens.get(end_locations[components.condition]),
-            "`while` condition must be bool",
-        );
-    }
 
     _ = try self.generateNode(components.condition, breaks);
 
@@ -4664,51 +2946,8 @@ fn generateWhile(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*ob
 
 fn generateYield(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.ObjFunction {
     const expression = self.ast.nodes.items(.components)[node].Yield;
-    const type_defs = self.ast.nodes.items(.type_def);
-    const type_def = type_defs[node];
     const locations = self.ast.nodes.items(.location);
-    const end_locations = self.ast.nodes.items(.end_location);
     const location = locations[node];
-
-    const current_function_typedef = type_defs[self.current.?.function_node].?.resolved_type.?.Function;
-    const current_function_type = current_function_typedef.function_type;
-    switch (current_function_type) {
-        .Script,
-        .ScriptEntryPoint,
-        .Repl,
-        .EntryPoint,
-        .Test,
-        .Extern,
-        => self.reporter.reportErrorAt(
-            .yield_not_allowed,
-            self.ast.tokens.get(location),
-            self.ast.tokens.get(end_locations[node]),
-            "Can't yield here",
-        ),
-        else => {},
-    }
-
-    if (type_def == null) {
-        self.reporter.reportErrorAt(
-            .unknown,
-            self.ast.tokens.get(location),
-            self.ast.tokens.get(end_locations[node]),
-            "Unknown type.",
-        );
-    } else if (type_def.?.def_type == .Placeholder) {
-        self.reporter.reportPlaceholder(self.ast, type_def.?.resolved_type.?.Placeholder);
-    } else if (!self.current.?.function.?.type_def.resolved_type.?.Function.yield_type.eql(type_def.?)) {
-        self.reporter.reportTypeCheck(
-            .yield_type,
-            self.ast.tokens.get(locations[self.current.?.function_node]),
-            self.ast.tokens.get(end_locations[self.current.?.function_node]),
-            self.current.?.function.?.type_def.resolved_type.?.Function.yield_type,
-            self.ast.tokens.get(location),
-            self.ast.tokens.get(end_locations[node]),
-            type_def.?,
-            "Bad yield value",
-        );
-    }
 
     _ = try self.generateNode(expression, breaks);
 
@@ -4770,30 +3009,6 @@ fn generateZdef(self: *Self, node: Ast.Node.Index, _: ?*Breaks) Error!?*obj.ObjF
     try self.endScope(node);
 
     return null;
-}
-
-pub fn populateEmptyCollectionType(self: *Self, value: Ast.Node.Index, target_type: *obj.ObjTypeDef) void {
-    const tags = self.ast.nodes.items(.tag);
-    const components = self.ast.nodes.items(.components);
-
-    // variable: [T] = [<any>] -> variable: [T] = [<T>];
-    if (target_type.def_type == .List and
-        tags[value] == .List and
-        components[value].List.explicit_item_type == null and
-        components[value].List.items.len == 0)
-    {
-        self.ast.nodes.items(.type_def)[value] = target_type;
-    }
-
-    // variable: {K: V} = {<any: any>} -> variable: {K: V} = [<K: V>];
-    if (target_type.def_type == .Map and
-        tags[value] == .Map and
-        components[value].Map.explicit_key_type == null and
-        components[value].Map.explicit_value_type == null and
-        components[value].Map.entries.len == 0)
-    {
-        self.ast.nodes.items(.type_def)[value] = target_type;
-    }
 }
 
 fn OP_DBG_LOCAL_ENTER(self: *Self, location: Ast.TokenIndex, slot: u8, name: Value) !void {
