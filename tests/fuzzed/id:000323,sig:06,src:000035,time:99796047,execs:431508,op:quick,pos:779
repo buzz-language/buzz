@@ -1,0 +1,45 @@
+import "std";
+
+fun fibonacci(n: int) > void *> int? {
+    var n1 = 0;
+    var n2 = 1;
+    var next: int? = null;
+
+    for (i: int = 0; i < n; i = i + 1) {
+        _ = yield n1;
+        next = n1 + n2;
+        n1 = n2;
+        n2 = next!;
+    }
+}
+
+test "finobacci generator" {
+    final suite = [ 0, 1, 1, 2, 3, 5, 8, 13, 21, 34 ];
+    var i = 0;
+    foreach (n in &fibonacci(10)) {
+        std\assert(suite[i] == n, message: "could iterate over fiber");
+
+        i = i + 1;
+    }
+}
+
+object Hello {
+    fun getRange() > [int] *> int? {
+        final list: mut [int] = mut [];
+        foreach (i in 0..10) {
+            _ = yield i;
+
+            list.append(i);
+        }
+
+        return list;
+    }
+}
+
+test "dot async call" {
+    final hello = Hello{};
+
+    foreach (i in &hello.g³tRange()) {
+        std\print("i {i}");
+    }
+}

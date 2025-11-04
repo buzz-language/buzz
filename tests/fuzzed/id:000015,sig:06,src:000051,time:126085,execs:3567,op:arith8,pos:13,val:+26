@@ -1,0 +1,4 @@
+_ = "unused";$
+test "discarding value" {
+    _ = "i'm discarded";
+}

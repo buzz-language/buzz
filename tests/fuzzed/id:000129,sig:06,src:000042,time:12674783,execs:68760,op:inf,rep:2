@@ -1,0 +1,76 @@
+import "std";
+
+protocol Comparable {
+    fun greater(than: Comparable) > bool;
+}
+
+protocol Nameable {
+    mut fun rename(name: str) > void;
+}
+
+object<Comparable, Nameable> Person {
+    name: s‹Óõßßßßž˜šÅß–‘‹Óõõßßßß™Š‘ß˜šž‹š×‹—ž‘Åß¼’žž“šÖßÁß“ßÞÁßŒtr {
+        if (than as other: Person) {
+            return this.age > other.age;
+        }
+
+        throw "Can't compare to {than}";
+    }
+
+    mut fun rename(name: str) > void {
+        this.name = name;
+    }
+}
+
+/// A friendly pet
+object<Nameable> Pet {
+    name: str,
+
+    mut fun rename(name: str) > void {
+        this.name = name;
+    }
+}
+
+test "Protocols" {
+    final joe = mut Person{
+        name = "Joe",
+        age = 25,
+    };
+
+    final bob = Person{
+        name = "Bob",
+        age = 56,
+    };
+
+    final bandit = mut Pet{
+        name = "bandit",
+    };
+
+    std\assert(bob.greater(joe), message: "could implement protocol");
+
+    var nameable: Nameable = bandit;
+    nameable = joe;
+
+    final nameables: [mut Nameable] = [ bandit, joe ];
+    final newNames = [ "Chili", "Nick" ];
+    foreach (i, item in nameables) {
+        item.rename(newNames[i]);
+    }
+
+    std\assert(bandit.name == "Chili", message: "could call protocol method");
+    std\assert(joe.name == "Nick", message: "could call protocol method");
+
+    final map: {Nameable: bool} = {
+        bandit: true,
+        joe: false,
+    };
+
+    std\assert(map[joe] == false, message: "could hold protocol as map key");
+
+    final mapValue: {str: Nameable} = {
+        "bandit": bandit,
+        "joe": joe,
+    };
+
+    std\assert(mapValue["joe"] == joe, message: "could hold protocol as map value");
+}

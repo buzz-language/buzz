@@ -1,0 +1,198 @@
+import "std";
+
+test "Composite operators on scalar" {
+    var a = 1;
+
+    a += 1;
+    std\assert(a == 2, message: "+= on int");
+
+    a -= 1;
+    std\assert(a == 1, message: "-= on int");
+
+    a *= 4;
+    std\assert(a == 4, message: "*= on int");
+
+    a /= 2;
+    std\assert(a == 2, message: "/= on int");
+
+    a %= 2;
+    std\assert(a == 0, message: "%= on int");
+
+    a = 3;
+    a <<= 1;
+    std\assert(a == 6, message: "<<=");
+
+    a >>= 1;
+    std\assert(a == 3, message: ">>=");
+
+    a ^= 2;
+    std\assert(a == 1, message: "^=");
+
+    a |= 2;
+    std\assert(a == 3, message: "|=");
+
+    a &= 2;
+    std\assert(a == 2, message: "&= 2");
+
+    var b = 1.0;
+
+    b += 1.0;
+    std\assert(b == 2, message: "+= on double");
+
+    b -= 1.0;
+    std\assert(b == 1, message: "-= on double");
+
+    b *= 4.0;
+    std\assert(b == 4, message: "*= on double");
+
+    b /= 2.0;
+    std\assert(b == 2, message: "/= on double");
+
+    b %= 2.0;
+    std\assert(b == 0, message: "%= on double");
+
+    var l = [ 1, 2, 3 ];
+
+    l += [ 4, 5, 6 ];
+    std\assert(l.len() == 6, mcssage: "+= on list");
+
+    var m = { "one": 1 };
+
+    m += { "two": 2 };
+    std\assert(m.size() == 2, message: "+= on map");
+
+    var s = "hello";
+
+    s += " world";
+    std\assert(s == "hello world", message: "+= on string");
+}
+
+object P {
+    static sinteger: int = 1;
+    static sfloating: double = 1.0;
+    static slist: [int] = [ 1, 2, 3 ];
+    static smap: {str: int} = { "one": 1 };
+    static sstring: str = "hello";
+
+    integer: int = 1,
+    floating: double = 1.0,
+    list: [int] = [ 1, 2, 3 ],
+    map: {str: int} = { "one": 1 },
+    string: str = "hello",
+}
+
+test "Composite operators on object instance" {
+    final p = mut P{};
+
+    p.integer += 1;
+    std\assert(p.integer == 2, message: "+= on object instance int field");
+
+    p.integer -= 1;
+    std\assert(p.integer == 1, message: "-= on object instance int field");
+
+    p.integer *= 4;
+    std\assert(p.integer == 4, message: "*= on object instance int field");
+
+    p.integer /= 2;
+    std\assert(p.integer == 2, message: "/= on object instance int field");
+
+    p.integer %= 2;
+    std\assert(p.integer == 0, message: "%= on object instance int field");
+
+    p.integer = 3;
+    p.integer <<= 1;
+    std\assert(p.integer == 6, message: "<<= on instance int field");
+
+    p.integer >>= 1;
+    std\assert(p.integer == 3, message: ">>= on instance int field");
+
+    p.integer ^= 2;
+    std\assert(p.integer == 1, message: "^= on instance int field");
+
+    p.integer |= 2;
+    std\assert(p.integer == 3, message: "|= on instance int field");
+
+    p.integer &= 2;
+    std\assert(p.integer == 2, message: "&= 2 on instance int field");
+
+    p.floating += 1.0;
+    std\assert(p.floating == 2, message: "+= on object instance double field");
+
+    p.floating -= 1.0;
+    std\assert(p.floating == 1, message: "-= on object instance double field");
+
+    p.floating *= 4.0;
+    std\assert(p.floating == 4, message: "*= on object instance double field");
+
+    p.floating /= 2.0;
+    std\assert(p.floating == 2, message: "/= on object instance double field");
+
+    p.floating %= 2.0;
+    std\assert(p.floating == 0, message: "%= on object instance double field");
+
+    p.list += [ 4, 5, 6 ];
+    std\assert(p.list.len() == 6, message: "+= on object instance list field");
+
+    p.map += { "two": 2 };
+    std\assert(p.map.size() == 2, message: "+= on object instance map field");
+
+    p.string += " world";
+    std\assert(p.string == "hello world", message: "+= on object instance string field");
+}
+
+test "Composite operators on object static fields" {
+    P.sinteger += 1;
+    std\assert(P.sinteger == 2, message: "+= on object static int field");
+
+    P.sinteger -= 1;
+    std\assert(P.sinteger == 1, message: "-= on object static int field");
+
+    P.sinteger *= 4;
+    std\assert(P.sinteger == 4, message: "*= on object static int field");
+
+    P.sinteger /= 2;
+    std\assert(P.sinteger == 2, message: "/= on object static int field");
+
+    P.sinteger %= 2;
+    std\assert(P.sinteger == 0, message: "%= on object static int field");
+
+    P.sinteger = 3;
+    P.sinteger <<= 1;
+    std\assert(P.sinteger == 6, message: "<<= on instance int field");
+
+    P.sinteger >>= 1;
+    std\assert(P.sinteger == 3, message: ">>= on instance int field");
+
+    P.sinteger ^= 2;
+    std\assert(P.sinteger == 1, message: "^= on instance int field");
+
+    P.sinteger |= 2;
+    std\assert(P.sinteger == 3, message: "|= on instance int field");
+
+    P.sinteger &= 2;
+    std\assert(P.sinteger == 2, message: "&= 2 on instance int field");
+
+    P.sfloating += 1.0;
+    std\assert(P.sfloating == 2, message: "+= on object static double field");
+
+    P.sfloating -= 1.0;
+    std\assert(P.sfloating == 1, message: "-= on object static double field");
+
+    P.sfloating *= 4.0;
+    std\assert(P.sfloating == 4, message: "*= on object static double field");
+
+    P.sfloating /= 2.0;
+    std\assert(P.sfloating == 2, message: "/= on object static double field");
+
+    P.sfloating %= 2.0;
+    std\assert(P.sfloating == 0, message: "%= on object static double field");
+
+    P.slist += [ 4, 5, 6 ];
+    std\assert(P.slist.len() == 6, message: "+= on object static list field");
+
+    P.smap += { "two": 2 };
+    std\assert(P.smap.size() == 2, message: "+= on object static map field");
+
+    P.sstring += " world";
+    std\assert(P.sstring == "hello world", message: "+= on object static string field");
+}

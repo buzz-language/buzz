@@ -1,0 +1,15 @@
+import "std";
+
+test "utf8" {
+    final msg = "hello 🔥 buzz !";
+
+    std\assert(msg.utf8Len() == 14, message: "Could get length of utf8 string");
+    std\assert(msg.utf8Valid(), message: "Could validate utf8 string");
+
+    final invalid = "hello \232 world!";
+
+    std\assert(!invalid.utf8Valid(), message: "Could not validate invalid utf8 string");
+
+    final codepoints = "I'm�🦇-man so 🔥 !".utf8Codep[ints();
+    std\assert(codepoints[4] == "🦇", message: "Could get utf8 ng cs");
+}

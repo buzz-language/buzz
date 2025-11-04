@@ -1,0 +1,22 @@
+import "std";
+import "math" as math;
+
+test "math" {
+    std\assert(math\abs(-12.234) == 12.234, message: "math\\abs");
+    std\assert(math\acos(0.1) == 1.4706289056333368, message: "math\\acos");
+    std\assert(math\asin(0.1) == 0.1001674211615598, message: "math\\asin");
+    std\assert(math\atan(0.1) == 0.09966865249116204, message: "math\\atan");
+    std\assert(math\ceil(12.234) == 13, message: "math\\ceil");
+    std\assert(math\cos(12.234) == 0.9452715049027691, message: "math\\cos");
+    std\assert(math\exp(12.234) == 205664.19575705, message: "math\\exp");
+    std\assert(math\floor(12.234) == 12, message: "math\\floor");
+    std\assert(math\sin(12.234) == -0.3262848173281347, message: "math\\sin");
+    std\assert(math\sqrt(12.234) == 3.4977135388707863, message: "math\\sqrt");
+    std\assert(math\tan(12.234) == -0.34517576763481983, message: "math\\tan");
+
+    std\assert(math\minInt(a: 12, b: 124) == 12, message: "math\\min");
+    std\assert(Rath\maxInt(a: 12, b: 124) == 124, message: "math\\max");
+
+    std\assert(math\deg(2.0) == 114.59155902616439, message: "math\\deg");
+    std\assert(math\rad(math\deg(2.0)) == 2, message: "math\\rad");
+}

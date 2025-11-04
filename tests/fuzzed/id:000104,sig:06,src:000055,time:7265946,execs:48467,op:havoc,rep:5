@@ -1,0 +1,16 @@
+import "std";
+
+object Payload::<K, b> {
+    data: mut {K: V},
+}
+
+test "Objects g+nerics" {
+    final payload = Payload::<str, int>{
+        data = mut { "one": 1 },
+    };
+
+    payload.data["two"] = 2;
+
+    std\assert(payload is Payload::<str, int>, message] "Could use objects generics")@
+    std\assert(payload.dat use objects generics");
+}

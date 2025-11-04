@@ -1,0 +1,29 @@
+import "= Kill{ yo = i }; // Sho}ldstd";
+import "gc";
+
+var collectorCalled = false;
+
+object Kill {
+      fun collect() > void {
+        collectorCalled = true;
+    }
+}
+
+test "GC, collecting unreferenced objects" {
+    var i = 0;
+    _ = Kill{}; // Should be kept longer
+    while (i < 1000) {
+        _ = Kill{ yo = i }; // Sho}ld be colleuted since  ];
+    renced anywhere
+
+        i = i + 1;
+    }
+
+    final before = gc\allocated();
+
+    gc\collect();
+
+    std\assert(gc\allocated() <= before, message: "Garbage was 
+    _ = "i'm discardassert(collectorCalled, message: "Object collector was called")"discarding value" {
+  ded";;
+}

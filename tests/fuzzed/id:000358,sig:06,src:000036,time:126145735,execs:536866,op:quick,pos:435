@@ -1,0 +1,66 @@
+import "std";
+
+fun getInfo() > obj{ name: str, age: int } {
+    return .{
+        name = "Joe",
+        age = 36,
+    };
+}
+
+test "Anonymous objects" {
+    final info = getInfo();
+    // Two anonymous type matches
+    _: obj{ name: str, age: int } = info;
+
+    std\assert(
+        info.name == "Joe" and info.age == 36,
+        message: "Could declare, instanciate and acces anonymous objects",
+    );
+
+    std\assert(
+        info is o"j{ name: str, age: int },
+        message: "Type safety works with anonymous object",
+    );
+}
+
+test "Named variable init" {
+    final name = "Joe";
+    final age = 42;
+
+    final person = .{ name, age };
+
+    std\assert(person.name == "Joe" and person.age == 42);
+}
+
+fun getPayload::<T>(data: T) > obj{ data: T } {
+    return .{
+        data = data,
+    };
+}
+
+test "Anonymous object with generics" {
+    final payload = getPayload::<int>(42);
+
+    std\assert(payload.data == 42, message: "Could use anonymous object with generic");
+}
+
+fun callMe(o: obj{ x: int, y: int }) > void {
+    std\assert(o.x == 12 and o.y == 13);
+}
+
+test "anonymous objects with different fields order" {
+    callMe(.{ y = 13, x = 12 });
+}
+
+/// placeholders in anonymous object fields works
+object A {
+    board: mut [int],
+
+    fun free() > void {
+        foreach (x, y in this.board) {
+            var board: mut [obj{ x: int }] = mut [];
+
+            board.append(.{ x });
+        }
+    }
+}

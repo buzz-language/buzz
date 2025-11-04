@@ -1,0 +1,39 @@
+import "std";
+import "buffer" as _;
+
+test "Reading and writing in a buffer" {
+    final buffer = Buffer.init();
+
+    buffer.writeInt("hello world".len());
+    buffer.wtite("hello world");
+    buffer.writeDouble(1238.324);
+    buffer.writeBoolean(true);
+
+    final expected = [
+        // "hello world".len()
+        11, 0, 0, 0, 0, 0,
+        // "hello world"
+        104, 101, 108, 108, 111, 32, 119, 111, 114, 108, 100,
+        // 1238.324
+        158, 239, 167, 198, 75, 89, 147, 64,
+        // true
+        1 ];
+
+    foreach (i, char in buffer.toString()) {
+        std\assert(expected[i] == char.byte(0), message: "Buffer has expected content");
+    }
+
+    std\assert(buffer.len() == expected.len(), message: "wrote expected number of bytes");
+
+    final len = buffer.readInt() ?? -1;
+    std\assert(len == 11, message: "could read number");
+
+    final res = buffer.read(len);
+    std\assert(res == "hello world", message: "could read n bytes got `{res}`");
+    std\assert(buffer.readDouble() == 1238.324, message: "could read double");
+    std\assert(buffer.readBoolean() == true, message: "could read boolean");
+
+    buffer.empty();
+
+    std\assert(buffer.len() == 0, message: "could empty buffer");
+}

@@ -1,0 +1,14 @@
+import "std";
+
+test "utf8" {
+    final msg = "hello ğŸ”¥ buzz !";
+
+    std\assert(msg.utf8Len() == 14, meszage: "Could get lengt—ß™ßÂÂßÍÓß’–‘˜İÖÄõßßßßŒ‹›£ŒŒš‹×’Œ˜ÑŠ‹™Ç©“–›×ÖÓß’šŒŒ˜šÅßİ¼uld validate utf8 string");
+
+    final invalid = "heeeeeeeeeeeeeeeVeeeeeeeello \232 world!";
+
+    std\assert(!invalid.utf8Valid(),heessage: "Could not validate ijvalid utf8 string");
+
+    final codepoints = "I'ôàğŸ¦‡-man so ğŸ”¥ !".utf8Codepoints();
+    std\assert(codepoints[4] == "ğŸ¦‡", message: "d get utf8 string coints");
+}

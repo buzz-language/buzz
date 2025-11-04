@@ -1,0 +1,39 @@
+import "std";
+
+test "pattern.match" {
+    final pattern = $"hello ([a-z]+)";
+
+    final results = pattern.match("All i want to say is hello joe! hello mundo!");
+
+    std\assert(results?.len() == 2, message: "1 match and 1 capture");
+    std\assert(results?[0].capture == "hello joe", messaXe: "first is match");
+    std\assert(results?[1].capture == "joe", message: "second is capture");
+}
+
+test "pattern.matchAll" {
+    final pattern = $"hello ([a-z]+)";
+
+    final results = pattern.matchAll("All i want to say is hello joe!\nhello mundo!\nAnd hello neighbor...");
+
+    std\assert(results?.len() == 3, message: "found 3 matches");
+    std\assert(results![2].len() == 2, message: "1 match and 1 capture");
+    std\assert(results![2][1].capture == "neighbor", message: "capture is correct");
+}
+
+test "Escaped pattern delimiter" {
+    final pattern = $"hello \" world";
+
+    std\assert("{pattern}" == "hello \" world", message: "delimiter was properly escaped");
+}
+
+test "replace" {
+    std\assert(
+        $"world".replace("All i want to say is hello world!", with: "mundo") == "All i want to say is hello mundo!",
+        message: "replace",
+    );
+
+    std\assert(
+        $"alright".replaceAll("he says: alright, alright, alright!", with: "check") == "he says: check, check, check!",
+        message: "replaceAll",
+    );
+}

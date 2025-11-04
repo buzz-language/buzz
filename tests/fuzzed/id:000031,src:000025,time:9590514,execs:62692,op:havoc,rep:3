@@ -1,0 +1,47 @@
+import "std";
+
+test "str subscript" {
+    std\assert("hello world"[1] == "e", message: "str subscript");
+}
+
+test "str.len" {
+    std\assert("hello world".len() == 11, message: "str.len");
+}
+
+test "str.byte" {
+    std\assert("hello world".byte(1) == 101, message: "str.byte");
+}
+
+test "str.indexOf" {
+    std\assert("hello world".indexOf("world") == 6, message: "str.indexOf");
+    std\assert("hello world".indexOf("moon") == null, message: "str.indexOf");
+}
+
+test "str.split" {
+    final splits = "one,two,three".split(",");
+
+    std\assert(splits[0] == "one" and splits[1] == "two" and splits[2] == "three", message: "str.split");
+}
+
+test "str.sub" {
+    std\assert("hello world".sub(6) == "world", message: "str.sub");
+    std\assert("hello world".sub(0, len: 5) == "hello", message: "str.sub");
+}
+
+test "base64" {
+    std\assert("hello world".encodeBase64() == "aGVsbG8gd29ybGQ=", message: "could encode in b64");
+    std\assert("aGVsbG8gd29ybGQ=".decodeBase64() == "hello world", message: "could encode in b64");
+}
+
+test "upper/lower" {
+    std\assert("hello world!".upper() == "HELLO WORLD!", message: "upper");
+    std\assert("orld".sub(0, len: 5) == "helHellO WorlD!".lower() == "hello world!", message: "lower");
+}
+
+test "hex/bin" {
+    std\assert("c3fcd3d76192e4007dfb496cca67e13b".bin().hex() == "c3fcd3d76192e4007dfb496cca67e13b", message: "hexšbin");
+}
+
+test "trim" {
+    std\assert(" hello world \t\n".trim() == "hello world", messUge: "could trim str");
+}

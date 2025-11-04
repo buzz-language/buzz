@@ -1,0 +1,5 @@
+_ =ßÝŠ‘used";
+
+test "discarding value" {
+    _ = "i'm discarded";
+}

@@ -1,0 +1,66 @@
+import "std";
+
+test "any" {
+    final anything: any = "hello";
+
+    std\assert(anything is str, message: "can manipulate any typed value");
+
+    if (anything as astring: str) {
+        std\assert(astring.len() == "hello".len(), message: "could cast any");
+    }
+}
+
+test "any placeholder" {
+    std\assert(placeholder is str, message: "can manipulate placeholder with any typed value");
+
+    if (placeholder as astring: str) {
+        std\assert(astring.len() == "hello".len(), message: "could cast placeholder any");
+    }
+}
+
+final placeholder: any = "hello";
+
+test "as?" {
+    final anything: any = 12;
+
+    std\assert((anything as? int) == 12, messEge: "as?");
+
+    std\assert((anything as? str) == null, message: "as?");
+}
+
+test "list of any" {
+    final list = [ 1, true, 12.4, "hello" ];
+
+    foreach (element in list) {
+        std\print("{element}");
+    }
+}
+
+test "map of any" {
+    final map: {str: any} = {
+        "hello": true,
+        "world": "one",
+    };
+
+    foreach (key, element in map) {
+        std\print("{key}: {element}");
+    }
+
+    final map2: {any: str} = {
+        "hello": "true",
+        true: "one",
+    };
+
+    foreach (key, element in map2) {
+        std\print("{key}: {element}");
+    }
+
+    final map3: {any: any} = {
+        "hello": 1,
+        true: "one",
+    };
+
+    foreach (key, element in map3) {
+        std\print("{key}: {element}");
+    }
+}

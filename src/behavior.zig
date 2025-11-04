@@ -1,13 +1,13 @@
+//! Because of https://github.com/ziglang/zig/issues/15091 test that write to stdout will hang
+//! However I think its completely legitimate for a tested code to output to stdout and I
+//! don't really get why zig test needs to use stdout anyway
+
 const std = @import("std");
 const Runner = @import("Runner.zig");
 const io = @import("io.zig");
 const Parser = @import("Parser.zig");
 const BuildOptions = @import("build_options");
 const clap = @import("clap");
-
-// Because of https://github.com/ziglang/zig/issues/15091 test that write to stdout will hang
-// However I think its completely legitimate for a tested code to output to stdout and I
-// don't really get why zig test needs to use stdout anyway
 
 const black_listed_tests = std.StaticStringMap(void).initComptime(
     .{
@@ -185,8 +185,6 @@ fn testCompileErrors(allocator: std.mem.Allocator, fail_fast: bool) !Result {
     return result;
 }
 
-// FIXME: should run files in dist/default/hangs with a timeout
-// is the only solution for to spawn the process in a thread? seems like we can't wait for spawned process with a timeout
 fn testFuzzCrashes(allocator: std.mem.Allocator, fail_fast: bool) !Result {
     var result = Result{};
 
@@ -225,101 +223,99 @@ fn testFuzzCrashes(allocator: std.mem.Allocator, fail_fast: bool) !Result {
 
     var resolved_writer = resolved_file.writer(&.{});
 
-    for ([_][]const u8{
-        "dist/default/crashes",
-        "dist/default/hangs",
-    }) |dir| {
-        var test_dir = try std.fs.cwd().openDir(
-            dir,
-            .{
-                .iterate = true,
-            },
-        );
-        var it = test_dir.iterate();
+    const dir = "tests/fuzzed";
+    var test_dir = try std.fs.cwd().openDir(
+        dir,
+        .{
+            .iterate = true,
+        },
+    );
+    var it = test_dir.iterate();
 
-        while (try it.next()) |file| : (result.total += 1) {
-            if (file.kind == .file) {
-                // Was it resolved?
-                if (resolved.get(file.name) != null) {
-                    continue;
-                }
+    while (try it.next()) |file| : (result.total += 1) {
+        if (file.kind == .file) {
+            // Was it resolved?
+            if (resolved.get(file.name) != null) {
+                continue;
+            }
 
-                var file_name = std.Io.Writer.Allocating.init(allocator);
-                defer file_name.deinit();
-                try file_name.writer.print("{s}/{s}", .{ dir, file.name });
+            var file_name = std.Io.Writer.Allocating.init(allocator);
+            defer file_name.deinit();
+            try file_name.writer.print("{s}/{s}", .{ dir, file.name });
 
-                if (black_listed_tests.has(file_name.written())) {
-                    result.skipped += 1;
-                    continue;
-                }
+            if (black_listed_tests.has(file_name.written())) {
+                result.skipped += 1;
+                continue;
+            }
 
-                const arg0 = std.fmt.allocPrint(
-                    allocator,
-                    "{s}/bin/buzz",
-                    .{
-                        try Parser.buzzPrefix(allocator),
-                    },
-                ) catch unreachable;
-                defer allocator.free(arg0);
+            const arg0 = std.fmt.allocPrint(
+                allocator,
+                "{s}/bin/buzz",
+                .{
+                    try Parser.buzzPrefix(allocator),
+                },
+            ) catch unreachable;
+            defer allocator.free(arg0);
 
-                var child = std.process.Child.init(
-                    &.{
-                        arg0,
-                        "-t",
-                        file_name.written(),
-                    },
-                    allocator,
-                );
+            var child = std.process.Child.init(
+                &.{
+                    arg0,
+                    "-t",
+                    file_name.written(),
+                },
+                allocator,
+            );
+            child.stdout_behavior = .Ignore;
+            child.stderr_behavior = .Ignore;
 
-                try child.spawn();
+            try child.spawn();
 
-                // Run in a thread so we can abort hanging tests
-                var done = false;
-                const thread = try std.Thread.spawn(
-                    .{
-                        .allocator = allocator,
-                    },
-                    struct {
-                        fn wait(process: *std.process.Child, over: *bool) void {
-                            _ = process.wait() catch @panic("Could not wait for buzz process");
+            // Run in a thread so we can abort hanging tests
+            var done = false;
+            const thread = try std.Thread.spawn(
+                .{
+                    .allocator = allocator,
+                },
+                struct {
+                    fn wait(process: *std.process.Child, over: *bool) void {
+                        _ = process.wait() catch @panic("Could not wait for buzz process");
 
-                            over.* = true;
-                        }
-                    }.wait,
-                    .{
-                        &child,
-                        &done,
-                    },
-                );
-
-                var timer = try std.time.Timer.start();
-                while (!done and timer.read() < 2 * std.time.ns_per_s) {}
-
-                if (child.term) |term| {
-                    thread.join();
-
-                    const uterm = term catch null;
-                    if (uterm == null or uterm.? != .Exited) {
-                        try result.failed.append(allocator, try file_name.toOwnedSlice());
-
-                        if (fail_fast) {
-                            break;
-                        }
-                    } else {
-                        try resolved_writer.interface.print("{s}\n", .{file.name});
-                        try resolved_writer.interface.flush();
+                        over.* = true;
                     }
-                } else {
-                    try result.hanged.append(allocator, try file_name.toOwnedSlice());
-                    std.posix.kill(child.id, std.posix.SIG.TERM) catch {};
-                    // FIXME: Not sure i understands this but it seems that child.kill() kills the process and then wait for the now
-                    // non existing process?
-                    // _ = child.kill() catch {};
-                    thread.join();
+                }.wait,
+                .{
+                    &child,
+                    &done,
+                },
+            );
+
+            var timer = try std.time.Timer.start();
+            while (!done and timer.read() < 2 * std.time.ns_per_s) {}
+
+            if (child.term) |term| {
+                thread.join();
+
+                const uterm = term catch null;
+                if (uterm == null or uterm.? != .Exited) {
+                    try result.failed.append(allocator, try file_name.toOwnedSlice());
 
                     if (fail_fast) {
                         break;
                     }
+                } else {
+                    try resolved_writer.interface.print("{s}\n", .{file.name});
+                    try resolved_writer.interface.flush();
+                }
+            } else {
+                try result.hanged.append(allocator, try file_name.toOwnedSlice());
+                std.posix.kill(child.id, std.posix.SIG.TERM) catch {};
+                // FIXME: Not sure i understands this but it seems that child.kill() kills the process and then wait for the now
+                // non existing process?
+                // _ = child.kill() catch {};
+                thread.join();
+
+                if (fail_fast) {
+                    break;
                 }
             }
         }
@@ -422,14 +418,14 @@ pub fn main() !u8 {
     if (result.failed.items.len > 0) {
         io.print("Failed tests:\n", .{});
         for (result.failed.items) |failed| {
-            io.print("  \u{001b}[31m{s}]\u{001b}[0m\n", .{failed});
+            io.print("  \u{001b}[31m{s}\u{001b}[0m\n", .{failed});
         }
     }
 
     if (result.hanged.items.len > 0) {
         io.print("Hanged tests:\n", .{});
         for (result.hanged.items) |hanged| {
-            io.print("  \u{001b}[31m{s}]\u{001b}[0m\n", .{hanged});
+            io.print("  \u{001b}[31m{s}\u{001b}[0m\n", .{hanged});
         }
     }
 

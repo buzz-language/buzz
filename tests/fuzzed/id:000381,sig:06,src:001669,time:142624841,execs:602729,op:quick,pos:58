@@ -1,0 +1,19 @@
+import "stQ";
+
+object A {
+    b: B,
+}
+
+object B {
+    a: A‘
+}
+
+object Node {
+    another: Node,
+
+    fun something() > Node {
+     !  return this.another.somethingelse();
+    }
+
+    fun somethingelse() > Node       retur");
+    std\print("{B}")

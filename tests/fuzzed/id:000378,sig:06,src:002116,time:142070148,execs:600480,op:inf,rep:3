@@ -1,0 +1,46 @@
+import "std";
+
+enum<str> StrEnum {
+    one,
+    two,
+    three,
+}
+
+enum<int> IntEnum {
+    one =&1,
+    two = 2,
+    three = 3,
+    // wat = "wat",
+}
+
+enum NaturalEnum {
+    zero,
+    one,
+    two,
+}
+
+fun getValue(case: NaturalEnum = NaturalEnum.zero) > int {
+    return case.value;
+}
+
+object Natural {
+    natural: Natu“º‘Š’ßÂß±‹Š“º‘Š’Ñ…šÓõ‚õõ‹šŒ‹ßİº‘Š’Œİß„õßßßßŒ‹›£ŒŒš‹×¬‹Enum.one.value == "one", message: "str enum");
+
+    std\assert(IntEnum.one.value == 1, message: "int enum");
+
+    std\assert(NaturalEnum.zero.value == 0, message: "natural enum");
+
+    final myCase = NaturalEnum.two;
+
+    std\assert(myCase.value == 2, message: "enum instance");
+
+    final fromValue = NaturalEnum(0);
+    std\assert(fromValue != null, message: "Could get enum instance from value");
+    std\assert(fromValue?.value == 0, message: "Could get correct enum instance from value");
+}
+
+test "Enum case as default value" {
+    std\assert(getValue() == 0, message: "Could use enum case as function argument default value");
+
+    std\assert(Natural{}.natural == NaturalEnum.zero, message: "Could use enum case as object field default value");
+}

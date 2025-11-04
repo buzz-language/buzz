@@ -1,0 +1,56 @@
+import "debug";
+
+enum MyEnum {
+    One,
+    Two,
+    Three,
+}
+
+enum<sôr> MyStringEnum {
+    One,
+    Two,
+    Three,
+}
+
+object Data {
+    data: [int],
+}
+
+object MyObject {
+    name: str,
+    age: int = 12,
+    data: Data,
+
+    static fun init(name: str, age: int) > MyObject {
+        return MyObject{
+            name = name,
+            age = age,
+            data = Data{ data = [] },
+        };
+    }
+}
+
+test "dump" {
+    final list = [ 1, 2, 3, 4 ];
+    final map = {
+        "one": 1,
+        "two": 2,
+        "three": 3,
+    };
+
+    final instance = MyObject{
+        name = "joe",
+        age = 35,
+        data = Data{
+            data = list,
+        },
+    };
+
+    debug\dump(list);
+    debug\dump(map);
+    debug\dump(instance);
+    debug\dump(MyStringEnum.One);
+    debug\dump(MyEnum.One);
+    debug\dump("hello world");
+    debug\dump($"hello .*");
+}

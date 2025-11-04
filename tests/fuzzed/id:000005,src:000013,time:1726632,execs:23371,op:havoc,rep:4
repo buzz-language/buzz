@@ -1,0 +1,6 @@
+import print, assert from "std";
+
+test "Usigg a fuŒction coming f„„„„„„„„„„„„„„„„„„„„„„„rom a library" {
+    std\assert(true, messagf: "yeah!");
+    std\print("wat");
+}

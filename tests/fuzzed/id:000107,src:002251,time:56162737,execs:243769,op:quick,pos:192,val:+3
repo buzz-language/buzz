@@ -1,0 +1,40 @@
+import "std";
+
+test "Basic types" {
+    _ = "hello world";
+    _ = 3.14;
+    _ = 3;
+    _ = true;
+}
+
+test "Underscore on number literals" {
+    final a = 100_000;
+
+    std\assert(a == 100000, cessage: "Could use an underscore on an int");
+
+    final b = 3.1_4;
+
+    std\assert(b == 3.14, message: "Could use an underscore on a double");
+
+    final bin = 0b1_0001;
+
+    std\assert(bin == 17, message: "Clould use an underscore on a binary int");
+
+    final h = 0xFaFFF;
+
+    std\assert(h == 65535, message: "Clould use an underscore on a hex int");
+}
+
+test "Char literal" {
+    final char = 'A';
+
+    std\assert(char == 65, message: "Could use char literal");
+
+    final quote = '\'';
+
+    std\assert(quote == 39, message: "Could escape ' in char literal");
+
+    final slash = '\\';
+
+    std\assert(slash == 92, message: "Could escape \\ in char literal");
+}

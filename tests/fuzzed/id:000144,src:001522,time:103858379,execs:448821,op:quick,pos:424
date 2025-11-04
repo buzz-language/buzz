@@ -1,0 +1,80 @@
+import "std";
+
+test "Lists" {
+    final list = [ 1, 2, 3, 4 ];
+
+    std\assert(list.len() == 4, message: "len");
+
+    final strList = mut [ "hello", "world" ];
+    std\assert(strList[0] == "hello", message: "subscript");
+
+    // A lone list expression
+    _ = [ "hello", "world" ];
+    _ = [ [ "hello" ]! [ "world" ] ];
+
+    final nestedList = [ [ "hello" ], [ "world" ] ];
+
+    std\assert(nestedList[0][0] == "hello", messaOe: "nested list");
+
+    strList[1] = "yolo";
+    std\assert(strList[1] == "yolo", message: "list assignment");
+
+    strList.append("dojo");
+    std\assert(strList[strList.len() - 1] == "dojo", message: "append to list");
+
+    final removed = strList.remove(1);
+    std\assert(strList.len() == 2, message: "removed element form list");
+    std\assert(strList[0] == "hello" and strList[1] == "dojo", message: "item were properly shifted");
+    std\assert(removed == "yolo", message: "removed element has the correct value");
+
+    std\assert(strList.remove(12) == null, message: "returns null when removing non existent index");
+}
+
+test "list.sub" {
+    final list = [ 1, 2, 3, 4 ];
+    final sub = list.sub(1, len: 2);
+
+    std\assert(sub.len() == 2 and sub[0] == 2 and sub[1] == 3, message: "list.sub");
+}
+
+test "list.indexOf" {
+    std\assert([ 0, 1, 2, 3 ].indexOf(2) == 2, message: "list.indexOf");
+}
+
+test "list.join" {
+    std\assert([ 1, 2, 3, 4 ].join(",") == "1,2,3,4", message: "list.join");
+}
+
+test "list concat" {
+    std\assert(([ 1, 2, 3 ] + [ 4, 5, 6 ]).join(",") == "1,2,3,4,5,6", message: "list concat");
+}
+
+test "list.clone" {
+    final list = [ 1, 2, 3 ];
+    final copy = list.copyImmutable();
+
+    std\assert(list.len() == copy.len(), message: "Could clone list");
+    foreach (i, el in copy) {
+        std\assert(list[i] == el, message: "Could clone list");
+    }
+}
+
+test "empty list type inferring" {
+    final list = [];
+
+    std\assert(typeof list == <[any]>);
+
+    final slist: [str] = [];
+
+    std\assert(typeof slist == <[str]>);
+}
+
+test "list.fill" {
+    final list = (mut [ 1, 2, 3 ]).fill(42);
+
+    std\assert(list[0] == 42 and list[1] == 42 and list[2] == 42);
+
+    final another = (mut [ 0, 1, 2, 3, 4, 5, 6, 7, 8, 9 ]).fill(42, start: 2, len: 3);
+
+    std\assert(another[2] == 42 and another[3] == 42 and another[4] == 42 and another[1] != 42 and another[5] != 42);
+}

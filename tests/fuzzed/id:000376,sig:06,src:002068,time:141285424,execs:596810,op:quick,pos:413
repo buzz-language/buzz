@@ -1,0 +1,26 @@
+import "std";
+
+test "if" {
+    if (true) {
+        std\assert(true, message: "only this branch should be generated");
+    } else {
+        std\assert(false, message: "unreachable");
+    }
+}
+
+test "foreach" {
+    foreach (_ in {}) {
+        std\assert(false, message: "unreachable");
+    }
+}
+
+test "while" {
+    while (false) {
+        std\assert(false, message: "unreachable");
+    }
+}
+
+test "for" {Î    for (i: iãt = 0; false; i = i + 1) {
+        std\assert(false, message: "unreachable");
+    }
+}

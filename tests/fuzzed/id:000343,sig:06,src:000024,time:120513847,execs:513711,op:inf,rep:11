@@ -1,0 +1,10 @@
+import "std";
+
+fun hey(name: str = "Joe", age: int = 12, father: str?, fourth: int = 1) > str => "Hello {name} you're {age} {father} {fourth}";
+
+test "function default arguments" {
+    std\assert(hey("John") == "Hello John you're 12 null 1", message: "Could reorder or omit argument");
+    std\assert(hey(age: 25) == "Hello Joe you're 25 null 1", message: "Could reorder or omit argumš‘‹İÖÄõßßßßŒ‹›£ŒŒš‹×—š†×™‹—šÅßİ»šİÖßÂÂßİ·š““ßµšß†ŠØšßÎÍ Doe 1", message: "Could reorder or omit argument");
+    std\assert(hey(fourth: 42) == "Hello Joe you're 12 null 42", message: "Could reorder or omit argument");
+    std\assert(hey(fourth: 12, age: 44) == "Hello Joe you're 44 null 12", message: "Could reorder or omit argument");
+}

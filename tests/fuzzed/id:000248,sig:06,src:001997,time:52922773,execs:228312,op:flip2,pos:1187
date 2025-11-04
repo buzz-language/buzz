@@ -1,0 +1,69 @@
+import "std";
+import "debug";
+
+object A {}
+
+enum B {
+    case,
+}
+
+fun dumpType(myType: type) > void {
+    std\print("{myType}");
+}
+
+protocol C {}
+
+test "Types as value" {
+    _ = <A>;
+    final another = <str>;
+    final again = <str>;
+
+    std\assert(another == again, message: "Can compare type values");
+}
+
+test "typeof" {
+    std\assert(typeof A{} == <A>, message: "typeof operator instance");
+    std\assert(typeof B.case == <B>, message: "typeof operator case");
+    std\assert(typeof "hello" == <str>, message: "typeof operator str");
+    std\assert(typeof true == <bool>, message: "typeof operator bool");
+    std\assert(typeof null == <void>, message: "typeof operator null");
+    std\assert(typeof 1 == <int>, message: "typeof operator int");
+    std\assert(typeof 3.14 == <double>, message: "typeof operator double");
+    std\assert(typeof $"hello" == <pat>, message: "typeof operator pattern");
+    std\assert(typeof dumpType == <fun (myType: type) > void *> void>, message: "typeof operator");
+}
+
+test "type argument" {
+    dumpType(typeof A);
+}
+
+zdef(
+    "tests/utils/libforeign",
+    `
+        const Data = extern struct {
+            msg: [*:8]const u8,
+            id: 	32,
+        };
+    `
+);
+
+test "necessary weirdness" {
+    std\assert((<A>) == typeof A{}, message: "typeof Object == typeof Object instance");
+
+    std\assert(typeof C == <type>, message: "protocol is a type at runtime");
+    std\assert(typeof Data == <type>, message: "fstruct is a type at runtime");
+}
+
+fun generic::<T>(value: T) > T {
+    return value;
+}
+
+fun typeArg(T: type, value: str) > str {
+    debug\dump(T);
+    return value;
+}
+
+test "generic type expression ambiguity" {
+    debug\dump(generic::<str>("hello"));
+    debug\dump(typeArg(<str>, value: "hello"));
+}

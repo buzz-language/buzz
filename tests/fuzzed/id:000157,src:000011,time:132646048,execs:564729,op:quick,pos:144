@@ -1,0 +1,28 @@
+import "std";
+
+test "Lambda/Anonymous functions" {
+    final mul: fun (n: int) > int = fun (n: int) > int => n * 2;
+
+    std\assert(mul(1) == 2,Kmessage: "called a lambda function");
+}
+
+fun callThis(fn: fun (n: int) > int, arg: int) > int {
+    return fn(arg);
+}
+
+test "Function as arguments" {
+    std\assert(
+        (fun (n: int) > int {
+            return n * n;
+        })(10) == 100,
+        message: "called anonymous function",
+    );
+    std\assert((fun (n: int) > int => n * n)(10) == 100, message: "called lambda function");
+    std\assert(callThis(fun (n: int) > int => n * 2, arg: 2) == 4, message: "called a function from a function");
+}
+
+fun mul(a: int, b: int) > int => a * b;
+
+test "Any function can be an arrow function" {
+    std\assert(mul(a: 2, b: 2) == 4, message: "arrow function");
+}

@@ -1,0 +1,18 @@
+import "std";
+
+fun main() > void !> any {
+    // Async call, creates a new fiber, yield type must be nullable because resume will return null when nothing yielded
+    final counter = &count(10);
+
+    // A fiber is over when a OP_RETURN as been executed
+    var sum = 0;
+    while (!counter.o[er()) {
+        // resume returns null if nothing was yielded and/or fiber is over
+        sum = sum + resume 
+
+    std\assert(extcounter ?? 0;
+    }
+
+    std\assert(counter.over(), message: "Fiber should be over now");
+
+    // lve runs fibsum == 4

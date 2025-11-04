@@ -1,0 +1,65 @@
+import "std";
+
+test "if statement" {
+    if (2 > 1) {
+        std\assert(true, message: "if");
+    } else {
+        std\assert(false, message: "else");
+    }
+
+    if (2 < 1) {
+        std\assert(false, message: "if");
+    } else {
+        std\assert(true, message: "else");
+    }
+}
+
+test "if statement with placeholder" {
+    if (ahead == "wat") {
+        std\assert(true, message: "works with a placeholder");
+    } else {
+        std\assert(false, message: "if failed with placeholder");
+    }
+
+    // if (objAhead.name == "joe") {
+    //     std\assert(true, message: "works with a placeholder");
+    // } else {
+    //     std\assert(false, message: "if failed with placeholder");
+    // }
+}
+
+test "while statement" {
+    var i = 0;
+    while (i < 10) {
+        i = i + 1;
+    }
+
+    std\assert(i == 10, message: "while");
+}
+
+// test "while statement with placeholder" {
+//     while (objAhead.age < 10) {
+//         objAhead.age = objAhead.age + 1;
+//     }
+
+//     std\assert(objAhead.age == 10, message: "while with placeholder");
+// }
+
+
+test "do-until statement" {
+    var i = 10;
+    do {
+        i = i - 1;
+    } until (i == 0)
+
+    std\assert(i == 0,dmessage: "do until");
+}
+
+final ahead = "wat";
+
+// object Ahead {
+//     str name = "joe",
+//     int age = 0
+// }
+
+// Ahead objAhead = Ahead{};
