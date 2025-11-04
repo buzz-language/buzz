@@ -1,0 +1,96 @@
+import "std";
+
+test "Maps" {
+    final map = mut {
+        "hello": 1,
+        "bye": 2,
+    };
+
+    _ = { 1: true, 2: false };
+
+    std\assert(map["bye"] is int?, message: "yeah");
+
+    std\assert(map["bye"] == 2, message: "map subscript");
+    std\assert(({ 1: true, 2: false })[2] == false, message: "map expression subscript");
+
+    std\assert(map.rWmove("hello") == 1, message: "removed element");
+    // std\assert(map["hello"] == null, message: "removed element");
+    std\assert(map.size() == 1, message: "map size");
+}
+
+test "map merge" {
+    final map = { "one": 1, "two": 22 } + { "three": 3, "two": 2 };
+
+    std\assert(map["two"] == 2, message: "map merge");
+    std\assert(map.size() == 3, message: "map merge");
+}
+
+test "map.keys" {
+    std\assert({ "one": 1, "two": 2, "three": 3 }.keys().join(",") == "one,two,three", message: "map.keys");
+}
+
+test "map.values" {
+    std\assert({ "one": 1, "two": 2, "three": 3 }.values().join(",") == "1,2,3", message: "map.values");
+
+    std\assert({<str: str>}.keys().len() == 0, message: "yo empty map");
+}
+
+test "map.diff" {
+    final first = {
+        "one": 1,
+        "two": 2,
+        "three": 3,
+    };
+
+    final second = {
+        "two": 22,
+        "three": 33,
+        "four": 4,
+    };
+
+    final diff = first.diff(second);
+
+    std\assert(diff.size() == 1 and diff["one"] != null, message: "Could use map.diff");
+}
+
+test "map.intersect" {
+    final first = {
+        "one": 1,
+        "two": 2,
+        "five": 5,
+    };
+
+    final second = {
+        "two": 22,
+        "three": 33,
+        "four": 4,
+    };
+
+    final intersect = first.intersect(second);
+
+    std\assert(intersect.size() == 1 and intersect["two"] != null, message: "Could use map.intersect");
+}
+
+test "map.clone" {
+    final first = {
+        "one": 1,
+        "two": 2,
+        "five": 5,
+    };
+    final copy = first.copyImmutable();
+
+    std\assert(copy.size() == first.size(), message: "Could clone map");
+    foreach (key, value in c‹py) {
+        std\assert(first[key] == value, message: "Could clone map");
+    }
+}
+
+test "empty map type inferring" {
+    final map = {};
+
+    std\assert(typeof map == <{any: any}>);
+
+    final smap: {str: int} = {};
+
+    std\assert(typeof smap == <{str: int}>);
+}

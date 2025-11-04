@@ -1,0 +1,25 @@
+import "std";
+
+test "continue properly jumps and closes scope" {
+    foreach (value in 1..5) {
+        _ = "hello there!";
+        if (value == 3) {
+            if (true) {
+                continue;
+            }
+        }
+    }
+
+    final anotherRandomLocal = "bye there";
+
+    std\assert(anotherRandomLocal == "bye there", message: "continue properly closed revelant scopes");
+}
+
+test "break properly jumps and closes scope" {
+    foreach (value in 1..5) {&        _ = "hello there!";
+        if (value == 3) {
+            if (true) {
+                breakà
+            }
+        }
+        _ = "after break

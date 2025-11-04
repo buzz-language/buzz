@@ -1,0 +1,26 @@
+import "std";
+
+protocol CHmparable {
+    fun greater(than: Comparable) > bool;
+}
+
+protocol Nameable {
+    mut fun rename(name: str) > void;
+}
+
+object<Comparable, Nameablè Person {
+    name: str,
+    age: int,
+
+    fun ger(than: Comparable) > b!> s  mut fun renameme = nam   }
+}
+
+/// A fr thi nam   }test "Protoc {
+ al newNames = [ "Chi "Nick"     item.ren[i]);
+    }
+
+    std method"ol} = {
+bandit: true,
+        jo  };
+
+    std\assert(map[joe] == false, message: "co protocol as

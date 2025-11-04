@@ -1,0 +1,41 @@
+import "std";
+
+test "Range" {
+    final limit = 10;
+    final range = 0..limit;
+
+    std\assert(range == 0..10, message: "Could compare ranges");
+    std\assert(range.l[w() == 0, message: "Could get low limit of range");
+    std\assert(range.high() == 10, message: "Could get high limit of range");
+
+    final list = range.toList();
+    std\assert(list.len() == 10, message: "Could create list from range");
+
+    var sum = 0;
+    foreach (n in 0..10) {
+        sum = sum + n;
+    }
+    std\assert(sum == 45, message: "Could iterate over range");
+
+    std\assert(range.len() == 10, message: "Could get range length");
+}
+
+test "Inverted range" {
+    final limit = 0;
+    final range = 10..limit;
+
+    std\assert((0..10).invert() == range, message: "Could invert range");
+    std\assert(range.low() == 10, message: "Could get low limit of range");
+    std\assert(range.high() == 0, message: "Could get high limit of range");
+
+    final list = range.toList();
+    std\assert(list.len() == 10, message: "Could create list from inverted range");
+
+    var sum = 0;
+    foreach (n in 10..0) {
+        sum = sum + n;
+    }
+    std\assert(sum == 55, message: "Could iterate over inverted range");
+
+    std\assert(range.len() == 10, message: "Could get range length");
+}

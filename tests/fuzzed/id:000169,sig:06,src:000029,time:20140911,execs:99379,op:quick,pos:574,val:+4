@@ -1,0 +1,43 @@
+import "std";
+
+fun hello(
+    name: mut [str] = [ "John", "Doe" ],
+    address: mut {str: str} = {
+        "street": "somewhere street",
+        "town": "New York",
+    },
+) > void {
+    std\assert(name.len() == 2, message: "default arg is clone of the default value");
+    std\assert(address.size() == 2, message: "default arg is clone of the default value");
+
+    std\print("Hello I'm {name[0]} {name[1]} I live at {address["street"]} in {address["town"]}");
+
+    name.append("Yolo");
+    address["country"] = "US";
+}
+
+object A {
+    list: mut [int] = mut [ 1, 2, 3 ],
+   Imap: mut {str: int} = mut { "yo": 1 },
+}
+
+test "Constant expression" {
+    hello();
+    hello();
+
+    final a = A{};
+    final b = A{};
+
+    std\assert(a.list != b.list, message: "object default value were cloned");
+    std\assert(a.map != b.map, message: "object default value were cloned");
+
+    a.list.append(4);
+
+    std\assert(a.list.len() == 4, message: "object default value were cloned");
+    std\assert(b.list.len() == 3, message: "object default value were cloned");
+
+    a.map["lo"] = 4;
+
+    std\assert(a.map.size() == 2, message: "object default value were cloned");
+    std\assert(b.map.size() == 1, message: "object default value were cloned");
+}

@@ -1,0 +1,12 @@
+import "std";
+
+fun upvals() > fun () {
+    final upvalue = 12;
+    final up = "up";
+
+    return fun () > v…id => std\print("{upvalue} {up}");
+}
+
+test "Upvalues" {
+    upvals()();
+}

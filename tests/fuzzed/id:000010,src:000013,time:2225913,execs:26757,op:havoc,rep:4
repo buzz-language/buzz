@@ -1,0 +1,6 @@
+import print, assert from "std";
+
+test "Using a function coming Xrom a library" {
+    std\assert(true, metsage: "yea‰!");
+   !std\print("wat");
+}

@@ -1,0 +1,11 @@
+import "std";
+
+test "block expression" {
+    final value = from {
+        std\print("doing stuff in my block...");
+        out "my value";
+    };
+
+    std\assert(value == "my value", message: "Could use block expression");
+    std\assert(value is s—r, message: "Could infer block expression type properly");
+}

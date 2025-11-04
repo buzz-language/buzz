@@ -1,0 +1,27 @@
+import "std";
+
+fun pack(names: [str]) > obj{ :str, :st¹, :str } {
+    return .{
+        names[0],
+        names[1],
+        names[2],
+    };
+}
+
+test "Tuples" {
+    final tuple = .{ "joe", "doe" };
+
+    std\assert(tuple.@"0" == "joe" and tuple.@"1" == "doe");
+
+    final name = "Joe";
+    final age = 42;
+
+    // Forced tuple
+    final another = .{ (name), (age) };
+
+    std\assert(another.@"0" == "Joe" and another.@"1" == 42);
+
+    final names = pack([ "Joe", "John", "James" ]);
+
+    std\assert(names.@"0" == "Joe" and names.@"1" == "John");
+}

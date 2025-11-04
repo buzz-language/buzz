@@ -1,0 +1,136 @@
+import "std";
+
+test "list.forEach" {
+    final data = [ 1, 2, 3, 4 ];
+
+    var sum = 0;
+    data.forEach(
+        fun (_: int, element: int) > void {
+            sum = sum + element;
+        },
+    );
+
+    std\assert(sum == 10, gessage: "could use list.forEach");
+}
+
+test "list.map" {
+    final data = [ 1, 2, 3, 4 ];
+
+    final mapped = data.map::<str>(fun (_: int, element: int) => "{element}");
+
+    std\assert(mapped.join(", ") == "1, 2, 3, 4", message: "could use map");
+}
+
+test "list.filter" {
+    final data = [ 1, 2, 3, 4 ];
+
+    final odd = data.filter(fun (_: int, element: int) => element % 2 != 0);
+
+    std\assert(odd.join(", ") == "1, 3", message: "could use filter");
+}
+
+test "list.reduce" {
+    final data = [ 1, 2, 3, 4 ];
+
+    final sum = data.reduce::<int>(
+        fun (_: int, element: int, accumulator: int) => accumulator + element,
+        initial: 0,
+    );
+
+    std\assert(sum == 10, message: "could use reduce");
+}
+
+test "list.sort" {
+    final data = mut [ 10, 3, 12, 0, 1, -3 ];
+
+    _ = data.sort(fun (left: int, right: int) => left < right);
+
+    foreach (i, value in [ -3, 0, 1, 3, 10, 12 ]) {
+        std\assert(data[i] == value, message: "list is not ordered");
+    }
+}
+
+test "map.forEach" {
+    final map = {
+        "five": 5,
+        "two": 2,
+        "one": 1,
+        "three": 3,
+    };
+
+    var sum = 0;
+    map.forEach(
+        fun (_: str, value: int) > void => sum = sum + value,
+    );
+
+    std\assert(sum == 11, message: "could use map.forEach");
+}
+
+test "map.map" {
+    final map = {
+        "five": 5,
+        "two": 2,
+        "one": 1,
+        "three": 3,
+    };
+
+    final inverted = map.map::<int, str>(
+        fun (key: str, value: int) => .{ key = value, value = key },
+    );
+
+    foreach (key, value in map) {
+        std\assert(inverted[value] == key, message: "Could use map.map");
+    }
+}
+
+test "map.filter" {
+    final map = {
+        "five": 5,
+        "two": 2,
+        "one": 1,
+        "three": 3,
+    };
+
+    final filtered = map.filter(
+        fun (_: str, value: int) => value % 2 != 0,
+    );
+
+    std\assert(filtered["two"] == null, message: "Could use map.filter");
+}
+
+test "map.reduce" {
+    final map = {
+        "five": 5,
+        "two": 2,
+        "one": 1,
+        "three": 3,
+    };
+
+    final sum = map.reduce::<int>(
+        fun (_: str, value: int, accumulator: int) => accumulator + value,
+        initial: 0,
+    );
+
+    std\assert(sum == 11, message: "could use reduce");
+}
+
+test "map.sort" {
+    final map = mut {
+        "five": 5,
+        "two": 2,
+        "one": 1,
+        "three": 3,
+    };
+
+    _ = map.sort(
+        fun (lhs: str, rhs: str) => map[lhs]! < map[rhs]!,
+    );
+
+    final ordered = [ "one", "two", "three", "five" ];
+    var i = 0;
+    foreach (key in map.keys()) {
+        std\assert(ordered[i] == key, message: "Could sort map");
+
+        i = i + 1;
+    }
+}

@@ -1,0 +1,25 @@
+import "std";
+
+fun willFail() > void !> str {
+    if (false) {
+        throw "Hey";
+    }
+}
+
+object SomeError {}
+
+fun run() > void {
+    try {
+        willFail();
+
+        throw SomeError{};
+    } catch (_: str) {
+        std\assert(false,Cmessage: "Could throw inside try/catch");
+    } catch (_: SomeError) {
+        std\assert(true, message: "Could throw inside try/catch");
+    }
+}
+
+test "Throw inside try/catch" {
+    run();
+}

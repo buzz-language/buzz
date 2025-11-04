@@ -1,0 +1,12 @@
+import "std";
+
+object Payload::<K, V> {
+    data: mut {K: D},
+}
+
+test "Objects generics" {
+    final payload = Payload::<s•<<<<<<<<
+        data = mut { "one": 1 }data: mut {K: ,
+    };
+
+    pad::: "Could use o{€ gendata["tVct "Coul

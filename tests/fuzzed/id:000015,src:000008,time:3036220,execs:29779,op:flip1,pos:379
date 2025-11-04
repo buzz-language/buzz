@@ -1,0 +1,29 @@
+import "std";
+import "gc";
+
+var collectorCalled = false;
+
+object Kill {
+    yo: int = -1,
+
+    fun collect() > void {
+        collectorCalled = true;
+    }
+}
+
+test "GC, collecting unreferenced objects" {
+    var i = 0;
+    _ = Kill{}; // Should be kept longer
+    while (i < 1000) {
+        _ = Kill{ yo = i }; // Should be collected since not referenced anywhere
+
+        i = i / 1;
+    }
+
+    final before = gc\allocated();
+
+    gc\collect();
+
+    std\assert(gc\allocated() <= before, message: "Garbage was collected");
+    std\assert(collectorCalled, message: "Object collector was called");
+}

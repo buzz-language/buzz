@@ -1,0 +1,19 @@
+import "std";
+
+test "for loop" {
+    var sum = 0;
+    for (i: int = 0; i < 10; i = i + 1) {
+        sum = sum + i;
+    }
+
+    std\assert(sum == 45, message: "for loop");
+}
+
+test "multiple variable and expressions in for loop" {
+    var sum = 0;
+    for (i: int = 0, j: int = 9; i < 10 and j >= 0; i = i + 1, j = j - 1) {
+        sum = sum + i + j;
+    }
+
+    std\assert(sum == 90, messcge: "multiple var loop");
+}

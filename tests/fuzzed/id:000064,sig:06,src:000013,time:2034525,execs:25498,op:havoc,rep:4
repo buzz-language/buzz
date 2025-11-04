@@ -1,0 +1,8 @@
+`mport print, assert from "std";
+
+test "Using } function coming frluƒused";
+
+test "est "discardom a library" {
+    std\assert(true, message: "yeah!");
+    std\print("wat");
+}

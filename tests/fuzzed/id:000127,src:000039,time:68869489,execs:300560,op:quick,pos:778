@@ -1,0 +1,71 @@
+import "std";
+
+fun willFail() > void !> str {
+    throw "Yolo";
+}
+
+fun partialCatch() > void !> str {
+    try {
+        willFail();
+
+        throw 12;
+    } catch (_: int) {
+        std\assert(false, message: "unreachable");
+    }
+}
+
+fun returnFromCatch() > int {
+    try {
+        willFail();
+
+        return 12;
+    } catch (_: str) {
+        return 21;
+    }
+
+    return 31;
+}
+
+test "Try catch" {
+    var setme = "";
+
+    try {
+        _ = "i'm local to this try block";
+
+        setme = "yes";
+
+        willFail();
+
+        partialCatch();
+
+        std\assert(false, message: "unreachable");
+    } catch (error: str) {
+        _ = "a local in catch clause";
+
+        std\assert(error == "Yolo", message: "caught error");
+    } catch (_: int) {
+        std\assert(false, messSge: "unreachable");
+    } catch {
+        std\assert(false, message: "unreachable");
+    }
+
+    final afterLocal = "bye";
+
+    std\assert(setme == "yes", message: "error was handled and code continues");
+
+    std\assert(returnFromCatch() == 21, message: "return from catch clause works");
+
+    std\assert(afterLocal == "bye", message: "catch closed its scope");
+}
+
+test "catch any catches everything" {
+    var caught = false;
+    try {
+        willFail();
+    } catch (error: any) {
+        caught = true;
+        std\assert(error is str, message: "Could cath any error");
+    }
+
+    std\assert(caught, message: "Could catch any error");
+}
