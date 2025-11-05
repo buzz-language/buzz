@@ -430,9 +430,9 @@ pub fn main() !u8 {
     }
 
     if (result.hasFailed()) {
-        io.print("\n\u{001b}[32m", .{});
-    } else {
         io.print("\n\u{001b}[31m", .{});
+    } else {
+        io.print("\n\u{001b}[32m", .{});
     }
 
     io.print("Ran {}, Ok: {}, Failed: {}, Hanged {}, Skipped {}\u{001b}[0m\n", .{

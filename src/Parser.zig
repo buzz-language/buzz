@@ -1223,7 +1223,7 @@ fn endFrame(self: *Self) Ast.Node.Index {
                     .unassigned_final_local,
                     location,
                     location,
-                    "Local `{s}` is declared `var` but is never assigned",
+                    "Local `{s}` is declared `var` but is never re-assigned",
                     .{
                         self.ast.tokens.items(.lexeme)[local.name],
                     },
