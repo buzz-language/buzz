@@ -1,5 +1,5 @@
 //! Because of https://github.com/ziglang/zig/issues/15091 test that write to stdout will hang
-//! However I think its completely legitimate for a tested code to output to stdout and I
+//! However I think it's completely legitimate for a tested code to output to stdout and I
 //! don't really get why zig test needs to use stdout anyway
 
 const std = @import("std");

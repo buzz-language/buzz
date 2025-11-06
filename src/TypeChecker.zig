@@ -642,24 +642,46 @@ fn checkDot(ast: Ast.Slice, reporter: *Reporter, gc: *GC, _: ?Ast.Node.Index, no
                     // Type check value
                     switch (callee_type.def_type) {
                         .ForeignContainer => {
-                            const field_type = callee_type.resolved_type.?.ForeignContainer.buzz_type.get(field_name).?;
-
-                            if (!field_type.eql(value_type_def)) {
-                                reporter.reportTypeCheck(
-                                    .assignment_value_type,
-                                    ast.tokens.get(callee_type.resolved_type.?.ForeignContainer.location),
-                                    ast.tokens.get(callee_type.resolved_type.?.ForeignContainer.location),
-                                    field_type,
-                                    ast.tokens.get(locations[value]),
-                                    ast.tokens.get(end_locations[value]),
-                                    value_type_def,
-                                    "Bad property type",
+                            if (callee_type.resolved_type.?.ForeignContainer.buzz_type.get(field_name)) |field_type| {
+                                if (!field_type.eql(value_type_def)) {
+                                    reporter.reportTypeCheck(
+                                        .assignment_value_type,
+                                        ast.tokens.get(callee_type.resolved_type.?.ForeignContainer.location),
+                                        ast.tokens.get(callee_type.resolved_type.?.ForeignContainer.location),
+                                        field_type,
+                                        ast.tokens.get(locations[value]),
+                                        ast.tokens.get(end_locations[value]),
+                                        value_type_def,
+                                        "Bad property type",
+                                    );
+                                    had_error = true;
+                                }
+                            } else {
+                                reporter.reportErrorFmt(
+                                    .property_does_not_exists,
+                                    ast.tokens.get(components.identifier),
+                                    ast.tokens.get(components.identifier),
+                                    "List property `{s}` does not exists",
+                                    .{
+                                        field_name,
+                                    },
                                 );
                                 had_error = true;
                             }
                         },
                         .ObjectInstance, .Object => {
-                            if (field.?.method or
+                            if (field == null) {
+                                reporter.reportErrorFmt(
+                                    .property_does_not_exists,
+                                    ast.tokens.get(components.identifier),
+                                    ast.tokens.get(components.identifier),
+                                    "Property `{s}` does not exists",
+                                    .{
+                                        field_name,
+                                    },
+                                );
+                                had_error = true;
+                            } else if (field.?.method or
                                 (callee_type.def_type == .ObjectInstance and field.?.static) or
                                 (callee_type.def_type == .Object and !field.?.static))
                             {
@@ -799,7 +821,18 @@ fn checkDot(ast: Ast.Slice, reporter: *Reporter, gc: *GC, _: ?Ast.Node.Index, no
                         had_error = true;
                     }
 
-                    if (field.?.mutable and !callee_type.resolved_type.?.ObjectInstance.mutable) {
+                    if (field == null) {
+                        reporter.reportErrorFmt(
+                            .property_does_not_exists,
+                            ast.tokens.get(components.identifier),
+                            ast.tokens.get(components.identifier),
+                            "Property `{s}` does not exists",
+                            .{
+                                field_name,
+                            },
+                        );
+                        had_error = true;
+                    } else if (field.?.mutable and !callee_type.resolved_type.?.ObjectInstance.mutable) {
                         reporter.report(
                             .not_mutable,
                             ast.tokens.get(components.identifier),
@@ -819,7 +852,18 @@ fn checkDot(ast: Ast.Slice, reporter: *Reporter, gc: *GC, _: ?Ast.Node.Index, no
                 .methods
                 .get(field_name);
 
-            if (field.?.mutable and !callee_type.resolved_type.?.ProtocolInstance.mutable) {
+            if (field == null) {
+                reporter.reportErrorFmt(
+                    .property_does_not_exists,
+                    ast.tokens.get(components.identifier),
+                    ast.tokens.get(components.identifier),
+                    "Method `{s}` does not exists",
+                    .{
+                        field_name,
+                    },
+                );
+                had_error = true;
+            } else if (field.?.mutable and !callee_type.resolved_type.?.ProtocolInstance.mutable) {
                 reporter.report(
                     .not_mutable,
                     ast.tokens.get(components.identifier),
@@ -836,28 +880,50 @@ fn checkDot(ast: Ast.Slice, reporter: *Reporter, gc: *GC, _: ?Ast.Node.Index, no
             const identifier = ast.tokens.items(.lexeme)[components.identifier];
 
             switch (callee_type.def_type) {
-                .List => if (callee_type.resolved_type.?.List.methods.get(identifier).?.mutable and
-                    !callee_type.resolved_type.?.List.mutable)
-                {
+                .List => if (callee_type.resolved_type.?.List.methods.get(identifier)) |member| {
+                    if (member.mutable and !callee_type.resolved_type.?.List.mutable) {
+                        reporter.reportErrorFmt(
+                            .not_mutable,
+                            ast.tokens.get(components.identifier),
+                            ast.tokens.get(components.identifier),
+                            "Method `{s}` requires mutable list",
+                            .{
+                                identifier,
+                            },
+                        );
+                        had_error = true;
+                    }
+                } else {
                     reporter.reportErrorFmt(
-                        .not_mutable,
+                        .property_does_not_exists,
                         ast.tokens.get(components.identifier),
                         ast.tokens.get(components.identifier),
-                        "Method `{s}` requires mutable list",
+                        "List property `{s}` does not exists",
                         .{
                             identifier,
                         },
                     );
                     had_error = true;
                 },
-                .Map => if (callee_type.resolved_type.?.Map.methods.get(identifier).?.mutable and
-                    !callee_type.resolved_type.?.Map.mutable)
-                {
+                .Map => if (callee_type.resolved_type.?.Map.methods.get(identifier)) |member| {
+                    if (member.mutable and !callee_type.resolved_type.?.Map.mutable) {
+                        reporter.reportErrorFmt(
+                            .not_mutable,
+                            ast.tokens.get(components.identifier),
+                            ast.tokens.get(components.identifier),
+                            "Method `{s}` requires mutable list",
+                            .{
+                                identifier,
+                            },
+                        );
+                        had_error = true;
+                    }
+                } else {
                     reporter.reportErrorFmt(
-                        .not_mutable,
+                        .property_does_not_exists,
                         ast.tokens.get(components.identifier),
                         ast.tokens.get(components.identifier),
-                        "Method `{s}` requires mutable list",
+                        "Map property `{s}` does not exists",
                         .{
                             identifier,
                         },
