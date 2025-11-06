@@ -272,8 +272,8 @@ fn rawReplace(self: *o.ObjPattern, vm: *VM, subject: *o.ObjString, replacement: 
         return subject;
     }
 
-    var result = std.ArrayList(u8){};
-    defer result.deinit(vm.gc.allocator);
+    var result = std.Io.Writer.Allocating.init(vm.gc.allocator);
+    defer result.deinit();
 
     var match_data = self.pattern.createMatchData(null) orelse {
         vm.panic("Out of memory");
@@ -299,16 +299,25 @@ fn rawReplace(self: *o.ObjPattern, vm: *VM, subject: *o.ObjString, replacement: 
         },
         else => {
             const output_vector = match_data.getOVectorPointer();
+            const next_offset = output_vector[0] + replacement.string.len;
 
-            offset.* = @as(usize, @intCast(output_vector[1]));
+            offset.* = if (output_vector[0] < output_vector[1])
+                next_offset
+            else
+                next_offset + 1;
 
-            try result.appendSlice(vm.gc.allocator, subject.string[0..@as(usize, @intCast(output_vector[0]))]);
-            try result.appendSlice(vm.gc.allocator, replacement.string);
-            try result.appendSlice(vm.gc.allocator, subject.string[offset.*..]);
+            try result.writer.print(
+                "{s}{s}{s}",
+                .{
+                    subject.string[0..output_vector[0]],
+                    replacement.string,
+                    subject.string[output_vector[1]..],
+                },
+            );
         },
     }
 
-    return try vm.gc.copyString(result.items);
+    return try vm.gc.copyString(result.written());
 }
 
 fn rawReplaceAll(self: *o.ObjPattern, vm: *VM, subject: *o.ObjString, replacement: *o.ObjString) !*o.ObjString {

@@ -1584,22 +1584,29 @@ fn generateForEach(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*
 
     // If iterable constant and empty, skip the node
     if (try self.ast.isConstant(self.gc.allocator, components.iterable)) {
-        const iterable = (try self.ast.toValue(
+        const iterable_value = (try self.ast.toValue(
             components.iterable,
             &self.reporter,
             self.gc,
-        )).obj();
+        ));
 
-        if (switch (iterable.obj_type) {
-            .List => obj.ObjList.cast(iterable).?.items.items.len == 0,
-            .Map => obj.ObjMap.cast(iterable).?.map.count() == 0,
-            .String => obj.ObjString.cast(iterable).?.string.len == 0,
-            .Enum => obj.ObjEnum.cast(iterable).?.cases.len == 0,
-            .Range => obj.ObjRange.cast(iterable).?.high == obj.ObjRange.cast(iterable).?.low,
-            else => self.reporter.last_error != null,
-        }) {
-            try self.patchOptJumps(node);
-            return null;
+        const iterable_obj = if (iterable_value.isObj())
+            iterable_value.obj()
+        else
+            null;
+
+        if (iterable_obj) |iterable| {
+            if (switch (iterable.obj_type) {
+                .List => obj.ObjList.cast(iterable).?.items.items.len == 0,
+                .Map => obj.ObjMap.cast(iterable).?.map.count() == 0,
+                .String => obj.ObjString.cast(iterable).?.string.len == 0,
+                .Enum => obj.ObjEnum.cast(iterable).?.cases.len == 0,
+                .Range => obj.ObjRange.cast(iterable).?.high == obj.ObjRange.cast(iterable).?.low,
+                else => self.reporter.last_error != null,
+            }) {
+                try self.patchOptJumps(node);
+                return null;
+            }
         }
     }
 

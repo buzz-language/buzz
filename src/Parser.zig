@@ -4875,10 +4875,10 @@ fn dot(self: *Self, can_assign: bool, callee: Ast.Node.Index) Error!Ast.Node.Ind
                 .Dot = .{
                     .callee = callee,
                     .identifier = member_name_token,
-                    .value_or_call_or_enum = undefined,
+                    .value_or_call_or_enum = .{ .Ref = {} },
                     .generic_resolve = null,
                     .member_type_def = undefined,
-                    .member_kind = undefined,
+                    .member_kind = .Ref,
                 },
             },
         },
@@ -10070,8 +10070,11 @@ fn returnStatement(self: *Self) Error!Ast.Node.Index {
 
         if (self.ast.nodes.items(.tag)[uvalue] == .Call) {
             self.ast.nodes.items(.components)[uvalue].Call.tail_call = true;
-        } else if (self.ast.nodes.items(.tag)[uvalue] == .Dot and self.ast.nodes.items(.components)[uvalue].Dot.member_kind == .Call) {
-            self.ast.nodes.items(.components)[self.ast.nodes.items(.components)[uvalue].Dot.value_or_call_or_enum.Call].Call.tail_call = true;
+        } else if (self.ast.nodes.items(.tag)[uvalue] == .Dot and self.ast.nodes.items(.components)[uvalue].Dot.value_or_call_or_enum == .Call) {
+            self.ast.nodes.items(.components)[
+                self.ast.nodes.items(.components)[uvalue]
+                    .Dot.value_or_call_or_enum.Call
+            ].Call.tail_call = true;
         }
     }
 
