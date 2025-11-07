@@ -2074,6 +2074,32 @@ fn checkSubscript(ast: Ast.Slice, reporter: *Reporter, gc: *GC, _: ?Ast.Node.Ind
 
     var had_error = false;
 
+    if (components.assign_token != null and subscripted_type_def.def_type != .List and subscripted_type_def.def_type != .Map) {
+        reporter.reportErrorFmt(
+            .assignable,
+            ast.tokens.get(location),
+            ast.tokens.get(end_locations[node]),
+            "Can't assign to `{s}`.",
+            .{
+                subscripted_type_def.toStringAlloc(gc.allocator, false) catch return error.OutOfMemory,
+            },
+        );
+        had_error = true;
+    }
+
+    if (components.checked and subscripted_type_def.def_type != .List and subscripted_type_def.def_type != .String) {
+        reporter.reportErrorFmt(
+            .assignable,
+            ast.tokens.get(location),
+            ast.tokens.get(end_locations[node]),
+            "Checked subscript not available for `{s}`.",
+            .{
+                subscripted_type_def.toStringAlloc(gc.allocator, false) catch return error.OutOfMemory,
+            },
+        );
+        had_error = true;
+    }
+
     switch (subscripted_type_def.def_type) {
         .String => if (index_type_def.def_type != .Integer) {
             reporter.reportErrorAt(

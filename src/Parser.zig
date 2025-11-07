@@ -3968,7 +3968,23 @@ fn subscript(self: *Self, can_assign: bool, subscripted: Ast.Node.Index) Error!A
     try self.consume(.RightBracket, "Expected `]`.");
 
     var value: ?Ast.Node.Index = null;
-    if (can_assign and (subscript_type_def.def_type != .Any or subscript_type_def.def_type != .String) and try self.match(.Equal)) {
+    var assign_token: ?Ast.TokenIndex = null;
+    if (can_assign and
+        (subscript_type_def.def_type == .Map or subscript_type_def.def_type == .List or subscript_type_def.def_type == .Placeholder) and
+        try self.matchOpEqual())
+    {
+        assign_token = self.current_token.? - 1;
+
+        if (checked) {
+            const loc = self.ast.tokens.get(assign_token.?);
+            self.reporter.reportErrorAt(
+                .assignable,
+                loc,
+                loc,
+                "Can't assign with checked subscript",
+            );
+        }
+
         value = try self.expression(false);
         const value_type_def = self.ast.nodes.items(.type_def)[value.?];
 
@@ -3995,6 +4011,7 @@ fn subscript(self: *Self, can_assign: bool, subscripted: Ast.Node.Index) Error!A
                 .Subscript = .{
                     .index = index,
                     .value = value,
+                    .assign_token = assign_token,
                     .subscripted = subscripted,
                     .checked = checked,
                 },

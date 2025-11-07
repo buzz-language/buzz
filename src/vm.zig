@@ -823,6 +823,7 @@ pub const VM = struct {
 
     fn dispatch(self: *Self, current_frame: *CallFrame, full_instruction: u32, instruction: Chunk.OpCode, arg: u24) void {
         if (BuildOptions.debug_stack) {
+            std.debug.print("{s}:\n", .{@tagName(instruction)});
             dumpStack(self);
         }
 
@@ -2555,12 +2556,12 @@ pub const VM = struct {
         );
     }
 
-    fn OP_GET_LIST_SUBSCRIPT(self: *Self, _: *CallFrame, _: u32, _: Chunk.OpCode, checked: u24) void {
+    fn OP_GET_LIST_SUBSCRIPT(self: *Self, _: *CallFrame, _: u32, _: Chunk.OpCode, checked_or_leave: u24) void {
         const list = self.peek(1).obj()
             .access(obj.ObjList, .List, self.gc).?;
         const index = self.peek(0).integer();
 
-        if (checked == 0 and index < 0) {
+        if (checked_or_leave != 1 and index < 0) {
             self.throw(
                 Error.OutOfBound,
                 (self.gc.copyString("Out of bound list access.") catch {
@@ -2582,7 +2583,7 @@ pub const VM = struct {
 
         const list_index: usize = @intCast(index);
 
-        if (checked == 0 and list_index >= list.items.items.len) {
+        if (checked_or_leave != 1 and list_index >= list.items.items.len) {
             self.throw(
                 Error.OutOfBound,
                 (self.gc.copyString("Out of bound list access.") catch {
@@ -2610,7 +2611,9 @@ pub const VM = struct {
             list.items.items[list_index];
 
         // Pop list and index
-        self.discard(2);
+        if (checked_or_leave != 2) {
+            self.discard(2);
+        }
 
         // Push value
         self.push(list_item);
@@ -2629,12 +2632,14 @@ pub const VM = struct {
         );
     }
 
-    fn OP_GET_MAP_SUBSCRIPT(self: *Self, _: *CallFrame, _: u32, _: Chunk.OpCode, _: u24) void {
+    fn OP_GET_MAP_SUBSCRIPT(self: *Self, _: *CallFrame, _: u32, _: Chunk.OpCode, leave: u24) void {
         var map = self.peek(1).obj().access(obj.ObjMap, .Map, self.gc).?;
         const index = self.peek(0);
 
         // Pop map and key
-        self.discard(2);
+        if (leave != 2) {
+            self.discard(2);
+        }
 
         if (map.map.get(index)) |value| {
             // Push value
