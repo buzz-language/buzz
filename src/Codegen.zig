@@ -383,7 +383,11 @@ fn patchOptJumps(self: *Self, node: Ast.Node.Index) !void {
     const location = self.ast.nodes.items(.location)[node];
 
     if (self.ast.nodes.items(.patch_opt_jumps)[node]) {
-        std.debug.assert(self.opt_jumps.items.len > 0);
+        std.debug.assert(self.reporter.last_error != null or self.opt_jumps.items.len > 0);
+
+        if (self.opt_jumps.items.len == 0) {
+            return;
+        }
 
         // Hope over OP_POP if actual value
         const njump: usize = try self.emitJump(location, .OP_JUMP);
@@ -2023,12 +2027,12 @@ fn generateIf(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.O
         try self.OP_NOT(condition_location);
     }
 
-    const else_jump: usize = try self.OP_JUMP_IF_FALSE(location);
+    const else_jump = try self.OP_JUMP_IF_FALSE(location);
     try self.OP_POP(location);
 
     _ = try self.generateNode(components.body, breaks);
 
-    const out_jump: usize = try self.emitJump(location, .OP_JUMP);
+    const out_jump = try self.emitJump(location, .OP_JUMP);
 
     self.patchJump(else_jump);
     if (components.unwrapped_identifier != null or components.casted_type != null) {
@@ -2554,6 +2558,7 @@ fn generateSubscript(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!
     const location = locations[node];
     const type_defs = self.ast.nodes.items(.type_def);
     const components = self.ast.nodes.items(.components)[node].Subscript;
+    const tags = self.ast.tokens.items(.tag);
 
     _ = try self.generateNode(components.subscripted, breaks);
 
@@ -2577,8 +2582,55 @@ fn generateSubscript(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!
 
     _ = try self.generateNode(components.index, breaks);
 
-    if (components.value) |value| {
+    if (!components.checked and components.value != null) {
+        const value = components.value.?;
+
+        if (tags[components.assign_token.?].isAssignShortcut()) {
+            try self.emitCodeArg(
+                locations[value],
+                get_code,
+                2, // 2 means, leave subscript and index on the stack
+            );
+        }
+
         _ = try self.generateNode(value, breaks);
+
+        switch (tags[components.assign_token.?]) {
+            .PlusEqual => switch (type_defs[value].?.def_type) {
+                .Integer => try self.OP_ADD_I(locations[value]),
+                .Double => try self.OP_ADD_F(locations[value]),
+                .List => try self.OP_ADD_LIST(locations[value]),
+                .Map => try self.OP_ADD_MAP(locations[value]),
+                .String => try self.OP_ADD_STRING(locations[value]),
+                else => {},
+            },
+            .MinusEqual => switch (type_defs[value].?.def_type) {
+                .Integer => try self.OP_SUBTRACT_I(locations[value]),
+                .Double => try self.OP_SUBTRACT_F(locations[value]),
+                else => {},
+            },
+            .StarEqual => switch (type_defs[value].?.def_type) {
+                .Integer => try self.OP_MULTIPLY_I(locations[value]),
+                .Double => try self.OP_MULTIPLY_F(locations[value]),
+                else => {},
+            },
+            .SlashEqual => switch (type_defs[value].?.def_type) {
+                .Integer => try self.OP_DIVIDE_I(locations[value]),
+                .Double => try self.OP_DIVIDE_F(locations[value]),
+                else => {},
+            },
+            .ShiftRightEqual => try self.OP_SHR(locations[value]),
+            .ShiftLeftEqual => try self.OP_SHL(locations[value]),
+            .XorEqual => try self.OP_XOR(locations[value]),
+            .BorEqual => try self.OP_BOR(locations[value]),
+            .AmpersandEqual => try self.OP_BAND(locations[value]),
+            .PercentEqual => switch (type_defs[value].?.def_type) {
+                .Integer => try self.OP_MOD_I(locations[value]),
+                .Double => try self.OP_MOD_F(locations[value]),
+                else => {},
+            },
+            else => {},
+        }
 
         try self.emitOpCode(location, set_code);
     } else {

@@ -1525,6 +1525,7 @@ pub const Subscript = struct {
     subscripted: Node.Index,
     index: Node.Index,
     value: ?Node.Index,
+    assign_token: ?TokenIndex,
     checked: bool,
 };
 

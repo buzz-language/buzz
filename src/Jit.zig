@@ -3875,6 +3875,7 @@ fn generateDot(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
 fn generateSubscript(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
     const components = self.state.?.ast.nodes.items(.components)[node].Subscript;
     const type_defs = self.state.?.ast.nodes.items(.type_def);
+    const tags = self.state.?.ast.tokens.items(.tag);
 
     const subscripted = (try self.generateNode(components.subscripted)).?;
     const index_val = (try self.generateNode(components.index)).?;
@@ -3890,16 +3891,51 @@ fn generateSubscript(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
             try self.unwrap(.Integer, index_val, index);
 
             if (value) |val| {
-                try self.buildExternApiCall(
-                    .bz_listSet,
-                    null,
-                    &[_]m.MIR_op_t{
-                        subscripted,
-                        index,
+                if (tags[components.assign_token.?] != .Equal) {
+                    const res = m.MIR_new_reg_op(
+                        self.ctx,
+                        try self.REG("res", m.MIR_T_I64),
+                    );
+                    try self.buildExternApiCall(
+                        .bz_listGet,
+                        res,
+                        &[_]m.MIR_op_t{
+                            subscripted,
+                            index,
+                            m.MIR_new_uint_op(self.ctx, 0),
+                        },
+                    );
+
+                    try self.buildBinary(
+                        tags[components.assign_token.?],
+                        type_defs[components.value.?].?.def_type,
+                        res,
                         val,
-                        m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
-                    },
-                );
+                        res,
+                    );
+
+                    try self.buildExternApiCall(
+                        .bz_listSet,
+                        null,
+                        &[_]m.MIR_op_t{
+                            subscripted,
+                            index,
+                            res,
+                            m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
+                        },
+                    );
+                } else {
+                    try self.buildExternApiCall(
+                        .bz_listSet,
+                        null,
+                        &[_]m.MIR_op_t{
+                            subscripted,
+                            index,
+                            val,
+                            m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
+                        },
+                    );
+                }
 
                 return subscripted;
             }

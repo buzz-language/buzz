@@ -205,6 +205,24 @@ pub const Type = enum {
     BnotEqual, // ~=
     AmpersandEqual, // &=
     PercentEqual, // %=
+
+    pub fn isAssignShortcut(self: @This()) bool {
+        return switch (self) {
+            .PlusEqual,
+            .MinusEqual,
+            .StarEqual,
+            .SlashEqual,
+            .ShiftRightEqual,
+            .ShiftLeftEqual,
+            .XorEqual,
+            .BorEqual,
+            .BnotEqual,
+            .AmpersandEqual,
+            .PercentEqual,
+            => true,
+            else => false,
+        };
+    }
 };
 
 // FIXME if case had the same name as the actual token we could simply use @tagName
