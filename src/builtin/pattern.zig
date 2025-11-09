@@ -160,7 +160,10 @@ fn rawMatch(self: *o.ObjPattern, vm: *VM, subject: *o.ObjString, offset: *usize)
         else => {
             const output_vector = match_data.getOVectorPointer();
 
-            offset.* = @intCast(output_vector[1]);
+            offset.* = if (output_vector[0] < output_vector[1])
+                output_vector[1]
+            else
+                output_vector[1] + 1;
 
             results = try vm.gc.allocateObject(
                 try o.ObjList.init(
