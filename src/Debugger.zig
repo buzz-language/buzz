@@ -453,7 +453,6 @@ pub fn launch(self: *Debugger, arguments: Arguments(.launch)) Error!Response(.la
     );
 
     // While debugger is active, the program won't start right away
-    // FIXME: needs to report stdout of the program with `output` events
     self.session.?.runner.runFile(
         program,
         &.{}, // TODO
