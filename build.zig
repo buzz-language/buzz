@@ -118,6 +118,10 @@ pub fn build(b: *Build) !void {
         b.installArtifact(behavior_exe.?);
         const run_behavior = b.addRunArtifact(behavior_exe.?);
         run_behavior.step.dependOn(install_step);
+        run_behavior.step.dependOn(install_step);
+        if (b.args) |args| {
+            run_behavior.addArgs(args);
+        }
         b.step("test-behavior", "Test behavior").dependOn(&run_behavior.step);
     }
 
