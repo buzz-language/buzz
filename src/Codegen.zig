@@ -607,7 +607,6 @@ fn generateBinary(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*o
             if (left_type.def_type == .Integer) {
                 try self.OP_SUBTRACT_I(locations[node]);
             } else {
-                std.debug.assert(left_type.def_type == .Double);
                 try self.OP_SUBTRACT_F(locations[node]);
             }
         },

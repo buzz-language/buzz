@@ -3230,9 +3230,14 @@ fn generateFor(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
     return null;
 }
 
-fn findBreakLabel(self: *Self, node: Ast.Node.Index) Break {
-    var i = self.state.?.breaks_label.items.len - 1;
-    while (i >= 0) : (i -= 1) {
+fn findBreakLabel(self: *Self, node: Ast.Node.Index) Error!Break {
+    if (self.state.?.breaks_label.items.len == 0) {
+        // The label might be outside the hotspot being compiled
+        // FIXME: It would be better to find this out before compiling
+        return error.CantCompile;
+    }
+
+    for (self.state.?.breaks_label.items.len - 1..0) |i| {
         const brk = self.state.?.breaks_label.items[i];
 
         if (brk.node == node) {
@@ -3240,15 +3245,16 @@ fn findBreakLabel(self: *Self, node: Ast.Node.Index) Break {
         }
     }
 
-    // Should not happen: searched when parsing
-    unreachable;
+    // The label might be outside the hotspot being compiled
+    // FIXME: It would be better to find this out before compiling
+    return error.CantCompile;
 }
 
 fn generateBreak(self: *Self, break_node: Ast.Node.Index) Error!?m.MIR_op_t {
     try self.closeScope(break_node);
 
     if (self.state.?.ast.nodes.items(.components)[break_node].Break.destination) |label_node| {
-        self.JMP(self.findBreakLabel(label_node).break_label);
+        self.JMP((try self.findBreakLabel(label_node)).break_label);
     } else {
         self.JMP(self.state.?.break_label.?);
     }
@@ -3260,7 +3266,7 @@ fn generateContinue(self: *Self, continue_node: Ast.Node.Index) Error!?m.MIR_op_
     try self.closeScope(continue_node);
 
     if (self.state.?.ast.nodes.items(.components)[continue_node].Continue.destination) |label_node| {
-        self.JMP(self.findBreakLabel(label_node).continue_label);
+        self.JMP((try self.findBreakLabel(label_node)).continue_label);
     } else {
         self.JMP(self.state.?.continue_label.?);
     }
@@ -4970,25 +4976,7 @@ fn generateHotspotFunction(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t 
         ),
     );
 
-    _ = self.generateNode(node) catch |err| {
-        if (err == error.CantCompile) {
-            if (BuildOptions.jit_debug) {
-                io.print(
-                    "Not compiling node {s}#{}, likely because it uses a fiber\n",
-                    .{
-                        @tagName(self.state.?.ast.nodes.items(.tag)[self.state.?.ast_node]),
-                        self.state.?.ast_node,
-                    },
-                );
-            }
-
-            m.MIR_finish_func(self.ctx);
-
-            try self.blacklisted_nodes.put(self.vm.gc.allocator, self.state.?.ast_node, {});
-        }
-
-        return err;
-    };
+    _ = try self.generateNode(node);
 
     // If we reach here, return 0 meaning there was no early return in the hotspot
     self.RET(m.MIR_new_int_op(self.ctx, 0));
