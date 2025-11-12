@@ -179,7 +179,7 @@ pub fn build(b: *Build) !void {
     }
 
     // fuzz
-    const fuzz = if (!is_wasm)
+    const fuzz = if (!is_wasm and false) // Turn on manually as we don't want the CI to do this
         buildFuzz(b, target, build_mode, ext_deps)
     else
         null;
