@@ -467,7 +467,7 @@ fn generateAs(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.O
 
     _ = try self.generateNode(components.left, breaks);
 
-    try self.OP_COPY(locations[components.left], 0);
+    try self.OP_COPY(locations[components.left]);
     try self.OP_CONSTANT(node_location, constant);
     try self.OP_IS(node_location);
     try self.OP_NOT(node_location);
@@ -1151,7 +1151,7 @@ fn generateDot(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.
     switch (callee_type.def_type) {
         .Fiber, .Pattern, .String => {
             if (components.member_kind == .Call) {
-                try self.OP_COPY(locations[node], 0);
+                try self.OP_COPY(locations[node]);
                 _ = try self.generateNode(components.value_or_call_or_enum.Call, breaks);
             } else { // Expression
                 std.debug.assert(components.member_kind != .Value);
@@ -1208,7 +1208,7 @@ fn generateDot(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.
                         .PercentEqual,
                         => {
                             // Copy because OP_GET_INSTANCE_... will consume the subject
-                            try self.OP_COPY(locations[node], 0);
+                            try self.OP_COPY(locations[node]);
 
                             try self.emitCodeArg(
                                 locations[node],
@@ -1320,7 +1320,7 @@ fn generateDot(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.
         },
         .List, .Map, .Range => {
             if (components.member_kind == .Call) {
-                try self.OP_COPY(locations[node], 0);
+                try self.OP_COPY(locations[node]);
                 _ = try self.generateNode(components.value_or_call_or_enum.Call, breaks);
             } else {
                 std.debug.assert(components.member_kind != .Value);
@@ -2017,11 +2017,11 @@ fn generateIf(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.O
     _ = try self.generateNode(components.condition, breaks);
     const condition_location = locations[components.condition];
     if (components.casted_type) |casted_type| {
-        try self.OP_COPY(condition_location, 0);
+        try self.OP_COPY(condition_location);
         try self.emitConstant(condition_location, type_defs[casted_type].?.toValue());
         try self.OP_IS(condition_location);
     } else if (components.unwrapped_identifier != null) {
-        try self.OP_COPY(condition_location, 0);
+        try self.OP_COPY(condition_location);
         try self.OP_NULL(condition_location);
         try self.OP_EQUAL(condition_location);
         try self.OP_NOT(condition_location);
@@ -2322,7 +2322,7 @@ fn generateObjectDeclaration(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks
             // Create property default value
             if (member.method_or_default_value) |default| {
                 if (property_field.static) {
-                    try self.OP_COPY(location, 0);
+                    try self.OP_COPY(location);
                 }
 
                 _ = try self.generateNode(default, breaks);
@@ -2387,7 +2387,7 @@ fn generateObjectInit(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error
             node_type_def.resolved_type.?.ForeignContainer
                 .fields.getIndex(property_name);
 
-        try self.OP_COPY(location, 0); // Will be popped by OP_SET_PROPERTY
+        try self.OP_COPY(location); // Will be popped by OP_SET_PROPERTY
 
         _ = try self.generateNode(property.value, breaks);
 
@@ -2681,7 +2681,7 @@ fn generateTry(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.
         }
 
         // We assume the error is on top of the stack
-        try self.OP_COPY(clause.identifier, 0); // Copy error value since its argument to the catch clause
+        try self.OP_COPY(clause.identifier); // Copy error value since its argument to the catch clause
         try self.emitConstant(clause.identifier, error_type.toValue());
         try self.OP_IS(clause.identifier);
         // If error type does not match, jump to next catch clause
@@ -2885,7 +2885,7 @@ fn generateUnwrap(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*o
 
     _ = try self.generateNode(components.unwrapped, breaks);
 
-    try self.OP_COPY(location, 0);
+    try self.OP_COPY(location);
     try self.OP_NULL(location);
     try self.OP_EQUAL(location);
     try self.OP_NOT(location);
@@ -3400,12 +3400,8 @@ fn OP_EXPORT(self: *Self, location: Ast.TokenIndex, count: u24) !void {
     );
 }
 
-fn OP_COPY(self: *Self, location: Ast.TokenIndex, dist: u24) !void {
-    try self.emitCodeArg(
-        location,
-        .OP_COPY,
-        dist,
-    );
+fn OP_COPY(self: *Self, location: Ast.TokenIndex) !void {
+    try self.emitOpCode(location, .OP_COPY);
 }
 
 fn OP_CLONE(self: *Self, location: Ast.TokenIndex) !void {

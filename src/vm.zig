@@ -541,22 +541,6 @@ pub const VM = struct {
         return (self.current_fiber.stack_top - 1 - distance)[0];
     }
 
-    pub fn copy(self: *Self, n: u24) void {
-        if (n == 0) {
-            self.push(self.peek(0));
-            return;
-        }
-
-        var i = n - 1;
-        while (i >= 0) : (i -= 1) {
-            self.push(self.peek(i));
-
-            if (i == 0) {
-                break;
-            }
-        }
-    }
-
     pub fn cloneValue(self: *Self, value: Value) !Value {
         return if (value.isObj())
             try obj.cloneObject(value.obj(), self)
@@ -1022,8 +1006,8 @@ pub const VM = struct {
         );
     }
 
-    fn OP_COPY(self: *Self, _: *CallFrame, _: u32, _: Chunk.OpCode, arg: u24) void {
-        self.copy(arg);
+    fn OP_COPY(self: *Self, _: *CallFrame, _: u32, _: Chunk.OpCode, _: u24) void {
+        self.push(self.peek(0));
 
         const next_full_instruction = self.readInstruction();
         @call(
