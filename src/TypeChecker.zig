@@ -192,8 +192,6 @@ fn checkBinary(ast: Ast.Slice, reporter: *Reporter, gc: *GC, _: ?Ast.Node.Index,
                 "Unexpected binary operator.",
             );
 
-            std.debug.print(">> {s}\n", .{@tagName(node_components.Binary.operator)});
-
             had_error = true;
         },
     }
@@ -307,7 +305,6 @@ fn checkBinary(ast: Ast.Slice, reporter: *Reporter, gc: *GC, _: ?Ast.Node.Index,
                 ast.tokens.get(node_end_location),
                 "Unexpected binary operator.",
             );
-            std.debug.print(">> {s}\n", .{@tagName(node_components.Binary.operator)});
 
             had_error = true;
         },
