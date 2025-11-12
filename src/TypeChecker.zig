@@ -17,66 +17,66 @@ const NodeCheck = *const fn (
 const checkers = [_]?NodeCheck{
     null, // AnonymousObjectType,
     null, // As,
-    null, // AsyncCall,
-    checkBinary, // Binary,
+    checkAsyncCall,
+    checkBinary,
     null, // Block,
     null, // BlockExpression,
     null, // Boolean,
     null, // Break,
-    checkCall, // Call,
+    checkCall,
     null, // Continue,
-    checkDot, // Dot,
-    checkDoUntil, // DoUntil,
-    checkEnum, // Enum,
+    checkDot,
+    checkDoUntil,
+    checkEnum,
     null, // Export,
     null, // Expression,
     null, // FiberType,
     null, // Double,
-    checkFor, // For,
-    checkForceUnwrap, // ForceUnwrap,
-    checkForEach, // ForEach,
-    checkFunction, // Function,
+    checkFor,
+    checkForceUnwrap,
+    checkForEach,
+    checkFunction,
     null, // FunctionType,
     null, // FunDeclaration,
-    checkGenericResolve, // GenericResolve,
+    checkGenericResolve,
     null, // GenericResolveType,
     null, // GenericType,
     null, // Grouping,
-    checkIf, // If,
+    checkIf,
     null, // Import,
     null, // Integer,
     null, // Is,
-    checkList, // List,
+    checkList,
     null, // ListType,
-    checkMap, // Map,
+    checkMap,
     null, // MapType,
     null, // Namespace,
-    checkNamedVariable, // NamedVariable,
+    checkNamedVariable,
     null, // Null,
-    checkObjectDeclaration, // ObjectDeclaration,
-    checkObjectInit, // ObjectInit,
+    checkObjectDeclaration,
+    checkObjectInit,
     null, // Out,
     null, // Pattern,
     null, // ProtocolDeclaration,
-    checkRange, // Range,
-    checkResolve, // Resolve,
-    checkResume, // Resume,
-    checkReturn, // Return,
+    checkRange,
+    checkResolve,
+    checkResume,
+    checkReturn,
     null, // SimpleType,
     null, // String,
     null, // StringLiteral,
-    checkSubscript, // Subscript,
+    checkSubscript,
     null, // Throw,
     null, // Try,
     null, // TypeExpression,
     null, // TypeOfExpression,
-    checkUnary, // Unary,
-    checkUnwrap, // Unwrap,
+    checkUnary,
+    checkUnwrap,
     null, // UserType,
-    checkVarDeclaration, // VarDeclaration,
+    checkVarDeclaration,
     null, // Void,
-    checkWhile, // While,
-    checkYield, // Yield,
+    checkWhile,
+    checkYield,
     null, // Zdef,
 };
 
@@ -1972,13 +1972,33 @@ fn checkRange(ast: Ast.Slice, reporter: *Reporter, gc: *GC, _: ?Ast.Node.Index, 
     return had_error;
 }
 
-fn checkResolve(ast: Ast.Slice, reporter: *Reporter, _: *GC, _: ?Ast.Node.Index, node: Ast.Node.Index) error{OutOfMemory}!bool {
-    const fiber = ast.nodes.items(.components)[node].Resolve;
-    const fiber_type_def = ast.nodes.items(.type_def)[fiber].?;
+fn checkAsyncCall(ast: Ast.Slice, reporter: *Reporter, gc: *GC, _: ?Ast.Node.Index, node: Ast.Node.Index) error{OutOfMemory}!bool {
+    const callee = ast.nodes.items(.components)[node].AsyncCall;
+    const callee_type_def = ast.nodes.items(.type_def)[callee] orelse gc.type_registry.any_type;
     const locations = ast.nodes.items(.location);
     const end_locations = ast.nodes.items(.end_location);
 
-    if (fiber_type_def.def_type != .Fiber) {
+    if (callee_type_def.optional or ast.nodes.items(.patch_opt_jumps)[callee]) {
+        reporter.reportErrorAt(
+            .fiber,
+            ast.tokens.get(locations[callee]),
+            ast.tokens.get(end_locations[callee]),
+            "Not callable",
+        );
+
+        return false;
+    }
+
+    return true;
+}
+
+fn checkResolve(ast: Ast.Slice, reporter: *Reporter, gc: *GC, _: ?Ast.Node.Index, node: Ast.Node.Index) error{OutOfMemory}!bool {
+    const fiber = ast.nodes.items(.components)[node].Resolve;
+    const fiber_type_def = ast.nodes.items(.type_def)[fiber] orelse gc.type_registry.any_type;
+    const locations = ast.nodes.items(.location);
+    const end_locations = ast.nodes.items(.end_location);
+
+    if (fiber_type_def.def_type != .Fiber or fiber_type_def.optional or ast.nodes.items(.patch_opt_jumps)[fiber]) {
         reporter.reportErrorAt(
             .fiber,
             ast.tokens.get(locations[fiber]),
@@ -1992,13 +2012,13 @@ fn checkResolve(ast: Ast.Slice, reporter: *Reporter, _: *GC, _: ?Ast.Node.Index,
     return true;
 }
 
-fn checkResume(ast: Ast.Slice, reporter: *Reporter, _: *GC, _: ?Ast.Node.Index, node: Ast.Node.Index) error{OutOfMemory}!bool {
+fn checkResume(ast: Ast.Slice, reporter: *Reporter, gc: *GC, _: ?Ast.Node.Index, node: Ast.Node.Index) error{OutOfMemory}!bool {
     const fiber = ast.nodes.items(.components)[node].Resume;
-    const fiber_type_def = ast.nodes.items(.type_def)[fiber].?;
+    const fiber_type_def = ast.nodes.items(.type_def)[fiber] orelse gc.type_registry.any_type;
     const locations = ast.nodes.items(.location);
     const end_locations = ast.nodes.items(.end_location);
 
-    if (fiber_type_def.def_type != .Fiber) {
+    if (fiber_type_def.def_type != .Fiber or fiber_type_def.optional or ast.nodes.items(.patch_opt_jumps)[fiber]) {
         reporter.reportErrorAt(
             .fiber,
             ast.tokens.get(locations[fiber]),

@@ -73,5 +73,5 @@ test "Wrapping call inside complex expressions" {
         "hello": fun () > str => "hello world",
     };
 
-    std\assert(resolve &map["hello"]?() == "hello world", message: "Could warp function call in a complex expression");
+    std\assert(resolve &map["hello"]!() == "hello world", message: "Could warp function call in a complex expression");
 }
