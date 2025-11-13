@@ -428,6 +428,7 @@ pub const VM = struct {
         UnwrappedNull,
         OutOfBound,
         NumberOverflow,
+        DivisionByZero,
         NotInFiber,
         FiberOver,
         BadNumber,
@@ -1532,7 +1533,9 @@ pub const VM = struct {
             catch_value,
         ) catch |err| {
             switch (err) {
-                Error.RuntimeError => return,
+                Error.RuntimeError,
+                Error.DivisionByZero,
+                => return,
                 else => {
                     self.panic("Out of memory");
                     unreachable;
@@ -4800,7 +4803,7 @@ pub const VM = struct {
         }
     }
 
-    fn reportRuntimeErrorWithCurrentStack(self: *Self, message: []const u8) void {
+    pub fn reportRuntimeErrorWithCurrentStack(self: *Self, message: []const u8) void {
         self.reportRuntimeError(
             message,
             if (self.currentFrame()) |frame|

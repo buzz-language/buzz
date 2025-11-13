@@ -683,6 +683,17 @@ pub const Slice = struct {
                 return Value.fromInteger(right_integer.? *% left_integer.?);
             },
             .Slash => {
+                if (right_float == 0 or right_integer == 0) {
+                    reporter.reportErrorAt(
+                        .runtime,
+                        self.tokens.get(self.nodes.items(.location)[components.right]),
+                        self.tokens.get(self.nodes.items(.end_location)[components.right]),
+                        "Division by zero.",
+                    );
+
+                    return error.DivisionByZero;
+                }
+
                 if (right_float) |rf| {
                     return Value.fromDouble(left_float.? / rf);
                 }

@@ -19,6 +19,7 @@ pub const Error = error{
     CantCompile,
     UnwrappedNull,
     OutOfBound,
+    DivisionByZero,
     ReachedMaximumMemoryUsage,
     WriteFailed,
 } || std.mem.Allocator.Error || std.fmt.BufPrintError;
@@ -2731,7 +2732,7 @@ fn buildBinary(
                 },
                 else => unreachable,
             }
-       },
+        },
         .Star, .StarEqual => {
             switch (def_type) {
                 .Integer => {
@@ -2746,12 +2747,44 @@ fn buildBinary(
             }
         },
         .Slash, .SlashEqual => {
+            const zero_label = m.MIR_new_label(self.ctx);
+
             switch (def_type) {
                 .Integer => {
+                    self.BNE(
+                        zero_label,
+                        right_value,
+                        m.MIR_new_uint_op(self.ctx, Value.fromInteger(0).val),
+                    );
+
+                    // Exit if division by zero
+                    // FIXME: would be great to be able to report cleanly the error but how to have string constant in MIR?
+                    try self.buildExternApiCall(
+                        .exit,
+                        null,
+                        &[_]m.MIR_op_t{m.MIR_new_uint_op(self.ctx, 1)},
+                    );
+
+                    self.append(zero_label);
                     self.DIV(dest, left, right);
                     try self.wrap(.Integer, dest, dest);
                 },
                 .Double => {
+                    self.BNE(
+                        zero_label,
+                        right_value,
+                        m.MIR_new_uint_op(self.ctx, Value.fromDouble(0).val),
+                    );
+
+                    // Exit if division by zero
+                    // FIXME: would be great to be able to report cleanly the error but how to have string constant in MIR?
+                    try self.buildExternApiCall(
+                        .exit,
+                        null,
+                        &[_]m.MIR_op_t{m.MIR_new_uint_op(self.ctx, 1)},
+                    );
+
+                    self.append(zero_label);
                     self.DDIV(left, left, right);
                     try self.wrap(.Double, left, dest);
                 },

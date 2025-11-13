@@ -23,6 +23,7 @@ const Self = @This();
 pub const Error = error{
     CantCompile,
     UnwrappedNull,
+    DivisionByZero,
     OutOfBound,
     ReachedMaximumMemoryUsage,
     WriteFailed,
@@ -439,14 +440,12 @@ fn generateNode(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj
 fn nodeValue(self: *Self, node: Ast.Node.Index) Error!?Value {
     const value = &self.ast.nodes.items(.value)[node];
 
-    if (value.* == null) {
-        if (self.ast.isConstant(node)) {
-            value.* = try self.ast.typeCheckAndToValue(
-                node,
-                &self.reporter,
-                self.gc,
-            );
-        }
+    if (value.* == null and self.ast.isConstant(node)) {
+        value.* = try self.ast.typeCheckAndToValue(
+            node,
+            &self.reporter,
+            self.gc,
+        );
     }
 
     return value.*;
