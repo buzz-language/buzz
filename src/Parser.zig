@@ -444,6 +444,7 @@ pub const Error = error{
     ImportError,
     CantCompile,
     UnwrappedNull,
+    DivisionByZero,
     OutOfBound,
     ReachedMaximumMemoryUsage,
     WriteFailed,
@@ -4887,7 +4888,7 @@ fn dot(self: *Self, can_assign: bool, callee: Ast.Node.Index) Error!Ast.Node.Ind
         .{
             .tag = .Dot,
             .location = start_location,
-            .end_location = undefined,
+            .end_location = start_location,
             .components = .{
                 .Dot = .{
                     .callee = callee,
