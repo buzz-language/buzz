@@ -749,7 +749,7 @@ pub export fn bz_call(
         return true;
     }
 
-    return false;
+    return true;
 }
 
 export fn bz_newQualifiedObjectInstance(self: *VM, qualified_name: [*]const u8, len: usize, mutable: bool) callconv(.c) v.Value {

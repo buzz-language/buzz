@@ -2731,7 +2731,7 @@ fn buildBinary(
                 },
                 else => unreachable,
             }
-        },
+       },
         .Star, .StarEqual => {
             switch (def_type) {
                 .Integer => {
