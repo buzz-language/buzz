@@ -38,7 +38,7 @@ jobs:
       - name: Run tests ${{ matrix.optimize }}
         run: zig build -Doptimize=${{ matrix.optimize }} ${{ matrix.options }} test
       - name: Run behavior tests ${{ matrix.optimize }}
-        run: zig build -Doptimize=${{ matrix.optimize }} ${{ matrix.options }} test-behavior -- --behavior --compile-error
+        run: zig build -Doptimize=${{ matrix.optimize }} ${{ matrix.options }} test-behavior
       - name: Cleanup
         run: rm -rf zig-out zig-cache
  
