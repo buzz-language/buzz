@@ -188,41 +188,7 @@ fn testCompileErrors(allocator: std.mem.Allocator, fail_fast: bool) !Result {
 fn testFuzzCrashes(allocator: std.mem.Allocator, fail_fast: bool) !Result {
     var result = Result{};
 
-    // Get resolved tests
-    var resolved = std.StringArrayHashMapUnmanaged(void).empty;
-
-    var resolved_file = try std.fs.cwd().createFile(
-        "dist/resolved.txt",
-        .{
-            .truncate = false,
-            .read = true,
-        },
-    );
-
-    const raw = try allocator.alloc(u8, (try resolved_file.stat()).size);
-    defer allocator.free(raw);
-
-    _ = try resolved_file.readAll(raw);
-
-    {
-        var it = std.mem.splitAny(u8, raw, "\n");
-        while (it.next()) |r| {
-            try resolved.put(allocator, r, {});
-        }
-    }
-
-    resolved_file.close();
-
     // Re open in to write new resolved tests
-    resolved_file = try std.fs.cwd().openFile(
-        "dist/resolved.txt",
-        .{ .mode = .write_only },
-    );
-    defer resolved_file.close();
-    try resolved_file.seekFromEnd(0);
-
-    var resolved_writer = resolved_file.writer(&.{});
-
     const dir = "tests/fuzzed";
     var test_dir = try std.fs.cwd().openDir(
         dir,
@@ -234,11 +200,6 @@ fn testFuzzCrashes(allocator: std.mem.Allocator, fail_fast: bool) !Result {
 
     while (try it.next()) |file| : (result.total += 1) {
         if (file.kind == .file) {
-            // Was it resolved?
-            if (resolved.get(file.name) != null) {
-                continue;
-            }
-
             var file_name = std.Io.Writer.Allocating.init(allocator);
             defer file_name.deinit();
             try file_name.writer.print("{s}/{s}", .{ dir, file.name });
@@ -302,9 +263,6 @@ fn testFuzzCrashes(allocator: std.mem.Allocator, fail_fast: bool) !Result {
                     if (fail_fast) {
                         break;
                     }
-                } else {
-                    try resolved_writer.interface.print("{s}\n", .{file.name});
-                    try resolved_writer.interface.flush();
                 }
             } else {
                 try result.hanged.append(allocator, try file_name.toOwnedSlice());
