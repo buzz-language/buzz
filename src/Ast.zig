@@ -702,7 +702,7 @@ pub const Slice = struct {
         }
     }
 
-    pub fn toValue(
+    pub fn typeCheckAndToValue(
         self: Self.Slice,
         node: Node.Index,
         reporter: *Reporter,
@@ -718,6 +718,15 @@ pub const Slice = struct {
             return Value.Void;
         }
 
+        return self.toValue(node, reporter, gc);
+    }
+
+    pub fn toValue(
+        self: Self.Slice,
+        node: Node.Index,
+        reporter: *Reporter,
+        gc: *GC,
+    ) Error!Value {
         const value = &self.nodes.items(.value)[node];
         // const type_defs = self.nodes.items(.type_def);
         const components = self.nodes.items(.components);

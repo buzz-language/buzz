@@ -441,7 +441,7 @@ fn nodeValue(self: *Self, node: Ast.Node.Index) Error!?Value {
 
     if (value.* == null) {
         if (self.ast.isConstant(node)) {
-            value.* = try self.ast.toValue(
+            value.* = try self.ast.typeCheckAndToValue(
                 node,
                 &self.reporter,
                 self.gc,
@@ -457,7 +457,7 @@ fn generateAs(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.O
     const node_location = locations[node];
     const components = self.ast.nodes.items(.components)[node].As;
 
-    const constant = try self.ast.toValue(
+    const constant = try self.ast.typeCheckAndToValue(
         components.constant,
         &self.reporter,
         self.gc,
@@ -1388,7 +1388,7 @@ fn generateEnum(self: *Self, node: Ast.Node.Index, _: ?*Breaks) Error!?*obj.ObjF
 
     try self.OP_CONSTANT(
         locations[node],
-        try self.ast.toValue(
+        try self.ast.typeCheckAndToValue(
             node,
             &self.reporter,
             self.gc,
@@ -1461,7 +1461,7 @@ fn generateExpression(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error
 fn generateFloat(self: *Self, node: Ast.Node.Index, _: ?*Breaks) Error!?*obj.ObjFunction {
     try self.emitConstant(
         self.ast.nodes.items(.location)[node],
-        try self.ast.toValue(
+        try self.ast.typeCheckAndToValue(
             node,
             &self.reporter,
             self.gc,
@@ -1481,7 +1481,7 @@ fn generateFor(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.
     const node_components = self.ast.nodes.items(.components);
 
     const components = node_components[node].For;
-    if (try self.ast.isConstant(self.gc.allocator, components.condition) and !(try self.ast.toValue(
+    if (try self.ast.isConstant(self.gc.allocator, components.condition) and !(try self.ast.typeCheckAndToValue(
         components.condition,
         &self.reporter,
         self.gc,
@@ -1587,7 +1587,7 @@ fn generateForEach(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*
 
     // If iterable constant and empty, skip the node
     if (try self.ast.isConstant(self.gc.allocator, components.iterable)) {
-        const iterable_value = (try self.ast.toValue(
+        const iterable_value = (try self.ast.typeCheckAndToValue(
             components.iterable,
             &self.reporter,
             self.gc,
@@ -1737,7 +1737,7 @@ fn generateFunction(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?
                         try node_type_def.resolved_type.?.Function.defaults.put(
                             self.gc.allocator,
                             try self.gc.copyString(self.ast.tokens.items(.lexeme)[argument.name]),
-                            try self.ast.toValue(
+                            try self.ast.typeCheckAndToValue(
                                 default,
                                 &self.reporter,
                                 self.gc,
@@ -1995,7 +1995,7 @@ fn generateIf(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.O
         components.unwrapped_identifier == null and
         components.casted_type == null)
     {
-        const condition = try self.ast.toValue(
+        const condition = try self.ast.typeCheckAndToValue(
             components.condition,
             &self.reporter,
             self.gc,
@@ -2074,7 +2074,7 @@ fn generateImport(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*o
 fn generateInteger(self: *Self, node: Ast.Node.Index, _: ?*Breaks) Error!?*obj.ObjFunction {
     try self.emitConstant(
         self.ast.nodes.items(.location)[node],
-        try self.ast.toValue(
+        try self.ast.typeCheckAndToValue(
             node,
             &self.reporter,
             self.gc,
@@ -2090,7 +2090,7 @@ fn generateInteger(self: *Self, node: Ast.Node.Index, _: ?*Breaks) Error!?*obj.O
 fn generateIs(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.ObjFunction {
     const components = self.ast.nodes.items(.components)[node].Is;
     const location = self.ast.nodes.items(.location)[node];
-    const constant = try self.ast.toValue(
+    const constant = try self.ast.typeCheckAndToValue(
         components.constant,
         &self.reporter,
         self.gc,
@@ -2411,7 +2411,7 @@ fn generateObjectInit(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error
 fn generatePattern(self: *Self, node: Ast.Node.Index, _: ?*Breaks) Error!?*obj.ObjFunction {
     try self.emitConstant(
         self.ast.nodes.items(.location)[node],
-        try self.ast.toValue(
+        try self.ast.typeCheckAndToValue(
             node,
             &self.reporter,
             self.gc,
@@ -2955,7 +2955,7 @@ fn generateWhile(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*ob
     const location = locations[node];
 
     // If condition constant and false, skip the node
-    if (try self.ast.isConstant(self.gc.allocator, components.condition) and !(try self.ast.toValue(
+    if (try self.ast.isConstant(self.gc.allocator, components.condition) and !(try self.ast.typeCheckAndToValue(
         components.condition,
         &self.reporter,
         self.gc,

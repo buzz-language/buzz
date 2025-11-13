@@ -151,9 +151,9 @@ fn checkBinary(ast: Ast.Slice, reporter: *Reporter, gc: *GC, _: ?Ast.Node.Index,
                     right_type,
                     "Type mismatch",
                 );
-            }
 
-            had_error = true;
+                had_error = true;
+            }
         },
 
         .Greater,
@@ -247,8 +247,8 @@ fn checkBinary(ast: Ast.Slice, reporter: *Reporter, gc: *GC, _: ?Ast.Node.Index,
                     ast.tokens.get(end_locations[node_components.Binary.left]),
                     "Expected `int`.",
                 );
+                had_error = true;
             }
-            had_error = true;
         },
         .Greater,
         .Less,
@@ -614,6 +614,7 @@ fn checkDot(ast: Ast.Slice, reporter: *Reporter, gc: *GC, _: ?Ast.Node.Index, no
             ast.tokens.get(end_locations[node]),
             "Optional doesn't have field access",
         );
+        had_error = true;
     }
 
     switch (callee_type.def_type) {
