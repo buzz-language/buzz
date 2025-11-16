@@ -350,8 +350,8 @@ fn rawReplaceAll(self: *o.ObjPattern, vm: *VM, subject: *o.ObjString, replacemen
 }
 
 pub fn match(ctx: *o.NativeCtx) callconv(.c) c_int {
-    const self = o.ObjPattern.cast(ctx.vm.peek(1).obj()).?;
-    const subject = o.ObjString.cast(ctx.vm.peek(0).obj()).?;
+    const self = ctx.vm.peek(1).obj().get(ctx.vm.gc, o.ObjPattern);
+    const subject = ctx.vm.peek(0).obj().get(ctx.vm.gc, o.ObjString);
 
     var offset: usize = 0;
     if (rawMatch(

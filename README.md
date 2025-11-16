@@ -28,6 +28,8 @@ A small/lightweight statically typed scripting language written in Zig
     - LSP
     - Formatter
 
+![Alt](https://repobeats.axiom.co/api/embed/bcae19d24fca7f78f481963e936eb4e24eaf6532.svg "Repobeats analytics image")
+
 ## How to build and install
 
 ### Requirements

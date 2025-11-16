@@ -862,11 +862,6 @@ const BuildOptions = struct {
                     "gc_debug_light",
                     "Show lighter debug information for the garbage collector",
                 ) orelse false,
-                .debug_access = b.option(
-                    bool,
-                    "gc_debug_access",
-                    "Track objects access",
-                ) orelse false,
                 .on = b.option(
                     bool,
                     "gc",
@@ -989,7 +984,6 @@ const BuildOptions = struct {
     const GCOptions = struct {
         debug: bool,
         debug_light: bool,
-        debug_access: bool,
         on: bool,
         initial_gc: usize,
         next_gc_ratio: usize,
@@ -999,7 +993,6 @@ const BuildOptions = struct {
         pub fn step(self: GCOptions, options: *Build.Step.Options) void {
             options.addOption(@TypeOf(self.debug), "gc_debug", self.debug);
             options.addOption(@TypeOf(self.debug_light), "gc_debug_light", self.debug_light);
-            options.addOption(@TypeOf(self.debug_access), "gc_debug_access", self.debug_access);
             options.addOption(@TypeOf(self.on), "gc", self.on);
             options.addOption(@TypeOf(self.initial_gc), "initial_gc", self.initial_gc);
             options.addOption(@TypeOf(self.next_gc_ratio), "next_gc_ratio", self.next_gc_ratio);

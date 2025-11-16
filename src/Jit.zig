@@ -14,6 +14,7 @@ const api = @import("lib/buzz_api.zig");
 const io = @import("io.zig");
 const Chunk = @import("Chunk.zig");
 const Token = @import("Token.zig");
+const Pool = @import("pool.zig").Pool;
 
 pub const Error = error{
     CantCompile,
@@ -5385,7 +5386,9 @@ pub fn compileZdefContainer(self: *Self, ast: Ast.Slice, zdef_element: Ast.Zdef.
     };
     defer self.reset(self.vm.gc.allocator);
 
-    const foreign_def = zdef_element.zdef.type_def.resolved_type.?.ForeignContainer;
+    const foreign_def = self.vm.gc.get(o.ObjTypeDef, zdef_element.zdef.type_def).?
+        .resolved_type.?.ForeignContainer;
+    const fname = self.vm.gc.get(o.ObjString, foreign_def.name).?.string;
 
     var getters = std.ArrayList(m.MIR_item_t).empty;
     defer getters.deinit(self.vm.gc.allocator);
@@ -5396,14 +5399,15 @@ pub fn compileZdefContainer(self: *Self, ast: Ast.Slice, zdef_element: Ast.Zdef.
         .Struct => {
             for (foreign_def.zig_type.Struct.fields) |field| {
                 const container_field = foreign_def.fields.getEntry(field.name).?;
+                const field_name = self.vm.gc.get(o.ObjString, foreign_def.name).?.string;
 
                 try getters.append(
                     self.vm.gc.allocator,
                     try self.buildZdefContainerGetter(
                         container_field.value_ptr.*.offset,
-                        foreign_def.name.string,
-                        field.name,
-                        foreign_def.buzz_type.get(field.name).?,
+                        fname,
+                        field_name,
+                        foreign_def.buzz_type.get(field_name).?,
                         field.type,
                     ),
                 );
@@ -5412,9 +5416,9 @@ pub fn compileZdefContainer(self: *Self, ast: Ast.Slice, zdef_element: Ast.Zdef.
                     self.vm.gc.allocator,
                     try self.buildZdefContainerSetter(
                         container_field.value_ptr.*.offset,
-                        foreign_def.name.string,
-                        field.name,
-                        foreign_def.buzz_type.get(field.name).?,
+                        fname,
+                        field_name,
+                        foreign_def.buzz_type.get(field_name).?,
                         field.type,
                     ),
                 );
@@ -5423,14 +5427,13 @@ pub fn compileZdefContainer(self: *Self, ast: Ast.Slice, zdef_element: Ast.Zdef.
 
         .Union => {
             for (foreign_def.zig_type.Union.fields) |field| {
-                const container_field = foreign_def.fields.getEntry(field.name).?;
-                _ = container_field;
+                const field_name = self.vm.gc.get(o.ObjString, foreign_def.name).?.string;
 
                 try getters.append(
                     self.vm.gc.allocator,
                     try self.buildZdefUnionGetter(
-                        foreign_def.name.string,
-                        field.name,
+                        fname,
+                        field_name,
                         foreign_def.buzz_type.get(field.name).?,
                         field.type,
                     ),
@@ -5439,7 +5442,7 @@ pub fn compileZdefContainer(self: *Self, ast: Ast.Slice, zdef_element: Ast.Zdef.
                 try setters.append(
                     self.vm.gc.allocator,
                     try self.buildZdefUnionSetter(
-                        foreign_def.name.string,
+                        fname,
                         field.name,
                         foreign_def.buzz_type.get(field.name).?,
                         field.type,
@@ -5511,7 +5514,8 @@ pub fn compileZdefContainer(self: *Self, ast: Ast.Slice, zdef_element: Ast.Zdef.
     }
 }
 
-fn buildBuzzValueToZigValue(self: *Self, buzz_type: *o.ObjTypeDef, zig_type: ZigType, buzz_value: m.MIR_op_t, dest: m.MIR_op_t) !void {
+fn buildBuzzValueToZigValue(self: *Self, buzz_type_idx: Pool(o.ObjTypeDef).Idx, zig_type: ZigType, buzz_value: m.MIR_op_t, dest: m.MIR_op_t) !void {
+    const buzz_type = self.vm.gc.get(o.ObjTypeDef, buzz_type_idx).?;
     switch (zig_type) {
         .Int => {
             if (buzz_type.def_type == .Double) {
@@ -5569,7 +5573,8 @@ fn buildBuzzValueToZigValue(self: *Self, buzz_type: *o.ObjTypeDef, zig_type: Zig
     }
 }
 
-fn buildZigValueToBuzzValue(self: *Self, buzz_type: *o.ObjTypeDef, zig_type: ZigType, zig_value: m.MIR_op_t, dest: m.MIR_op_t) !void {
+fn buildZigValueToBuzzValue(self: *Self, buzz_type_idx: Pool(o.ObjTypeDef).Idx, zig_type: ZigType, zig_value: m.MIR_op_t, dest: m.MIR_op_t) !void {
+    const buzz_type = self.vm.gc.get(o.ObjTypeDef, buzz_type_idx).?;
     switch (zig_type) {
         .Int => {
             if (buzz_type.def_type == .Double) {
@@ -5633,7 +5638,7 @@ fn buildZigValueToBuzzValue(self: *Self, buzz_type: *o.ObjTypeDef, zig_type: Zig
     }
 }
 
-pub fn compileZdef(self: *Self, buzz_ast: Ast.Slice, zdef: Ast.Zdef.ZdefElement) Error!*o.ObjNative {
+pub fn compileZdef(self: *Self, buzz_ast: Ast.Slice, zdef: Ast.Zdef.ZdefElement) Error!Pool(o.ObjNative).Idx {
     var wrapper_name = std.Io.Writer.Allocating.init(self.vm.gc.allocator);
     defer wrapper_name.deinit();
 
@@ -5824,7 +5829,8 @@ fn buildZdefWrapper(self: *Self, zdef_element: Ast.Zdef.ZdefElement) Error!m.MIR
         ),
     );
 
-    const function_def = zdef_element.zdef.type_def.resolved_type.?.Function;
+    const function_def = self.vm.gc.get(o.ObjTypeDef, zdef_element.zdef.type_def).?
+        .resolved_type.?.Function;
     const zig_function_def = zdef_element.zdef.zig_type;
 
     // Get arguments from stack
@@ -5961,7 +5967,7 @@ fn buildZdefWrapper(self: *Self, zdef_element: Ast.Zdef.ZdefElement) Error!m.MIR
     self.RET(
         m.MIR_new_int_op(
             self.ctx,
-            if (function_def.return_type.def_type != .Void)
+            if (self.vm.gc.get(o.ObjTypeDef, function_def.return_type).?.def_type != .Void)
                 1
             else
                 0,
@@ -5977,7 +5983,7 @@ fn buildZdefUnionGetter(
     self: *Self,
     union_name: []const u8,
     field_name: []const u8,
-    buzz_type: *o.ObjTypeDef,
+    buzz_type: Pool(o.ObjTypeDef).Idx,
     zig_type: *const ZigType,
 ) Error!m.MIR_item_t {
     var getter_name = std.Io.Writer.Allocating.init(self.vm.gc.allocator);
@@ -6043,7 +6049,10 @@ fn buildZdefUnionGetter(
                 result_value,
                 &[_]m.MIR_op_t{
                     m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
-                    m.MIR_new_uint_op(self.ctx, @intFromPtr(buzz_type)),
+                    m.MIR_new_uint_op(
+                        self.ctx,
+                        v.Value.fromObj(.{ .index = buzz_type.index, .obj_type = .Type }).val,
+                    ),
                     m.MIR_new_reg_op(self.ctx, data_reg),
                     m.MIR_new_uint_op(self.ctx, zig_type.size()),
                 },
@@ -6087,7 +6096,7 @@ fn buildZdefUnionSetter(
     self: *Self,
     union_name: []const u8,
     field_name: []const u8,
-    buzz_type: *o.ObjTypeDef,
+    buzz_type: Pool(o.ObjTypeDef).Idx,
     zig_type: *const ZigType,
 ) Error!m.MIR_item_t {
     var setter_name = std.Io.Writer.Allocating.init(self.vm.gc.allocator);
@@ -6203,7 +6212,7 @@ fn buildZdefContainerGetter(
     offset: usize,
     struct_name: []const u8,
     field_name: []const u8,
-    buzz_type: *o.ObjTypeDef,
+    buzz_type: Pool(o.ObjTypeDef).Idx,
     zig_type: *const ZigType,
 ) Error!m.MIR_item_t {
     var getter_name = std.Io.Writer.Allocating.init(self.vm.gc.allocator);
@@ -6297,7 +6306,7 @@ fn buildZdefContainerSetter(
     offset: usize,
     struct_name: []const u8,
     field_name: []const u8,
-    buzz_type: *o.ObjTypeDef,
+    buzz_type: Pool(o.ObjTypeDef).Idx,
     zig_type: *const ZigType,
 ) Error!m.MIR_item_t {
     var setter_name = std.Io.Writer.Allocating.init(self.vm.gc.allocator);
