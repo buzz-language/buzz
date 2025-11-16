@@ -10,13 +10,20 @@ else
     std.os;
 
 pub export fn allocated(ctx: *api.NativeCtx) callconv(.c) c_int {
-    ctx.vm.bz_push(api.Value.fromInteger(@intCast(ctx.vm.bz_allocated())));
+    api.bz_push(
+        ctx.vm,
+        .fromInteger(
+            @intCast(api.bz_allocated(
+                ctx.vm,
+            )),
+        ),
+    );
 
     return 1;
 }
 
 pub export fn collect(ctx: *api.NativeCtx) callconv(.c) c_int {
-    ctx.vm.bz_collect();
+    api.bz_collect(ctx.vm);
 
     return 0;
 }

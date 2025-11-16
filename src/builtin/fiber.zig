@@ -4,15 +4,15 @@ const VM = @import("../vm.zig").VM;
 const v = @import("../value.zig");
 
 pub fn over(ctx: *o.NativeCtx) callconv(.c) c_int {
-    const self = o.ObjFiber.cast(ctx.vm.peek(0).obj()).?;
+    const self = ctx.vm.peekAsIdx(o.ObjFiber, 0).get(ctx.vm.gc);
 
-    ctx.vm.push(v.Value.fromBoolean(self.fiber.status == .Over));
+    ctx.vm.push(.fromBoolean(self.fiber.status == .Over));
 
     return 1;
 }
 
 pub fn cancel(ctx: *o.NativeCtx) callconv(.c) c_int {
-    const self = o.ObjFiber.cast(ctx.vm.peek(0).obj()).?;
+    const self = ctx.vm.peekAsIdx(o.ObjFiber, 0).get(ctx.vm.gc);
 
     // Main fiber can't be cancelled
     if (self.fiber.parent_fiber == null) {
@@ -25,7 +25,7 @@ pub fn cancel(ctx: *o.NativeCtx) callconv(.c) c_int {
 }
 
 pub fn isMain(ctx: *o.NativeCtx) callconv(.c) c_int {
-    const self = o.ObjFiber.cast(ctx.vm.peek(0).obj()).?;
+    const self = ctx.vm.peekAsIdx(o.ObjFiber, 0).get(ctx.vm.gc);
 
     ctx.vm.push(v.Value.fromBoolean(self.fiber.parent_fiber == null));
 

@@ -10,9 +10,16 @@ else
     std.os;
 
 pub export fn hash(ctx: *api.NativeCtx) callconv(.c) c_int {
-    const algo_index = ctx.vm.bz_peek(1).bz_getEnumInstanceValue().integer();
+    const algo_index = api.bz_getEnumInstanceValue(
+        ctx.vm,
+        api.bz_peek(ctx.vm, 1),
+    ).integer();
     var data_len: usize = 0;
-    const data = ctx.vm.bz_peek(0).bz_valueToString(&data_len) orelse @panic("Could not hash data");
+    const data = api.bz_valueToString(
+        ctx.vm,
+        api.bz_peek(ctx.vm, 0),
+        &data_len,
+    ) orelse @panic("Could not hash data");
 
     // Since alog_index is not static, we're forced to repeat ourselves...
     var result_hash: []u8 = undefined;
@@ -86,8 +93,9 @@ pub export fn hash(ctx: *api.NativeCtx) callconv(.c) c_int {
         else => @panic("Unknown hash algorithm"),
     }
 
-    ctx.vm.bz_push(
-        api.VM.bz_stringToValue(
+    api.bz_push(
+        ctx.vm,
+        api.bz_stringToValue(
             ctx.vm,
             result_hash.ptr,
             result_hash.len,

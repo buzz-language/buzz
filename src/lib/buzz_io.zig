@@ -36,7 +36,7 @@ const File = struct {
     }
 
     pub fn toUserData(self: *File, ctx: *api.NativeCtx) api.Value {
-        return api.VM.bz_newUserData(ctx.vm, @intFromPtr(self));
+        return api.bz_newUserData(ctx.vm, @intFromPtr(self));
     }
 
     pub fn deinit(self: *File, allocator: std.mem.Allocator) void {
@@ -71,11 +71,11 @@ pub export fn getStdIn(ctx: *api.NativeCtx) callconv(.c) c_int {
         api.VM.allocator,
         std.fs.File.stdin(),
     ) catch {
-        ctx.vm.bz_panic("Out of memory", "Out of memory".len);
+        api.bz_panic(ctx.vm, "Out of memory", "Out of memory".len);
         unreachable;
     };
 
-    ctx.vm.bz_push(stdin.toUserData(ctx));
+    api.bz_push(ctx.vm, stdin.toUserData(ctx));
 
     return 1;
 }
@@ -85,11 +85,11 @@ pub export fn getStdOut(ctx: *api.NativeCtx) callconv(.c) c_int {
         api.VM.allocator,
         std.fs.File.stdout(),
     ) catch {
-        ctx.vm.bz_panic("Out of memory", "Out of memory".len);
+        api.bz_panic(ctx.vm, "Out of memory", "Out of memory".len);
         unreachable;
     };
 
-    ctx.vm.bz_push(stdin.toUserData(ctx));
+    api.bz_push(ctx.vm, stdin.toUserData(ctx));
 
     return 1;
 }
@@ -99,20 +99,26 @@ pub export fn getStdErr(ctx: *api.NativeCtx) callconv(.c) c_int {
         api.VM.allocator,
         std.fs.File.stdout(),
     ) catch {
-        ctx.vm.bz_panic("Out of memory", "Out of memory".len);
+        api.bz_panic(ctx.vm, "Out of memory", "Out of memory".len);
         unreachable;
     };
 
-    ctx.vm.bz_push(stdin.toUserData(ctx));
+    api.bz_push(ctx.vm, stdin.toUserData(ctx));
 
     return 1;
 }
 
 pub export fn FileIsTTY(ctx: api.NativeCtx) callconv(.c) c_int {
-    const file = File.fromUserData(ctx.vm.bz_peek(0).bz_getUserDataPtr());
+    const file = File.fromUserData(
+        api.bz_getUserDataPtr(
+            ctx.vm,
+            api.bz_peek(ctx.vm, 0),
+        ),
+    );
 
-    ctx.vm.bz_push(
-        api.Value.fromBoolean(
+    api.bz_push(
+        ctx.vm,
+        .fromBoolean(
             std.posix.isatty(file.file.handle),
         ),
     );
@@ -146,20 +152,24 @@ fn handleFileOpenError(ctx: *api.NativeCtx, err: anytype) void {
         error.WouldBlock,
         error.FileNotFound,
         error.NetworkNotFound,
-        => ctx.vm.pushErrorEnum("errors.FileSystemError", @errorName(err)),
+        => api.pushErrorEnum(ctx.vm, "errors.FileSystemError", @errorName(err)),
 
         error.PermissionDenied,
         error.ProcessNotFound,
-        => ctx.vm.pushErrorEnum("errors.ExecError", @errorName(err)),
+        => api.pushErrorEnum(ctx.vm, "errors.ExecError", @errorName(err)),
 
-        error.Unexpected => ctx.vm.pushError("errors.UnexpectedError", null),
+        error.Unexpected => api.pushError(ctx.vm, "errors.UnexpectedError", null),
     }
 }
 
 pub export fn FileOpen(ctx: *api.NativeCtx) callconv(.c) c_int {
-    const mode: u8 = @intCast(ctx.vm.bz_peek(0).integer());
+    const mode: u8 = @intCast(api.bz_peek(ctx.vm, 0).integer());
     var len: usize = 0;
-    const filename = ctx.vm.bz_peek(1).bz_valueToString(&len);
+    const filename = api.bz_valueToString(
+        ctx.vm,
+        api.bz_peek(ctx.vm, 1),
+        &len,
+    );
     const filename_slice = filename.?[0..len];
 
     const fs_file = if (std.fs.path.isAbsolute(filename_slice))
@@ -192,18 +202,21 @@ pub export fn FileOpen(ctx: *api.NativeCtx) callconv(.c) c_int {
         api.VM.allocator,
         fs_file,
     ) catch {
-        ctx.vm.bz_panic("Out of memory", "Out of memory".len);
+        api.bz_panic(ctx.vm, "Out of memory", "Out of memory".len);
         unreachable;
     };
 
-    ctx.vm.bz_push(file.toUserData(ctx));
+    api.bz_push(ctx.vm, file.toUserData(ctx));
 
     return 1;
 }
 
 pub export fn FileClose(ctx: *api.NativeCtx) callconv(.c) c_int {
     File.fromUserData(
-        ctx.vm.bz_peek(0).bz_getUserDataPtr(),
+        api.bz_getUserDataPtr(
+            ctx.vm,
+            api.bz_peek(ctx.vm, 0),
+        ),
     ).deinit(api.VM.allocator);
 
     return 0;
@@ -218,10 +231,10 @@ fn handleFileReadWriteError(ctx: *api.NativeCtx, err: anytype) void {
         error.SystemResources,
         error.WouldBlock,
         error.SocketNotConnected,
-        => ctx.vm.pushErrorEnum("errors.FileSystemError", @errorName(err)),
+        => api.pushErrorEnum(ctx.vm, "errors.FileSystemError", @errorName(err)),
 
         error.Canceled,
-        => ctx.vm.pushErrorEnum("errors.SocketError", @errorName(err)),
+        => api.pushErrorEnum(ctx.vm, "errors.SocketError", @errorName(err)),
 
         error.OperationAborted,
         error.BrokenPipe,
@@ -229,46 +242,52 @@ fn handleFileReadWriteError(ctx: *api.NativeCtx, err: anytype) void {
         error.ConnectionTimedOut,
         error.NotOpenForReading,
         error.LockViolation,
-        => ctx.vm.pushErrorEnum("errors.ReadWriteError", @errorName(err)),
+        => api.pushErrorEnum(ctx.vm, "errors.ReadWriteError", @errorName(err)),
 
         error.ProcessNotFound,
-        => ctx.vm.pushErrorEnum("errors.ExecError", @errorName(err)),
+        => api.pushErrorEnum(ctx.vm, "errors.ExecError", @errorName(err)),
 
-        error.Unexpected => ctx.vm.pushError("errors.UnexpectedError", null),
+        error.Unexpected => api.pushError(ctx.vm, "errors.UnexpectedError", null),
         error.OutOfMemory => {
-            ctx.vm.bz_panic("Out of memory", "Out of memory".len);
+            api.bz_panic(ctx.vm, "Out of memory", "Out of memory".len);
             unreachable;
         },
     }
 }
 
 pub export fn FileReadAll(ctx: *api.NativeCtx) callconv(.c) c_int {
-    const max_size = ctx.vm.bz_peek(0);
+    const max_size = api.bz_peek(ctx.vm, 0);
 
-    const file = File.fromUserData(ctx.vm.bz_peek(1).bz_getUserDataPtr());
+    const file = File.fromUserData(
+        api.bz_getUserDataPtr(
+            ctx.vm,
+            api.bz_peek(ctx.vm, 1),
+        ),
+    );
     const reader = file.getOrCreateReader(
         api.VM.allocator,
         if (max_size.isInteger()) @intCast(max_size.integer()) else null,
     ) catch {
-        ctx.vm.bz_panic("Out of memory", "Out of memory".len);
+        api.bz_panic(ctx.vm, "Out of memory", "Out of memory".len);
         unreachable;
     };
 
     const content = reader.readAll() catch |err| {
         switch (err) {
             error.ReadFailed => {
-                ctx.vm.pushErrorEnum("errors.ReadWriteError", @errorName(err));
+                api.pushErrorEnum(ctx.vm, "errors.ReadWriteError", @errorName(err));
                 return -1;
             },
             error.OutOfMemory, error.WriteFailed => {
-                ctx.vm.bz_panic("Out of memory", "Out of memory".len);
+                api.bz_panic(ctx.vm, "Out of memory", "Out of memory".len);
                 unreachable;
             },
         }
     };
 
-    ctx.vm.bz_push(
-        api.VM.bz_stringToValue(
+    api.bz_push(
+        ctx.vm,
+        api.bz_stringToValue(
             ctx.vm,
             if (content.len > 0) @as([*]const u8, @ptrCast(content)) else null,
             content.len,
@@ -281,31 +300,37 @@ pub export fn FileReadAll(ctx: *api.NativeCtx) callconv(.c) c_int {
 }
 
 pub export fn FileReadLine(ctx: *api.NativeCtx) callconv(.c) c_int {
-    const max_size = ctx.vm.bz_peek(0);
+    const max_size = api.bz_peek(ctx.vm, 0);
 
-    const file = File.fromUserData(ctx.vm.bz_peek(1).bz_getUserDataPtr());
+    const file = File.fromUserData(
+        api.bz_getUserDataPtr(
+            ctx.vm,
+            api.bz_peek(ctx.vm, 1),
+        ),
+    );
     const reader = file.getOrCreateReader(
         api.VM.allocator,
         if (max_size.isInteger()) @intCast(max_size.integer()) else null,
     ) catch {
-        ctx.vm.bz_panic("Out of memory", "Out of memory".len);
+        api.bz_panic(ctx.vm, "Out of memory", "Out of memory".len);
         unreachable;
     };
 
     if (reader.readUntilDelimiterOrEof('\n') catch |err| {
         switch (err) {
             error.ReadFailed => {
-                ctx.vm.pushErrorEnum("errors.ReadWriteError", @errorName(err));
+                api.pushErrorEnum(ctx.vm, "errors.ReadWriteError", @errorName(err));
                 return -1;
             },
             error.OutOfMemory, error.WriteFailed => {
-                ctx.vm.bz_panic("Out of memory", "Out of memory".len);
+                api.bz_panic(ctx.vm, "Out of memory", "Out of memory".len);
                 unreachable;
             },
         }
     }) |ubuffer| {
-        ctx.vm.bz_push(
-            api.VM.bz_stringToValue(
+        api.bz_push(
+            ctx.vm,
+            api.bz_stringToValue(
                 ctx.vm,
                 if (ubuffer.len > 0) @as([*]const u8, @ptrCast(ubuffer)) else null,
                 ubuffer.len,
@@ -314,42 +339,48 @@ pub export fn FileReadLine(ctx: *api.NativeCtx) callconv(.c) c_int {
 
         api.VM.allocator.free(ubuffer);
     } else {
-        ctx.vm.bz_push(api.Value.Null);
+        api.bz_push(ctx.vm, api.Value.Null);
     }
 
     return 1;
 }
 
 pub export fn FileRead(ctx: *api.NativeCtx) callconv(.c) c_int {
-    const n = ctx.vm.bz_peek(0).integer();
+    const n = api.bz_peek(ctx.vm, 0).integer();
     if (n <= 0) {
-        ctx.vm.pushError("errors.InvalidArgumentError", null);
+        api.pushError(ctx.vm, "errors.InvalidArgumentError", null);
 
         return -1;
     }
 
-    const file = File.fromUserData(ctx.vm.bz_peek(1).bz_getUserDataPtr());
+    const file = File.fromUserData(
+        api.bz_getUserDataPtr(
+            ctx.vm,
+            api.bz_peek(ctx.vm, 1),
+        ),
+    );
     const reader = file.getOrCreateReader(api.VM.allocator, null) catch {
-        ctx.vm.bz_panic("Out of memory", "Out of memory".len);
+        api.bz_panic(ctx.vm, "Out of memory", "Out of memory".len);
         unreachable;
     };
 
     const content = reader.readN(@intCast(n)) catch |err| {
         switch (err) {
             error.ReadFailed => {
-                ctx.vm.pushErrorEnum("errors.ReadWriteError", @errorName(err));
+                api.pushErrorEnum(ctx.vm, "errors.ReadWriteError", @errorName(err));
                 return -1;
             },
             error.OutOfMemory, error.WriteFailed => {
-                ctx.vm.bz_panic("Out of memory", "Out of memory".len);
+                api.bz_panic(ctx.vm, "Out of memory", "Out of memory".len);
                 unreachable;
             },
         }
     };
     defer api.VM.allocator.free(content);
 
-    ctx.vm.bz_push(
-        api.VM.bz_stringToValue(
+    api.bz_push(
+        ctx.vm,
+        api.bz_stringToValue(
             ctx.vm,
             if (content.len > 0)
                 @as([*]const u8, @ptrCast(content))
@@ -363,10 +394,19 @@ pub export fn FileRead(ctx: *api.NativeCtx) callconv(.c) c_int {
 }
 
 pub export fn FileWrite(ctx: *api.NativeCtx) callconv(.c) c_int {
-    const file = File.fromUserData(ctx.vm.bz_peek(1).bz_getUserDataPtr());
+    const file = File.fromUserData(
+        api.bz_getUserDataPtr(
+            ctx.vm,
+            api.bz_peek(ctx.vm, 1),
+        ),
+    );
 
     var len: usize = 0;
-    var value = ctx.vm.bz_peek(0).bz_valueToString(&len);
+    var value = api.bz_valueToString(
+        ctx.vm,
+        api.bz_peek(ctx.vm, 0),
+        &len,
+    );
 
     if (len == 0) {
         return 0;
@@ -382,25 +422,25 @@ pub export fn FileWrite(ctx: *api.NativeCtx) callconv(.c) c_int {
             error.SystemResources,
             error.WouldBlock,
             error.NoDevice,
-            => ctx.vm.pushErrorEnum("errors.FileSystemError", @errorName(err)),
+            => api.pushErrorEnum(ctx.vm, "errors.FileSystemError", @errorName(err)),
 
             error.BrokenPipe,
             error.ConnectionResetByPeer,
             error.LockViolation,
             error.NotOpenForWriting,
             error.OperationAborted,
-            => ctx.vm.pushErrorEnum("errors.ReadWriteError", @errorName(err)),
+            => api.pushErrorEnum(ctx.vm, "errors.ReadWriteError", @errorName(err)),
 
             error.MessageTooBig,
             error.InputOutput,
-            => ctx.vm.pushErrorEnum("errors.SocketError", "InputOutput"),
+            => api.pushErrorEnum(ctx.vm, "errors.SocketError", "InputOutput"),
 
-            error.InvalidArgument => ctx.vm.pushError("errors.InvalidArgumentError", null),
-            error.Unexpected => ctx.vm.pushError("errors.UnexpectedError", null),
+            error.InvalidArgument => api.pushError(ctx.vm, "errors.InvalidArgumentError", null),
+            error.Unexpected => api.pushError(ctx.vm, "errors.UnexpectedError", null),
 
             error.ProcessNotFound,
             error.PermissionDenied,
-            => ctx.vm.pushErrorEnum("errors.ExecError", @errorName(err)),
+            => api.pushErrorEnum(ctx.vm, "errors.ExecError", @errorName(err)),
         }
 
         return -1;
@@ -414,10 +454,15 @@ const FileEnum = enum {
 };
 
 pub export fn FileGetPoller(ctx: *api.NativeCtx) callconv(.c) c_int {
-    const file = File.fromUserData(ctx.vm.bz_peek(0).bz_getUserDataPtr());
+    const file = File.fromUserData(
+        api.bz_getUserDataPtr(
+            ctx.vm,
+            api.bz_peek(ctx.vm, 0),
+        ),
+    );
 
     const poller = api.VM.allocator.create(std.Io.Poller(FileEnum)) catch {
-        ctx.vm.bz_panic("Out of memory", "Out of memory".len);
+        api.bz_panic(ctx.vm, "Out of memory", "Out of memory".len);
         unreachable;
     };
 
@@ -429,8 +474,9 @@ pub export fn FileGetPoller(ctx: *api.NativeCtx) callconv(.c) c_int {
 
     // poller.reader(.file).* = ;
 
-    ctx.vm.bz_push(
-        ctx.vm.bz_newUserData(@intFromPtr(poller)),
+    api.bz_push(
+        ctx.vm,
+        api.bz_newUserData(ctx.vm, @intFromPtr(poller)),
     );
 
     return 1;
@@ -442,9 +488,9 @@ fn pollerFromUserData(userdata: u64) *std.Io.Poller(FileEnum) {
 
 pub export fn PollerPoll(ctx: *api.NativeCtx) callconv(.c) c_int {
     const poller = pollerFromUserData(
-        ctx.vm.bz_peek(1).bz_getUserDataPtr(),
+        api.bz_getUserDataPtr(ctx.vm, api.bz_peek(ctx.vm, 1)),
     );
-    const timeout_value = ctx.vm.bz_peek(0);
+    const timeout_value = api.bz_peek(ctx.vm, 0);
     const timeout: u64 = @as(
         u64,
         @intCast(
@@ -475,11 +521,11 @@ pub export fn PollerPoll(ctx: *api.NativeCtx) callconv(.c) c_int {
         const read = reader.readAll() catch |err| {
             switch (err) {
                 error.ReadFailed => {
-                    ctx.vm.pushErrorEnum("errors.ReadWriteError", @errorName(err));
+                    api.pushErrorEnum(ctx.vm, "errors.ReadWriteError", @errorName(err));
                     return -1;
                 },
                 error.OutOfMemory, error.WriteFailed => {
-                    ctx.vm.bz_panic("Out of memory", "Out of memory".len);
+                    api.bz_panic(ctx.vm, "Out of memory", "Out of memory".len);
                     unreachable;
                 },
             }
@@ -487,14 +533,15 @@ pub export fn PollerPoll(ctx: *api.NativeCtx) callconv(.c) c_int {
         defer api.VM.allocator.free(read);
 
         if (read.len > 0) {
-            ctx.vm.bz_push(
-                ctx.vm.bz_stringToValue(read.ptr, read.len),
+            api.bz_push(
+                ctx.vm,
+                api.bz_stringToValue(ctx.vm, read.ptr, read.len),
             );
         } else {
-            ctx.vm.bz_push(api.Value.Null);
+            api.bz_push(ctx.vm, api.Value.Null);
         }
     } else {
-        ctx.vm.bz_push(api.Value.Null);
+        api.bz_push(ctx.vm, api.Value.Null);
     }
 
     return 1;
@@ -502,7 +549,7 @@ pub export fn PollerPoll(ctx: *api.NativeCtx) callconv(.c) c_int {
 
 pub export fn PollerDeinit(ctx: *api.NativeCtx) callconv(.c) c_int {
     const poller = pollerFromUserData(
-        ctx.vm.bz_peek(0).bz_getUserDataPtr(),
+        api.bz_getUserDataPtr(ctx.vm, api.bz_peek(ctx.vm, 0)),
     );
 
     poller.deinit();
@@ -518,22 +565,22 @@ fn handlePollError(ctx: *api.NativeCtx, err: anytype) void {
         error.SystemResources,
         error.WouldBlock,
         error.IsDir,
-        => ctx.vm.pushErrorEnum("errors.FileSystemError", @errorName(err)),
+        => api.pushErrorEnum(ctx.vm, "errors.FileSystemError", @errorName(err)),
         error.OperationAborted,
         error.LockViolation,
         error.NotOpenForReading,
-        => ctx.vm.pushErrorEnum("errors.ReadWriteError", @errorName(err)),
+        => api.pushErrorEnum(ctx.vm, "errors.ReadWriteError", @errorName(err)),
         error.ConnectionResetByPeer,
         error.ConnectionTimedOut,
         error.SocketNotConnected,
         error.Canceled,
         error.NetworkSubsystemFailed,
-        => ctx.vm.pushErrorEnum("errors.SocketError", @errorName(err)),
+        => api.pushErrorEnum(ctx.vm, "errors.SocketError", @errorName(err)),
         error.ProcessNotFound,
-        => ctx.vm.pushErrorEnum("errors.ExecError", @errorName(err)),
-        error.Unexpected => ctx.vm.pushError("errors.UnexpectedError", null),
+        => api.pushErrorEnum(ctx.vm, "errors.ExecError", @errorName(err)),
+        error.Unexpected => api.pushError(ctx.vm, "errors.UnexpectedError", null),
         error.OutOfMemory => {
-            ctx.vm.bz_panic("Out of memory", "Out of memory".len);
+            api.bz_panic(ctx.vm, "Out of memory", "Out of memory".len);
             unreachable;
         },
     }
@@ -541,9 +588,9 @@ fn handlePollError(ctx: *api.NativeCtx, err: anytype) void {
 
 fn handleWindowsPollError(ctx: *api.NativeCtx, err: anytype) void {
     switch (err) {
-        error.Unexpected => ctx.vm.pushError("errors.UnexpectedError", null),
+        error.Unexpected => api.pushError(ctx.vm, "errors.UnexpectedError", null),
         error.OutOfMemory => {
-            ctx.vm.bz_panic("Out of memory", "Out of memory".len);
+            api.bz_panic(ctx.vm, "Out of memory", "Out of memory".len);
             unreachable;
         },
     }
@@ -552,7 +599,11 @@ fn handleWindowsPollError(ctx: *api.NativeCtx, err: anytype) void {
 pub export fn runFile(ctx: *api.NativeCtx) callconv(.c) c_int {
     // Read file
     var len: usize = 0;
-    const filename_string = ctx.vm.bz_peek(0).bz_valueToString(&len);
+    const filename_string = api.bz_valueToString(
+        ctx.vm,
+        api.bz_peek(ctx.vm, 0),
+        &len,
+    );
 
     const filename: []const u8 = filename_string.?[0..len];
     const filename_slice: []const u8 = std.mem.sliceTo(filename, 0);
@@ -578,11 +629,11 @@ pub export fn runFile(ctx: *api.NativeCtx) callconv(.c) c_int {
     const source = reader.readAll() catch |err| {
         switch (err) {
             error.ReadFailed => {
-                ctx.vm.pushErrorEnum("errors.ReadWriteError", @errorName(err));
+                api.pushErrorEnum(ctx.vm, "errors.ReadWriteError", @errorName(err));
                 return -1;
             },
             error.WriteFailed, error.OutOfMemory => {
-                ctx.vm.bz_panic("Out of memory", "Out of memory".len);
+                api.bz_panic(ctx.vm, "Out of memory", "Out of memory".len);
                 unreachable;
             },
         }
@@ -590,19 +641,20 @@ pub export fn runFile(ctx: *api.NativeCtx) callconv(.c) c_int {
     defer api.VM.allocator.free(source);
 
     // Init new VM
-    var vm = api.VM.bz_newVM();
-    defer vm.bz_deinitVM();
+    const vm = api.bz_newVM();
+    defer api.bz_deinitVM(vm);
 
     // Compile
 
     // Run
-    if (!vm.bz_run(
+    if (!api.bz_run(
+        vm,
         if (source.len > 0) @ptrCast(source) else null,
         source.len,
         if (filename.len > 0) @ptrCast(filename) else null,
         filename.len,
     )) {
-        ctx.vm.pushError("errors.InterpretError", null);
+        api.pushError(ctx.vm, "errors.InterpretError", null);
 
         return -1;
     }

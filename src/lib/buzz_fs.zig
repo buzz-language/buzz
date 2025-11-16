@@ -19,18 +19,22 @@ fn handleMakeDirectoryError(ctx: *api.NativeCtx, err: anytype) void {
         error.SystemResources,
         error.FileNotFound,
         error.NetworkNotFound,
-        => ctx.vm.pushErrorEnum("errors.FileSystemError", @errorName(err)),
+        => api.pushErrorEnum(ctx.vm, "errors.FileSystemError", @errorName(err)),
 
         error.PermissionDenied,
-        => ctx.vm.pushErrorEnum("errors.ExecError", @errorName(err)),
+        => api.pushErrorEnum(ctx.vm, "errors.ExecError", @errorName(err)),
 
-        error.Unexpected => ctx.vm.pushError("errors.UnexpectedError", null),
+        error.Unexpected => api.pushError(ctx.vm, "errors.UnexpectedError", null),
     }
 }
 
 pub export fn makeDirectory(ctx: *api.NativeCtx) callconv(.c) c_int {
     var len: usize = 0;
-    const filename = ctx.vm.bz_peek(0).bz_valueToString(&len);
+    const filename = api.bz_valueToString(
+        ctx.vm,
+        api.bz_peek(ctx.vm, 0),
+        &len,
+    );
 
     const filename_slice = filename.?[0..len];
     if (std.fs.path.isAbsolute(filename_slice)) {
@@ -61,19 +65,23 @@ fn handleDeleteDirectoryError(ctx: *api.NativeCtx, err: anytype) void {
         error.ReadOnlyFileSystem,
         error.SymLinkLoop,
         error.SystemResources,
-        => ctx.vm.pushErrorEnum("errors.FileSystemError", @errorName(err)),
+        => api.pushErrorEnum(ctx.vm, "errors.FileSystemError", @errorName(err)),
 
-        error.Unexpected => ctx.vm.pushError("errors.UnexpectedError", null),
+        error.Unexpected => api.pushError(ctx.vm, "errors.UnexpectedError", null),
         // Zig doesn't let me use those even though it lists them as being raised
-        // error.FileNotFound => ctx.vm.pushError("errors.FileNotFoundError"),
-        // error.CannotDeleteRootDirectory => ctx.vm.pushError("errors.CannotDeleteRootDirectoryError"),
+        // error.FileNotFound => api.pushError(ctx.vm,"errors.FileNotFoundError"),
+        // error.CannotDeleteRootDirectory => api.pushError(ctx.vm,"errors.CannotDeleteRootDirectoryError"),
         else => unreachable,
     }
 }
 
 pub export fn delete(ctx: *api.NativeCtx) callconv(.c) c_int {
     var len: usize = 0;
-    const filename = ctx.vm.bz_peek(0).bz_valueToString(&len);
+    const filename = api.bz_valueToString(
+        ctx.vm,
+        api.bz_peek(ctx.vm, 0),
+        &len,
+    );
 
     const filename_slice = filename.?[0..len];
 
@@ -118,12 +126,12 @@ fn handleMoveError(ctx: *api.NativeCtx, err: anytype) void {
         error.SystemResources,
         error.FileNotFound,
         error.NetworkNotFound,
-        => ctx.vm.pushErrorEnum("errors.FileSystemError", @errorName(err)),
+        => api.pushErrorEnum(ctx.vm, "errors.FileSystemError", @errorName(err)),
 
         error.PermissionDenied,
-        => ctx.vm.pushErrorEnum("errors.ExecError", @errorName(err)),
+        => api.pushErrorEnum(ctx.vm, "errors.ExecError", @errorName(err)),
 
-        error.Unexpected => ctx.vm.pushError("errors.UnexpectedError", null),
+        error.Unexpected => api.pushError(ctx.vm, "errors.UnexpectedError", null),
     }
 }
 
@@ -153,15 +161,15 @@ fn handleRealpathError(ctx: *api.NativeCtx, err: anytype) void {
         error.SystemResources,
         error.FileNotFound,
         error.NetworkNotFound,
-        => ctx.vm.pushErrorEnum("errors.FileSystemError", @errorName(err)),
+        => api.pushErrorEnum(ctx.vm, "errors.FileSystemError", @errorName(err)),
 
         error.PermissionDenied,
         error.ProcessNotFound,
-        => ctx.vm.pushErrorEnum("errors.ExecError", @errorName(err)),
+        => api.pushErrorEnum(ctx.vm, "errors.ExecError", @errorName(err)),
 
-        error.Unexpected => ctx.vm.pushError("errors.UnexpectedError", null),
+        error.Unexpected => api.pushError(ctx.vm, "errors.UnexpectedError", null),
         error.OutOfMemory => {
-            ctx.vm.bz_panic("Out of memory", "Out of memory".len);
+            api.bz_panic(ctx.vm, "Out of memory", "Out of memory".len);
             unreachable;
         },
     }
@@ -169,10 +177,18 @@ fn handleRealpathError(ctx: *api.NativeCtx, err: anytype) void {
 
 pub export fn move(ctx: *api.NativeCtx) callconv(.c) c_int {
     var len: usize = 0;
-    const source = ctx.vm.bz_peek(1).bz_valueToString(&len);
+    const source = api.bz_valueToString(
+        ctx.vm,
+        api.bz_peek(ctx.vm, 1),
+        &len,
+    );
     const source_slice = source.?[0..len];
 
-    const destination = ctx.vm.bz_peek(0).bz_valueToString(&len);
+    const destination = api.bz_valueToString(
+        ctx.vm,
+        api.bz_peek(ctx.vm, 0),
+        &len,
+    );
     const destination_slice = destination.?[0..len];
 
     const source_is_absolute = std.fs.path.isAbsolute(source_slice);
@@ -253,13 +269,13 @@ fn handleOpenDirAbsoluteError(ctx: *api.NativeCtx, err: anytype) void {
         error.SystemResources,
         error.WouldBlock,
         error.NetworkNotFound,
-        => ctx.vm.pushErrorEnum("errors.FileSystemError", @errorName(err)),
+        => api.pushErrorEnum(ctx.vm, "errors.FileSystemError", @errorName(err)),
 
         error.PermissionDenied,
         error.ProcessNotFound,
-        => ctx.vm.pushErrorEnum("errors.ExecError", @errorName(err)),
+        => api.pushErrorEnum(ctx.vm, "errors.ExecError", @errorName(err)),
 
-        error.Unexpected => ctx.vm.pushError("errors.UnexpectedError", null),
+        error.Unexpected => api.pushError(ctx.vm, "errors.UnexpectedError", null),
     }
 }
 
@@ -279,13 +295,13 @@ fn handleOpenDirError(ctx: *api.NativeCtx, err: anytype) void {
         error.SystemResources,
         error.FileNotFound,
         error.NetworkNotFound,
-        => ctx.vm.pushErrorEnum("errors.FileSystemError", @errorName(err)),
+        => api.pushErrorEnum(ctx.vm, "errors.FileSystemError", @errorName(err)),
 
         error.PermissionDenied,
         error.ProcessNotFound,
-        => ctx.vm.pushErrorEnum("errors.ExecError", @errorName(err)),
+        => api.pushErrorEnum(ctx.vm, "errors.ExecError", @errorName(err)),
 
-        error.Unexpected => ctx.vm.pushError("errors.UnexpectedError", null),
+        error.Unexpected => api.pushError(ctx.vm, "errors.UnexpectedError", null),
     }
 }
 
@@ -294,18 +310,22 @@ fn handleDirIterateError(ctx: *api.NativeCtx, err: anytype) void {
         error.AccessDenied,
         error.SystemResources,
         error.InvalidUtf8,
-        => ctx.vm.pushErrorEnum("errors.FileSystemError", @errorName(err)),
+        => api.pushErrorEnum(ctx.vm, "errors.FileSystemError", @errorName(err)),
 
         error.PermissionDenied,
-        => ctx.vm.pushErrorEnum("errors.ExecError", @errorName(err)),
+        => api.pushErrorEnum(ctx.vm, "errors.ExecError", @errorName(err)),
 
-        error.Unexpected => ctx.vm.pushError("errors.UnexpectedError", null),
+        error.Unexpected => api.pushError(ctx.vm, "errors.UnexpectedError", null),
     }
 }
 
 pub export fn list(ctx: *api.NativeCtx) callconv(.c) c_int {
     var len: usize = 0;
-    const filename = ctx.vm.bz_peek(0).bz_valueToString(&len);
+    const filename = api.bz_valueToString(
+        ctx.vm,
+        api.bz_peek(ctx.vm, 0),
+        &len,
+    );
     const filename_slice = filename.?[0..len];
 
     const dir = if (std.fs.path.isAbsolute(filename_slice))
@@ -329,28 +349,36 @@ pub export fn list(ctx: *api.NativeCtx) callconv(.c) c_int {
             return -1;
         };
 
-    const file_list = ctx.vm.bz_newList(
-        ctx.vm.bz_listType(ctx.vm.bz_stringType(), false),
+    const file_list = api.bz_newList(
+        ctx.vm,
+        api.bz_listType(
+            ctx.vm,
+            api.bz_stringType(
+                ctx.vm,
+            ),
+            false,
+        ),
     );
 
-    ctx.vm.bz_push(file_list);
+    api.bz_push(ctx.vm, file_list);
 
     var it = dir.iterate();
     while (it.next() catch |err| {
-        _ = ctx.vm.bz_pop(); // Pop list
+        _ = api.bz_pop(ctx.vm); // Pop list
         handleDirIterateError(ctx, err);
 
         return -1;
     }) |element| {
-        ctx.vm.bz_push(
-            api.VM.bz_stringToValue(
+        api.bz_push(
+            ctx.vm,
+            api.bz_stringToValue(
                 ctx.vm,
                 if (element.name.len > 0) @as([*]const u8, @ptrCast(element.name)) else null,
                 element.name.len,
             ),
         );
 
-        file_list.bz_listAppend(ctx.vm.bz_pop(), ctx.vm);
+        api.bz_listAppend(ctx.vm, file_list, api.bz_pop(ctx.vm));
     }
 
     return 1;
@@ -358,7 +386,11 @@ pub export fn list(ctx: *api.NativeCtx) callconv(.c) c_int {
 
 pub export fn exists(ctx: *api.NativeCtx) callconv(.c) c_int {
     var len: usize = 0;
-    const filename = ctx.vm.bz_peek(0).bz_valueToString(&len);
+    const filename = api.bz_valueToString(
+        ctx.vm,
+        api.bz_peek(ctx.vm, 0),
+        &len,
+    );
     const filename_slice = filename.?[0..len];
 
     var accessed = true;
@@ -373,7 +405,7 @@ pub export fn exists(ctx: *api.NativeCtx) callconv(.c) c_int {
         };
     }
 
-    ctx.vm.bz_push(api.Value.fromBoolean(accessed));
+    api.bz_push(ctx.vm, api.Value.fromBoolean(accessed));
 
     return 1;
 }

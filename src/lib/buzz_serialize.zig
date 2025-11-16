@@ -10,18 +10,18 @@ else
     std.os;
 
 pub export fn serializeValue(ctx: *api.NativeCtx) callconv(.c) c_int {
-    const to_serialize = ctx.vm.bz_peek(0);
+    const to_serialize = api.bz_peek(ctx.vm, 0);
 
     var error_value = api.Value.Void;
-    const serialized = ctx.vm.bz_serialize(to_serialize, &error_value);
+    const serialized = api.bz_serialize(ctx.vm, to_serialize, &error_value);
 
     if (error_value.val != api.Value.Void.val) {
-        ctx.vm.bz_push(error_value);
+        api.bz_push(ctx.vm, error_value);
 
         return -1;
     }
 
-    ctx.vm.bz_push(serialized);
+    api.bz_push(ctx.vm, serialized);
 
     return 1;
 }

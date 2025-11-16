@@ -6,27 +6,28 @@ const Value = @import("value.zig").Value;
 const obj = @import("obj.zig");
 const _vm = @import("vm.zig");
 const global_allocator = @import("buzz_api.zig").allocator;
+const GC = @import("GC.zig");
 
 const VM = _vm.VM;
 const OpCode = Chunk.OpCode;
 
-pub fn disassembleChunk(chunk: *Chunk, name: []const u8) void {
+pub fn disassembleChunk(chunk: *Chunk, name: []const u8, gc: *GC) void {
     print("\u{001b}[2m", .{}); // Dimmed
     print("=== {s} ===\n", .{name});
 
     var offset: usize = 0;
     while (offset < chunk.code.items.len) {
-        offset = disassembleInstruction(chunk, offset);
+        offset = disassembleInstruction(chunk, offset, gc);
     }
     print("\u{001b}[0m", .{});
 }
 
-fn namedInvokeInstruction(code: OpCode, chunk: *Chunk, offset: usize) usize {
+fn namedInvokeInstruction(code: OpCode, chunk: *Chunk, offset: usize, gc: *GC) usize {
     const constant: u24 = @intCast(0x00ffffff & chunk.code.items[offset]);
     const arg_count: u8 = @intCast(chunk.code.items[offset + 1] >> 24);
     const catch_count: u24 = @intCast(0x00ffffff & chunk.code.items[offset + 1]);
 
-    var value_str = chunk.constants.items[constant].toStringAlloc(global_allocator) catch @panic("Out of memory");
+    var value_str = Value.toStringAlloc(chunk.constants.items[constant], gc) catch @panic("Out of memory");
     defer global_allocator.free(value_str);
 
     print(
@@ -110,10 +111,10 @@ fn triInstruction(code: OpCode, chunk: *Chunk, offset: usize) usize {
     return offset + 1;
 }
 
-fn constantInstruction(code: OpCode, chunk: *Chunk, offset: usize) usize {
+fn constantInstruction(code: OpCode, chunk: *Chunk, offset: usize, gc: *GC) usize {
     const constant: u24 = @intCast(0x00ffffff & chunk.code.items[offset]);
-    var value_str = chunk.constants.items[constant].toStringAlloc(global_allocator) catch @panic("Out of memory");
-    defer global_allocator.free(value_str);
+    var value_str = Value.toStringAlloc(chunk.constants.items[constant], gc) catch @panic("Out of memory");
+    defer gc.allocator.free(value_str);
 
     print(
         "{s}\t{} {s}",
@@ -177,7 +178,7 @@ pub fn dumpStack(vm: *VM) void {
     var value: [*]Value = @ptrCast(vm.current_fiber.stack[0..]);
     var count: usize = 0;
     while (@intFromPtr(value) < @intFromPtr(vm.current_fiber.stack_top) and count < vm.current_fiber.stack.len) : (count += 1) {
-        var value_str = value[0].toStringAlloc(global_allocator) catch unreachable;
+        var value_str = value[0].toStringAlloc(vm.gc) catch unreachable;
         defer global_allocator.free(value_str);
 
         if (vm.currentFrame().?.slots == value) {
@@ -208,7 +209,7 @@ pub fn dumpStack(vm: *VM) void {
     print("\u{001b}[0m", .{});
 }
 
-pub fn disassembleInstruction(chunk: *Chunk, offset: usize) usize {
+pub fn disassembleInstruction(chunk: *Chunk, offset: usize, gc: *GC) usize {
     print("\n{:0>3} ", .{offset});
     const lines = chunk.ast.tokens.items(.line);
 
@@ -322,7 +323,7 @@ pub fn disassembleInstruction(chunk: *Chunk, offset: usize) usize {
         .OP_MAP,
         .OP_GET_PROTOCOL_METHOD,
         .OP_CONSTANT,
-        => constantInstruction(instruction, chunk, offset),
+        => constantInstruction(instruction, chunk, offset, gc),
 
         .OP_JUMP,
         .OP_JUMP_IF_FALSE,
@@ -347,7 +348,7 @@ pub fn disassembleInstruction(chunk: *Chunk, offset: usize) usize {
 
         .OP_PROTOCOL_INVOKE,
         .OP_PROTOCOL_TAIL_INVOKE,
-        => namedInvokeInstruction(instruction, chunk, offset),
+        => namedInvokeInstruction(instruction, chunk, offset, gc),
 
         .OP_CALL,
         .OP_TAIL_CALL,
@@ -356,7 +357,7 @@ pub fn disassembleInstruction(chunk: *Chunk, offset: usize) usize {
         .OP_DBG_GLOBAL_DEFINE => {
             const slot = chunk.code.items[offset + 1];
             const constant: u24 = @intCast(chunk.code.items[offset + 2]);
-            const value_str = chunk.constants.items[constant].toStringAlloc(global_allocator) catch @panic("Out of memory");
+            const value_str = Value.toStringAlloc(chunk.constants.items[constant], gc) catch @panic("Out of memory");
             defer global_allocator.free(value_str);
 
             print(
@@ -375,7 +376,7 @@ pub fn disassembleInstruction(chunk: *Chunk, offset: usize) usize {
             const arg_instruction = chunk.code.items[offset + 1];
             const slot: u8 = @intCast(arg_instruction >> 24);
             const constant: u24 = @intCast(0x00ffffff & arg_instruction);
-            const value_str = chunk.constants.items[constant].toStringAlloc(global_allocator) catch @panic("Out of memory");
+            const value_str = Value.toStringAlloc(chunk.constants.items[constant], gc) catch @panic("Out of memory");
             defer global_allocator.free(value_str);
 
             print(
@@ -394,7 +395,7 @@ pub fn disassembleInstruction(chunk: *Chunk, offset: usize) usize {
             const constant: u24 = arg;
             var off_offset: usize = offset + 1;
 
-            var value_str = chunk.constants.items[constant].toStringAlloc(global_allocator) catch @panic("Out of memory");
+            var value_str = Value.toStringAlloc(chunk.constants.items[constant], gc) catch @panic("Out of memory");
             defer global_allocator.free(value_str);
 
             print(
@@ -406,7 +407,7 @@ pub fn disassembleInstruction(chunk: *Chunk, offset: usize) usize {
                 },
             );
 
-            const function: *obj.ObjFunction = obj.ObjFunction.cast(chunk.constants.items[constant].obj()).?;
+            const function = gc.ptr(obj.ObjFunction, .idx(chunk.constants.items[constant].obj().index)).?;
             var i: u8 = 0;
             while (i < function.upvalue_count) : (i += 1) {
                 const is_local: bool = chunk.code.items[off_offset] == 1;
@@ -432,7 +433,7 @@ pub const DumpState = struct {
     const Self = @This();
 
     vm: *VM,
-    seen: std.AutoHashMapUnmanaged(*obj.Obj, void) = .empty,
+    seen: std.AutoHashMapUnmanaged(obj.ObjIdx, void) = .empty,
     depth: usize = 0,
     tab: usize = 0,
 
@@ -457,7 +458,7 @@ pub const DumpState = struct {
         if (value.isNull()) {
             out.print("null", .{}) catch unreachable;
         } else if (!value.isObj() or state.seen.get(value.obj()) != null) {
-            const string = value.toStringAlloc(state.vm.gc.allocator) catch unreachable;
+            const string = value.toStringAlloc(state.vm.gc) catch unreachable;
             defer state.vm.gc.allocator.free(string);
 
             out.print("{s}", .{string}) catch unreachable;
@@ -474,14 +475,14 @@ pub const DumpState = struct {
                 .Fiber,
                 .EnumInstance,
                 => {
-                    const string = value.toStringAlloc(state.vm.gc.allocator) catch unreachable;
+                    const string = value.toStringAlloc(state.vm.gc) catch unreachable;
                     defer state.vm.gc.allocator.free(string);
 
                     out.print("{s}", .{string}) catch unreachable;
                 },
 
                 .UpValue => {
-                    const upvalue = obj.ObjUpValue.cast(value.obj()).?;
+                    const upvalue = state.vm.gc.ptr(obj.ObjUpValue, .idx(value.obj().index)).?;
 
                     state.valueDump(
                         if (upvalue.closed != null)
@@ -494,30 +495,30 @@ pub const DumpState = struct {
                 },
 
                 .String => {
-                    const string = obj.ObjString.cast(value.obj()).?;
+                    const string = state.vm.gc.ptr(obj.ObjString, .idx(value.obj().index)).?;
 
                     out.print("\"{s}\"", .{string.string}) catch unreachable;
                 },
 
                 .Pattern => {
-                    const pattern = obj.ObjPattern.cast(value.obj()).?;
+                    const pattern = state.vm.gc.ptr(obj.ObjPattern, .idx(value.obj().index)).?;
 
                     out.print("$\"{s}\"", .{pattern.source}) catch unreachable;
                 },
 
                 .Range => {
-                    const range = obj.ObjRange.cast(value.obj()).?;
+                    const range = state.vm.gc.ptr(obj.ObjRange, .idx(value.obj().index)).?;
 
                     out.print("{}..{}", .{ range.low, range.high }) catch unreachable;
                 },
 
                 .List => {
-                    const list = obj.ObjList.cast(value.obj()).?;
+                    const list = state.vm.gc.ptr(obj.ObjList, .idx(value.obj().index)).?;
 
                     out.print(
                         "{s}[{s}",
                         .{
-                            if (list.type_def.resolved_type.?.List.mutable)
+                            if (list.type_def.get(state.vm.gc).resolved_type.?.List.mutable)
                                 "mut "
                             else
                                 "",
@@ -541,12 +542,12 @@ pub const DumpState = struct {
                 },
 
                 .Map => {
-                    const map = obj.ObjMap.cast(value.obj()).?;
+                    const map = state.vm.gc.ptr(obj.ObjMap, .idx(value.obj().index)).?;
 
                     out.print(
                         "{s}{{{s}",
                         .{
-                            if (map.type_def.resolved_type.?.Map.mutable)
+                            if (map.type_def.get(state.vm.gc).resolved_type.?.Map.mutable)
                                 "mut "
                             else
                                 "",
@@ -579,21 +580,21 @@ pub const DumpState = struct {
                 },
 
                 .Enum => {
-                    const enumeration = obj.ObjEnum.cast(value.obj()).?;
-                    const enum_type_def = enumeration.type_def.resolved_type.?.Enum;
-                    const enum_value_type_def = enumeration.type_def.resolved_type.?.Enum.enum_type.toStringAlloc(state.vm.gc.allocator, true) catch unreachable;
+                    const enumeration = state.vm.gc.ptr(obj.ObjEnum, .idx(value.obj().index)).?;
+                    const enum_type_def = enumeration.type_def.get(state.vm.gc).resolved_type.?.Enum;
+                    const enum_value_type_def = obj.ObjTypeDef.toStringAlloc(enum_type_def.enum_type, state.vm.gc, true) catch unreachable;
                     defer state.vm.gc.allocator.free(enum_value_type_def);
 
                     out.print(
                         "enum<{s}> {s} {{\n",
                         .{
                             enum_value_type_def,
-                            enum_type_def.name.string,
+                            enum_type_def.name.get(state.vm.gc).string,
                         },
                     ) catch unreachable;
                     state.tab += 1;
                     for (enum_type_def.cases, 0..) |case, i| {
-                        out.print("    {s} -> ", .{case}) catch unreachable;
+                        out.print("    {s} = ", .{case}) catch unreachable;
                         state.valueDump(
                             enumeration.cases[i],
                             out,
@@ -606,26 +607,37 @@ pub const DumpState = struct {
                 },
 
                 .Object => {
-                    const object = obj.ObjObject.cast(value.obj()).?;
-                    const object_def = object.type_def.resolved_type.?.Object;
+                    const object = state.vm.gc.ptr(obj.ObjObject, .idx(value.obj().index)).?;
+                    const object_def = object.type_def.get(state.vm.gc).resolved_type.?.Object;
 
                     out.print("object", .{}) catch unreachable;
                     if (object_def.conforms_to.count() > 0) {
                         out.print("<", .{}) catch unreachable;
                         var it = object_def.conforms_to.iterator();
                         while (it.next()) |kv| {
-                            out.print("{s}, ", .{kv.key_ptr.*.resolved_type.?.Protocol.name.string}) catch unreachable;
+                            out.print(
+                                "{s}, ",
+                                .{
+                                    kv.key_ptr.*.get(state.vm.gc)
+                                        .resolved_type.?.Protocol.name.get(state.vm.gc).string,
+                                },
+                            ) catch unreachable;
                         }
                         out.print(">", .{}) catch unreachable;
                     }
 
-                    out.print(" {s} {{\n", .{object_def.name.string}) catch unreachable;
+                    out.print(
+                        " {s} {{\n",
+                        .{
+                            object_def.name.get(state.vm.gc).string,
+                        },
+                    ) catch unreachable;
                     state.tab += 1;
 
                     var it = object_def.fields.iterator();
                     while (it.next()) |kv| {
                         const field = kv.value_ptr.*;
-                        const field_type_str = field.type_def.toStringAlloc(state.vm.gc.allocator, true) catch unreachable;
+                        const field_type_str = obj.ObjTypeDef.toStringAlloc(field.type_def, state.vm.gc, true) catch unreachable;
                         defer state.vm.gc.allocator.free(field_type_str);
 
                         if (!field.method) {
@@ -672,20 +684,23 @@ pub const DumpState = struct {
                 },
 
                 .ObjectInstance => {
-                    const object_instance = obj.ObjObjectInstance.cast(value.obj()).?;
-                    const fields = object_instance.type_def.resolved_type.?.ObjectInstance.of
+                    const object_instance = state.vm.gc.ptr(obj.ObjObjectInstance, .idx(value.obj().index)).?;
+                    const object_instance_type_def = object_instance.type_def.get(state.vm.gc);
+                    const fields = object_instance_type_def.resolved_type.?.ObjectInstance.of.get(state.vm.gc)
                         .resolved_type.?.Object
                         .fields;
 
                     out.print(
                         "{s}{s}{{\n",
                         .{
-                            if (object_instance.type_def.resolved_type.?.ObjectInstance.mutable)
+                            if (object_instance_type_def.resolved_type.?.ObjectInstance.mutable)
                                 "mut "
                             else
                                 "",
                             if (object_instance.object) |object|
-                                object.type_def.resolved_type.?.Object.name.string
+                                object.get(state.vm.gc)
+                                    .type_def.get(state.vm.gc)
+                                    .resolved_type.?.Object.name.get(state.vm.gc).string
                             else
                                 ".",
                         },
@@ -710,12 +725,14 @@ pub const DumpState = struct {
                 },
 
                 .ForeignContainer => {
-                    const foreign = obj.ObjForeignContainer.cast(value.obj()).?;
-                    const foreign_def = foreign.type_def.resolved_type.?.ForeignContainer;
+                    const foreign = state.vm.gc.ptr(obj.ObjForeignContainer, .idx(value.obj().index)).?;
+                    const foreign_def = foreign.type_def.get(state.vm.gc).resolved_type.?.ForeignContainer;
 
                     out.print(
                         "{s}{{\n",
-                        .{foreign_def.name.string},
+                        .{
+                            foreign_def.name.get(state.vm.gc).string,
+                        },
                     ) catch unreachable;
 
                     var it = foreign_def.fields.iterator();

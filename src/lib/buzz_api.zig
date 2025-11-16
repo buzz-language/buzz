@@ -68,10 +68,6 @@ pub const Value = packed struct {
         return .{ .val = @as(u64, @bitCast(val)) };
     }
 
-    pub fn fromObj(val: *anyopaque) Value {
-        return .{ .val = PointerMask | @intFromPtr(val) };
-    }
-
     pub fn getTag(self: Value) u3 {
         return @intCast(@as(u32, @intCast(self.val >> 32)) & TagMask);
     }
@@ -123,47 +119,6 @@ pub const Value = packed struct {
     pub fn obj(self: Value) *anyopaque {
         return @ptrFromInt(@as(usize, @truncate(self.val & ~PointerMask)));
     }
-
-    pub extern fn bz_valueToString(value: Value, len: *usize) ?[*]const u8;
-    pub extern fn bz_valueToCString(value: Value) callconv(.c) ?[*:0]const u8;
-    pub extern fn bz_valueToForeignContainerPtr(value: Value) callconv(.c) [*]u8;
-    pub extern fn bz_valueIsForeignContainer(value: Value) callconv(.c) bool;
-    pub extern fn bz_valueDump(value: Value, vm: *VM) callconv(.c) void;
-    pub extern fn bz_valueEqual(self: Value, other: Value) callconv(.c) Value;
-    pub extern fn bz_valueIs(self: Value, type_def: Value) callconv(.c) Value;
-    pub extern fn bz_valueTypeOf(self: Value, vm: *VM) callconv(.c) Value;
-    pub extern fn bz_getUserDataPtr(userdata: Value) callconv(.c) u64;
-    pub extern fn bz_containerTypeSize(container: Value) callconv(.c) usize;
-    pub extern fn bz_containerTypeAlign(type_def: Value) callconv(.c) usize;
-    pub extern fn bz_valueCastToString(value: Value, vm: *VM) callconv(.c) Value;
-    pub extern fn bz_stringConcat(string: Value, other: Value, vm: *VM) callconv(.c) Value;
-    pub extern fn bz_stringSubscript(obj_string: Value, index_value: Value, checked: bool, vm: *VM) callconv(.c) Value;
-    pub extern fn bz_stringNext(string_value: Value, index: *Value, vm: *VM) callconv(.c) Value;
-    pub extern fn bz_rangeNext(range_value: Value, index_slot: Value) callconv(.c) Value;
-    pub extern fn bz_getRangeProperty(range_value: Value, property_idx: usize, bind: bool, vm: *VM) callconv(.c) Value;
-    pub extern fn bz_listAppend(list: Value, value: Value, vm: *VM) callconv(.c) void;
-    pub extern fn bz_listGet(list: Value, index: i64, checked: bool) callconv(.c) Value;
-    pub extern fn bz_listSet(list: Value, index: usize, value: Value, vm: *VM) callconv(.c) void;
-    pub extern fn bz_listLen(list: Value) callconv(.c) usize;
-    pub extern fn bz_listConcat(list: Value, other_list: Value, vm: *VM) callconv(.c) Value;
-    pub extern fn bz_listNext(list_value: Value, index: *Value, vm: *VM) callconv(.c) Value;
-    pub extern fn bz_mapSet(map: Value, key: Value, value: Value, vm: *VM) callconv(.c) void;
-    pub extern fn bz_mapGet(map: Value, key: Value) callconv(.c) Value;
-    pub extern fn bz_mapConcat(map: Value, other_map: Value, vm: *VM) callconv(.c) Value;
-    pub extern fn bz_mapNext(map_value: Value, index: *Value) callconv(.c) Value;
-    pub extern fn bz_setObjectInstanceProperty(instance_value: Value, property_idx: usize, value: Value, vm: *VM) callconv(.c) void;
-    pub extern fn bz_getObjectInstanceProperty(instance_value: Value, property_idx: usize) callconv(.c) Value;
-    pub extern fn bz_getObjectInstanceMethod(instance_value: Value, method_idx: usize, bind: bool, vm: *VM) callconv(.c) Value;
-    pub extern fn bz_getProtocolMethod(instance_value: Value, method_name: Value, vm: *VM) callconv(.c) Value;
-    pub extern fn bz_getObjectField(object_value: Value, field_idx: usize) callconv(.c) Value;
-    pub extern fn bz_setObjectField(object_value: Value, field_idx: usize, value: Value, vm: *VM) callconv(.c) void;
-    pub extern fn bz_getEnumInstanceValue(enum_instance_value: Value) callconv(.c) Value;
-    pub extern fn bz_getEnumCase(enum_value: Value, case_name_value: Value, vm: *VM) callconv(.c) Value;
-    pub extern fn bz_getEnumCaseFromValue(enum_value: Value, case_value: Value, vm: *VM) callconv(.c) Value;
-    pub extern fn bz_enumNext(enum_value: Value, case: Value, vm: *VM) callconv(.c) Value;
-    pub extern fn bz_foreignContainerGet(value: Value, field_idx: usize, vm: *VM) callconv(.c) Value;
-    pub extern fn bz_foreignContainerSet(value: Value, field_idx: usize, new_value: Value, vm: *VM) callconv(.c) void;
-    pub extern fn bz_foreignContainerSlice(container_value: Value, len: *usize) callconv(.c) [*]u8;
 };
 
 pub const NativeCtx = extern struct {
@@ -181,11 +136,7 @@ pub const TryCtx = extern struct {
     env: jmp.jmp_buf = undefined,
 };
 
-pub const ZigType = opaque {
-    pub extern fn bz_zigTypeSize(self: *ZigType) callconv(.c) usize;
-    pub extern fn bz_zigTypeAlignment(self: *ZigType) callconv(.c) u16;
-    pub extern fn bz_zigTypeToCString(self: *ZigType, vm: *VM) callconv(.c) [*:0]const u8;
-};
+pub const ZigType = opaque {};
 
 pub const VM = opaque {
     var gpa = std.heap.GeneralPurposeAllocator(.{
@@ -198,73 +149,121 @@ pub const VM = opaque {
         @import("mimalloc.zig").mim_allocator
     else
         std.heap.c_allocator;
-
-    pub extern fn bz_newVM() *VM;
-    pub extern fn bz_deinitVM(self: *VM) callconv(.c) void;
-    pub extern fn bz_panic(vm: *VM, msg: [*]const u8, len: usize) callconv(.c) void;
-    pub extern fn bz_run(self: *VM, source: ?[*]const u8, source_len: usize, file_name: ?[*]const u8, file_name_len: usize) callconv(.c) bool;
-    pub extern fn bz_call(self: *VM, closure: Value, arguments: ?[*]const *const Value, len: usize, catch_value: ?*Value) callconv(.c) bool;
-    pub extern fn bz_push(self: *VM, value: Value) callconv(.c) void;
-    pub extern fn bz_pop(self: *VM) callconv(.c) Value;
-    pub extern fn bz_peek(self: *VM, distance: u32) callconv(.c) Value;
-    pub extern fn bz_at(vm: *VM, at: u32) callconv(.c) Value;
-    pub extern fn bz_pushError(self: *VM, qualified_name: [*]const u8, len: usize, message: ?[*]const u8, mlen: usize) callconv(.c) void;
-    pub extern fn bz_pushErrorEnum(self: *VM, qualified_name: [*]const u8, name_len: usize, case: [*]const u8, case_len: usize) callconv(.c) void;
-    pub extern fn bz_stringToValue(vm: *VM, string: ?[*]const u8, len: usize) callconv(.c) Value;
-    pub extern fn bz_stringToValueZ(vm: *VM, string: ?[*:0]const u8) callconv(.c) Value;
-    pub extern fn bz_newUserData(vm: *VM, userdata: u64) callconv(.c) Value;
-    pub fn pushError(self: *VM, qualified_name: []const u8, message: ?[]const u8) void {
-        self.bz_pushError(
-            qualified_name.ptr,
-            qualified_name.len,
-            if (message) |m| m.ptr else null,
-            if (message) |m| m.len else 0,
-        );
-    }
-    pub fn pushErrorEnum(self: *VM, qualified_name: []const u8, case: []const u8) void {
-        self.bz_pushErrorEnum(
-            qualified_name.ptr,
-            qualified_name.len,
-            case.ptr,
-            case.len,
-        );
-    }
-    pub extern fn bz_serialize(vm: *VM, value: Value, error_value: *Value) callconv(.c) Value;
-    pub extern fn bz_throw(vm: *VM, value: Value) callconv(.c) void;
-    pub extern fn bz_rethrow(vm: *VM) callconv(.c) void;
-    pub extern fn bz_getQualified(self: *VM, qualified_name: [*]const u8, len: usize) callconv(.c) Value;
-    pub extern fn bz_allocated(self: *VM) callconv(.c) usize;
-    pub extern fn bz_collect(self: *VM) callconv(.c) void;
-    pub extern fn bz_setTryCtx(self: *VM) callconv(.c) *TryCtx;
-    pub extern fn bz_popTryCtx(self: *VM) callconv(.c) void;
-    pub extern fn bz_closeUpValues(vm: *VM, last: *Value) callconv(.c) void;
-    pub extern fn bz_getUpValue(ctx: *NativeCtx, slot: usize) callconv(.c) Value;
-    pub extern fn bz_setUpValue(ctx: *NativeCtx, slot: usize, value: Value) callconv(.c) void;
-    pub extern fn bz_closure(ctx: *NativeCtx, function_node: u32, native: *anyopaque, native_raw: *anyopaque) callconv(.c) Value;
-    pub extern fn bz_bindMethod(vm: *VM, receiver: Value, method_value: Value, native_value: Value) callconv(.c) Value;
-    pub extern fn bz_context(ctx: *NativeCtx, closure_value: Value, new_ctx: *NativeCtx, arg_count: usize) callconv(.c) *anyopaque;
-    pub extern fn bz_clone(vm: *VM, value: Value) callconv(.c) Value;
-    pub extern fn bz_currentFiber(vm: *VM) callconv(.c) Value;
-    pub extern fn bz_dumpStack(vm: *VM) callconv(.c) void;
-    pub extern fn bz_zigType(vm: *VM, ztype: [*]const u8, len: usize, expected_type: *Value) callconv(.c) ?*ZigType;
-    pub extern fn bz_stringType(vm: *VM) callconv(.c) Value;
-    pub extern fn bz_intType(vm: *VM) callconv(.c) Value;
-    pub extern fn bz_mapType(vm: *VM, key_type: Value, value_type: Value, mutable: bool) callconv(.c) Value;
-    pub extern fn bz_listType(vm: *VM, item_type: Value, mutable: bool) callconv(.c) Value;
-    pub extern fn bz_getStringProperty(vm: *VM, string: Value, method_idx: usize) callconv(.c) Value;
-    pub extern fn bz_getListProperty(vm: *VM, list: Value, property_idx: usize, bind: bool) callconv(.c) Value;
-    pub extern fn bz_getMapProperty(vm: *VM, map: Value, property_idx: usize, bind: bool) callconv(.c) Value;
-    pub extern fn bz_getPatternProperty(vm: *VM, pattern: Value, property_idx: usize) callconv(.c) Value;
-    pub extern fn bz_getFiberProperty(vm: *VM, fiber: Value, property_idx: usize) callconv(.c) Value;
-    pub extern fn bz_newRange(vm: *VM, low: i64, high: i64) callconv(.c) Value;
-    pub extern fn bz_newList(vm: *VM, list_type: Value) callconv(.c) Value;
-    pub extern fn bz_newMap(vm: *VM, map_type: Value) callconv(.c) Value;
-    pub extern fn bz_newQualifiedObjectInstance(self: *VM, qualified_name: [*]const u8, len: usize, mutable: bool) callconv(.c) Value;
-    pub extern fn bz_newObjectInstance(vm: *VM, object_value: Value, typedef_value: Value) callconv(.c) Value;
-    pub extern fn bz_newForeignContainerInstance(vm: *VM, typedef_value: Value) callconv(.c) Value;
-    pub extern fn bz_newForeignContainerFromSlice(vm: *VM, type_def: Value, ptr: [*]u8, len: usize) callconv(.c) Value;
-    pub extern fn bz_readZigValueFromBuffer(vm: *VM, ztype: *ZigType, at: usize, buf: [*]u8, len: usize) callconv(.c) Value;
-    pub extern fn bz_writeZigValueToBuffer(vm: *VM, value: Value, ztype: *const ZigType, at: usize, buf: [*]u8, capacity: usize) callconv(.c) void;
 };
 
 pub extern fn bz_memcpy(dest: [*]u8, dest_len: usize, source: [*]u8, source_len: usize) callconv(.c) void;
+
+pub extern fn bz_valueToString(vm: *VM, value: Value, len: *usize) ?[*]const u8;
+pub extern fn bz_valueToCString(vm: *VM, value: Value) callconv(.c) ?[*:0]const u8;
+pub extern fn bz_valueToForeignContainerPtr(vm: *VM, value: Value) callconv(.c) [*]u8;
+pub extern fn bz_valueIsForeignContainer(vm: *VM, value: Value) callconv(.c) bool;
+pub extern fn bz_valueDump(vm: *VM, value: Value) callconv(.c) void;
+pub extern fn bz_valueEqual(vm: *VM, self: Value, other: Value) callconv(.c) Value;
+pub extern fn bz_valueIs(vm: *VM, self: Value, type_def: Value) callconv(.c) Value;
+pub extern fn bz_valueTypeOf(vm: *VM, self: Value) callconv(.c) Value;
+pub extern fn bz_getUserDataPtr(vm: *VM, userdata: Value) callconv(.c) u64;
+pub extern fn bz_containerTypeSize(vm: *VM, container: Value) callconv(.c) usize;
+pub extern fn bz_containerTypeAlign(vm: *VM, type_def: Value) callconv(.c) usize;
+pub extern fn bz_valueCastToString(vm: *VM, value: Value) callconv(.c) Value;
+pub extern fn bz_stringConcat(vm: *VM, string: Value, other: Value) callconv(.c) Value;
+pub extern fn bz_stringSubscript(vm: *VM, obj_string: Value, index_value: Value, checked: bool) callconv(.c) Value;
+pub extern fn bz_stringNext(vm: *VM, string_value: Value, index: *Value) callconv(.c) Value;
+pub extern fn bz_rangeNext(vm: *VM, range_value: Value, index_slot: Value) callconv(.c) Value;
+pub extern fn bz_getRangeProperty(range_value: Value, property_idx: usize, bind: bool, vm: *VM) callconv(.c) Value;
+pub extern fn bz_listAppend(vm: *VM, list: Value, value: Value) callconv(.c) void;
+pub extern fn bz_listGet(vm: *VM, list: Value, index: i64, checked: bool) callconv(.c) Value;
+pub extern fn bz_listSet(vm: *VM, list: Value, index: usize, value: Value) callconv(.c) void;
+pub extern fn bz_listLen(vm: *VM, list: Value) callconv(.c) usize;
+pub extern fn bz_listConcat(vm: *VM, list: Value, other_list: Value) callconv(.c) Value;
+pub extern fn bz_listNext(vm: *VM, list_value: Value, index: *Value) callconv(.c) Value;
+pub extern fn bz_mapSet(vm: *VM, map: Value, key: Value, value: Value) callconv(.c) void;
+pub extern fn bz_mapGet(vm: *VM, map: Value, key: Value) callconv(.c) Value;
+pub extern fn bz_mapConcat(vm: *VM, map: Value, other_map: Value) callconv(.c) Value;
+pub extern fn bz_mapNext(vm: *VM, map_value: Value, index: *Value) callconv(.c) Value;
+pub extern fn bz_setObjectInstanceProperty(vm: *VM, instance_value: Value, property_idx: usize, value: Value) callconv(.c) void;
+pub extern fn bz_getObjectInstanceProperty(vm: *VM, instance_value: Value, property_idx: usize) callconv(.c) Value;
+pub extern fn bz_getObjectInstanceMethod(vm: *VM, instance_value: Value, method_idx: usize, bind: bool) callconv(.c) Value;
+pub extern fn bz_getProtocolMethod(vm: *VM, instance_value: Value, method_name: Value) callconv(.c) Value;
+pub extern fn bz_getObjectField(vm: *VM, object_value: Value, field_idx: usize) callconv(.c) Value;
+pub extern fn bz_setObjectField(vm: *VM, object_value: Value, field_idx: usize, value: Value) callconv(.c) void;
+pub extern fn bz_getEnumInstanceValue(vm: *VM, enum_instance_value: Value) callconv(.c) Value;
+pub extern fn bz_getEnumCase(vm: *VM, enum_value: Value, case_name_value: Value) callconv(.c) Value;
+pub extern fn bz_getEnumCaseFromValue(vm: *VM, enum_value: Value, case_value: Value) callconv(.c) Value;
+pub extern fn bz_enumNext(vm: *VM, enum_value: Value, case: Value) callconv(.c) Value;
+pub extern fn bz_foreignContainerGet(vm: *VM, value: Value, field_idx: usize) callconv(.c) Value;
+pub extern fn bz_foreignContainerSet(vm: *VM, value: Value, field_idx: usize, new_value: Value) callconv(.c) void;
+pub extern fn bz_foreignContainerSlice(vm: *VM, container_value: Value, len: *usize) callconv(.c) [*]u8;
+
+pub extern fn bz_serialize(vm: *VM, value: Value, error_value: *Value) callconv(.c) Value;
+pub extern fn bz_throw(vm: *VM, value: Value) callconv(.c) void;
+pub extern fn bz_rethrow(vm: *VM) callconv(.c) void;
+pub extern fn bz_getQualified(vm: *VM, qualified_name: [*]const u8, len: usize) callconv(.c) Value;
+pub extern fn bz_allocated(vm: *VM) callconv(.c) usize;
+pub extern fn bz_collect(vm: *VM) callconv(.c) void;
+pub extern fn bz_setTryCtx(vm: *VM) callconv(.c) *TryCtx;
+pub extern fn bz_popTryCtx(vm: *VM) callconv(.c) void;
+pub extern fn bz_closeUpValues(vm: *VM, last: *Value) callconv(.c) void;
+pub extern fn bz_getUpValue(vm: *VM, slot: usize) callconv(.c) Value;
+pub extern fn bz_setUpValue(vm: *VM, slot: usize, value: Value) callconv(.c) void;
+pub extern fn bz_closure(ctx: *NativeCtx, function_node: u32, native: *anyopaque, native_raw: *anyopaque) callconv(.c) Value;
+pub extern fn bz_bindMethod(vm: *VM, receiver: Value, method_value: Value, native_value: Value) callconv(.c) Value;
+pub extern fn bz_context(ctx: *NativeCtx, closure_value: Value, new_ctx: *NativeCtx, arg_count: usize) callconv(.c) *anyopaque;
+pub extern fn bz_clone(vm: *VM, value: Value) callconv(.c) Value;
+pub extern fn bz_currentFiber(vm: *VM) callconv(.c) Value;
+pub extern fn bz_dumpStack(vm: *VM) callconv(.c) void;
+pub extern fn bz_zigType(vm: *VM, ztype: [*]const u8, len: usize, expected_type: *Value) callconv(.c) ?*ZigType;
+pub extern fn bz_stringType(vm: *VM) callconv(.c) Value;
+pub extern fn bz_intType(vm: *VM) callconv(.c) Value;
+pub extern fn bz_mapType(vm: *VM, key_type: Value, value_type: Value, mutable: bool) callconv(.c) Value;
+pub extern fn bz_listType(vm: *VM, item_type: Value, mutable: bool) callconv(.c) Value;
+pub extern fn bz_getStringProperty(vm: *VM, string: Value, method_idx: usize) callconv(.c) Value;
+pub extern fn bz_getListProperty(vm: *VM, list: Value, property_idx: usize, bind: bool) callconv(.c) Value;
+pub extern fn bz_getMapProperty(vm: *VM, map: Value, property_idx: usize, bind: bool) callconv(.c) Value;
+pub extern fn bz_getPatternProperty(vm: *VM, pattern: Value, property_idx: usize) callconv(.c) Value;
+pub extern fn bz_getFiberProperty(vm: *VM, fiber: Value, property_idx: usize) callconv(.c) Value;
+pub extern fn bz_newRange(vm: *VM, low: i64, high: i64) callconv(.c) Value;
+pub extern fn bz_newList(vm: *VM, list_type: Value) callconv(.c) Value;
+pub extern fn bz_newMap(vm: *VM, map_type: Value) callconv(.c) Value;
+pub extern fn bz_newQualifiedObjectInstance(vm: *VM, qualified_name: [*]const u8, len: usize, mutable: bool) callconv(.c) Value;
+pub extern fn bz_newObjectInstance(vm: *VM, object_value: Value, typedef_value: Value) callconv(.c) Value;
+pub extern fn bz_newForeignContainerInstance(vm: *VM, typedef_value: Value) callconv(.c) Value;
+pub extern fn bz_newForeignContainerFromSlice(vm: *VM, type_def: Value, ptr: [*]u8, len: usize) callconv(.c) Value;
+pub extern fn bz_readZigValueFromBuffer(vm: *VM, ztype: *ZigType, at: usize, buf: [*]u8, len: usize) callconv(.c) Value;
+pub extern fn bz_writeZigValueToBuffer(vm: *VM, value: Value, ztype: *const ZigType, at: usize, buf: [*]u8, capacity: usize) callconv(.c) void;
+
+pub extern fn bz_newVM() *VM;
+pub extern fn bz_deinitVM(vm: *VM) callconv(.c) void;
+pub extern fn bz_panic(vm: *VM, msg: [*]const u8, len: usize) callconv(.c) void;
+pub extern fn bz_run(vm: *VM, source: ?[*]const u8, source_len: usize, file_name: ?[*]const u8, file_name_len: usize) callconv(.c) bool;
+pub extern fn bz_call(vm: *VM, closure: Value, arguments: ?[*]const *const Value, len: usize, catch_value: ?*Value) callconv(.c) bool;
+pub extern fn bz_push(vm: *VM, value: Value) callconv(.c) void;
+pub extern fn bz_pop(vm: *VM) callconv(.c) Value;
+pub extern fn bz_peek(vm: *VM, distance: u32) callconv(.c) Value;
+pub extern fn bz_at(vm: *VM, at: u32) callconv(.c) Value;
+pub extern fn bz_pushError(vm: *VM, qualified_name: [*]const u8, len: usize, message: ?[*]const u8, mlen: usize) callconv(.c) void;
+pub extern fn bz_pushErrorEnum(vm: *VM, qualified_name: [*]const u8, name_len: usize, case: [*]const u8, case_len: usize) callconv(.c) void;
+pub extern fn bz_stringToValue(vm: *VM, string: ?[*]const u8, len: usize) callconv(.c) Value;
+pub extern fn bz_stringToValueZ(ctx: *NativeCtx, string: ?[*:0]const u8) callconv(.c) Value;
+pub extern fn bz_newUserData(vm: *VM, userdata: u64) callconv(.c) Value;
+pub fn pushError(vm: *VM, qualified_name: []const u8, message: ?[]const u8) void {
+    bz_pushError(
+        vm,
+        qualified_name.ptr,
+        qualified_name.len,
+        if (message) |m| m.ptr else null,
+        if (message) |m| m.len else 0,
+    );
+}
+pub fn pushErrorEnum(vm: *VM, qualified_name: []const u8, case: []const u8) void {
+    bz_pushErrorEnum(
+        vm,
+        qualified_name.ptr,
+        qualified_name.len,
+        case.ptr,
+        case.len,
+    );
+}
+
+pub extern fn bz_zigTypeSize(vm: *VM, self: *ZigType) callconv(.c) usize;
+pub extern fn bz_zigTypeAlignment(vm: *VM, self: *ZigType) callconv(.c) u16;
+pub extern fn bz_zigTypeToCString(vm: *VM, self: *ZigType) callconv(.c) [*:0]const u8;

@@ -3,13 +3,27 @@ const api = @import("buzz_api.zig");
 
 pub export fn alignOf(ctx: *api.NativeCtx) callconv(.c) c_int {
     var len: usize = 0;
-    const zig_type_str = ctx.vm.bz_peek(0).bz_valueToString(&len).?;
+    const zig_type_str = api.bz_valueToString(
+        ctx.vm,
+        api.bz_peek(ctx.vm, 0),
+        &len,
+    ).?;
 
     var expected_type: api.Value = undefined;
-    const zig_type = ctx.vm.bz_zigType(zig_type_str, len, &expected_type);
+    const zig_type = api.bz_zigType(
+        ctx.vm,
+        zig_type_str,
+        len,
+        &expected_type,
+    );
 
     if (zig_type) |ztype| {
-        ctx.vm.bz_push(api.Value.fromInteger(@intCast(ztype.bz_zigTypeAlignment())));
+        api.bz_push(
+            ctx.vm,
+            .fromInteger(
+                @intCast(api.bz_zigTypeAlignment(ctx.vm, ztype)),
+            ),
+        );
     } else {
         var msg = std.Io.Writer.Allocating.init(api.VM.allocator);
         defer msg.deinit();
@@ -20,14 +34,15 @@ pub export fn alignOf(ctx: *api.NativeCtx) callconv(.c) c_int {
                 zig_type_str[0..len],
             },
         ) catch {
-            ctx.vm.bz_panic("Out of memory", "Out of memory".len);
+            api.bz_panic(ctx.vm, "Out of memory", "Out of memory".len);
             unreachable;
         };
 
-        ctx.vm.pushError(
+        api.pushError(
+            ctx.vm,
             "ffi.FFIZigTypeParseError",
             msg.toOwnedSlice() catch {
-                ctx.vm.bz_panic("Out of memory", "Out of memory".len);
+                api.bz_panic(ctx.vm, "Out of memory", "Out of memory".len);
                 unreachable;
             },
         );
@@ -40,13 +55,27 @@ pub export fn alignOf(ctx: *api.NativeCtx) callconv(.c) c_int {
 
 pub export fn sizeOf(ctx: *api.NativeCtx) callconv(.c) c_int {
     var len: usize = 0;
-    const zig_type_str = ctx.vm.bz_peek(0).bz_valueToString(&len).?;
+    const zig_type_str = api.bz_valueToString(
+        ctx.vm,
+        api.bz_peek(ctx.vm, 0),
+        &len,
+    ).?;
 
     var expected_type: api.Value = undefined;
-    const zig_type = ctx.vm.bz_zigType(zig_type_str, len, &expected_type);
+    const zig_type = api.bz_zigType(
+        ctx.vm,
+        zig_type_str,
+        len,
+        &expected_type,
+    );
 
     if (zig_type) |ztype| {
-        ctx.vm.bz_push(api.Value.fromInteger(@intCast(ztype.bz_zigTypeSize())));
+        api.bz_push(
+            ctx.vm,
+            .fromInteger(
+                @intCast(api.bz_zigTypeSize(ctx.vm, ztype)),
+            ),
+        );
     } else {
         var msg = std.Io.Writer.Allocating.init(api.VM.allocator);
         defer msg.deinit();
@@ -57,14 +86,15 @@ pub export fn sizeOf(ctx: *api.NativeCtx) callconv(.c) c_int {
                 zig_type_str[0..len],
             },
         ) catch {
-            ctx.vm.bz_panic("Out of memory", "Out of memory".len);
+            api.bz_panic(ctx.vm, "Out of memory", "Out of memory".len);
             unreachable;
         };
 
-        ctx.vm.pushError(
+        api.pushError(
+            ctx.vm,
             "ffi.FFIZigTypeParseError",
             msg.toOwnedSlice() catch {
-                ctx.vm.bz_panic("Out of memory", "Out of memory".len);
+                api.bz_panic(ctx.vm, "Out of memory", "Out of memory".len);
                 unreachable;
             },
         );
@@ -77,39 +107,46 @@ pub export fn sizeOf(ctx: *api.NativeCtx) callconv(.c) c_int {
 
 // FIXME: raise error if typedef is not .ForeignContainer
 pub export fn sizeOfStruct(ctx: *api.NativeCtx) callconv(.c) c_int {
-    const type_def = ctx.vm.bz_peek(0);
+    const type_def = api.bz_peek(ctx.vm, 0);
 
-    ctx.vm.bz_push(
-        api.Value.fromInteger(@intCast(type_def.bz_containerTypeSize())),
+    api.bz_push(
+        ctx.vm,
+        .fromInteger(
+            @intCast(api.bz_containerTypeSize(ctx.vm, type_def)),
+        ),
     );
 
     return 1;
 }
 
 pub export fn alignOfStruct(ctx: *api.NativeCtx) callconv(.c) c_int {
-    const type_def = ctx.vm.bz_peek(0);
+    const type_def = api.bz_peek(ctx.vm, 0);
 
-    ctx.vm.bz_push(
-        api.Value.fromInteger(@intCast(type_def.bz_containerTypeAlign())),
+    api.bz_push(
+        ctx.vm,
+        .fromInteger(
+            @intCast(api.bz_containerTypeAlign(ctx.vm, type_def)),
+        ),
     );
 
     return 1;
 }
 
 pub export fn rawData(ctx: *api.NativeCtx) callconv(.c) c_int {
-    const data = ctx.vm.bz_peek(0);
+    const data = api.bz_peek(ctx.vm, 0);
 
-    if (!data.bz_valueIsForeignContainer()) {
-        ctx.vm.pushError("ffi.ValueNotForeignContainer", null);
+    if (!api.bz_valueIsForeignContainer(ctx.vm, data)) {
+        api.pushError(ctx.vm, "ffi.ValueNotForeignContainer", null);
 
         return -1;
     }
 
     var len: usize = 0;
-    const data_ptr = data.bz_foreignContainerSlice(&len);
+    const data_ptr = api.bz_foreignContainerSlice(ctx.vm, data, &len);
 
-    ctx.vm.bz_push(
-        ctx.vm.bz_stringToValue(data_ptr, len),
+    api.bz_push(
+        ctx.vm,
+        api.bz_stringToValue(ctx.vm, data_ptr, len),
     );
 
     return 1;

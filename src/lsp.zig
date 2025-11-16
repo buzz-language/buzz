@@ -11,6 +11,7 @@ const Reporter = @import("Reporter.zig");
 const CodeGen = @import("Codegen.zig");
 const Token = @import("Token.zig");
 const Renderer = @import("renderer.zig").Renderer;
+const o = @import("obj.zig");
 
 const log = std.log.scoped(.buzz_lsp);
 
@@ -21,6 +22,7 @@ const Document = struct {
     };
 
     arena: std.heap.ArenaAllocator,
+    gc: GC,
     src: [*:0]const u8,
     /// Not owned by this struct
     uri: []const u8,
@@ -82,6 +84,7 @@ const Document = struct {
         try errors.appendSlice(allocator, codegen_errors);
 
         var doc = Document{
+            .gc = gc,
             .arena = arena,
             .src = src,
             .uri = owned_uri,
@@ -131,6 +134,7 @@ const Document = struct {
 
         pub fn processNode(
             self: *NodeUnderPositionContext,
+            _: *GC,
             _: std.mem.Allocator,
             ast: Ast.Slice,
             node: Ast.Node.Index,
@@ -176,7 +180,7 @@ const Document = struct {
                 .position = position,
             };
 
-            self.ast.slice().walk(allocator, &node_ctx, self.ast.root.?) catch |err| {
+            self.ast.slice().walk(&self.gc, self.arena.allocator(), &node_ctx, self.ast.root.?) catch |err| {
                 log.err("nodeUnderPosition: {any}", .{err});
             };
 
@@ -251,12 +255,14 @@ const Document = struct {
             },
             .Dot => {
                 const comp = components[node].Dot;
-                if (ast_slice.nodes.items(.type_def)[comp.callee]) |callee_type_def| {
+                if (ast_slice.nodes.items(.type_def)[comp.callee]) |callee_type_def_idx| {
+                    const callee_type_def = callee_type_def_idx.get(&self.gc);
                     switch (callee_type_def.def_type) {
                         .EnumInstance => {},
                         .ObjectInstance, .Object => {
                             const object_def = if (callee_type_def.def_type == .ObjectInstance)
-                                callee_type_def.resolved_type.?.ObjectInstance.of.resolved_type.?.Object
+                                callee_type_def.resolved_type.?.ObjectInstance.of.get(&self.gc)
+                                    .resolved_type.?.Object
                             else
                                 callee_type_def.resolved_type.?.Object;
 
@@ -282,14 +288,18 @@ const Document = struct {
                 }
             },
             .UserType => {
-                if (ast_slice.nodes.items(.type_def)[node]) |type_def| {
+                if (ast_slice.nodes.items(.type_def)[node]) |type_def_idx| {
+                    const type_def = type_def_idx.get(&self.gc);
                     if (switch (type_def.def_type) {
                         .Object => type_def.resolved_type.?.Object.location,
-                        .ObjectInstance => type_def.resolved_type.?.ObjectInstance.of.resolved_type.?.Object.location,
+                        .ObjectInstance => type_def.resolved_type.?.ObjectInstance.of.get(&self.gc)
+                            .resolved_type.?.Object.location,
                         .Enum => type_def.resolved_type.?.Enum.location,
-                        .EnumInstance => type_def.resolved_type.?.EnumInstance.of.resolved_type.?.Enum.location,
+                        .EnumInstance => type_def.resolved_type.?.EnumInstance.of.get(&self.gc)
+                            .resolved_type.?.Enum.location,
                         .Protocol => type_def.resolved_type.?.Protocol.location,
-                        .ProtocolInstance => type_def.resolved_type.?.ProtocolInstance.of.resolved_type.?.Protocol.location,
+                        .ProtocolInstance => type_def.resolved_type.?.ProtocolInstance.of.get(&self.gc)
+                            .resolved_type.?.Protocol.location,
                         else => null,
                     }) |location| {
                         try self.definitions.put(
@@ -324,6 +334,7 @@ const Document = struct {
 
         pub fn processNode(
             self: *InlayHintsContext,
+            gc: *GC,
             allocator: std.mem.Allocator,
             ast: Ast.Slice,
             node: Ast.Node.Index,
@@ -339,7 +350,7 @@ const Document = struct {
                         var inlay = std.Io.Writer.Allocating.init(allocator);
 
                         try inlay.writer.writeAll(": ");
-                        try type_def.?.toString(&inlay.writer, false);
+                        try o.ObjTypeDef.toString(type_def.?, gc, &inlay.writer, false);
 
                         try self.document.inlay_hints.append(
                             allocator,
@@ -370,6 +381,7 @@ const Document = struct {
         const allocator = self.arena.allocator();
 
         try self.ast.slice().walk(
+            &self.gc,
             allocator,
             &ctx,
             self.ast.root.?,
@@ -641,7 +653,7 @@ const Handler = struct {
             return;
         }
 
-        const file = self.documents.get(notification.textDocument.uri) orelse {
+        const file = self.documents.getPtr(notification.textDocument.uri) orelse {
             log.err(
                 "changeDocument failed: unknown file: {any}",
                 .{
@@ -713,6 +725,7 @@ const Handler = struct {
 
         pub fn processNode(
             self: DocumentSymbolContext,
+            gc: *GC,
             _: std.mem.Allocator,
             ast: Ast.Slice,
             node: Ast.Node.Index,
@@ -721,7 +734,11 @@ const Handler = struct {
             const locations = ast.nodes.items(.location);
             const end_locations = ast.nodes.items(.end_location);
             const components = ast.nodes.items(.components)[node];
-            const type_def = ast.nodes.items(.type_def)[node];
+            const type_def_idx = ast.nodes.items(.type_def)[node];
+            const type_def = if (type_def_idx) |idx|
+                idx.get(gc)
+            else
+                null;
             const allocator = self.document.arena.allocator();
 
             switch (ast.nodes.items(.tag)[node]) {
@@ -730,8 +747,8 @@ const Handler = struct {
                         allocator,
                         .{
                             .name = lexemes[components.VarDeclaration.name],
-                            .detail = if (type_def) |td|
-                                try td.toStringAlloc(allocator, false)
+                            .detail = if (type_def_idx) |td|
+                                try o.ObjTypeDef.toStringAlloc(td, gc, false)
                             else
                                 null,
                             .kind = if (type_def != null and !type_def.?.isMutable() and components.VarDeclaration.final)
@@ -771,8 +788,8 @@ const Handler = struct {
                         allocator,
                         .{
                             .name = lexemes[components.Enum.name],
-                            .detail = if (type_def) |td|
-                                try td.toStringAlloc(allocator, false)
+                            .detail = if (type_def_idx) |td|
+                                try o.ObjTypeDef.toStringAlloc(td, gc, false)
                             else
                                 null,
                             .kind = .Enum,
@@ -785,8 +802,8 @@ const Handler = struct {
                 .ObjectDeclaration => {
                     var children = std.ArrayList(lsp.types.DocumentSymbol){};
 
-                    if (type_def) |td| {
-                        var it = td.resolved_type.?.Object.fields.iterator();
+                    if (type_def_idx) |td| {
+                        var it = td.get(gc).resolved_type.?.Object.fields.iterator();
                         while (it.next()) |kv| {
                             const field = kv.value_ptr.*;
 
@@ -794,7 +811,7 @@ const Handler = struct {
                                 allocator,
                                 .{
                                     .name = field.name,
-                                    .detail = try field.type_def.toStringAlloc(allocator, false),
+                                    .detail = try o.ObjTypeDef.toStringAlloc(field.type_def, gc, false),
                                     .kind = if (field.method)
                                         .Method
                                     else
@@ -810,8 +827,8 @@ const Handler = struct {
                         allocator,
                         .{
                             .name = lexemes[components.ObjectDeclaration.name],
-                            .detail = if (type_def) |td|
-                                try td.toStringAlloc(allocator, false)
+                            .detail = if (type_def_idx) |td|
+                                try o.ObjTypeDef.toStringAlloc(td, gc, false)
                             else
                                 null,
                             .kind = .Struct,
@@ -824,7 +841,8 @@ const Handler = struct {
                 .ProtocolDeclaration => {
                     var children = std.ArrayList(lsp.types.DocumentSymbol){};
 
-                    if (type_def) |td| {
+                    if (type_def_idx) |td_idx| {
+                        const td = td_idx.get(gc);
                         var it = td.resolved_type.?.Protocol.methods.iterator();
                         while (it.next()) |kv| {
                             const method = kv.value_ptr.*;
@@ -836,7 +854,7 @@ const Handler = struct {
                                 allocator,
                                 .{
                                     .name = kv.key_ptr.*,
-                                    .detail = try method.type_def.toStringAlloc(allocator, false),
+                                    .detail = try o.ObjTypeDef.toStringAlloc(method.type_def, gc, false),
                                     .kind = .Method,
                                     .range = range,
                                     .selectionRange = range,
@@ -849,8 +867,8 @@ const Handler = struct {
                         allocator,
                         .{
                             .name = lexemes[components.ProtocolDeclaration.name],
-                            .detail = if (type_def) |td|
-                                try td.toStringAlloc(allocator, false)
+                            .detail = if (type_def_idx) |td|
+                                try o.ObjTypeDef.toStringAlloc(td, gc, false)
                             else
                                 null,
                             .kind = .Interface,
@@ -861,7 +879,8 @@ const Handler = struct {
                     );
                 },
                 .Function => fun: {
-                    if (type_def) |td| {
+                    if (type_def_idx) |td_idx| {
+                        const td = td_idx.get(gc);
                         const fun_def = td.resolved_type.?.Function;
 
                         switch (fun_def.function_type) {
@@ -885,8 +904,8 @@ const Handler = struct {
                                 .name = if (fun_def.function_type == .Test)
                                     lexemes[components.Function.test_message.?]
                                 else
-                                    fun_def.name.string,
-                                .detail = try td.toStringAlloc(allocator, false),
+                                    fun_def.name.get(gc).string,
+                                .detail = try o.ObjTypeDef.toStringAlloc(td_idx, gc, false),
                                 .kind = .Function,
                                 .range = tokenToRange(ast, locations[node], end_locations[node]),
                                 .selectionRange = tokenToRange(ast, locations[node], end_locations[node]),
@@ -915,7 +934,7 @@ const Handler = struct {
                         .document = &document,
                     };
 
-                    document.ast.slice().walk(self.allocator, ctx, root) catch |err| {
+                    document.ast.slice().walk(&document.gc, document.arena.allocator(), ctx, root) catch |err| {
                         log.err("textDocument/documentSymbol: {any}", .{err});
 
                         document.symbols = .{};
@@ -976,7 +995,7 @@ const Handler = struct {
                         }
 
                         try markup.writer.writeAll("```buzz\n");
-                        td.toString(&markup.writer, false) catch |err| {
+                        o.ObjTypeDef.toString(td, &document.gc, &markup.writer, false) catch |err| {
                             log.err("textDocument/hover: {any}", .{err});
                         };
                         try markup.writer.writeAll("\n```");
@@ -1044,11 +1063,12 @@ const Handler = struct {
         _: std.mem.Allocator,
         notification: lsp.types.getRequestMetadata("textDocument/formatting").?.Params.?,
     ) !lsp.types.getRequestMetadata("textDocument/formatting").?.Result {
-        if (self.documents.get(notification.textDocument.uri)) |document| {
+        if (self.documents.getPtr(notification.textDocument.uri)) |document| {
             var result = std.Io.Writer.Allocating.init(self.allocator);
 
             Renderer.render(
                 self.allocator,
+                &document.gc,
                 &result.writer,
                 document.ast,
             ) catch |err| {

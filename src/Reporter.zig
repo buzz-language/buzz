@@ -10,10 +10,12 @@ const builtin = @import("builtin");
 const is_wasm = builtin.cpu.arch.isWasm();
 const io = @import("io.zig");
 const BuildOptions = @import("build_options");
+const GC = @import("GC.zig");
+const Pool = @import("pool.zig").Pool;
 
 const Self = @This();
 
-allocator: std.mem.Allocator,
+gc: *GC,
 panic_mode: bool = false,
 last_error: ?Error = null,
 error_prefix: ?[]const u8 = null,
@@ -25,7 +27,7 @@ reports: std.ArrayList(Report) = .{},
 // Make sense only in LSP
 pub fn deinit(self: *Self) void {
     // not freeing individual reports as they will be deinit by LSP
-    self.reports.deinit(self.allocator);
+    self.reports.deinit(self.gc.allocator);
 }
 
 // Do not reorder without updating documentation, values are explicit so they can be retrieved easily
@@ -228,7 +230,7 @@ pub const Report = struct {
         @branchHint(.cold);
 
         if (reporter.collect) {
-            return reporter.reports.append(reporter.allocator, self);
+            return reporter.reports.append(reporter.gc.allocator, self);
         }
 
         try self.report(reporter, io.stderrWriter);
@@ -238,7 +240,7 @@ pub const Report = struct {
         @branchHint(.cold);
 
         assert(self.items.len > 0);
-        var env_map = try std.process.getEnvMap(reporter.allocator);
+        var env_map = try std.process.getEnvMap(reporter.gc.allocator);
         defer env_map.deinit();
 
         const colorterm = env_map.get("COLORTERM");
@@ -300,22 +302,22 @@ pub const Report = struct {
         defer {
             var it = reported_files.iterator();
             while (it.next()) |kv| {
-                kv.value_ptr.*.deinit(reporter.allocator);
+                kv.value_ptr.*.deinit(reporter.gc.allocator);
             }
-            reported_files.deinit(reporter.allocator);
+            reported_files.deinit(reporter.gc.allocator);
         }
 
         for (self.items) |item| {
             if (reported_files.get(item.end_location.script_name) == null) {
                 try reported_files.put(
-                    reporter.allocator,
+                    reporter.gc.allocator,
                     item.end_location.script_name,
                     std.ArrayList(ReportItem).empty,
                 );
             }
 
             try reported_files.getEntry(item.end_location.script_name).?
-                .value_ptr.append(reporter.allocator, item);
+                .value_ptr.append(reporter.gc.allocator, item);
         }
 
         var file_it = reported_files.iterator();
@@ -340,22 +342,22 @@ pub const Report = struct {
             defer {
                 var it = reported_lines.iterator();
                 while (it.next()) |kv| {
-                    kv.value_ptr.*.deinit(reporter.allocator);
+                    kv.value_ptr.*.deinit(reporter.gc.allocator);
                 }
-                reported_lines.deinit(reporter.allocator);
+                reported_lines.deinit(reporter.gc.allocator);
             }
 
             for (file_entry.value_ptr.items) |item| {
                 if (reported_lines.get(item.end_location.line) == null) {
                     try reported_lines.put(
-                        reporter.allocator,
+                        reporter.gc.allocator,
                         item.end_location.line,
                         std.ArrayList(ReportItem).empty,
                     );
                 }
 
                 try reported_lines.getEntry(item.end_location.line).?
-                    .value_ptr.append(reporter.allocator, item);
+                    .value_ptr.append(reporter.gc.allocator, item);
             }
 
             var previous_line: ?usize = null;
@@ -395,11 +397,11 @@ pub const Report = struct {
                     self.options.surrounding_lines;
 
                 const lines = try report_items.items[0].end_location.getLines(
-                    reporter.allocator,
+                    reporter.gc.allocator,
                     @intCast(before),
                     after,
                 );
-                defer reporter.allocator.free(lines);
+                defer reporter.gc.allocator.free(lines);
 
                 var l: usize = line - @min(line, @as(usize, @intCast(before)));
                 for (lines, 0..) |src_line, line_index| {
@@ -425,7 +427,7 @@ pub const Report = struct {
                     if (l == line) {
                         if (self.options.color) {
                             var scanner = Scanner.init(
-                                reporter.allocator,
+                                reporter.gc.allocator,
                                 "reporter",
                                 src_line,
                             );
@@ -575,8 +577,8 @@ pub fn warn(self: *Self, error_type: Error, location: Token, end_location: Token
             }
 
             var list = std.ArrayList(ReportItem)
-                .initCapacity(self.allocator, items.len) catch @panic("Could not report error");
-            list.appendSlice(self.allocator, &items) catch @panic("Could not report error");
+                .initCapacity(self.gc.allocator, items.len) catch @panic("Could not report error");
+            list.appendSlice(self.gc.allocator, &items) catch @panic("Could not report error");
 
             break :items list.items;
         },
@@ -611,7 +613,7 @@ pub fn report(self: *Self, error_type: Error, location: Token, end_location: Tok
         .items = if (!self.collect)
             &items
         else
-            self.allocator.dupe(ReportItem, &items) catch @panic("Could not report error"),
+            self.gc.allocator.dupe(ReportItem, &items) catch @panic("Could not report error"),
         .notes = &[_]Note{},
     };
 
@@ -632,7 +634,7 @@ pub fn reportErrorAt(self: *Self, error_type: Error, location: Token, end_locati
         if (!self.collect)
             message
         else
-            self.allocator.dupe(u8, message) catch @panic("Could not report error"),
+            self.gc.allocator.dupe(u8, message) catch @panic("Could not report error"),
     );
 }
 
@@ -644,14 +646,14 @@ pub fn warnAt(self: *Self, error_type: Error, location: Token, end_location: Tok
         if (!self.collect)
             message
         else
-            self.allocator.dupe(u8, message) catch @panic("Could not report error"),
+            self.gc.allocator.dupe(u8, message) catch @panic("Could not report error"),
     );
 }
 
 pub fn reportErrorFmt(self: *Self, error_type: Error, location: Token, end_location: Token, comptime fmt: []const u8, args: anytype) void {
     @branchHint(.cold);
 
-    var message = std.Io.Writer.Allocating.init(self.allocator);
+    var message = std.Io.Writer.Allocating.init(self.gc.allocator);
     defer {
         if (!self.collect) {
             message.deinit();
@@ -673,7 +675,7 @@ pub fn reportErrorFmt(self: *Self, error_type: Error, location: Token, end_locat
 }
 
 pub fn warnFmt(self: *Self, error_type: Error, location: Token, end_location: Token, comptime fmt: []const u8, args: anytype) void {
-    var message = std.Io.Writer.Allocating.init(self.allocator);
+    var message = std.Io.Writer.Allocating.init(self.gc.allocator);
     defer {
         if (!self.collect) {
             message.deinit();
@@ -702,7 +704,7 @@ pub fn reportWithOrigin(
 ) void {
     @branchHint(.cold);
 
-    var message = std.Io.Writer.Allocating.init(self.allocator);
+    var message = std.Io.Writer.Allocating.init(self.gc.allocator);
     defer {
         if (!self.collect) {
             message.deinit();
@@ -736,8 +738,8 @@ pub fn reportWithOrigin(
             }
 
             var list = std.ArrayList(ReportItem)
-                .initCapacity(self.allocator, items.len) catch @panic("Could not report error");
-            list.appendSlice(self.allocator, &items) catch @panic("Could not report error");
+                .initCapacity(self.gc.allocator, items.len) catch @panic("Could not report error");
+            list.appendSlice(self.gc.allocator, &items) catch @panic("Could not report error");
 
             break :items list.items;
         },
@@ -754,15 +756,15 @@ pub fn reportTypeCheck(
     error_type: Error,
     expected_location: ?Token,
     expected_end_location: ?Token,
-    expected_type: *ObjTypeDef,
+    expected_type_idx: Pool(ObjTypeDef).Idx,
     actual_location: Token,
     actual_end_location: Token,
-    actual_type: *ObjTypeDef,
+    actual_type_idx: Pool(ObjTypeDef).Idx,
     message: []const u8,
 ) void {
     @branchHint(.cold);
 
-    var actual_message = std.Io.Writer.Allocating.init(self.allocator);
+    var actual_message = std.Io.Writer.Allocating.init(self.gc.allocator);
     defer {
         if (!self.collect) {
             actual_message.deinit();
@@ -770,14 +772,22 @@ pub fn reportTypeCheck(
     }
 
     actual_message.writer.print(
-        "{s}: got type `{f}`",
+        "{s}: got type `",
         .{
             message,
-            actual_type,
         },
     ) catch @panic("Unable to report error");
 
-    var expected_message = std.Io.Writer.Allocating.init(self.allocator);
+    o.ObjTypeDef.toString(
+        actual_type_idx,
+        self.gc,
+        &actual_message.writer,
+        false,
+    ) catch @panic("Unable to report error");
+
+    actual_message.writer.print("`", .{}) catch @panic("Unable to report error");
+
+    var expected_message = std.Io.Writer.Allocating.init(self.gc.allocator);
     defer {
         if (!self.collect) {
             expected_message.deinit();
@@ -790,16 +800,26 @@ pub fn reportTypeCheck(
         &actual_message;
 
     following_message.writer.print(
-        "expected `{f}`",
-        .{
-            expected_type,
-        },
+        "expected `",
+        .{},
+    ) catch @panic("Unable to report error");
+
+    o.ObjTypeDef.toString(
+        expected_type_idx,
+        self.gc,
+        &following_message.writer,
+        false,
+    ) catch @panic("Unable to report error");
+
+    following_message.writer.print(
+        "`",
+        .{},
     ) catch @panic("Unable to report error");
 
     var full_message = if (expected_location == null)
         actual_message
     else
-        std.Io.Writer.Allocating.init(self.allocator);
+        std.Io.Writer.Allocating.init(self.gc.allocator);
     defer {
         if (!self.collect and expected_location != null) {
             full_message.deinit();
@@ -842,8 +862,8 @@ pub fn reportTypeCheck(
                     }
 
                     var list = std.ArrayList(ReportItem)
-                        .initCapacity(self.allocator, items.len) catch @panic("Could not report error");
-                    list.appendSlice(self.allocator, &items) catch @panic("Could not report error");
+                        .initCapacity(self.gc.allocator, items.len) catch @panic("Could not report error");
+                    list.appendSlice(self.gc.allocator, &items) catch @panic("Could not report error");
 
                     break :items list.items;
                 },
@@ -868,8 +888,8 @@ pub fn reportTypeCheck(
                     }
 
                     var list = std.ArrayList(ReportItem)
-                        .initCapacity(self.allocator, items.len) catch @panic("Could not report error");
-                    list.appendSlice(self.allocator, &items) catch @panic("Could not report error");
+                        .initCapacity(self.gc.allocator, items.len) catch @panic("Could not report error");
+                    list.appendSlice(self.gc.allocator, &items) catch @panic("Could not report error");
 
                     break :items list.items;
                 },
@@ -884,12 +904,16 @@ pub fn reportTypeCheck(
 }
 
 // Got to the root placeholder and report it
-pub fn reportPlaceholder(self: *Self, ast: Ast.Slice, placeholder: PlaceholderDef) void {
+pub fn reportPlaceholder(self: *Self, ast: Ast.Slice, gc: *GC, placeholder_idx: Pool(ObjTypeDef).Idx) void {
     @branchHint(.cold);
 
-    if (placeholder.parent) |parent| {
+    const placeholder = placeholder_idx.get(gc).resolved_type.?.Placeholder;
+
+    if (placeholder.parent) |parent_idx| {
+        const parent = parent_idx.get(self.gc);
+
         if (parent.def_type == .Placeholder) {
-            self.reportPlaceholder(ast, parent.resolved_type.?.Placeholder);
+            self.reportPlaceholder(ast, gc, parent_idx);
         } else if (BuildOptions.debug) {
             self.reportErrorFmt(
                 .runtime,
@@ -897,7 +921,7 @@ pub fn reportPlaceholder(self: *Self, ast: Ast.Slice, placeholder: PlaceholderDe
                 ast.tokens.get(placeholder.where),
                 "Unresolved placeholder with resolved parent `{s}` relation {s}\n",
                 .{
-                    parent.toStringAlloc(self.allocator, false) catch unreachable,
+                    o.ObjTypeDef.toStringAlloc(parent_idx, self.gc, false) catch unreachable,
                     @tagName(placeholder.parent_relation.?),
                 },
             );
@@ -913,5 +937,33 @@ pub fn reportPlaceholder(self: *Self, ast: Ast.Slice, placeholder: PlaceholderDe
             "`{s}` is not defined",
             .{ast.tokens.items(.lexeme)[placeholder.where]},
         );
+
+        if (BuildOptions.debug_placeholders) {
+            std.debug.print(
+                "Unresolved placeholder @{}: parent: {?}, relation: {s}",
+                .{ placeholder_idx.index, if (placeholder.parent) |parent|
+                    parent.index
+                else
+                    null, if (placeholder.parent_relation) |relation|
+                    @tagName(relation)
+                else
+                    "none" },
+            );
+
+            if (placeholder.children.items.len > 0) {
+                std.debug.print(", children: \n\t", .{});
+                for (placeholder.children.items) |child| {
+                    std.debug.print(
+                        "@{} ({s}), ",
+                        .{
+                            child.index,
+                            @tagName(child.get(gc).resolved_type.?.Placeholder.parent_relation.?),
+                        },
+                    );
+                }
+            } else {
+                std.debug.print("\n", .{});
+            }
+        }
     }
 }

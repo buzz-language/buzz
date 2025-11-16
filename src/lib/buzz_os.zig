@@ -4,29 +4,38 @@ const builtin = @import("builtin");
 const io = @import("io.zig");
 
 pub export fn sleep(ctx: *api.NativeCtx) callconv(.c) c_int {
-    std.Thread.sleep(@as(u64, @intFromFloat(ctx.vm.bz_peek(0).double())) * 1_000_000);
+    std.Thread.sleep(
+        @as(u64, @intFromFloat(api.bz_peek(ctx.vm, 0).double())) * 1_000_000,
+    );
 
     return 0;
 }
 
 pub export fn time(ctx: *api.NativeCtx) callconv(.c) c_int {
-    ctx.vm.bz_push(api.Value.fromDouble(@as(api.Double, @floatFromInt(std.time.milliTimestamp()))));
+    api.bz_push(
+        ctx.vm,
+        .fromDouble(@as(api.Double, @floatFromInt(std.time.milliTimestamp()))),
+    );
 
     return 1;
 }
 
 pub export fn env(ctx: *api.NativeCtx) callconv(.c) c_int {
     var len: usize = 0;
-    const key = ctx.vm.bz_peek(0).bz_valueToString(&len);
+    const key = api.bz_valueToString(
+        ctx.vm,
+        api.bz_peek(ctx.vm, 0),
+        &len,
+    );
 
     if (len == 0) {
-        ctx.vm.bz_push(api.Value.Null);
+        api.bz_push(ctx.vm, .Null);
 
         return 1;
     }
 
     const key_slice = api.VM.allocator.dupeZ(u8, key.?[0..len]) catch {
-        ctx.vm.bz_panic("Out of memory", "Out of memory".len);
+        api.bz_panic(ctx.vm, "Out of memory", "Out of memory".len);
         unreachable;
     };
     defer api.VM.allocator.free(key_slice);
@@ -38,8 +47,9 @@ pub export fn env(ctx: *api.NativeCtx) callconv(.c) c_int {
             else => @panic("Out of memory"),
         }
     }) |value| {
-        ctx.vm.bz_push(
-            api.VM.bz_stringToValue(
+        api.bz_push(
+            ctx.vm,
+            api.bz_stringToValue(
                 ctx.vm,
                 if (value.len > 0) @as([*]const u8, @ptrCast(value)) else null,
                 value.len,
@@ -51,7 +61,7 @@ pub export fn env(ctx: *api.NativeCtx) callconv(.c) c_int {
         return 1;
     }
 
-    ctx.vm.bz_push(api.Value.Null);
+    api.bz_push(ctx.vm, .Null);
 
     return 1;
 }
@@ -70,8 +80,9 @@ fn sysTempDir() []const u8 {
 pub export fn tmpDir(ctx: *api.NativeCtx) callconv(.c) c_int {
     const tmp_dir: []const u8 = sysTempDir();
 
-    ctx.vm.bz_push(
-        api.VM.bz_stringToValue(
+    api.bz_push(
+        ctx.vm,
+        api.bz_stringToValue(
             ctx.vm,
             if (tmp_dir.len > 0) @as([*]const u8, @ptrCast(tmp_dir)) else null,
             tmp_dir.len,
@@ -84,7 +95,11 @@ pub export fn tmpDir(ctx: *api.NativeCtx) callconv(.c) c_int {
 // TODO: what if file with same random name exists already?
 pub export fn tmpFilename(ctx: *api.NativeCtx) callconv(.c) c_int {
     var prefix_len: usize = 0;
-    const prefix = ctx.vm.bz_peek(0).bz_valueToString(&prefix_len);
+    const prefix = api.bz_valueToString(
+        ctx.vm,
+        api.bz_peek(ctx.vm, 0),
+        &prefix_len,
+    );
 
     const prefix_slice = if (prefix_len == 0) "" else prefix.?[0..prefix_len];
 
@@ -92,7 +107,7 @@ pub export fn tmpFilename(ctx: *api.NativeCtx) callconv(.c) c_int {
     defer random_part.deinit();
 
     random_part.writer.print("{x}", .{std.crypto.random.int(api.Integer)}) catch {
-        ctx.vm.bz_panic("Out of memory", "Out of memory".len);
+        api.bz_panic(ctx.vm, "Out of memory", "Out of memory".len);
         unreachable;
     };
 
@@ -100,7 +115,7 @@ pub export fn tmpFilename(ctx: *api.NativeCtx) callconv(.c) c_int {
         api.VM.allocator,
         std.base64.standard.Encoder.calcSize(random_part.written().len),
     ) catch {
-        ctx.vm.bz_panic("Out of memory", "Out of memory".len);
+        api.bz_panic(ctx.vm, "Out of memory", "Out of memory".len);
         unreachable;
     };
     random_part_b64.expandToCapacity();
@@ -118,12 +133,13 @@ pub export fn tmpFilename(ctx: *api.NativeCtx) callconv(.c) c_int {
             random_part_b64.items,
         },
     ) catch {
-        ctx.vm.bz_panic("Out of memory", "Out of memory".len);
+        api.bz_panic(ctx.vm, "Out of memory", "Out of memory".len);
         unreachable;
     };
 
-    ctx.vm.bz_push(
-        api.VM.bz_stringToValue(
+    api.bz_push(
+        ctx.vm,
+        api.bz_stringToValue(
             ctx.vm,
             if (final.written().len > 0)
                 @as([*]const u8, @ptrCast(final.written()))
@@ -138,7 +154,7 @@ pub export fn tmpFilename(ctx: *api.NativeCtx) callconv(.c) c_int {
 
 // If it was named `exit` it would be considered by zig as a callback when std.process.exit is called
 pub export fn buzzExit(ctx: *api.NativeCtx) callconv(.c) c_int {
-    const exitCode: api.Integer = ctx.vm.bz_peek(0).integer();
+    const exitCode: api.Integer = api.bz_peek(ctx.vm, 0).integer();
 
     std.process.exit(@intCast(exitCode));
 
@@ -164,7 +180,7 @@ fn handleSpawnError(ctx: *api.NativeCtx, err: anytype) void {
         error.SystemFdQuotaExceeded,
         error.SystemResources,
         error.FileNotFound,
-        => ctx.vm.pushErrorEnum("errors.FileSystemError", @errorName(err)),
+        => api.pushErrorEnum(ctx.vm, "errors.FileSystemError", @errorName(err)),
 
         error.CurrentWorkingDirectoryUnlinked,
         error.InvalidExe,
@@ -177,13 +193,13 @@ fn handleSpawnError(ctx: *api.NativeCtx, err: anytype) void {
         error.ProcessAlreadyExec,
         error.InvalidProcessGroupId,
         error.ProcessNotFound,
-        => ctx.vm.pushErrorEnum("errors.ExecError", @errorName(err)),
+        => api.pushErrorEnum(ctx.vm, "errors.ExecError", @errorName(err)),
 
         error.OutOfMemory => {
-            ctx.vm.bz_panic("Out of memory", "Out of memory".len);
+            api.bz_panic(ctx.vm, "Out of memory", "Out of memory".len);
             unreachable;
         },
-        error.Unexpected => ctx.vm.pushError("errors.UnexpectedError", null),
+        error.Unexpected => api.pushError(ctx.vm, "errors.UnexpectedError", null),
     }
 }
 
@@ -191,21 +207,23 @@ pub export fn execute(ctx: *api.NativeCtx) callconv(.c) c_int {
     var command = std.ArrayList([]const u8).empty;
     defer command.deinit(api.VM.allocator);
 
-    const argv = ctx.vm.bz_peek(0);
-    const len = argv.bz_listLen();
+    const argv = api.bz_peek(ctx.vm, 0);
+    const len = api.bz_listLen(ctx.vm, argv);
     var i: usize = 0;
     while (i < len) : (i += 1) {
-        const arg = argv.bz_listGet(
+        const arg = api.bz_listGet(
+            ctx.vm,
+            argv,
             @intCast(i),
             false,
         );
         var arg_len: usize = 0;
-        var arg_str = arg.bz_valueToString(&arg_len);
+        var arg_str = api.bz_valueToString(ctx.vm, arg, &arg_len);
 
         std.debug.assert(arg_len > 0);
 
         command.append(api.VM.allocator, arg_str.?[0..arg_len]) catch {
-            ctx.vm.bz_panic("Out of memory", "Out of memory".len);
+            api.bz_panic(ctx.vm, "Out of memory", "Out of memory".len);
             unreachable;
         };
     }
@@ -220,10 +238,10 @@ pub export fn execute(ctx: *api.NativeCtx) callconv(.c) c_int {
     };
 
     switch (term) {
-        .Exited => ctx.vm.bz_push(api.Value.fromInteger(@intCast(term.Exited))),
-        .Signal => ctx.vm.bz_push(api.Value.fromInteger(@intCast(term.Signal))),
-        .Stopped => ctx.vm.bz_push(api.Value.fromInteger(@intCast(term.Stopped))),
-        .Unknown => ctx.vm.bz_push(api.Value.fromInteger(@intCast(term.Unknown))),
+        .Exited => api.bz_push(ctx.vm, .fromInteger(@intCast(term.Exited))),
+        .Signal => api.bz_push(ctx.vm, .fromInteger(@intCast(term.Signal))),
+        .Stopped => api.bz_push(ctx.vm, .fromInteger(@intCast(term.Stopped))),
+        .Unknown => api.bz_push(ctx.vm, .fromInteger(@intCast(term.Unknown))),
     }
 
     return 1;
@@ -270,7 +288,7 @@ fn handleConnectError(ctx: *api.NativeCtx, err: anytype) void {
         error.Canceled,
         error.OperationNotSupported,
         error.ResolveConfParseFailed,
-        => ctx.vm.pushErrorEnum("errors.SocketError", @errorName(err)),
+        => api.pushErrorEnum(ctx.vm, "errors.SocketError", @errorName(err)),
 
         error.BadPathName,
         error.DeviceBusy,
@@ -295,21 +313,21 @@ fn handleConnectError(ctx: *api.NativeCtx, err: anytype) void {
         error.InvalidWtf8,
         error.NetworkNotFound,
         error.SocketNotConnected,
-        => ctx.vm.pushErrorEnum("errors.FileSystemError", @errorName(err)),
+        => api.pushErrorEnum(ctx.vm, "errors.FileSystemError", @errorName(err)),
 
         error.BrokenPipe,
         error.NotOpenForReading,
         error.OperationAborted,
         error.LockViolation,
-        => ctx.vm.pushErrorEnum("errors.ReadWriteError", @errorName(err)),
+        => api.pushErrorEnum(ctx.vm, "errors.ReadWriteError", @errorName(err)),
 
         error.OutOfMemory => {
-            ctx.vm.bz_panic("Out of memory", "Out of memory".len);
+            api.bz_panic(ctx.vm, "Out of memory", "Out of memory".len);
             unreachable;
         },
-        error.ProcessNotFound => ctx.vm.pushErrorEnum("errors.ExecError", @errorName(err)),
-        error.Unexpected => ctx.vm.pushError("errors.UnexpectedError", null),
-        error.Overflow => ctx.vm.pushError("errors.OverflowError", null),
+        error.ProcessNotFound => api.pushErrorEnum(ctx.vm, "errors.ExecError", @errorName(err)),
+        error.Unexpected => api.pushError(ctx.vm, "errors.UnexpectedError", null),
+        error.Overflow => api.pushError(ctx.vm, "errors.OverflowError", null),
     }
 }
 
@@ -334,27 +352,31 @@ fn handleConnectUnixError(ctx: *api.NativeCtx, err: anytype) void {
         error.WouldBlock,
         error.NetworkUnreachable,
         error.NameTooLong,
-        => ctx.vm.pushErrorEnum("errors.SocketError", @errorName(err)),
+        => api.pushErrorEnum(ctx.vm, "errors.SocketError", @errorName(err)),
 
         error.AccessDenied,
-        => ctx.vm.pushErrorEnum("errors.FileSystemError", @errorName(err)),
+        => api.pushErrorEnum(ctx.vm, "errors.FileSystemError", @errorName(err)),
 
-        error.Unexpected => ctx.vm.pushError("errors.UnexpectedError", null),
+        error.Unexpected => api.pushError(ctx.vm, "errors.UnexpectedError", null),
     }
 }
 
 pub export fn SocketConnect(ctx: *api.NativeCtx) callconv(.c) c_int {
     var len: usize = 0;
-    const address_value = api.Value.bz_valueToString(ctx.vm.bz_peek(2), &len);
+    const address_value = api.bz_valueToString(
+        ctx.vm,
+        api.bz_peek(ctx.vm, 2),
+        &len,
+    );
     const address = if (len > 0) address_value.?[0..len] else "";
-    const port: ?api.Integer = ctx.vm.bz_peek(1).integer();
+    const port: ?api.Integer = api.bz_peek(ctx.vm, 1).integer();
     if (port == null or port.? < 0) {
-        ctx.vm.pushError("errors.InvalidArgumentError", null);
+        api.pushError(ctx.vm, "errors.InvalidArgumentError", null);
 
         return -1;
     }
 
-    const protocol = ctx.vm.bz_peek(0).integer();
+    const protocol = api.bz_peek(ctx.vm, 0).integer();
 
     switch (protocol) {
         0 => {
@@ -368,7 +390,8 @@ pub export fn SocketConnect(ctx: *api.NativeCtx) callconv(.c) c_int {
                 return -1;
             };
 
-            ctx.vm.bz_push(
+            api.bz_push(
+                ctx.vm,
                 api.Value.fromInteger(
                     if (builtin.os.tag == .windows)
                         @intCast(@intFromPtr(stream.handle))
@@ -381,14 +404,14 @@ pub export fn SocketConnect(ctx: *api.NativeCtx) callconv(.c) c_int {
         },
         1, // TODO: UDP
         => {
-            ctx.vm.pushError("errors.NotYetImplementedError", null);
+            api.pushError(ctx.vm, "errors.NotYetImplementedError", null);
 
             return -1;
         },
         2 => {
             // Unix socket not available on windows
             if (builtin.os.tag == .windows) {
-                ctx.vm.pushError("errors.InvalidArgumentError", null);
+                api.pushError(ctx.vm, "errors.InvalidArgumentError", null);
 
                 return -1;
             }
@@ -399,12 +422,12 @@ pub export fn SocketConnect(ctx: *api.NativeCtx) callconv(.c) c_int {
                 return -1;
             };
 
-            ctx.vm.bz_push(api.Value.fromInteger(@intCast(stream.handle)));
+            api.bz_push(ctx.vm, api.Value.fromInteger(@intCast(stream.handle)));
 
             return 1;
         },
         else => {
-            ctx.vm.pushError("errors.InvalidArgumentError", null);
+            api.pushError(ctx.vm, "errors.InvalidArgumentError", null);
 
             return -1;
         },
@@ -413,10 +436,10 @@ pub export fn SocketConnect(ctx: *api.NativeCtx) callconv(.c) c_int {
 
 pub export fn SocketClose(ctx: *api.NativeCtx) callconv(.c) c_int {
     const socket: std.posix.socket_t = if (builtin.os.tag == .windows)
-        @ptrFromInt(@as(usize, @intCast(ctx.vm.bz_peek(0).integer())))
+        @ptrFromInt(@as(usize, @intCast(api.bz_peek(ctx.vm, 0).integer())))
     else
         @intCast(
-            ctx.vm.bz_peek(0).integer(),
+            api.bz_peek(ctx.vm, 0).integer(),
         );
 
     std.posix.shutdown(socket, .both) catch @panic("Could not stop socket");
@@ -425,18 +448,18 @@ pub export fn SocketClose(ctx: *api.NativeCtx) callconv(.c) c_int {
 }
 
 pub export fn SocketRead(ctx: *api.NativeCtx) callconv(.c) c_int {
-    const n: api.Integer = ctx.vm.bz_peek(0).integer();
+    const n: api.Integer = api.bz_peek(ctx.vm, 0).integer();
     if (n < 0) {
-        ctx.vm.pushError("errors.InvalidArgumentError", null);
+        api.pushError(ctx.vm, "errors.InvalidArgumentError", null);
 
         return -1;
     }
 
     const handle: std.posix.socket_t = if (builtin.os.tag == .windows)
-        @ptrFromInt(@as(usize, @intCast(ctx.vm.bz_peek(1).integer())))
+        @ptrFromInt(@as(usize, @intCast(api.bz_peek(ctx.vm, 1).integer())))
     else
         @intCast(
-            ctx.vm.bz_peek(1).integer(),
+            api.bz_peek(ctx.vm, 1).integer(),
         );
 
     const stream: std.net.Stream = .{ .handle = handle };
@@ -452,20 +475,21 @@ pub export fn SocketRead(ctx: *api.NativeCtx) callconv(.c) c_int {
             switch (err) {
                 error.EndOfStream => break,
                 error.ReadFailed => {
-                    ctx.vm.pushErrorEnum("errors.ReadWriteError", @errorName(err));
+                    api.pushErrorEnum(ctx.vm, "errors.ReadWriteError", @errorName(err));
                     return -1;
                 },
             }
         };
 
         content.writer.writeByte(byte) catch |err| {
-            ctx.vm.pushErrorEnum("errors.ReadWriteError", @errorName(err));
+            api.pushErrorEnum(ctx.vm, "errors.ReadWriteError", @errorName(err));
             return -1;
         };
     }
 
-    ctx.vm.bz_push(
-        api.VM.bz_stringToValue(
+    api.bz_push(
+        ctx.vm,
+        api.bz_stringToValue(
             ctx.vm,
             if (content.written().len > 0)
                 @as([*]const u8, @ptrCast(content.written()))
@@ -486,10 +510,10 @@ fn handleReadLineError(ctx: *api.NativeCtx, err: anytype) void {
         error.SystemResources,
         error.WouldBlock,
         error.SocketNotConnected,
-        => ctx.vm.pushErrorEnum("errors.FileSystemError", @errorName(err)),
+        => api.pushErrorEnum(ctx.vm, "errors.FileSystemError", @errorName(err)),
 
         error.Canceled,
-        => ctx.vm.pushErrorEnum("errors.SocketError", @errorName(err)),
+        => api.pushErrorEnum(ctx.vm, "errors.SocketError", @errorName(err)),
 
         error.BrokenPipe,
         error.ConnectionResetByPeer,
@@ -498,15 +522,15 @@ fn handleReadLineError(ctx: *api.NativeCtx, err: anytype) void {
         error.OperationAborted,
         error.StreamTooLong,
         error.LockViolation,
-        => ctx.vm.pushErrorEnum("errors.ReadWriteError", @errorName(err)),
+        => api.pushErrorEnum(ctx.vm, "errors.ReadWriteError", @errorName(err)),
 
         error.ProcessNotFound,
-        => ctx.vm.pushErrorEnum("errors.ExecError", @errorName(err)),
+        => api.pushErrorEnum(ctx.vm, "errors.ExecError", @errorName(err)),
 
-        error.Unexpected => ctx.vm.pushError("errors.UnexpectedError", null),
+        error.Unexpected => api.pushError(ctx.vm, "errors.UnexpectedError", null),
 
         error.OutOfMemory => {
-            ctx.vm.bz_panic("Out of memory", "Out of memory".len);
+            api.bz_panic(ctx.vm, "Out of memory", "Out of memory".len);
             unreachable;
         },
 
@@ -516,12 +540,12 @@ fn handleReadLineError(ctx: *api.NativeCtx, err: anytype) void {
 
 pub export fn SocketReadLine(ctx: *api.NativeCtx) callconv(.c) c_int {
     const handle: std.posix.socket_t = if (builtin.os.tag == .windows)
-        @ptrFromInt(@as(usize, @intCast(ctx.vm.bz_peek(1).integer())))
+        @ptrFromInt(@as(usize, @intCast(api.bz_peek(ctx.vm, 1).integer())))
     else
         @intCast(
-            ctx.vm.bz_peek(1).integer(),
+            api.bz_peek(ctx.vm, 1).integer(),
         );
-    const max_size = ctx.vm.bz_peek(0);
+    const max_size = api.bz_peek(ctx.vm, 0);
 
     const stream: std.net.Stream = .{ .handle = handle };
     var reader_buffer = [_]u8{0};
@@ -535,24 +559,25 @@ pub export fn SocketReadLine(ctx: *api.NativeCtx) callconv(.c) c_int {
     if (reader.readUntilDelimiterOrEof('\n') catch |err| {
         switch (err) {
             error.ReadFailed => {
-                ctx.vm.pushErrorEnum("errors.ReadWriteError", @errorName(err));
+                api.pushErrorEnum(ctx.vm, "errors.ReadWriteError", @errorName(err));
                 return -1;
             },
             error.WriteFailed, error.OutOfMemory => {
-                ctx.vm.bz_panic("Out of memory", "Out of memory".len);
+                api.bz_panic(ctx.vm, "Out of memory", "Out of memory".len);
                 unreachable;
             },
         }
     }) |ubuffer| {
-        ctx.vm.bz_push(
-            api.VM.bz_stringToValue(
+        api.bz_push(
+            ctx.vm,
+            api.bz_stringToValue(
                 ctx.vm,
                 if (ubuffer.len > 0) @as([*]const u8, @ptrCast(ubuffer)) else null,
                 ubuffer.len,
             ),
         );
     } else {
-        ctx.vm.bz_push(api.Value.Null);
+        api.bz_push(ctx.vm, api.Value.Null);
     }
 
     return 1;
@@ -560,12 +585,12 @@ pub export fn SocketReadLine(ctx: *api.NativeCtx) callconv(.c) c_int {
 
 pub export fn SocketReadAll(ctx: *api.NativeCtx) callconv(.c) c_int {
     const handle: std.posix.socket_t = if (builtin.os.tag == .windows)
-        @ptrFromInt(@as(usize, @intCast(ctx.vm.bz_peek(1).integer())))
+        @ptrFromInt(@as(usize, @intCast(api.bz_peek(ctx.vm, 1).integer())))
     else
         @intCast(
-            ctx.vm.bz_peek(1).integer(),
+            api.bz_peek(ctx.vm, 1).integer(),
         );
-    const max_size = ctx.vm.bz_peek(0);
+    const max_size = api.bz_peek(ctx.vm, 0);
 
     const stream = std.net.Stream{ .handle = handle };
     var reader_buffer = [_]u8{0};
@@ -579,18 +604,19 @@ pub export fn SocketReadAll(ctx: *api.NativeCtx) callconv(.c) c_int {
     const content = reader.readAll() catch |err| {
         switch (err) {
             error.ReadFailed => {
-                ctx.vm.pushErrorEnum("errors.ReadWriteError", @errorName(err));
+                api.pushErrorEnum(ctx.vm, "errors.ReadWriteError", @errorName(err));
                 return -1;
             },
             error.WriteFailed, error.OutOfMemory => {
-                ctx.vm.bz_panic("Out of memory", "Out of memory".len);
+                api.bz_panic(ctx.vm, "Out of memory", "Out of memory".len);
                 unreachable;
             },
         }
     };
 
-    ctx.vm.bz_push(
-        api.VM.bz_stringToValue(
+    api.bz_push(
+        ctx.vm,
+        api.bz_stringToValue(
             ctx.vm,
             if (content.len > 0) @as([*]const u8, @ptrCast(content)) else null,
             content.len,
@@ -602,16 +628,20 @@ pub export fn SocketReadAll(ctx: *api.NativeCtx) callconv(.c) c_int {
 
 pub export fn SocketWrite(ctx: *api.NativeCtx) callconv(.c) c_int {
     const handle: std.posix.socket_t = if (builtin.os.tag == .windows)
-        @ptrFromInt(@as(usize, @intCast(ctx.vm.bz_peek(1).integer())))
+        @ptrFromInt(@as(usize, @intCast(api.bz_peek(ctx.vm, 1).integer())))
     else
         @intCast(
-            ctx.vm.bz_peek(1).integer(),
+            api.bz_peek(ctx.vm, 1).integer(),
         );
 
     const stream: std.net.Stream = .{ .handle = handle };
 
     var len: usize = 0;
-    var value = ctx.vm.bz_peek(0).bz_valueToString(&len);
+    var value = api.bz_valueToString(
+        ctx.vm,
+        api.bz_peek(ctx.vm, 0),
+        &len,
+    );
 
     if (len == 0) {
         return 0;
@@ -630,19 +660,19 @@ pub export fn SocketWrite(ctx: *api.NativeCtx) callconv(.c) c_int {
             error.AccessDenied,
             error.SystemResources,
             error.WouldBlock,
-            => ctx.vm.pushErrorEnum("errors.FileSystemError", @errorName(err)),
+            => api.pushErrorEnum(ctx.vm, "errors.FileSystemError", @errorName(err)),
             error.BrokenPipe,
             error.ConnectionResetByPeer,
-            => ctx.vm.pushErrorEnum("errors.ReadWriteError", @errorName(err)),
+            => api.pushErrorEnum(ctx.vm, "errors.ReadWriteError", @errorName(err)),
             error.Unexpected,
-            => ctx.vm.pushError("errors.UnexpectedError", null),
+            => api.pushError(ctx.vm, "errors.UnexpectedError", null),
             error.AddressNotAvailable,
             error.AddressFamilyNotSupported,
             error.MessageTooBig,
             error.SocketNotBound,
             error.ConnectionRefused,
             error.NetworkUnreachable,
-            => ctx.vm.pushErrorEnum("errors.SocketError", @errorName(err)),
+            => api.pushErrorEnum(ctx.vm, "errors.SocketError", @errorName(err)),
         }
 
         return -1;
@@ -653,22 +683,26 @@ pub export fn SocketWrite(ctx: *api.NativeCtx) callconv(.c) c_int {
 
 pub export fn SocketServerStart(ctx: *api.NativeCtx) callconv(.c) c_int {
     var len: usize = 0;
-    const address_value = api.Value.bz_valueToString(ctx.vm.bz_peek(3), &len);
+    const address_value = api.bz_valueToString(
+        ctx.vm,
+        api.bz_peek(ctx.vm, 3),
+        &len,
+    );
     const address = if (len > 0) address_value.?[0..len] else "";
-    const port: ?api.Integer = ctx.vm.bz_peek(2).integer();
+    const port: ?api.Integer = api.bz_peek(ctx.vm, 2).integer();
     if (port == null or port.? < 0) {
-        ctx.vm.pushError("errors.InvalidArgumentError", null);
+        api.pushError(ctx.vm, "errors.InvalidArgumentError", null);
 
         return -1;
     }
 
-    const reuse_address: bool = ctx.vm.bz_peek(0).boolean();
+    const reuse_address: bool = api.bz_peek(ctx.vm, 0).boolean();
 
     const resolved_address = std.net.Address.parseIp(
         address,
         @intCast(port.?),
     ) catch {
-        ctx.vm.pushError("errors.InvalidArgumentError", null);
+        api.pushError(ctx.vm, "errors.InvalidArgumentError", null);
 
         return -1;
     };
@@ -687,7 +721,7 @@ pub export fn SocketServerStart(ctx: *api.NativeCtx) callconv(.c) c_int {
             error.ReadOnlyFileSystem,
             error.AccessDenied,
             error.SystemResources,
-            => ctx.vm.pushErrorEnum("errors.FileSystemError", @errorName(err)),
+            => api.pushErrorEnum(ctx.vm, "errors.FileSystemError", @errorName(err)),
             error.AlreadyConnected,
             error.SocketNotBound,
             error.AddressNotAvailable,
@@ -705,14 +739,15 @@ pub export fn SocketServerStart(ctx: *api.NativeCtx) callconv(.c) c_int {
             error.OperationNotSupported,
             error.NetworkSubsystemFailed,
             error.AddressFamilyNotSupported,
-            => ctx.vm.pushErrorEnum("errors.SocketError", @errorName(err)),
-            error.Unexpected => ctx.vm.pushError("errors.UnexpectedError", null),
+            => api.pushErrorEnum(ctx.vm, "errors.SocketError", @errorName(err)),
+            error.Unexpected => api.pushError(ctx.vm, "errors.UnexpectedError", null),
         }
 
         return -1;
     };
 
-    ctx.vm.bz_push(
+    api.bz_push(
+        ctx.vm,
         api.Value.fromInteger(
             if (builtin.os.tag == .windows)
                 @intCast(@intFromPtr(server.stream.handle))
@@ -729,10 +764,10 @@ pub export fn SocketServerAccept(ctx: *api.NativeCtx) callconv(.c) c_int {
         .listen_address = undefined, // FIXME: we lose this
         .stream = std.net.Stream{
             .handle = if (builtin.os.tag == .windows)
-                @ptrFromInt(@as(usize, @intCast(ctx.vm.bz_peek(0).integer())))
+                @ptrFromInt(@as(usize, @intCast(api.bz_peek(ctx.vm, 0).integer())))
             else
                 @intCast(
-                    ctx.vm.bz_peek(0).integer(),
+                    api.bz_peek(ctx.vm, 0).integer(),
                 ),
         },
     };
@@ -750,15 +785,16 @@ pub export fn SocketServerAccept(ctx: *api.NativeCtx) callconv(.c) c_int {
             error.ConnectionResetByPeer,
             error.NetworkSubsystemFailed,
             error.OperationNotSupported,
-            => ctx.vm.pushErrorEnum("errors.SocketError", @errorName(err)),
-            error.WouldBlock => ctx.vm.pushErrorEnum("errors.FileSystemError", @errorName(err)),
-            error.Unexpected => ctx.vm.pushError("errors.UnexpectedError", null),
+            => api.pushErrorEnum(ctx.vm, "errors.SocketError", @errorName(err)),
+            error.WouldBlock => api.pushErrorEnum(ctx.vm, "errors.FileSystemError", @errorName(err)),
+            error.Unexpected => api.pushError(ctx.vm, "errors.UnexpectedError", null),
         }
 
         return -1;
     };
 
-    ctx.vm.bz_push(
+    api.bz_push(
+        ctx.vm,
         api.Value.fromInteger(
             if (builtin.os.tag == .windows)
                 @intCast(@intFromPtr(connection.stream.handle))

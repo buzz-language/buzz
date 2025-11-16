@@ -17,6 +17,7 @@ const JIT = if (!is_wasm) @import("Jit.zig") else void;
 const disassembler = @import("disassembler.zig");
 const io = @import("io.zig");
 const TypeChecker = @import("TypeChecker.zig");
+const Pool = @import("pool.zig").Pool;
 
 const Self = @This();
 
@@ -32,13 +33,13 @@ pub const Error = error{
 pub const Frame = struct {
     enclosing: ?*Frame = null,
     function_node: Ast.Node.Index,
-    function: ?*obj.ObjFunction = null,
+    function: ?Pool(obj.ObjFunction).Idx = null,
     return_counts: bool = false,
     return_emitted: bool = false,
     // Keep track of constants to avoid adding the same more than once to the chunk
     constants: std.AutoHashMapUnmanaged(Value, u24),
 
-    try_should_handle: ?std.AutoHashMapUnmanaged(*obj.ObjTypeDef, Ast.TokenIndex) = null,
+    try_should_handle: ?std.AutoHashMapUnmanaged(Pool(obj.ObjTypeDef).Idx, Ast.TokenIndex) = null,
 
     pub fn deinit(self: *Frame, allocator: std.mem.Allocator) void {
         self.constants.deinit(allocator);
@@ -52,7 +53,7 @@ const NodeGen = *const fn (
     self: *Self,
     node: Ast.Node.Index,
     breaks: ?*Breaks,
-) Error!?*obj.ObjFunction;
+) Error!?Pool(obj.ObjFunction).Idx;
 
 const Break = struct {
     ip: usize, // The op code will tell us if this is a continue or a break statement
@@ -153,7 +154,7 @@ pub fn init(
         .parser = parser,
         .flavor = flavor,
         .reporter = Reporter{
-            .allocator = gc.allocator,
+            .gc = gc,
             .error_prefix = "Compile",
             .collect = flavor == .Ast,
         },
@@ -167,10 +168,11 @@ pub fn deinit(self: *Self) void {
 }
 
 pub inline fn currentCode(self: *Self) usize {
-    return self.current.?.function.?.chunk.code.items.len;
+    return self.current.?.function.?.get(self.gc)
+        .chunk.code.items.len;
 }
 
-pub fn generate(self: *Self, ast: Ast.Slice) Error!?*obj.ObjFunction {
+pub fn generate(self: *Self, ast: Ast.Slice) Error!?Pool(obj.ObjFunction).Idx {
     self.ast = ast;
     self.reporter.last_error = null;
     self.reporter.panic_mode = false;
@@ -181,7 +183,8 @@ pub fn generate(self: *Self, ast: Ast.Slice) Error!?*obj.ObjFunction {
 }
 
 pub fn emit(self: *Self, location: Ast.TokenIndex, code: u32) !void {
-    try self.current.?.function.?.chunk.write(code, location);
+    try self.current.?.function.?.get(self.gc)
+        .chunk.write(code, location);
 }
 
 pub fn emitTwo(self: *Self, location: Ast.TokenIndex, a: u8, b: u24) !void {
@@ -224,7 +227,8 @@ pub fn emitJump(self: *Self, location: Ast.TokenIndex, instruction: Chunk.OpCode
 }
 
 pub fn patchJumpOrLoop(self: *Self, offset: usize, loop_start: ?usize) !void {
-    const original = self.current.?.function.?.chunk.code.items[offset];
+    const current_function = self.current.?.function.?.get(self.gc);
+    const original = current_function.chunk.code.items[offset];
     const instruction: u8 = @intCast(original >> 24);
     const code: Chunk.OpCode = @enumFromInt(instruction);
 
@@ -235,7 +239,7 @@ pub fn patchJumpOrLoop(self: *Self, offset: usize, loop_start: ?usize) !void {
             self.reportError(.loop_body_too_large, "Loop body too large.");
         }
 
-        self.current.?.function.?.chunk.code.items[offset] =
+        current_function.chunk.code.items[offset] =
             (@as(u32, @intCast(instruction)) << 24) | @as(u32, @intCast(loop_offset));
     } else { // Patching a break statement
         self.patchJump(offset);
@@ -263,10 +267,11 @@ pub fn patchJump(self: *Self, offset: usize) void {
         self.reportError(.jump_too_large, "Jump too large.");
     }
 
-    const original = self.current.?.function.?.chunk.code.items[offset];
+    const current_function = self.current.?.function.?.get(self.gc);
+    const original = current_function.chunk.code.items[offset];
     const instruction: u8 = @intCast(original >> 24);
 
-    self.current.?.function.?.chunk.code.items[offset] =
+    current_function.chunk.code.items[offset] =
         (@as(u32, @intCast(instruction)) << 24) | @as(u32, @intCast(jump));
 }
 
@@ -282,10 +287,11 @@ pub fn patchTryOrJit(self: *Self, offset: usize) void {
         );
     }
 
-    const original = self.current.?.function.?.chunk.code.items[offset];
+    const current_function = self.current.?.function.?.get(self.gc);
+    const original = current_function.chunk.code.items[offset];
     const instruction: u8 = @intCast(original >> 24);
 
-    self.current.?.function.?.chunk.code.items[offset] =
+    current_function.chunk.code.items[offset] =
         (@as(u32, @intCast(instruction)) << 24) | @as(u32, @intCast(jump));
 }
 
@@ -303,7 +309,8 @@ pub fn makeConstant(self: *Self, value: Value) !u24 {
         return idx;
     }
 
-    const constant = try self.current.?.function.?.chunk.addConstant(null, value);
+    const current_function = self.current.?.function.?.get(self.gc);
+    const constant = try current_function.chunk.addConstant(null, value);
     try self.current.?.constants.put(self.gc.allocator, value, constant);
     if (constant > Chunk.max_constants) {
         self.reportError("Too many constants in one chunk.");
@@ -315,7 +322,12 @@ pub fn makeConstant(self: *Self, value: Value) !u24 {
 
 pub fn identifierConstant(self: *Self, name: []const u8) !u24 {
     return try self.makeConstant(
-        (try self.gc.copyString(name)).toValue(),
+        .fromObj(
+            .{
+                .index = (try self.gc.copyString(name)).index,
+                .obj_type = .String,
+            },
+        ),
     );
 }
 
@@ -417,7 +429,7 @@ fn endScope(self: *Self, node: Ast.Node.Index) Error!void {
     }
 }
 
-fn generateNode(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.ObjFunction {
+fn generateNode(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?Pool(obj.ObjFunction).Idx {
     if (self.synchronize(node)) {
         return null;
     }
@@ -451,7 +463,7 @@ fn nodeValue(self: *Self, node: Ast.Node.Index) Error!?Value {
     return value.*;
 }
 
-fn generateAs(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.ObjFunction {
+fn generateAs(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?Pool(obj.ObjFunction).Idx {
     const locations = self.ast.nodes.items(.location);
     const node_location = locations[node];
     const components = self.ast.nodes.items(.components)[node].As;
@@ -485,7 +497,7 @@ fn generateAs(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.O
     return null;
 }
 
-fn generateAsyncCall(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.ObjFunction {
+fn generateAsyncCall(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?Pool(obj.ObjFunction).Idx {
     const locations = self.ast.nodes.items(.location);
     const type_defs = self.ast.nodes.items(.type_def);
     const node_location = locations[node];
@@ -496,7 +508,12 @@ fn generateAsyncCall(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!
     // Should not interfere with local counts since OP_FIBER will consume it right away
     try self.emitConstant(
         node_location,
-        type_def.toValue(),
+        .fromObj(
+            .{
+                .index = type_def.index,
+                .obj_type = .Type,
+            },
+        ),
     );
 
     _ = try self.generateNode(call_node, breaks);
@@ -507,12 +524,12 @@ fn generateAsyncCall(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!
     return null;
 }
 
-fn generateBinary(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.ObjFunction {
+fn generateBinary(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?Pool(obj.ObjFunction).Idx {
     const components = self.ast.nodes.items(.components)[node].Binary;
 
     const locations = self.ast.nodes.items(.location);
     const type_defs = self.ast.nodes.items(.type_def);
-    const left_type = type_defs[components.left].?;
+    const left_type = type_defs[components.left].?.get(self.gc);
 
     switch (components.operator) {
         .QuestionQuestion => {
@@ -671,7 +688,7 @@ fn generateBinary(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*o
     return null;
 }
 
-fn generateBlock(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.ObjFunction {
+fn generateBlock(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?Pool(obj.ObjFunction).Idx {
     const tags = self.ast.nodes.items(.tag);
 
     var seen_return = false;
@@ -704,7 +721,7 @@ fn generateBlock(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*ob
     return null;
 }
 
-fn generateBlockExpression(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.ObjFunction {
+fn generateBlockExpression(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?Pool(obj.ObjFunction).Idx {
     for (self.ast.nodes.items(.components)[node].BlockExpression) |statement| {
         _ = try self.generateNode(statement, breaks);
     }
@@ -715,7 +732,7 @@ fn generateBlockExpression(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) 
     return null;
 }
 
-fn generateOut(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.ObjFunction {
+fn generateOut(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?Pool(obj.ObjFunction).Idx {
     _ = try self.generateNode(self.ast.nodes.items(.components)[node].Out, breaks);
 
     try self.patchOptJumps(node);
@@ -724,7 +741,7 @@ fn generateOut(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.
     return null;
 }
 
-fn generateBoolean(self: *Self, node: Ast.Node.Index, _: ?*Breaks) Error!?*obj.ObjFunction {
+fn generateBoolean(self: *Self, node: Ast.Node.Index, _: ?*Breaks) Error!?Pool(obj.ObjFunction).Idx {
     try self.emitOpCode(
         self.ast.nodes.items(.location)[node],
         if (self.ast.nodes.items(.components)[node].Boolean) .OP_TRUE else .OP_FALSE,
@@ -736,7 +753,7 @@ fn generateBoolean(self: *Self, node: Ast.Node.Index, _: ?*Breaks) Error!?*obj.O
     return null;
 }
 
-fn generateBreak(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.ObjFunction {
+fn generateBreak(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?Pool(obj.ObjFunction).Idx {
     // Close scope(s), then jump
     try self.endScope(node);
     try breaks.?.append(
@@ -752,7 +769,7 @@ fn generateBreak(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*ob
     return null;
 }
 
-fn generateContinue(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.ObjFunction {
+fn generateContinue(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?Pool(obj.ObjFunction).Idx {
     // Close scope(s), then jump
     try self.endScope(node);
     try breaks.?.append(
@@ -771,7 +788,7 @@ fn generateContinue(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?
     return null;
 }
 
-fn generateCall(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.ObjFunction {
+fn generateCall(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?Pool(obj.ObjFunction).Idx {
     const type_defs = self.ast.nodes.items(.type_def);
     const locations = self.ast.nodes.items(.location);
     const end_locations = self.ast.nodes.items(.end_location);
@@ -780,7 +797,7 @@ fn generateCall(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj
 
     const components = node_components[node].Call;
 
-    const callee_type_def = type_defs[components.callee].?;
+    const callee_type_def = type_defs[components.callee].?.get(self.gc);
 
     // This is not a call but an Enum(value)
     if (callee_type_def.def_type == .Enum) {
@@ -802,10 +819,15 @@ fn generateCall(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj
 
     if (self.ast.nodes.items(.tag)[components.callee] == .Dot) {
         const dot = node_components[components.callee].Dot;
-        const field_accessed = type_defs[dot.callee].?;
+        const field_accessed_idx = type_defs[dot.callee].?;
+        const field_accessed = field_accessed_idx.get(self.gc);
 
         if (field_accessed.def_type == .Placeholder) {
-            self.reporter.reportPlaceholder(self.ast, field_accessed.resolved_type.?.Placeholder);
+            self.reporter.reportPlaceholder(
+                self.ast,
+                self.gc,
+                field_accessed_idx,
+            );
         }
 
         invoked = field_accessed.def_type != .Object;
@@ -816,31 +838,36 @@ fn generateCall(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj
         _ = try self.generateNode(components.callee, breaks);
     }
 
-    const callee_type = switch (self.ast.nodes.items(.tag)[components.callee]) {
+    const callee_type = if (switch (self.ast.nodes.items(.tag)[components.callee]) {
         .Dot => node_components[components.callee].Dot.member_type_def,
         else => type_defs[components.callee],
-    };
+    }) |td|
+        td.get(self.gc)
+    else
+        null;
 
-    const yield_type = callee_type.?.resolved_type.?.Function.yield_type;
+    const yield_type_idx = callee_type.?.resolved_type.?.Function.yield_type;
 
     // Function being called and current function should have matching yield type unless the current function is an entrypoint
     // We do this type checking here because we need access to the current function node
     if (!components.is_async) {
-        const current_function_typedef = type_defs[self.current.?.function_node].?.resolved_type.?.Function;
+        const current_function_typedef = type_defs[self.current.?.function_node].?.get(self.gc)
+            .resolved_type.?.Function;
         const current_function_type = current_function_typedef.function_type;
-        const current_function_yield_type = current_function_typedef.yield_type;
+        const current_function_yield_type_idx = current_function_typedef.yield_type;
+
         switch (current_function_type) {
             // Event though a function can call a yieldable function without wraping it in a fiber, the function itself could be called in a fiber
             .Function, .Method, .Anonymous => {
-                if (!current_function_yield_type.eql(yield_type)) {
+                if (!obj.ObjTypeDef.eql(current_function_yield_type_idx, yield_type_idx, self.gc)) {
                     self.reporter.reportTypeCheck(
                         .yield_type,
                         self.ast.tokens.get(locations[self.current.?.function_node]),
                         self.ast.tokens.get(end_locations[self.current.?.function_node]),
-                        current_function_yield_type,
+                        current_function_yield_type_idx,
                         self.ast.tokens.get(locations[node]),
                         self.ast.tokens.get(end_locations[node]),
-                        yield_type,
+                        yield_type_idx,
                         "Bad function yield type",
                     );
                 }
@@ -860,7 +887,7 @@ fn generateCall(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj
     for (arg_keys, 0..) |arg_name, pindex| {
         try missing_arguments.put(
             self.gc.allocator,
-            arg_name.string,
+            arg_name.get(self.gc).string,
             pindex,
         );
     }
@@ -886,7 +913,9 @@ fn generateCall(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj
             needs_reorder = true;
         }
 
-        _ = missing_arguments.orderedRemove(actual_arg_key.string);
+        _ = missing_arguments.orderedRemove(
+            actual_arg_key.get(self.gc).string,
+        );
         _ = try self.generateNode(argument.value, breaks);
     }
 
@@ -927,7 +956,7 @@ fn generateCall(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj
             var ordered = true;
             for (arguments_order_ref.items, 0..) |arg_key, index| {
                 const actual_arg_key = if (index == 0 and std.mem.eql(u8, arg_key, "$"))
-                    args.keys()[0].string
+                    args.keys()[0].get(self.gc).string
                 else
                     arg_key;
                 const correct_index = args.getIndex(try self.gc.copyString(actual_arg_key)) orelse 0;
@@ -962,20 +991,30 @@ fn generateCall(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj
             _ = try self.generateNode(catch_default, breaks);
         }
     } else if (error_types) |errors| {
-        if (self.current.?.enclosing != null and self.current.?.function.?.type_def.resolved_type.?.Function.function_type != .Test) {
+        const current_function = self.current.?.function.?.get(self.gc);
+        if (self.current.?.enclosing != null and
+            current_function.type_def.get(self.gc)
+                .resolved_type.?.Function.function_type != .Test)
+        {
             var handles_any = false;
-            var not_handled = std.ArrayList(*obj.ObjTypeDef).empty;
+            var not_handled = std.ArrayList(Pool(obj.ObjTypeDef).Idx).empty;
             defer not_handled.deinit(self.gc.allocator);
-            for (errors) |error_type| {
+            for (errors) |error_type_idx| {
+                const error_type = error_type_idx.get(self.gc);
+
                 if (error_type.def_type == .Void) {
                     continue;
                 }
 
                 var handled = false;
 
-                if (self.current.?.function.?.type_def.resolved_type.?.Function.error_types) |handled_types| {
-                    for (handled_types) |handled_type| {
-                        if (error_type.eql(handled_type)) {
+                if (current_function.type_def.get(self.gc)
+                    .resolved_type.?.Function.error_types) |handled_types|
+                {
+                    for (handled_types) |handled_type_idx| {
+                        const handled_type = handled_type_idx.get(self.gc);
+
+                        if (obj.ObjTypeDef.eql(error_type_idx, handled_type_idx, self.gc)) {
                             handled = true;
                             break;
                         }
@@ -991,11 +1030,11 @@ fn generateCall(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj
                     if (self.current.?.try_should_handle != null) {
                         try self.current.?.try_should_handle.?.put(
                             self.gc.allocator,
-                            error_type,
+                            error_type_idx,
                             locations[components.callee],
                         );
                     } else {
-                        try not_handled.append(self.gc.allocator, error_type);
+                        try not_handled.append(self.gc.allocator, error_type_idx);
                     }
                 }
 
@@ -1006,7 +1045,7 @@ fn generateCall(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj
             }
 
             for (not_handled.items) |error_type| {
-                const error_str = try error_type.toStringAlloc(self.gc.allocator, false);
+                const error_str = try obj.ObjTypeDef.toStringAlloc(error_type, self.gc, false);
                 defer self.gc.allocator.free(error_str);
 
                 self.reporter.reportErrorFmt(
@@ -1031,12 +1070,12 @@ fn generateCall(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj
 
     // Normal call/invoke
     if (invoked) {
-        const callee_def_type = type_defs[node_components[components.callee].Dot.callee].?.def_type;
+        const callee_def_type = type_defs[node_components[components.callee].Dot.callee].?.get(self.gc).def_type;
         const member_lexeme = lexemes[node_components[components.callee].Dot.identifier];
 
         if (callee_def_type == .ObjectInstance) {
-            const fields = type_defs[node_components[components.callee].Dot.callee].?
-                .resolved_type.?.ObjectInstance.of
+            const fields = type_defs[node_components[components.callee].Dot.callee].?.get(self.gc)
+                .resolved_type.?.ObjectInstance.of.get(self.gc)
                 .resolved_type.?.Object.fields;
 
             const field = fields.get(member_lexeme).?;
@@ -1119,7 +1158,7 @@ fn generateCall(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj
     return null;
 }
 
-fn generateDot(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.ObjFunction {
+fn generateDot(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?Pool(obj.ObjFunction).Idx {
     const node_components = self.ast.nodes.items(.components);
     const type_defs = self.ast.nodes.items(.type_def);
     const locations = self.ast.nodes.items(.location);
@@ -1130,7 +1169,7 @@ fn generateDot(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.
 
     _ = try self.generateNode(components.callee, breaks);
 
-    const callee_type = type_defs[components.callee] orelse self.gc.type_registry.any_type;
+    const callee_type = (type_defs[components.callee] orelse self.gc.type_registry.any_type).get(self.gc);
 
     const get_code: ?Chunk.OpCode = switch (callee_type.def_type) {
         .Object => .OP_GET_OBJECT_PROPERTY,
@@ -1168,7 +1207,7 @@ fn generateDot(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.
         .ForeignContainer, .ObjectInstance, .Object => {
             const field_name = self.ast.tokens.items(.lexeme)[components.identifier];
             const field = switch (callee_type.def_type) {
-                .ObjectInstance => callee_type.resolved_type.?.ObjectInstance.of
+                .ObjectInstance => callee_type.resolved_type.?.ObjectInstance.of.get(self.gc)
                     .resolved_type.?.Object
                     .fields
                     .get(field_name),
@@ -1187,9 +1226,14 @@ fn generateDot(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.
                 .Value => {
                     const value = components.value_or_call_or_enum.Value.value;
                     const assign_token = components.value_or_call_or_enum.Value.assign_token;
-                    var value_type_def = type_defs[value].?;
+                    const value_type_def_idx = type_defs[value].?;
+                    const value_type_def = value_type_def_idx.get(self.gc);
                     if (value_type_def.def_type == .Placeholder) {
-                        self.reporter.reportPlaceholder(self.ast, value_type_def.resolved_type.?.Placeholder);
+                        self.reporter.reportPlaceholder(
+                            self.ast,
+                            self.gc,
+                            value_type_def_idx,
+                        );
                     }
 
                     switch (tags[assign_token]) {
@@ -1223,7 +1267,7 @@ fn generateDot(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.
                     _ = try self.generateNode(value, breaks);
 
                     switch (tags[assign_token]) {
-                        .PlusEqual => switch (type_defs[value].?.def_type) {
+                        .PlusEqual => switch (value_type_def.def_type) {
                             .Integer => try self.OP_ADD_I(locations[value]),
                             .Double => try self.OP_ADD_F(locations[value]),
                             .List => try self.OP_ADD_LIST(locations[value]),
@@ -1231,17 +1275,17 @@ fn generateDot(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.
                             .String => try self.OP_ADD_STRING(locations[value]),
                             else => {},
                         },
-                        .MinusEqual => switch (type_defs[value].?.def_type) {
+                        .MinusEqual => switch (value_type_def.def_type) {
                             .Integer => try self.OP_SUBTRACT_I(locations[value]),
                             .Double => try self.OP_SUBTRACT_F(locations[value]),
                             else => {},
                         },
-                        .StarEqual => switch (type_defs[value].?.def_type) {
+                        .StarEqual => switch (value_type_def.def_type) {
                             .Integer => try self.OP_MULTIPLY_I(locations[value]),
                             .Double => try self.OP_MULTIPLY_F(locations[value]),
                             else => {},
                         },
-                        .SlashEqual => switch (type_defs[value].?.def_type) {
+                        .SlashEqual => switch (value_type_def.def_type) {
                             .Integer => try self.OP_DIVIDE_I(locations[value]),
                             .Double => try self.OP_DIVIDE_F(locations[value]),
                             else => {},
@@ -1251,7 +1295,7 @@ fn generateDot(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.
                         .XorEqual => try self.OP_XOR(locations[value]),
                         .BorEqual => try self.OP_BOR(locations[value]),
                         .AmpersandEqual => try self.OP_BAND(locations[value]),
-                        .PercentEqual => switch (type_defs[value].?.def_type) {
+                        .PercentEqual => switch (value_type_def.def_type) {
                             .Integer => try self.OP_MOD_I(locations[value]),
                             .Double => try self.OP_MOD_F(locations[value]),
                             else => {},
@@ -1344,7 +1388,7 @@ fn generateDot(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.
     return null;
 }
 
-fn generateDoUntil(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.ObjFunction {
+fn generateDoUntil(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?Pool(obj.ObjFunction).Idx {
     const locations = self.ast.nodes.items(.location);
     const node_components = self.ast.nodes.items(.components);
     const components = node_components[node].DoUntil;
@@ -1380,7 +1424,7 @@ fn generateDoUntil(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*
     return null;
 }
 
-fn generateEnum(self: *Self, node: Ast.Node.Index, _: ?*Breaks) Error!?*obj.ObjFunction {
+fn generateEnum(self: *Self, node: Ast.Node.Index, _: ?*Breaks) Error!?Pool(obj.ObjFunction).Idx {
     const locations = self.ast.nodes.items(.location);
     const node_components = self.ast.nodes.items(.components);
     const components = node_components[node].Enum;
@@ -1396,7 +1440,10 @@ fn generateEnum(self: *Self, node: Ast.Node.Index, _: ?*Breaks) Error!?*obj.ObjF
     try self.OP_DEFINE_GLOBAL(
         locations[node],
         @intCast(components.slot),
-        (try self.gc.copyString(self.ast.tokens.items(.lexeme)[components.name])).toValue(),
+        .fromObj(.{
+            .index = (try self.gc.copyString(self.ast.tokens.items(.lexeme)[components.name])).index,
+            .obj_type = .String,
+        }),
     );
 
     try self.patchOptJumps(node);
@@ -1405,7 +1452,7 @@ fn generateEnum(self: *Self, node: Ast.Node.Index, _: ?*Breaks) Error!?*obj.ObjF
     return null;
 }
 
-fn generateExport(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.ObjFunction {
+fn generateExport(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?Pool(obj.ObjFunction).Idx {
     const components = self.ast.nodes.items(.components)[node].Export;
 
     if (components.declaration) |decl| {
@@ -1418,13 +1465,17 @@ fn generateExport(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*o
     return null;
 }
 
-fn generateExpression(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.ObjFunction {
+fn generateExpression(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?Pool(obj.ObjFunction).Idx {
     const locations = self.ast.nodes.items(.location);
     const end_locations = self.ast.nodes.items(.end_location);
     const components = self.ast.nodes.items(.components);
     const expr = components[node].Expression;
     const expr_node_type = self.ast.nodes.items(.tag)[expr];
-    const expr_type_def = self.ast.nodes.items(.type_def)[expr];
+    const expr_type_def_idx = self.ast.nodes.items(.type_def)[expr];
+    const expr_type_def = if (expr_type_def_idx) |td|
+        td.get(self.gc)
+    else
+        null;
 
     _ = try self.generateNode(expr, breaks);
 
@@ -1437,7 +1488,7 @@ fn generateExpression(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error
         expr_type_def.?.def_type != .Void;
 
     if (self.flavor != .Repl and lone_expr and expr_type_def.?.def_type != .Placeholder) {
-        const type_def_str = expr_type_def.?.toStringAlloc(self.gc.allocator, false) catch unreachable;
+        const type_def_str = obj.ObjTypeDef.toStringAlloc(expr_type_def_idx.?, self.gc, false) catch unreachable;
         defer self.gc.allocator.free(type_def_str);
 
         self.reporter.warnFmt(
@@ -1457,7 +1508,7 @@ fn generateExpression(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error
     return null;
 }
 
-fn generateFloat(self: *Self, node: Ast.Node.Index, _: ?*Breaks) Error!?*obj.ObjFunction {
+fn generateFloat(self: *Self, node: Ast.Node.Index, _: ?*Breaks) Error!?Pool(obj.ObjFunction).Idx {
     try self.emitConstant(
         self.ast.nodes.items(.location)[node],
         try self.ast.typeCheckAndToValue(
@@ -1473,14 +1524,14 @@ fn generateFloat(self: *Self, node: Ast.Node.Index, _: ?*Breaks) Error!?*obj.Obj
     return null;
 }
 
-fn generateFor(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.ObjFunction {
+fn generateFor(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?Pool(obj.ObjFunction).Idx {
     const locations = self.ast.nodes.items(.location);
     const end_locations = self.ast.nodes.items(.end_location);
     const type_defs = self.ast.nodes.items(.type_def);
     const node_components = self.ast.nodes.items(.components);
 
     const components = node_components[node].For;
-    if (try self.ast.isConstant(self.gc.allocator, components.condition) and !(try self.ast.typeCheckAndToValue(
+    if (try self.ast.isConstant(self.gc, self.gc.allocator, components.condition) and !(try self.ast.typeCheckAndToValue(
         components.condition,
         &self.reporter,
         self.gc,
@@ -1498,9 +1549,14 @@ fn generateFor(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.
     const jit_jump = if (!is_wasm) try self.OP_HOTSPOT(locations[node]) else {};
     if (!is_wasm) try self.emit(locations[node], node);
 
-    const condition_type_def = type_defs[components.condition].?;
+    const condition_type_def_idx = type_defs[components.condition].?;
+    const condition_type_def = condition_type_def_idx.get(self.gc);
     if (condition_type_def.def_type == .Placeholder) {
-        self.reporter.reportPlaceholder(self.ast, condition_type_def.resolved_type.?.Placeholder);
+        self.reporter.reportPlaceholder(
+            self.ast,
+            self.gc,
+            condition_type_def_idx,
+        );
     }
 
     if (condition_type_def.def_type != .Bool) {
@@ -1522,9 +1578,14 @@ fn generateFor(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.
 
     const expr_loop: usize = self.currentCode();
     for (components.post_loop) |expr| {
-        const expr_type_def = type_defs[expr].?;
+        const expr_type_def_idx = type_defs[expr].?;
+        const expr_type_def = expr_type_def_idx.get(self.gc);
         if (expr_type_def.def_type == .Placeholder) {
-            self.reporter.reportPlaceholder(self.ast, expr_type_def.resolved_type.?.Placeholder);
+            self.reporter.reportPlaceholder(
+                self.ast,
+                self.gc,
+                expr_type_def_idx,
+            );
         }
 
         _ = try self.generateNode(expr, breaks);
@@ -1562,7 +1623,7 @@ fn generateFor(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.
     return null;
 }
 
-fn generateForceUnwrap(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.ObjFunction {
+fn generateForceUnwrap(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?Pool(obj.ObjFunction).Idx {
     const locations = self.ast.nodes.items(.location);
     const components = self.ast.nodes.items(.components)[node].ForceUnwrap;
 
@@ -1576,16 +1637,16 @@ fn generateForceUnwrap(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Erro
     return null;
 }
 
-fn generateForEach(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.ObjFunction {
+fn generateForEach(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?Pool(obj.ObjFunction).Idx {
     const node_components = self.ast.nodes.items(.components);
     const locations = self.ast.nodes.items(.location);
     const type_defs = self.ast.nodes.items(.type_def);
     const components = node_components[node].ForEach;
 
-    const iterable_type_def = type_defs[components.iterable].?;
+    const iterable_type_def = type_defs[components.iterable].?.get(self.gc);
 
     // If iterable constant and empty, skip the node
-    if (try self.ast.isConstant(self.gc.allocator, components.iterable)) {
+    if (try self.ast.isConstant(self.gc, self.gc.allocator, components.iterable)) {
         const iterable_value = (try self.ast.typeCheckAndToValue(
             components.iterable,
             &self.reporter,
@@ -1599,11 +1660,11 @@ fn generateForEach(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*
 
         if (iterable_obj) |iterable| {
             if (switch (iterable.obj_type) {
-                .List => obj.ObjList.cast(iterable).?.items.items.len == 0,
-                .Map => obj.ObjMap.cast(iterable).?.map.count() == 0,
-                .String => obj.ObjString.cast(iterable).?.string.len == 0,
-                .Enum => obj.ObjEnum.cast(iterable).?.cases.len == 0,
-                .Range => obj.ObjRange.cast(iterable).?.high == obj.ObjRange.cast(iterable).?.low,
+                .List => self.gc.ptr(obj.ObjList, .idx(iterable.index)).?.items.items.len == 0,
+                .Map => self.gc.ptr(obj.ObjMap, .idx(iterable.index)).?.map.count() == 0,
+                .String => self.gc.ptr(obj.ObjString, .idx(iterable.index)).?.string.len == 0,
+                .Enum => self.gc.ptr(obj.ObjEnum, .idx(iterable.index)).?.cases.len == 0,
+                .Range => self.gc.ptr(obj.ObjRange, .idx(iterable.index)).?.high == self.gc.ptr(obj.ObjRange, .idx(iterable.index)).?.low,
                 else => self.reporter.last_error != null,
             }) {
                 try self.patchOptJumps(node);
@@ -1685,7 +1746,7 @@ fn generateForEach(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*
     return null;
 }
 
-fn generateFunction(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.ObjFunction {
+fn generateFunction(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?Pool(obj.ObjFunction).Idx {
     const node_components = self.ast.nodes.items(.components);
     const type_defs = self.ast.nodes.items(.type_def);
     const locations = self.ast.nodes.items(.location);
@@ -1696,7 +1757,7 @@ fn generateFunction(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?
     else
         null;
     const node_type_def = type_defs[node].?;
-    const function_type = node_type_def.resolved_type.?.Function.function_type;
+    const function_type = node_type_def.get(self.gc).resolved_type.?.Function.function_type;
 
     // If function is a test block and we're not testing/checking/etc. don't waste time generating the node
     if (self.flavor == .Run and function_type == .Test) {
@@ -1718,14 +1779,14 @@ fn generateFunction(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?
         node,
     );
 
-    function.type_def = node_type_def;
+    function.type_def = type_defs[node].?;
 
     // Check that default arguments are constant values
     switch (function_type) {
         .Function, .Method, .Anonymous, .Extern => {
             for (self.ast.nodes.items(.components)[components.function_signature.?].FunctionType.arguments) |argument| {
                 if (argument.default) |default| {
-                    try node_type_def.resolved_type.?.Function.defaults.put(
+                    try node_type_def.get(self.gc).resolved_type.?.Function.defaults.put(
                         self.gc.allocator,
                         try self.gc.copyString(self.ast.tokens.items(.lexeme)[argument.name]),
                         try self.ast.typeCheckAndToValue(
@@ -1741,30 +1802,51 @@ fn generateFunction(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?
     }
 
     // Check for any remaining placeholders in function signature
-    if (function.type_def.def_type == .Placeholder) {
-        self.reporter.reportPlaceholder(self.ast, function.type_def.resolved_type.?.Placeholder);
+    const function_type_def = function.type_def.get(self.gc);
+    if (function_type_def.def_type == .Placeholder) {
+        self.reporter.reportPlaceholder(
+            self.ast,
+            self.gc,
+            function.type_def,
+        );
     } else {
-        const function_def = function.type_def.resolved_type.?.Function;
+        const function_def = function_type_def.resolved_type.?.Function;
 
-        if (function_def.return_type.def_type == .Placeholder) {
-            self.reporter.reportPlaceholder(self.ast, function_def.return_type.resolved_type.?.Placeholder);
+        if (function_def.return_type.get(self.gc).def_type == .Placeholder) {
+            self.reporter.reportPlaceholder(
+                self.ast,
+                self.gc,
+                function_def.return_type,
+            );
         }
 
-        if (function_def.yield_type.def_type == .Placeholder) {
-            self.reporter.reportPlaceholder(self.ast, function_def.yield_type.resolved_type.?.Placeholder);
+        if (function_def.yield_type.get(self.gc).def_type == .Placeholder) {
+            self.reporter.reportPlaceholder(
+                self.ast,
+                self.gc,
+                function_def.yield_type,
+            );
         }
 
         var it = function_def.parameters.iterator();
         while (it.next()) |kv| {
-            if (kv.value_ptr.*.def_type == .Placeholder) {
-                self.reporter.reportPlaceholder(self.ast, kv.value_ptr.*.resolved_type.?.Placeholder);
+            if (kv.value_ptr.*.get(self.gc).def_type == .Placeholder) {
+                self.reporter.reportPlaceholder(
+                    self.ast,
+                    self.gc,
+                    kv.value_ptr.*,
+                );
             }
         }
 
         if (function_def.error_types) |error_types| {
             for (error_types) |error_type| {
-                if (error_type.def_type == .Placeholder) {
-                    self.reporter.reportPlaceholder(self.ast, error_type.resolved_type.?.Placeholder);
+                if (error_type.get(self.gc).def_type == .Placeholder) {
+                    self.reporter.reportPlaceholder(
+                        self.ast,
+                        self.gc,
+                        error_type,
+                    );
                 }
             }
         }
@@ -1773,7 +1855,12 @@ fn generateFunction(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?
     // First chunk constant is the empty string
     _ = try function.chunk.addConstant(
         null,
-        Value.fromObj((try self.gc.copyString("")).toObj()),
+        .fromObj(
+            .{
+                .index = (try self.gc.copyString("")).index,
+                .obj_type = .String,
+            },
+        ),
     );
 
     self.current.?.function = try self.gc.allocateObject(function);
@@ -1868,11 +1955,17 @@ fn generateFunction(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?
             self.ast.nodes.items(.tag)[node_components[components.body.?].Block[node_components[components.body.?].Block.len - 1]] == .Expression)
         {
             // Repl and last expression is a lone statement, remove OP_POP, add OP_RETURN
-            std.debug.assert(vm.VM.getCode(self.current.?.function.?.chunk.code.pop().?) == .OP_POP);
-            _ = self.current.?.function.?.chunk.locations.pop();
+            std.debug.assert(
+                vm.VM.getCode(self.current.?.function.?.get(self.gc).chunk.code.pop().?) == .OP_POP,
+            );
+            _ = self.current.?.function.?.get(self.gc).chunk.locations.pop();
 
             try self.emitReturn(locations[node]);
-        } else if (self.current.?.function.?.type_def.resolved_type.?.Function.return_type.def_type == .Void and !self.current.?.return_emitted) {
+        } else if (self.current.?.function.?.get(self.gc)
+            .type_def.get(self.gc)
+            .resolved_type.?.Function.return_type
+            .get(self.gc).def_type == .Void and !self.current.?.return_emitted)
+        {
             // TODO: detect if some branches of the function body miss a return statement
             try self.emitReturn(locations[node]);
         } else if (!self.current.?.return_emitted) {
@@ -1886,11 +1979,17 @@ fn generateFunction(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?
     }
 
     var frame = self.current.?;
-    const current_function = frame.function.?;
+    const current_function_idx = frame.function.?;
+    const current_function = current_function_idx.get(self.gc);
     current_function.upvalue_count = @intCast(components.upvalue_binding.count());
 
     if (BuildOptions.debug) {
-        disassembler.disassembleChunk(&current_function.chunk, current_function.type_def.resolved_type.?.Function.name.string);
+        disassembler.disassembleChunk(
+            &current_function.chunk,
+            current_function.type_def.get(self.gc)
+                .resolved_type.?.Function.name.get(self.gc).string,
+            self.gc,
+        );
         io.print("\n\n", .{});
     }
 
@@ -1905,12 +2004,12 @@ fn generateFunction(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?
         if (function_type == .Extern) {
             try self.OP_CONSTANT(
                 locations[node],
-                components.native.?.toValue(),
+                .fromObj(.{ .index = components.native.?.index, .obj_type = .Native }),
             );
         } else {
             try self.OP_CLOSURE(
                 locations[node],
-                current_function.toValue(),
+                .fromObj(.{ .index = current_function_idx.index, .obj_type = .Function }),
             );
 
             var it = components.upvalue_binding.iterator();
@@ -1924,12 +2023,12 @@ fn generateFunction(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?
     try self.patchOptJumps(node);
     try self.endScope(node);
 
-    node_components[node].Function.function = current_function;
+    node_components[node].Function.function = current_function_idx;
 
-    return current_function;
+    return current_function_idx;
 }
 
-fn generateFunDeclaration(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.ObjFunction {
+fn generateFunDeclaration(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?Pool(obj.ObjFunction).Idx {
     const node_components = self.ast.nodes.items(.components);
     const components = node_components[node].FunDeclaration;
 
@@ -1939,7 +2038,13 @@ fn generateFunDeclaration(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) E
         try self.OP_DEFINE_GLOBAL(
             self.ast.nodes.items(.location)[node],
             @intCast(components.slot),
-            self.ast.nodes.items(.type_def)[node].?.resolved_type.?.Function.name.toValue(),
+            .fromObj(
+                .{
+                    .index = self.ast.nodes.items(.type_def)[node].?.get(self.gc)
+                        .resolved_type.?.Function.name.index,
+                    .obj_type = .String,
+                },
+            ),
         );
     }
 
@@ -1949,7 +2054,7 @@ fn generateFunDeclaration(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) E
     return null;
 }
 
-fn generateGenericResolve(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.ObjFunction {
+fn generateGenericResolve(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?Pool(obj.ObjFunction).Idx {
     _ = try self.generateNode(
         self.ast.nodes.items(.components)[node].GenericResolve.expression,
         breaks,
@@ -1961,7 +2066,7 @@ fn generateGenericResolve(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) E
     return null;
 }
 
-fn generateGrouping(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.ObjFunction {
+fn generateGrouping(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?Pool(obj.ObjFunction).Idx {
     const components = self.ast.nodes.items(.components);
     const expr = components[node].Grouping;
 
@@ -1973,7 +2078,7 @@ fn generateGrouping(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?
     return null;
 }
 
-fn generateIf(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.ObjFunction {
+fn generateIf(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?Pool(obj.ObjFunction).Idx {
     const type_defs = self.ast.nodes.items(.type_def);
     const locations = self.ast.nodes.items(.location);
     const node_components = self.ast.nodes.items(.components);
@@ -1981,7 +2086,7 @@ fn generateIf(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.O
     const location = locations[node];
 
     // If condition is a constant expression, no need to generate branches
-    if (try self.ast.isConstant(self.gc.allocator, components.condition) and
+    if (try self.ast.isConstant(self.gc, self.gc.allocator, components.condition) and
         components.unwrapped_identifier == null and
         components.casted_type == null)
     {
@@ -2007,7 +2112,10 @@ fn generateIf(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.O
     const condition_location = locations[components.condition];
     if (components.casted_type) |casted_type| {
         try self.OP_COPY(condition_location);
-        try self.emitConstant(condition_location, type_defs[casted_type].?.toValue());
+        try self.emitConstant(
+            condition_location,
+            .fromObj(.{ .index = type_defs[casted_type].?.index, .obj_type = .Type }),
+        );
         try self.OP_IS(condition_location);
     } else if (components.unwrapped_identifier != null) {
         try self.OP_COPY(condition_location);
@@ -2042,12 +2150,15 @@ fn generateIf(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.O
     return null;
 }
 
-fn generateImport(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.ObjFunction {
+fn generateImport(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?Pool(obj.ObjFunction).Idx {
     const components = self.ast.nodes.items(.components)[node].Import;
     const location = self.ast.nodes.items(.location)[node];
 
     if (components.import) |import| {
-        try self.emitConstant(location, import.absolute_path.toValue());
+        try self.emitConstant(
+            location,
+            .fromObj(.{ .index = import.absolute_path.index, .obj_type = .String }),
+        );
 
         _ = try self.generateNode(import.function, breaks);
 
@@ -2061,7 +2172,7 @@ fn generateImport(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*o
     return null;
 }
 
-fn generateInteger(self: *Self, node: Ast.Node.Index, _: ?*Breaks) Error!?*obj.ObjFunction {
+fn generateInteger(self: *Self, node: Ast.Node.Index, _: ?*Breaks) Error!?Pool(obj.ObjFunction).Idx {
     try self.emitConstant(
         self.ast.nodes.items(.location)[node],
         try self.ast.typeCheckAndToValue(
@@ -2077,7 +2188,7 @@ fn generateInteger(self: *Self, node: Ast.Node.Index, _: ?*Breaks) Error!?*obj.O
     return null;
 }
 
-fn generateIs(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.ObjFunction {
+fn generateIs(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?Pool(obj.ObjFunction).Idx {
     const components = self.ast.nodes.items(.components)[node].Is;
     const location = self.ast.nodes.items(.location)[node];
     const constant = try self.ast.typeCheckAndToValue(
@@ -2089,8 +2200,14 @@ fn generateIs(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.O
     std.debug.assert(constant.isObj());
     std.debug.assert(constant.obj().obj_type == .Type);
 
-    if (obj.ObjTypeDef.cast(constant.obj()).?.def_type == .Placeholder) {
-        self.reporter.reportPlaceholder(self.ast, obj.ObjTypeDef.cast(constant.obj()).?.resolved_type.?.Placeholder);
+    const type_def_idx = Pool(obj.ObjTypeDef).Idx.idx(constant.obj().index);
+    const type_def = self.gc.ptr(obj.ObjTypeDef, type_def_idx).?;
+    if (type_def.def_type == .Placeholder) {
+        self.reporter.reportPlaceholder(
+            self.ast,
+            self.gc,
+            type_def_idx,
+        );
     }
 
     _ = try self.generateNode(components.left, breaks);
@@ -2105,14 +2222,14 @@ fn generateIs(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.O
     return null;
 }
 
-fn generateList(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.ObjFunction {
+fn generateList(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?Pool(obj.ObjFunction).Idx {
     const locations = self.ast.nodes.items(.location);
     const components = self.ast.nodes.items(.components)[node].List;
     const type_defs = self.ast.nodes.items(.type_def);
 
     try self.OP_LIST(
         locations[node],
-        type_defs[node].?.toValue(),
+        .fromObj(.{ .index = type_defs[node].?.index, .obj_type = .Type }),
     );
 
     for (components.items) |item| {
@@ -2132,14 +2249,14 @@ fn generateList(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj
     return null;
 }
 
-fn generateMap(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.ObjFunction {
+fn generateMap(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?Pool(obj.ObjFunction).Idx {
     const locations = self.ast.nodes.items(.location);
     const components = self.ast.nodes.items(.components)[node].Map;
     const type_defs = self.ast.nodes.items(.type_def);
 
     try self.OP_MAP(
         locations[node],
-        type_defs[node].?.toValue(),
+        .fromObj(.{ .index = type_defs[node].?.index, .obj_type = .Type }),
     );
 
     for (components.entries) |entry| {
@@ -2160,7 +2277,7 @@ fn generateMap(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.
     return null;
 }
 
-fn generateNamedVariable(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.ObjFunction {
+fn generateNamedVariable(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?Pool(obj.ObjFunction).Idx {
     const components = self.ast.nodes.items(.components)[node].NamedVariable;
     const locations = self.ast.nodes.items(.location);
     const type_defs = self.ast.nodes.items(.type_def);
@@ -2207,8 +2324,9 @@ fn generateNamedVariable(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Er
 
         _ = try self.generateNode(value, breaks);
 
+        const value_type_def = type_defs[value].?.get(self.gc);
         switch (tags[components.assign_token.?]) {
-            .PlusEqual => switch (type_defs[value].?.def_type) {
+            .PlusEqual => switch (value_type_def.def_type) {
                 .Integer => try self.OP_ADD_I(locations[value]),
                 .Double => try self.OP_ADD_F(locations[value]),
                 .List => try self.OP_ADD_LIST(locations[value]),
@@ -2216,17 +2334,17 @@ fn generateNamedVariable(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Er
                 .String => try self.OP_ADD_STRING(locations[value]),
                 else => {},
             },
-            .MinusEqual => switch (type_defs[value].?.def_type) {
+            .MinusEqual => switch (value_type_def.def_type) {
                 .Integer => try self.OP_SUBTRACT_I(locations[value]),
                 .Double => try self.OP_SUBTRACT_F(locations[value]),
                 else => {},
             },
-            .StarEqual => switch (type_defs[value].?.def_type) {
+            .StarEqual => switch (value_type_def.def_type) {
                 .Integer => try self.OP_MULTIPLY_I(locations[value]),
                 .Double => try self.OP_MULTIPLY_F(locations[value]),
                 else => {},
             },
-            .SlashEqual => switch (type_defs[value].?.def_type) {
+            .SlashEqual => switch (value_type_def.def_type) {
                 .Integer => try self.OP_DIVIDE_I(locations[value]),
                 .Double => try self.OP_DIVIDE_F(locations[value]),
                 else => {},
@@ -2236,7 +2354,7 @@ fn generateNamedVariable(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Er
             .XorEqual => try self.OP_XOR(locations[value]),
             .BorEqual => try self.OP_BOR(locations[value]),
             .AmpersandEqual => try self.OP_BAND(locations[value]),
-            .PercentEqual => switch (type_defs[value].?.def_type) {
+            .PercentEqual => switch (value_type_def.def_type) {
                 .Integer => try self.OP_MOD_I(locations[value]),
                 .Double => try self.OP_MOD_F(locations[value]),
                 else => {},
@@ -2263,7 +2381,7 @@ fn generateNamedVariable(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Er
     return null;
 }
 
-fn generateNull(self: *Self, node: Ast.Node.Index, _: ?*Breaks) Error!?*obj.ObjFunction {
+fn generateNull(self: *Self, node: Ast.Node.Index, _: ?*Breaks) Error!?Pool(obj.ObjFunction).Idx {
     try self.OP_NULL(self.ast.nodes.items(.location)[node]);
 
     try self.patchOptJumps(node);
@@ -2272,22 +2390,30 @@ fn generateNull(self: *Self, node: Ast.Node.Index, _: ?*Breaks) Error!?*obj.ObjF
     return null;
 }
 
-fn generateObjectDeclaration(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.ObjFunction {
+fn generateObjectDeclaration(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?Pool(obj.ObjFunction).Idx {
     const locations = self.ast.nodes.items(.location);
     const type_defs = self.ast.nodes.items(.type_def);
     const lexemes = self.ast.tokens.items(.lexeme);
     const components = self.ast.nodes.items(.components)[node].ObjectDeclaration;
     const location = locations[node];
 
-    const object_type = type_defs[node].?;
+    const object_type = type_defs[node].?.get(self.gc);
     const object_def = object_type.resolved_type.?.Object;
 
     // Put  object on the stack and define global with it
-    try self.OP_OBJECT(location, object_type.toValue());
+    try self.OP_OBJECT(
+        location,
+        .fromObj(.{ .index = type_defs[node].?.index, .obj_type = .Type }),
+    );
     try self.OP_DEFINE_GLOBAL(
         location,
         @intCast(components.slot),
-        (try self.gc.copyString(self.ast.tokens.items(.lexeme)[components.name])).toValue(),
+        .fromObj(
+            .{
+                .index = (try self.gc.copyString(self.ast.tokens.items(.lexeme)[components.name])).index,
+                .obj_type = .String,
+            },
+        ),
     );
 
     // Put the object on the stack to set its fields
@@ -2339,21 +2465,26 @@ fn generateObjectDeclaration(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks
     return null;
 }
 
-fn generateObjectInit(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.ObjFunction {
+fn generateObjectInit(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?Pool(obj.ObjFunction).Idx {
     const locations = self.ast.nodes.items(.location);
     const type_defs = self.ast.nodes.items(.type_def);
     const lexemes = self.ast.tokens.items(.lexeme);
     const components = self.ast.nodes.items(.components)[node].ObjectInit;
     const location = locations[node];
-    const node_type_def = type_defs[node].?;
+    const node_type_def = type_defs[node].?.get(self.gc);
 
-    if (components.object != null and type_defs[components.object.?].?.def_type == .Object) {
+    if (components.object != null and
+        type_defs[components.object.?].?.get(self.gc).def_type == .Object)
+    {
         _ = try self.generateNode(components.object.?, breaks);
     } else if (node_type_def.def_type == .ObjectInstance) {
         try self.OP_NULL(location);
     }
 
-    try self.OP_CONSTANT(location, node_type_def.toValue());
+    try self.OP_CONSTANT(
+        location,
+        .fromObj(.{ .index = type_defs[node].?.index, .obj_type = .Type }),
+    );
 
     try self.emitOpCode(
         location,
@@ -2366,7 +2497,7 @@ fn generateObjectInit(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error
     for (components.properties) |property| {
         const property_name = lexemes[property.name];
         const property_idx = if (node_type_def.def_type == .ObjectInstance)
-            if (node_type_def.resolved_type.?.ObjectInstance.of
+            if (node_type_def.resolved_type.?.ObjectInstance.of.get(self.gc)
                 .resolved_type.?.Object
                 .fields.get(property_name)) |field|
                 field.index
@@ -2398,7 +2529,7 @@ fn generateObjectInit(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error
     return null;
 }
 
-fn generatePattern(self: *Self, node: Ast.Node.Index, _: ?*Breaks) Error!?*obj.ObjFunction {
+fn generatePattern(self: *Self, node: Ast.Node.Index, _: ?*Breaks) Error!?Pool(obj.ObjFunction).Idx {
     try self.emitConstant(
         self.ast.nodes.items(.location)[node],
         try self.ast.typeCheckAndToValue(
@@ -2414,16 +2545,24 @@ fn generatePattern(self: *Self, node: Ast.Node.Index, _: ?*Breaks) Error!?*obj.O
     return null;
 }
 
-fn generateProtocolDeclaration(self: *Self, node: Ast.Node.Index, _: ?*Breaks) Error!?*obj.ObjFunction {
+fn generateProtocolDeclaration(self: *Self, node: Ast.Node.Index, _: ?*Breaks) Error!?Pool(obj.ObjFunction).Idx {
     const location = self.ast.nodes.items(.location)[node];
     const components = self.ast.nodes.items(.components)[node].ProtocolDeclaration;
     const type_def = self.ast.nodes.items(.type_def)[node].?;
 
-    try self.emitConstant(location, type_def.toValue());
+    try self.emitConstant(
+        location,
+        .fromObj(.{ .index = type_def.index, .obj_type = .Type }),
+    );
     try self.OP_DEFINE_GLOBAL(
         location,
         @intCast(components.slot),
-        (try self.gc.copyString(self.ast.tokens.items(.lexeme)[components.name])).toValue(),
+        .fromObj(
+            .{
+                .index = (try self.gc.copyString(self.ast.tokens.items(.lexeme)[components.name])).index,
+                .obj_type = .String,
+            },
+        ),
     );
 
     try self.patchOptJumps(node);
@@ -2432,7 +2571,7 @@ fn generateProtocolDeclaration(self: *Self, node: Ast.Node.Index, _: ?*Breaks) E
     return null;
 }
 
-fn generateRange(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.ObjFunction {
+fn generateRange(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?Pool(obj.ObjFunction).Idx {
     const components = self.ast.nodes.items(.components)[node].Range;
     const locations = self.ast.nodes.items(.location);
 
@@ -2447,7 +2586,7 @@ fn generateRange(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*ob
     return null;
 }
 
-fn generateResolve(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.ObjFunction {
+fn generateResolve(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?Pool(obj.ObjFunction).Idx {
     const fiber = self.ast.nodes.items(.components)[node].Resolve;
     const locations = self.ast.nodes.items(.location);
 
@@ -2461,7 +2600,7 @@ fn generateResolve(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*
     return null;
 }
 
-fn generateResume(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.ObjFunction {
+fn generateResume(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?Pool(obj.ObjFunction).Idx {
     const fiber = self.ast.nodes.items(.components)[node].Resume;
     const locations = self.ast.nodes.items(.location);
 
@@ -2475,7 +2614,7 @@ fn generateResume(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*o
     return null;
 }
 
-fn generateReturn(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.ObjFunction {
+fn generateReturn(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?Pool(obj.ObjFunction).Idx {
     const components = self.ast.nodes.items(.components)[node].Return;
     const locations = self.ast.nodes.items(.location);
 
@@ -2497,7 +2636,7 @@ fn generateReturn(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*o
     return null;
 }
 
-fn generateString(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.ObjFunction {
+fn generateString(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?Pool(obj.ObjFunction).Idx {
     const location = self.ast.nodes.items(.location)[node];
     const type_defs = self.ast.nodes.items(.type_def);
     const elements = self.ast.nodes.items(.components)[node].String;
@@ -2512,7 +2651,7 @@ fn generateString(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*o
     }
 
     for (elements, 0..) |element, index| {
-        const element_type_def = type_defs[element].?;
+        const element_type_def = type_defs[element].?.get(self.gc);
 
         _ = try self.generateNode(element, breaks);
         if (element_type_def.def_type != .String or element_type_def.optional) {
@@ -2530,10 +2669,15 @@ fn generateString(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*o
     return null;
 }
 
-fn generateStringLiteral(self: *Self, node: Ast.Node.Index, _: ?*Breaks) Error!?*obj.ObjFunction {
+fn generateStringLiteral(self: *Self, node: Ast.Node.Index, _: ?*Breaks) Error!?Pool(obj.ObjFunction).Idx {
     try self.emitConstant(
         self.ast.nodes.items(.location)[node],
-        self.ast.nodes.items(.components)[node].StringLiteral.literal.toValue(),
+        .fromObj(
+            .{
+                .index = self.ast.nodes.items(.components)[node].StringLiteral.literal.index,
+                .obj_type = .String,
+            },
+        ),
     );
 
     try self.patchOptJumps(node);
@@ -2542,7 +2686,7 @@ fn generateStringLiteral(self: *Self, node: Ast.Node.Index, _: ?*Breaks) Error!?
     return null;
 }
 
-fn generateSubscript(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.ObjFunction {
+fn generateSubscript(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?Pool(obj.ObjFunction).Idx {
     const locations = self.ast.nodes.items(.location);
     const location = locations[node];
     const type_defs = self.ast.nodes.items(.type_def);
@@ -2551,7 +2695,7 @@ fn generateSubscript(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!
 
     _ = try self.generateNode(components.subscripted, breaks);
 
-    const subscripted_type_def = type_defs[components.subscripted].?;
+    const subscripted_type_def = type_defs[components.subscripted].?.get(self.gc);
 
     var get_code: Chunk.OpCode = .OP_GET_LIST_SUBSCRIPT;
     var set_code: Chunk.OpCode = .OP_SET_LIST_SUBSCRIPT;
@@ -2584,8 +2728,9 @@ fn generateSubscript(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!
 
         _ = try self.generateNode(value, breaks);
 
+        const value_type_def = type_defs[value].?.get(self.gc);
         switch (tags[components.assign_token.?]) {
-            .PlusEqual => switch (type_defs[value].?.def_type) {
+            .PlusEqual => switch (value_type_def.def_type) {
                 .Integer => try self.OP_ADD_I(locations[value]),
                 .Double => try self.OP_ADD_F(locations[value]),
                 .List => try self.OP_ADD_LIST(locations[value]),
@@ -2593,17 +2738,17 @@ fn generateSubscript(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!
                 .String => try self.OP_ADD_STRING(locations[value]),
                 else => {},
             },
-            .MinusEqual => switch (type_defs[value].?.def_type) {
+            .MinusEqual => switch (value_type_def.def_type) {
                 .Integer => try self.OP_SUBTRACT_I(locations[value]),
                 .Double => try self.OP_SUBTRACT_F(locations[value]),
                 else => {},
             },
-            .StarEqual => switch (type_defs[value].?.def_type) {
+            .StarEqual => switch (value_type_def.def_type) {
                 .Integer => try self.OP_MULTIPLY_I(locations[value]),
                 .Double => try self.OP_MULTIPLY_F(locations[value]),
                 else => {},
             },
-            .SlashEqual => switch (type_defs[value].?.def_type) {
+            .SlashEqual => switch (value_type_def.def_type) {
                 .Integer => try self.OP_DIVIDE_I(locations[value]),
                 .Double => try self.OP_DIVIDE_F(locations[value]),
                 else => {},
@@ -2613,7 +2758,7 @@ fn generateSubscript(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!
             .XorEqual => try self.OP_XOR(locations[value]),
             .BorEqual => try self.OP_BOR(locations[value]),
             .AmpersandEqual => try self.OP_BAND(locations[value]),
-            .PercentEqual => switch (type_defs[value].?.def_type) {
+            .PercentEqual => switch (value_type_def.def_type) {
                 .Integer => try self.OP_MOD_I(locations[value]),
                 .Double => try self.OP_MOD_F(locations[value]),
                 else => {},
@@ -2636,7 +2781,7 @@ fn generateSubscript(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!
     return null;
 }
 
-fn generateTry(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.ObjFunction {
+fn generateTry(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?Pool(obj.ObjFunction).Idx {
     const components = self.ast.nodes.items(.components)[node].Try;
     const type_defs = self.ast.nodes.items(.type_def);
     const locations = self.ast.nodes.items(.location);
@@ -2663,7 +2808,7 @@ fn generateTry(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.
     self.patchTryOrJit(try_jump);
     var has_unconditional = components.unconditional_clause != null;
     for (components.clauses) |clause| {
-        const error_type = type_defs[clause.type_def].?;
+        const error_type = type_defs[clause.type_def].?.get(self.gc);
 
         if (error_type.def_type == .Any) {
             has_unconditional = true;
@@ -2671,7 +2816,10 @@ fn generateTry(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.
 
         // We assume the error is on top of the stack
         try self.OP_COPY(clause.identifier); // Copy error value since its argument to the catch clause
-        try self.emitConstant(clause.identifier, error_type.toValue());
+        try self.emitConstant(
+            clause.identifier,
+            .fromObj(.{ .index = type_defs[clause.type_def].?.index, .obj_type = .Type }),
+        );
         try self.OP_IS(clause.identifier);
         // If error type does not match, jump to next catch clause
         const next_clause_jump: usize = try self.OP_JUMP_IF_FALSE(location);
@@ -2732,14 +2880,14 @@ fn generateTry(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.
         while (it.next()) |kv| {
             var clause: ?Ast.Try.Clause = null;
             for (components.clauses) |cls| {
-                if (type_defs[cls.type_def] == kv.key_ptr.*) {
+                if (type_defs[cls.type_def].?.index == kv.key_ptr.*.index) {
                     clause = cls;
                     break;
                 }
             }
 
             if (clause == null) {
-                const err_str = try kv.key_ptr.*.toStringAlloc(self.gc.allocator, false);
+                const err_str = try obj.ObjTypeDef.toStringAlloc(kv.key_ptr.*, self.gc, false);
                 defer self.gc.allocator.free(err_str);
 
                 self.reporter.reportWithOrigin(
@@ -2762,7 +2910,7 @@ fn generateTry(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.
     return null;
 }
 
-fn generateThrow(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.ObjFunction {
+fn generateThrow(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?Pool(obj.ObjFunction).Idx {
     const components = self.ast.nodes.items(.components)[node].Throw;
     const type_defs = self.ast.nodes.items(.type_def);
     const location = self.ast.nodes.items(.location)[node];
@@ -2772,13 +2920,15 @@ fn generateThrow(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*ob
         self.current.?.return_emitted = true;
     }
 
-    const expression_type_def = type_defs[components.expression].?;
-    const current_error_types = self.current.?.function.?.type_def.resolved_type.?.Function.error_types;
+    const expression_type_def_idx = type_defs[components.expression].?;
+    const current_error_types = self.current.?.function.?.get(self.gc)
+        .type_def.get(self.gc)
+        .resolved_type.?.Function.error_types;
 
     var found_match = false;
     if (current_error_types != null) {
-        for (current_error_types.?) |error_type| {
-            if (error_type.eql(expression_type_def)) {
+        for (current_error_types.?) |error_type_idx| {
+            if (obj.ObjTypeDef.eql(error_type_idx, expression_type_def_idx, self.gc)) {
                 found_match = true;
                 break;
             }
@@ -2790,12 +2940,12 @@ fn generateThrow(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*ob
             // In a try catch remember to check that we handle that error when finishing parsing the try-catch
             try self.current.?.try_should_handle.?.put(
                 self.gc.allocator,
-                expression_type_def,
+                expression_type_def_idx,
                 location,
             );
         } else {
             // Not in a try-catch and function signature does not expect this error type
-            const error_str = try type_defs[components.expression].?.toStringAlloc(self.gc.allocator, false);
+            const error_str = try obj.ObjTypeDef.toStringAlloc(expression_type_def_idx, self.gc, false);
             defer self.gc.allocator.free(error_str);
 
             self.reporter.reportErrorFmt(
@@ -2818,13 +2968,18 @@ fn generateThrow(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*ob
     return null;
 }
 
-fn generateTypeExpression(self: *Self, node: Ast.Node.Index, _: ?*Breaks) Error!?*obj.ObjFunction {
+fn generateTypeExpression(self: *Self, node: Ast.Node.Index, _: ?*Breaks) Error!?Pool(obj.ObjFunction).Idx {
     const node_components = self.ast.nodes.items(.components);
     const type_defs = self.ast.nodes.items(.type_def);
 
     try self.emitConstant(
         self.ast.nodes.items(.location)[node],
-        type_defs[node_components[node].TypeExpression].?.toValue(),
+        .fromObj(
+            .{
+                .index = type_defs[node_components[node].TypeExpression].?.index,
+                .obj_type = .Type,
+            },
+        ),
     );
 
     try self.patchOptJumps(node);
@@ -2833,7 +2988,7 @@ fn generateTypeExpression(self: *Self, node: Ast.Node.Index, _: ?*Breaks) Error!
     return null;
 }
 
-fn generateTypeOfExpression(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.ObjFunction {
+fn generateTypeOfExpression(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?Pool(obj.ObjFunction).Idx {
     _ = try self.generateNode(self.ast.nodes.items(.components)[node].TypeOfExpression, breaks);
 
     try self.OP_TYPEOF(self.ast.nodes.items(.location)[node]);
@@ -2844,10 +2999,10 @@ fn generateTypeOfExpression(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks)
     return null;
 }
 
-fn generateUnary(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.ObjFunction {
+fn generateUnary(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?Pool(obj.ObjFunction).Idx {
     const components = self.ast.nodes.items(.components)[node].Unary;
     const location = self.ast.nodes.items(.location)[node];
-    const expression_type_def = self.ast.nodes.items(.type_def)[components.expression].?;
+    const expression_type_def = self.ast.nodes.items(.type_def)[components.expression].?.get(self.gc);
 
     _ = try self.generateNode(components.expression, breaks);
 
@@ -2867,7 +3022,7 @@ fn generateUnary(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*ob
     return null;
 }
 
-fn generateUnwrap(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.ObjFunction {
+fn generateUnwrap(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?Pool(obj.ObjFunction).Idx {
     const locations = self.ast.nodes.items(.location);
     const location = locations[node];
     const components = self.ast.nodes.items(.components)[node].Unwrap;
@@ -2897,7 +3052,7 @@ fn generateUnwrap(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*o
     return null;
 }
 
-fn generateVarDeclaration(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.ObjFunction {
+fn generateVarDeclaration(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?Pool(obj.ObjFunction).Idx {
     const components = self.ast.nodes.items(.components)[node].VarDeclaration;
     const locations = self.ast.nodes.items(.location);
     const location = locations[node];
@@ -2912,13 +3067,23 @@ fn generateVarDeclaration(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) E
         .Global => try self.OP_DEFINE_GLOBAL(
             location,
             @intCast(components.slot),
-            (try self.gc.copyString(self.ast.tokens.items(.lexeme)[components.name])).toValue(),
+            .fromObj(
+                .{
+                    .index = (try self.gc.copyString(self.ast.tokens.items(.lexeme)[components.name])).index,
+                    .obj_type = .String,
+                },
+            ),
         ),
         .Local => {
             try self.OP_DBG_LOCAL_ENTER(
                 location,
                 @intCast(components.slot),
-                (try self.gc.copyString(self.ast.tokens.items(.lexeme)[components.name])).toValue(),
+                .fromObj(
+                    .{
+                        .index = (try self.gc.copyString(self.ast.tokens.items(.lexeme)[components.name])).index,
+                        .obj_type = .String,
+                    },
+                ),
             );
         },
         .UpValue => {}, // TODO: ??
@@ -2930,7 +3095,7 @@ fn generateVarDeclaration(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) E
     return null;
 }
 
-fn generateVoid(self: *Self, node: Ast.Node.Index, _: ?*Breaks) Error!?*obj.ObjFunction {
+fn generateVoid(self: *Self, node: Ast.Node.Index, _: ?*Breaks) Error!?Pool(obj.ObjFunction).Idx {
     try self.OP_VOID(self.ast.nodes.items(.location)[node]);
 
     try self.patchOptJumps(node);
@@ -2939,17 +3104,19 @@ fn generateVoid(self: *Self, node: Ast.Node.Index, _: ?*Breaks) Error!?*obj.ObjF
     return null;
 }
 
-fn generateWhile(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.ObjFunction {
+fn generateWhile(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?Pool(obj.ObjFunction).Idx {
     const components = self.ast.nodes.items(.components)[node].While;
     const locations = self.ast.nodes.items(.location);
     const location = locations[node];
 
     // If condition constant and false, skip the node
-    if (try self.ast.isConstant(self.gc.allocator, components.condition) and !(try self.ast.typeCheckAndToValue(
-        components.condition,
-        &self.reporter,
-        self.gc,
-    )).boolean()) {
+    if (try self.ast.isConstant(self.gc, self.gc.allocator, components.condition) and
+        !(try self.ast.typeCheckAndToValue(
+            components.condition,
+            &self.reporter,
+            self.gc,
+        )).boolean())
+    {
         try self.patchOptJumps(node);
         try self.endScope(node);
 
@@ -2992,7 +3159,7 @@ fn generateWhile(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*ob
     return null;
 }
 
-fn generateYield(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.ObjFunction {
+fn generateYield(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?Pool(obj.ObjFunction).Idx {
     const expression = self.ast.nodes.items(.components)[node].Yield;
     const locations = self.ast.nodes.items(.location);
     const location = locations[node];
@@ -3007,7 +3174,7 @@ fn generateYield(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*ob
     return null;
 }
 
-fn generateZdef(self: *Self, node: Ast.Node.Index, _: ?*Breaks) Error!?*obj.ObjFunction {
+fn generateZdef(self: *Self, node: Ast.Node.Index, _: ?*Breaks) Error!?Pool(obj.ObjFunction).Idx {
     if (is_wasm) {
         return null;
     }
@@ -3018,7 +3185,7 @@ fn generateZdef(self: *Self, node: Ast.Node.Index, _: ?*Breaks) Error!?*obj.ObjF
     if (self.flavor.resolveDynLib()) {
         for (components.elements) |*element| {
             // Generate ObjNative wrapper of actual zdef
-            switch (element.zdef.type_def.def_type) {
+            switch (element.zdef.type_def.get(self.gc).def_type) {
                 .Function => {
                     if (element.obj_native == null) {
                         var timer = if (!is_wasm) std.time.Timer.start() catch unreachable else {};
@@ -3029,7 +3196,10 @@ fn generateZdef(self: *Self, node: Ast.Node.Index, _: ?*Breaks) Error!?*obj.ObjF
                             self.jit.?.jit_time += timer.read();
                         }
 
-                        try self.emitConstant(location, element.obj_native.?.toValue());
+                        try self.emitConstant(
+                            location,
+                            .fromObj(.{ .index = element.obj_native.?.index, .obj_type = .Native }),
+                        );
                     }
                 },
                 .ForeignContainer => {
@@ -3041,14 +3211,22 @@ fn generateZdef(self: *Self, node: Ast.Node.Index, _: ?*Breaks) Error!?*obj.ObjF
                         self.jit.?.jit_time += timer.read();
                     }
 
-                    try self.emitConstant(location, element.zdef.type_def.toValue());
+                    try self.emitConstant(
+                        location,
+                        .fromObj(.{ .index = element.zdef.type_def.index, .obj_type = .Type }),
+                    );
                 },
                 else => {},
             }
             try self.OP_DEFINE_GLOBAL(
                 location,
                 @intCast(element.slot),
-                (try self.gc.copyString(self.ast.tokens.items(.lexeme)[components.lib_name])).toValue(),
+                .fromObj(
+                    .{
+                        .index = (try self.gc.copyString(self.ast.tokens.items(.lexeme)[components.lib_name])).index,
+                        .obj_type = .String,
+                    },
+                ),
             );
         }
     }

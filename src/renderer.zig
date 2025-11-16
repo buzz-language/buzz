@@ -3,11 +3,14 @@ const assert = std.debug.assert;
 const builtin = @import("builtin");
 const Ast = @import("Ast.zig");
 const Token = @import("Token.zig");
+const GC = @import("GC.zig");
+const o = @import("obj.zig");
 
 pub const Renderer = struct {
     const Self = @This();
 
     allocator: std.mem.Allocator,
+    gc: *GC,
     ast: Ast.Slice,
     ais: *AutoIndentingStream,
 
@@ -68,11 +71,12 @@ pub const Renderer = struct {
         Skip,
     };
 
-    pub fn render(allocator: std.mem.Allocator, out: *std.Io.Writer, ast: Ast) Error!void {
+    pub fn render(allocator: std.mem.Allocator, gc: *GC, out: *std.Io.Writer, ast: Ast) Error!void {
         var ais: AutoIndentingStream = .init(out, 4);
         defer ais.deinit(allocator);
 
         var self = Self{
+            .gc = gc,
             .allocator = allocator,
             .ast = ast.slice(),
             .ais = &ais,
@@ -591,7 +595,7 @@ pub const Renderer = struct {
         const end_locations = self.ast.nodes.items(.end_location);
 
         const components = self.ast.nodes.items(.components);
-        const fun_def = self.ast.nodes.items(.type_def)[node].?
+        const fun_def = self.ast.nodes.items(.type_def)[node].?.get(self.gc)
             .resolved_type.?.Function;
         const comp = components[node].Function;
         const is_lambda = if (comp.function_signature) |fs|
@@ -977,7 +981,7 @@ pub const Renderer = struct {
 
     fn renderSimpleType(self: *Self, node: Ast.Node.Index, space: Space) Error!void {
         const location = self.ast.nodes.items(.location)[node];
-        const optional = self.ast.nodes.items(.type_def)[node].?.optional;
+        const optional = self.ast.nodes.items(.type_def)[node].?.get(self.gc).optional;
 
         try self.renderToken(location, if (optional) .None else space);
 
@@ -995,24 +999,24 @@ pub const Renderer = struct {
     /// Format `{'}` treats contents as a single-quoted string.
     // FIXME: should operate on graphemes otherwise we replace emojis with series of escaped bytes?
     fn stringEscape(
-        literal: Ast.StringLiteral,
+        data: StringLiteral,
         writer: *std.Io.Writer,
     ) !void {
-        for (literal.literal.string) |byte| switch (byte) {
+        for (data.ast_literal.literal.get(data.gc).string) |byte| switch (byte) {
             '{' => try writer.writeAll("\\{"),
-            '\n' => if (literal.delimiter == '`') try writer.writeAll("\n") else try writer.writeAll("\\n"),
-            '\r' => if (literal.delimiter == '`') try writer.writeAll("\r") else try writer.writeAll("\\r"),
-            '\t' => if (literal.delimiter == '`') try writer.writeAll("\t") else try writer.writeAll("\\t"),
+            '\n' => if (data.ast_literal.delimiter == '`') try writer.writeAll("\n") else try writer.writeAll("\\n"),
+            '\r' => if (data.ast_literal.delimiter == '`') try writer.writeAll("\r") else try writer.writeAll("\\r"),
+            '\t' => if (data.ast_literal.delimiter == '`') try writer.writeAll("\t") else try writer.writeAll("\\t"),
             '\\' => try writer.writeAll("\\\\"),
             '"' => {
-                if (literal.delimiter == '`') {
+                if (data.ast_literal.delimiter == '`') {
                     try writer.writeByte('"');
                 } else {
                     try writer.writeAll("\\\"");
                 }
             },
             '`' => {
-                if (literal.delimiter == '"') {
+                if (data.ast_literal.delimiter == '"') {
                     try writer.writeAll("`");
                 } else {
                     try writer.writeByte('\'');
@@ -1032,10 +1036,18 @@ pub const Renderer = struct {
         };
     }
 
+    const StringLiteral = struct {
+        ast_literal: Ast.StringLiteral,
+        gc: *GC,
+    };
+
     fn renderStringLiteral(self: *Self, node: Ast.Node.Index, space: Space) Error!void {
         const string_literal = self.ast.nodes.items(.components)[node].StringLiteral;
-        var formatter = std.fmt.Alt(Ast.StringLiteral, stringEscape){
-            .data = string_literal,
+        var formatter = std.fmt.Alt(StringLiteral, stringEscape){
+            .data = .{
+                .ast_literal = string_literal,
+                .gc = self.gc,
+            },
         };
 
         if (string_literal.delimiter == '`') {
@@ -1141,7 +1153,7 @@ pub const Renderer = struct {
         const end_location = end_locations[node];
         const components = self.ast.nodes.items(.components)[node].ObjectInit;
         const utility_token = self.ast.tokens.items(.utility_token);
-        const mutable = self.ast.nodes.items(.type_def)[node].?.isMutable();
+        const mutable = self.ast.nodes.items(.type_def)[node].?.get(self.gc).isMutable();
 
         var token_idx = location;
         if (mutable) {
@@ -1283,14 +1295,15 @@ pub const Renderer = struct {
         defer self.ais.popIndent();
 
         // }
+        const optional = object_type.get(self.gc).optional;
         try self.renderExpectedToken(
-            if (object_type.optional) end_location - 1 else end_location,
+            if (optional) end_location - 1 else end_location,
             .RightBrace,
-            if (object_type.optional) .None else space,
+            if (optional) .None else space,
         );
 
         // ?
-        if (object_type.optional) {
+        if (optional) {
             try self.renderExpectedToken(
                 end_location,
                 .Question,
@@ -1530,7 +1543,7 @@ pub const Renderer = struct {
 
         try self.ais.pushIndent(self.allocator, .normal);
 
-        const mutable = self.ast.nodes.items(.type_def)[node].?.isMutable();
+        const mutable = self.ast.nodes.items(.type_def)[node].?.get(self.gc).isMutable();
         var token_idx = location;
         if (mutable) {
             try self.renderExpectedToken(
@@ -1605,7 +1618,7 @@ pub const Renderer = struct {
         const end_locations = self.ast.nodes.items(.end_location);
         const location = locations[node];
 
-        const type_def = self.ast.nodes.items(.type_def)[node].?;
+        const type_def = self.ast.nodes.items(.type_def)[node].?.get(self.gc);
         const is_optional = type_def.optional;
         const is_mutable = type_def.isMutable();
 
@@ -1673,7 +1686,7 @@ pub const Renderer = struct {
         else
             false;
 
-        const mutable = self.ast.nodes.items(.type_def)[node].?.isMutable();
+        const mutable = self.ast.nodes.items(.type_def)[node].?.get(self.gc).isMutable();
         var token_idx = location;
         if (mutable) {
             try self.renderExpectedToken(
@@ -1772,7 +1785,7 @@ pub const Renderer = struct {
         const end_locations = self.ast.nodes.items(.end_location);
         const location = locations[node];
 
-        const type_def = self.ast.nodes.items(.type_def)[node].?;
+        const type_def = self.ast.nodes.items(.type_def)[node].?.get(self.gc);
         const is_optional = type_def.optional;
         const is_mutable = type_def.isMutable();
 
@@ -2408,7 +2421,7 @@ pub const Renderer = struct {
 
     fn renderGenericType(self: *Self, node: Ast.Node.Index, space: Space) Error!void {
         const location = self.ast.nodes.items(.location)[node];
-        const is_optional = self.ast.nodes.items(.type_def)[node].?.optional;
+        const is_optional = self.ast.nodes.items(.type_def)[node].?.get(self.gc).optional;
 
         try self.renderExpectedToken(
             location,
@@ -2633,7 +2646,8 @@ pub const Renderer = struct {
         const end_locations = self.ast.nodes.items(.end_location);
         const type_defs = self.ast.nodes.items(.type_def);
         const components = self.ast.nodes.items(.components)[node].ObjectDeclaration;
-        const fields = type_defs[node].?.resolved_type.?
+        const fields = type_defs[node].?.get(self.gc)
+            .resolved_type.?
             .Object.fields;
 
         // docblock
@@ -2847,7 +2861,8 @@ pub const Renderer = struct {
                 );
 
                 const has_default_value = if (member.method_or_default_value) |default_value|
-                    !type_defs[member.property_type.?].?.optional or self.ast.nodes.items(.tag)[default_value] != .Null
+                    !type_defs[member.property_type.?].?.get(self.gc).optional or
+                        self.ast.nodes.items(.tag)[default_value] != .Null
                 else
                     false;
 
@@ -2952,11 +2967,14 @@ pub const Renderer = struct {
             }
 
             // mut
-            if (type_defs[node].?.resolved_type.?
+            if (type_defs[node].?.get(self.gc)
+                .resolved_type.?
                 .Protocol.methods
                 .get(
-                    type_defs[method.method].?.resolved_type.?
-                        .Function.name.string,
+                    type_defs[method.method].?.get(self.gc)
+                        .resolved_type.?
+                        .Function.name.get(self.gc)
+                        .string,
                 ).?.mutable)
             {
                 try self.renderExpectedToken(
@@ -3247,7 +3265,7 @@ pub const Renderer = struct {
 
     fn renderUserType(self: *Self, node: Ast.Node.Index, space: Space) Error!void {
         const components = self.ast.nodes.items(.components)[node].UserType;
-        const type_def = self.ast.nodes.items(.type_def)[node].?;
+        const type_def = self.ast.nodes.items(.type_def)[node].?.get(self.gc);
         const is_optional = type_def.optional;
 
         if (type_def.isMutable()) {

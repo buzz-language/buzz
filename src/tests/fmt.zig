@@ -73,6 +73,7 @@ fn testFmt(prefix: []const u8, entry: std.fs.Dir.Entry) !void {
     if (parser.parse(source, file_name, file_name) catch null) |ast| {
         try Renderer.render(
             allocator,
+            &gc,
             &result.writer,
             ast,
         );

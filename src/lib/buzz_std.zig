@@ -10,7 +10,7 @@ else
     std.os;
 
 pub export fn args(ctx: *api.NativeCtx) callconv(.c) c_int {
-    ctx.vm.bz_push(ctx.vm.bz_at(1));
+    api.bz_push(ctx.vm, api.bz_at(ctx.vm, 1));
 
     return 1;
 }
@@ -20,11 +20,12 @@ pub export fn random(ctx: *api.NativeCtx) callconv(.c) c_int {
         unreachable;
     }
 
-    const min = ctx.vm.bz_peek(1);
-    const max = ctx.vm.bz_peek(0);
+    const min = api.bz_peek(ctx.vm, 1);
+    const max = api.bz_peek(ctx.vm, 0);
 
-    ctx.vm.bz_push(
-        api.Value.fromInteger(
+    api.bz_push(
+        ctx.vm,
+        .fromInteger(
             std.crypto.random.intRangeAtMost(
                 api.Integer,
                 if (min.isInteger())
@@ -44,7 +45,11 @@ pub export fn random(ctx: *api.NativeCtx) callconv(.c) c_int {
 
 pub export fn print(ctx: *api.NativeCtx) callconv(.c) c_int {
     var len: usize = 0;
-    const string = ctx.vm.bz_peek(0).bz_valueToString(&len);
+    const string = api.bz_valueToString(
+        ctx.vm,
+        api.bz_peek(ctx.vm, 0),
+        &len,
+    );
 
     if (len == 0) {
         return 0;
@@ -61,48 +66,58 @@ pub export fn print(ctx: *api.NativeCtx) callconv(.c) c_int {
 }
 
 pub export fn toInt(ctx: *api.NativeCtx) callconv(.c) c_int {
-    const value = ctx.vm.bz_peek(0);
+    const value = api.bz_peek(ctx.vm, 0);
 
-    ctx.vm.bz_push(
-        api.Value.fromInteger(@intFromFloat(value.double())),
+    api.bz_push(
+        ctx.vm,
+        .fromInteger(@intFromFloat(value.double())),
     );
 
     return 1;
 }
 
 pub export fn toDouble(ctx: *api.NativeCtx) callconv(.c) c_int {
-    const value = ctx.vm.bz_peek(0);
+    const value = api.bz_peek(ctx.vm, 0);
 
-    ctx.vm.bz_push(
-        api.Value.fromDouble(@floatFromInt(value.integer())),
+    api.bz_push(
+        ctx.vm,
+        .fromDouble(@floatFromInt(value.integer())),
     );
 
     return 1;
 }
 
 pub export fn toUd(ctx: *api.NativeCtx) callconv(.c) c_int {
-    const value = ctx.vm.bz_peek(0);
+    const value = api.bz_peek(ctx.vm, 0);
 
-    ctx.vm.bz_push(
-        ctx.vm.bz_newUserData(if (value.isInteger())
-            @intCast(value.integer())
-        else if (value.isFloat())
-            @intFromFloat(value.double())
-        else
-            0),
+    api.bz_push(
+        ctx.vm,
+        api.bz_newUserData(
+            ctx.vm,
+            if (value.isInteger())
+                @intCast(value.integer())
+            else if (value.isFloat())
+                @intFromFloat(value.double())
+            else
+                0,
+        ),
     );
 
     return 1;
 }
 
 pub export fn parseInt(ctx: *api.NativeCtx) callconv(.c) c_int {
-    const string_value = ctx.vm.bz_peek(0);
+    const string_value = api.bz_peek(ctx.vm, 0);
 
     var len: usize = 0;
-    const string = string_value.bz_valueToString(&len);
+    const string = api.bz_valueToString(
+        ctx.vm,
+        string_value,
+        &len,
+    );
 
     if (len == 0) {
-        ctx.vm.bz_push(api.Value.Null);
+        api.bz_push(ctx.vm, .Null);
 
         return 1;
     }
@@ -110,24 +125,24 @@ pub export fn parseInt(ctx: *api.NativeCtx) callconv(.c) c_int {
     const string_slice = string.?[0..len];
 
     const number = std.fmt.parseInt(api.Integer, string_slice, 10) catch {
-        ctx.vm.bz_push(api.Value.Null);
+        api.bz_push(ctx.vm, .Null);
 
         return 1;
     };
 
-    ctx.vm.bz_push(api.Value.fromInteger(number));
+    api.bz_push(ctx.vm, .fromInteger(number));
 
     return 1;
 }
 
 pub export fn parseUd(ctx: *api.NativeCtx) callconv(.c) c_int {
-    const string_value = ctx.vm.bz_peek(0);
+    const string_value = api.bz_peek(ctx.vm, 0);
 
     var len: usize = 0;
-    const string = string_value.bz_valueToString(&len);
+    const string = api.bz_valueToString(ctx.vm, string_value, &len);
 
     if (len == 0) {
-        ctx.vm.bz_push(api.Value.Null);
+        api.bz_push(ctx.vm, .Null);
 
         return 1;
     }
@@ -135,29 +150,27 @@ pub export fn parseUd(ctx: *api.NativeCtx) callconv(.c) c_int {
     const string_slice = string.?[0..len];
 
     const number = std.fmt.parseInt(u64, string_slice, 10) catch {
-        ctx.vm.bz_push(api.Value.Null);
+        api.bz_push(ctx.vm, .Null);
 
         return 1;
     };
 
-    ctx.vm.bz_push(
-        api.VM.bz_newUserData(
-            ctx.vm,
-            number,
-        ),
+    api.bz_push(
+        ctx.vm,
+        api.bz_newUserData(ctx.vm, number),
     );
 
     return 1;
 }
 
 pub export fn parseDouble(ctx: *api.NativeCtx) callconv(.c) c_int {
-    const string_value = ctx.vm.bz_peek(0);
+    const string_value = api.bz_peek(ctx.vm, 0);
 
     var len: usize = 0;
-    const string = string_value.bz_valueToString(&len);
+    const string = api.bz_valueToString(ctx.vm, string_value, &len);
 
     if (len == 0) {
-        ctx.vm.bz_push(api.Value.Null);
+        api.bz_push(ctx.vm, .Null);
 
         return 1;
     }
@@ -165,18 +178,18 @@ pub export fn parseDouble(ctx: *api.NativeCtx) callconv(.c) c_int {
     const string_slice = string.?[0..len];
 
     const number = std.fmt.parseFloat(f64, string_slice) catch {
-        ctx.vm.bz_push(api.Value.Null);
+        api.bz_push(ctx.vm, .Null);
 
         return 1;
     };
 
-    ctx.vm.bz_push(api.Value.fromDouble(number));
+    api.bz_push(ctx.vm, .fromDouble(number));
 
     return 1;
 }
 
 pub export fn char(ctx: *api.NativeCtx) callconv(.c) c_int {
-    const byte_value = ctx.vm.bz_peek(0);
+    const byte_value = api.bz_peek(ctx.vm, 0);
 
     var byte = byte_value.integer();
 
@@ -188,21 +201,22 @@ pub export fn char(ctx: *api.NativeCtx) callconv(.c) c_int {
 
     const str = [_]u8{@as(u8, @intCast(byte))};
 
-    ctx.vm.bz_push(
-        api.VM.bz_stringToValue(ctx.vm, str[0..], 1),
+    api.bz_push(
+        ctx.vm,
+        api.bz_stringToValue(ctx.vm, str[0..], 1),
     );
 
     return 1;
 }
 
 pub export fn assert(ctx: *api.NativeCtx) callconv(.c) c_int {
-    const condition_value = ctx.vm.bz_peek(1);
-    const message_value = ctx.vm.bz_peek(0);
+    const condition_value = api.bz_peek(ctx.vm, 1);
+    const message_value = api.bz_peek(ctx.vm, 0);
 
     if (!condition_value.boolean()) {
         if (message_value.isObj()) {
             var len: usize = 0;
-            const message = api.Value.bz_valueToString(message_value, &len).?;
+            const message = api.bz_valueToString(ctx.vm, message_value, &len).?;
             io.stdoutWriter.print(
                 "Assert failed: {s}\n",
                 .{
@@ -222,16 +236,23 @@ pub export fn assert(ctx: *api.NativeCtx) callconv(.c) c_int {
 }
 
 pub export fn currentFiber(ctx: *api.NativeCtx) callconv(.c) c_int {
-    ctx.vm.bz_push(ctx.vm.bz_currentFiber());
+    api.bz_push(
+        ctx.vm,
+        api.bz_currentFiber(ctx.vm),
+    );
 
     return 1;
 }
 
 pub export fn buzzPanic(ctx: *api.NativeCtx) callconv(.c) c_int {
     var len: usize = 0;
-    const message = api.Value.bz_valueToString(ctx.vm.bz_peek(0), &len).?;
+    const message = api.bz_valueToString(
+        ctx.vm,
+        api.bz_peek(ctx.vm, 0),
+        &len,
+    ).?;
 
-    ctx.vm.bz_panic(message, len);
+    api.bz_panic(ctx.vm, message, len);
 
     unreachable;
 }

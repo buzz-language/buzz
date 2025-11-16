@@ -16,11 +16,12 @@ const FFI = if (!is_wasm) @import("FFI.zig") else void;
 const dispatch_call_modifier: std.builtin.CallModifier = if (!is_wasm) .always_tail else .auto;
 const io = @import("io.zig");
 const Debugger = if (!is_wasm) @import("Debugger.zig") else void;
+const Pool = @import("pool.zig").Pool;
 
 const dumpStack = disassembler.dumpStack;
 const jmp = if (!is_wasm) @import("jmp.zig") else void;
 
-pub const ImportRegistry = std.AutoHashMapUnmanaged(*obj.ObjString, []const Value);
+pub const ImportRegistry = std.AutoHashMapUnmanaged(Pool(obj.ObjString).Idx, []const Value);
 
 pub const RunFlavor = enum {
     Run,
@@ -55,7 +56,7 @@ pub const RunFlavor = enum {
 pub const CallFrame = struct {
     const Self = @This();
 
-    closure: *obj.ObjClosure,
+    closure: Pool(obj.ObjClosure).Idx,
     /// Index into closure's chunk
     ip: usize,
     /// Frame
@@ -112,11 +113,11 @@ pub const Fiber = struct {
     // FIXME: this is useless since we actually pop items from the frames list
     frame_count: usize = 0,
     recursive_count: u32 = 0,
-    current_compiled_function: ?*obj.ObjFunction = null,
+    current_compiled_function: ?Pool(obj.ObjFunction).Idx = null,
 
     stack: []Value,
     stack_top: [*]Value,
-    open_upvalues: ?*obj.ObjUpValue,
+    open_upvalues: ?Pool(obj.ObjUpValue).Idx = null,
     /// Debug info
     locals_dbg: std.ArrayList(Value) = .empty,
 
@@ -127,7 +128,7 @@ pub const Fiber = struct {
     /// When within a try catch in a JIT compiled function
     try_context: ?*TryCtx = null,
 
-    type_def: *obj.ObjTypeDef,
+    type_def: Pool(obj.ObjTypeDef).Idx,
 
     /// If true, this fiber was created in order to evaluate an expression while debugging
     /// This prevents the eval result to be lost
@@ -135,7 +136,7 @@ pub const Fiber = struct {
 
     pub fn init(
         allocator: std.mem.Allocator,
-        type_def: *obj.ObjTypeDef,
+        type_def: Pool(obj.ObjTypeDef).Idx,
         parent_fiber: ?*Fiber,
         stack_slice: ?[]Value,
         instruction: u32,
@@ -148,7 +149,6 @@ pub const Fiber = struct {
             .stack = try allocator.alloc(Value, BuildOptions.stack_size),
             .stack_top = undefined,
             .frames = .empty,
-            .open_upvalues = null,
             .instruction = instruction,
             .extra_instruction = extra_instruction,
         };
@@ -203,13 +203,12 @@ pub const Fiber = struct {
                 false,
             ),
             .OP_INSTANCE_INVOKE, .OP_INSTANCE_TAIL_INVOKE => {
-                const instance = vm.peek(arg_count).obj()
-                    .access(obj.ObjObjectInstance, .ObjectInstance, vm.gc).?;
+                const instance = vm.peekAsIdx(obj.ObjObjectInstance, arg_count);
 
-                std.debug.assert(instance.object != null);
+                std.debug.assert(instance.get(vm.gc).object != null);
 
                 _ = try vm.invokeFromObject(
-                    instance.object.?,
+                    instance.get(vm.gc).object.?,
                     VM.getArg(self.instruction),
                     arg_count,
                     catch_value,
@@ -217,22 +216,20 @@ pub const Fiber = struct {
                 );
             },
             .OP_PROTOCOL_INVOKE, .OP_PROTOCOL_TAIL_INVOKE => {
-                const name = vm.readConstant(VM.getArg(self.instruction))
-                    .obj().access(obj.ObjString, .String, vm.gc).?
-                    .string;
+                const name = vm.readConstantAs(obj.ObjString, VM.getArg(self.instruction)).string;
+                const instance = vm.peekAsIdx(obj.ObjObjectInstance, arg_count);
 
-                const instance = vm.peek(arg_count).obj()
-                    .access(obj.ObjObjectInstance, .ObjectInstance, vm.gc).?;
-
-                std.debug.assert(instance.object != null);
+                std.debug.assert(instance.get(vm.gc).object != null);
 
                 // Find the actual field
-                const property_idx = instance.type_def.resolved_type.?.ObjectInstance.of
+                const property_idx = instance.get(vm.gc)
+                    .type_def.get(vm.gc)
+                    .resolved_type.?.ObjectInstance.of.get(vm.gc)
                     .resolved_type.?.Object
                     .fields.get(name).?.index;
 
                 _ = try vm.invokeFromObject(
-                    instance.object.?,
+                    instance.get(vm.gc).object.?,
                     property_idx,
                     arg_count,
                     catch_value,
@@ -240,8 +237,8 @@ pub const Fiber = struct {
                 );
             },
             .OP_MAP_INVOKE => {
-                const map = vm.peek(arg_count).obj().access(obj.ObjMap, .Map, vm.gc).?;
-                const member = try map.member(vm, VM.getArg(self.instruction));
+                const map = vm.peekAsIdx(obj.ObjMap, arg_count);
+                const member = try map.get(vm.gc).member(vm, VM.getArg(self.instruction));
 
                 (self.stack_top - arg_count - 1)[0] = member;
                 try vm.callValue(
@@ -251,8 +248,8 @@ pub const Fiber = struct {
                 );
             },
             .OP_LIST_INVOKE => {
-                const list = vm.peek(arg_count).obj().access(obj.ObjList, .List, vm.gc).?;
-                const member = try list.member(vm, VM.getArg(self.instruction));
+                const list = vm.peekAsIdx(obj.ObjList, arg_count);
+                const member = try list.get(vm.gc).member(vm, VM.getArg(self.instruction));
 
                 (self.stack_top - arg_count - 1)[0] = member;
                 try vm.callValue(
@@ -347,7 +344,7 @@ pub const Fiber = struct {
                 // User should check fiber.over() before doing `resume`
                 try vm.throw(
                     VM.Error.FiberOver,
-                    (try vm.gc.copyString("Fiber is over")).toValue(),
+                    .fromObj(.{ .index = (try vm.gc.copyString("Fiber is over")).index, .obj_type = .String }),
                     null,
                     null,
                 );
@@ -462,9 +459,7 @@ pub const VM = struct {
             .current_ast = undefined,
             .current_fiber = undefined,
             .flavor = flavor,
-            .reporter = Reporter{
-                .allocator = gc.allocator,
-            },
+            .reporter = Reporter{ .gc = gc },
             .ffi = if (!is_wasm) FFI.init(gc) else {},
             .debugger = debugger,
         };
@@ -479,8 +474,8 @@ pub const VM = struct {
         self.gc.unregisterVM(self);
     }
 
-    pub fn cliArgs(self: *Self, args: ?[]const []const u8) !*obj.ObjList {
-        var arg_list = try self.gc.allocateObject(
+    pub fn cliArgs(self: *Self, args: ?[]const []const u8) !Value {
+        const arg_list_idx = try self.gc.allocateObject(
             try obj.ObjList.init(
                 self.gc.allocator,
                 // TODO: get instance that already exists
@@ -500,7 +495,9 @@ pub const VM = struct {
         );
 
         // Prevent gc
-        self.push(arg_list.toValue());
+        self.push(
+            .fromObj(.{ .index = arg_list_idx.index, .obj_type = .List }),
+        );
 
         if (args) |uargs| {
             for (uargs, 0..) |arg, index| {
@@ -510,16 +507,26 @@ pub const VM = struct {
                     break;
                 }
 
-                try arg_list.items.append(
+                try arg_list_idx.get(self.gc).items.append(
                     self.gc.allocator,
-                    Value.fromObj((try self.gc.copyString(std.mem.sliceTo(arg, 0))).toObj()),
+                    .fromObj(
+                        .{
+                            .index = (try self.gc.copyString(std.mem.sliceTo(arg, 0))).index,
+                            .obj_type = .String,
+                        },
+                    ),
                 );
             }
         }
 
         _ = self.pop();
 
-        return arg_list;
+        return .fromObj(
+            .{
+                .index = arg_list_idx.index,
+                .obj_type = .List,
+            },
+        );
     }
 
     pub fn push(self: *Self, value: Value) void {
@@ -534,6 +541,10 @@ pub const VM = struct {
         return self.current_fiber.stack_top[0];
     }
 
+    pub fn popAsIdx(self: *Self, comptime T: type) Pool(T).Idx {
+        return .idx(self.pop().obj().index);
+    }
+
     pub fn discard(self: *Self, n: usize) void {
         self.current_fiber.stack_top -= n;
     }
@@ -542,9 +553,13 @@ pub const VM = struct {
         return (self.current_fiber.stack_top - 1 - distance)[0];
     }
 
+    pub fn peekAsIdx(self: *Self, comptime T: type, distance: u32) Pool(T).Idx {
+        return .idx(self.peek(distance).obj().index);
+    }
+
     pub fn cloneValue(self: *Self, value: Value) !Value {
         return if (value.isObj())
-            try obj.cloneObject(value.obj(), self)
+            try value.obj().clone(self.gc)
         else
             value;
     }
@@ -559,11 +574,32 @@ pub const VM = struct {
         return &self.current_fiber.frames.items[self.current_fiber.frame_count - 1];
     }
 
-    pub fn currentGlobals(self: *Self) *std.ArrayList(Value) {
-        return self.currentFrame().?.closure.globals;
+    pub fn currentClosure(self: *Self) ?*obj.ObjClosure {
+        return if (self.currentFrame()) |frame|
+            frame.closure.get(self.gc)
+        else
+            null;
     }
 
-    pub fn interpret(self: *Self, ast: Ast.Slice, function: *obj.ObjFunction, args: ?[]const []const u8) Error!void {
+    pub fn currentClosureIdx(self: *Self) ?Pool(obj.ObjClosure).Idx {
+        return if (self.currentFrame()) |frame|
+            frame.closure
+        else
+            null;
+    }
+
+    pub fn currentFunction(self: *Self) ?*obj.ObjFunction {
+        return if (self.currentClosure()) |closure|
+            closure.function.get(self.gc)
+        else
+            null;
+    }
+
+    pub fn currentGlobals(self: *Self) *std.ArrayList(Value) {
+        return self.currentClosure().?.globals;
+    }
+
+    pub fn interpret(self: *Self, ast: Ast.Slice, function: Pool(obj.ObjFunction).Idx, args: ?[]const []const u8) Error!void {
         self.current_ast = ast;
 
         self.current_fiber = try self.gc.allocator.create(Fiber);
@@ -589,16 +625,21 @@ pub const VM = struct {
         );
 
         self.push(
-            (try self.gc.allocateObject(
-                try obj.ObjClosure.init(
-                    self.gc.allocator,
-                    self,
-                    function,
-                ),
-            )).toValue(),
+            .fromObj(
+                .{
+                    .index = (try self.gc.allocateObject(
+                        try obj.ObjClosure.init(
+                            self.gc.allocator,
+                            self,
+                            function,
+                        ),
+                    )).index,
+                    .obj_type = .Closure,
+                },
+            ),
         );
 
-        self.push((try self.cliArgs(args)).toValue());
+        self.push((try self.cliArgs(args)));
 
         try self.gc.registerVM(self);
 
@@ -611,16 +652,19 @@ pub const VM = struct {
         self.current_fiber.status = .Running;
 
         // If debugging, don't run the entry point right away
-        if (self.debugger == null or function.type_def.resolved_type.?.Function.function_type != .ScriptEntryPoint) {
+        if (self.debugger == null or
+            function.get(self.gc).type_def.get(self.gc).resolved_type.?.Function.function_type != .ScriptEntryPoint)
+        {
             try self.run();
         }
     }
 
     fn readPreviousInstruction(self: *Self) ?u32 {
         const current_frame = self.currentFrame().?;
+        const current_function = self.currentFunction().?;
 
         if (current_frame.ip > 0) {
-            return current_frame.closure.function.chunk.code.items[current_frame.ip - 1];
+            return current_function.chunk.code.items[current_frame.ip - 1];
         }
 
         return null;
@@ -628,7 +672,8 @@ pub const VM = struct {
 
     fn readInstruction(self: *Self) u32 {
         const current_frame = self.currentFrame().?;
-        const instruction = current_frame.closure.function.chunk.code.items[current_frame.ip];
+        const current_function = self.currentFunction().?;
+        const instruction = current_function.chunk.code.items[current_frame.ip];
 
         current_frame.ip += 1;
 
@@ -652,15 +697,15 @@ pub const VM = struct {
     }
 
     pub fn readConstant(self: *Self, arg: u24) Value {
-        return self.currentFrame().?.closure.function.chunk.constants.items[arg];
+        return self.currentFunction().?.chunk.constants.items[arg];
     }
 
-    fn readString(self: *Self, arg: u24) *obj.ObjString {
-        return self.readConstant(arg).obj().access(
-            obj.ObjString,
-            .String,
-            self.gc,
-        ).?;
+    pub fn readConstantAs(self: *Self, comptime T: type, arg: u24) *T {
+        return self.gc.ptr(T, .idx(self.readConstant(arg).obj().index)).?;
+    }
+
+    pub fn readConstantAsIdx(self: *Self, comptime T: type, arg: u24) Pool(T).Idx {
+        return .idx(self.readConstant(arg).obj().index);
     }
 
     const OpFn = *const fn (*Self, *CallFrame, u32, Chunk.OpCode, u24) void;
@@ -847,12 +892,6 @@ pub const VM = struct {
             // As soon as we step into catch clauses, we're not in a try-catch block anymore
             current_frame.try_ip = null;
             current_frame.try_top = null;
-        }
-
-        if (BuildOptions.gc_debug_access) {
-            self.gc.where = self.current_ast.tokens.get(
-                current_frame.closure.function.chunk.lines.items[current_frame.ip - 1],
-            );
         }
 
         if (BuildOptions.cycle_limit) |limit| {
@@ -1166,7 +1205,11 @@ pub const VM = struct {
     }
 
     fn OP_GET_UPVALUE(self: *Self, current_frame: *CallFrame, _: u32, _: Chunk.OpCode, arg: u24) void {
-        self.push(current_frame.closure.upvalues[arg].location.*);
+        self.push(
+            current_frame.closure.get(self.gc)
+                .upvalues[arg].get(self.gc)
+                .location.*,
+        );
 
         const next_full_instruction = self.readInstruction();
         @call(
@@ -1183,7 +1226,9 @@ pub const VM = struct {
     }
 
     fn OP_SET_UPVALUE(self: *Self, current_frame: *CallFrame, _: u32, _: Chunk.OpCode, arg: u24) void {
-        current_frame.closure.upvalues[arg].location.* = self.peek(0);
+        current_frame.closure.get(self.gc)
+            .upvalues[arg].get(self.gc)
+            .location.* = self.peek(0);
 
         const next_full_instruction = self.readInstruction();
         @call(
@@ -1217,16 +1262,19 @@ pub const VM = struct {
     }
 
     fn OP_TO_STRING(self: *Self, _: *CallFrame, _: u32, _: Chunk.OpCode, _: u24) void {
-        const str = self.pop().toStringAlloc(self.gc.allocator) catch {
+        const str = self.pop().toStringAlloc(self.gc) catch {
             self.panic("Out of memory");
             unreachable;
         };
         self.push(
-            Value.fromObj(
-                (self.gc.copyString(str) catch {
-                    self.panic("Out of memory");
-                    unreachable;
-                }).toObj(),
+            .fromObj(
+                .{
+                    .index = (self.gc.copyString(str) catch {
+                        self.panic("Out of memory");
+                        unreachable;
+                    }).index,
+                    .obj_type = .String,
+                },
             ),
         );
         self.gc.allocator.free(str);
@@ -1247,7 +1295,7 @@ pub const VM = struct {
 
     fn OP_NEGATE_I(self: *Self, _: *CallFrame, _: u32, _: Chunk.OpCode, _: u24) void {
         self.push(
-            Value.fromInteger(
+            .fromInteger(
                 -%self.pop().integer(),
             ),
         );
@@ -1268,7 +1316,7 @@ pub const VM = struct {
 
     fn OP_NEGATE_F(self: *Self, _: *CallFrame, _: u32, _: Chunk.OpCode, _: u24) void {
         self.push(
-            Value.fromDouble(
+            .fromDouble(
                 -self.pop().double(),
             ),
         );
@@ -1288,17 +1336,13 @@ pub const VM = struct {
     }
 
     fn OP_CLOSURE(self: *Self, current_frame: *CallFrame, _: u32, _: Chunk.OpCode, arg: u24) void {
-        const function = self.readConstant(arg).obj().access(
-            obj.ObjFunction,
-            .Function,
-            self.gc,
-        ).?;
+        const function_idx = Pool(obj.ObjFunction).Idx.idx(self.readConstant(arg).obj().index);
 
-        var closure = self.gc.allocateObject(
+        const closure_idx = self.gc.allocateObject(
             obj.ObjClosure.init(
                 self.gc.allocator,
                 self,
-                function,
+                function_idx,
             ) catch {
                 self.panic("Out of memory");
                 unreachable;
@@ -1308,20 +1352,27 @@ pub const VM = struct {
             unreachable;
         };
 
-        self.push(closure.toValue());
+        self.push(
+            .fromObj(
+                .{
+                    .index = closure_idx.index,
+                    .obj_type = .Closure,
+                },
+            ),
+        );
 
         var i: usize = 0;
-        while (i < function.upvalue_count) : (i += 1) {
+        while (i < function_idx.get(self.gc).upvalue_count) : (i += 1) {
             const is_local = self.readByte() == 1;
             const index = self.readByte();
 
             if (is_local) {
-                closure.upvalues[i] = self.captureUpvalue(&(current_frame.slots[index])) catch {
+                closure_idx.get(self.gc).upvalues[i] = self.captureUpvalue(&(current_frame.slots[index])) catch {
                     self.panic("Out of memory");
                     unreachable;
                 };
             } else {
-                closure.upvalues[i] = current_frame.closure.upvalues[index];
+                closure_idx.get(self.gc).upvalues[i] = current_frame.closure.get(self.gc).upvalues[index];
             }
         }
 
@@ -1423,7 +1474,7 @@ pub const VM = struct {
         // Pop arguments and catch clauses
         self.current_fiber.stack_top = self.current_fiber.stack_top - stack_len;
 
-        fiber.type_def = self.pop().obj().access(obj.ObjTypeDef, .Type, self.gc).?;
+        fiber.type_def = .idx(self.pop().obj().index);
 
         // Put new fiber on the stack
         var obj_fiber = self.gc.allocateObject(obj.ObjFiber{
@@ -1433,7 +1484,9 @@ pub const VM = struct {
             unreachable;
         };
 
-        self.push(obj_fiber.toValue());
+        self.push(
+            .fromObj(.{ .index = obj_fiber.index, .obj_type = .Type }),
+        );
 
         const next_full_instruction = self.readInstruction();
         @call(
@@ -1450,8 +1503,7 @@ pub const VM = struct {
     }
 
     fn OP_RESUME(self: *Self, _: *CallFrame, _: u32, _: Chunk.OpCode, _: u24) void {
-        self.pop().obj()
-            .access(obj.ObjFiber, .Fiber, self.gc).?
+        self.popAsIdx(obj.ObjFiber).get(self.gc)
             .fiber.@"resume"(self) catch |err| {
             switch (err) {
                 Error.RuntimeError => return,
@@ -1477,8 +1529,7 @@ pub const VM = struct {
     }
 
     fn OP_RESOLVE(self: *Self, _: *CallFrame, _: u32, _: Chunk.OpCode, _: u24) void {
-        self.pop().obj()
-            .access(obj.ObjFiber, .Fiber, self.gc).?
+        self.popAsIdx(obj.ObjFiber).get(self.gc)
             .fiber.resolve(self) catch |err| {
             switch (err) {
                 Error.RuntimeError => return,
@@ -1597,12 +1648,11 @@ pub const VM = struct {
         const catch_count: u24 = @intCast(0x00ffffff & arg_instruction);
         const catch_value = if (catch_count > 0) self.pop() else null;
 
-        const instance = self.peek(arg_count).obj()
-            .access(obj.ObjObjectInstance, .ObjectInstance, self.gc).?;
+        const instance = self.peekAsIdx(obj.ObjObjectInstance, arg_count);
 
-        std.debug.assert(instance.object != null);
+        std.debug.assert(instance.get(self.gc).object != null);
 
-        const property = instance.fields[property_idx];
+        const property = instance.get(self.gc).fields[property_idx];
 
         (self.current_fiber.stack_top - arg_count - 1)[0] = property;
 
@@ -1685,13 +1735,12 @@ pub const VM = struct {
         const catch_count: u24 = @intCast(0x00ffffff & arg_instruction);
         const catch_value = if (catch_count > 0) self.pop() else null;
 
-        const instance = self.peek(arg_count).obj()
-            .access(obj.ObjObjectInstance, .ObjectInstance, self.gc).?;
+        const instance = self.peekAsIdx(obj.ObjObjectInstance, arg_count);
 
-        std.debug.assert(instance.object != null);
+        std.debug.assert(instance.get(self.gc).object != null);
 
         _ = self.invokeFromObject(
-            instance.object.?,
+            instance.get(self.gc).object.?,
             property_idx,
             arg_count,
             catch_value,
@@ -1721,27 +1770,26 @@ pub const VM = struct {
     }
 
     fn OP_PROTOCOL_INVOKE(self: *Self, _: *CallFrame, _: u32, _: Chunk.OpCode, name_constant: u24) void {
-        const name = self.readConstant(name_constant)
-            .obj().access(obj.ObjString, .String, self.gc).?
-            .string;
+        const name = self.readConstantAs(obj.ObjString, name_constant).string;
 
         const arg_instruction = self.readInstruction();
         const arg_count: u8 = @intCast(arg_instruction >> 24);
         const catch_count: u24 = @intCast(0x00ffffff & arg_instruction);
         const catch_value = if (catch_count > 0) self.pop() else null;
 
-        const instance = self.peek(arg_count).obj()
-            .access(obj.ObjObjectInstance, .ObjectInstance, self.gc).?;
+        const instance = self.peekAsIdx(obj.ObjObjectInstance, arg_count);
 
-        std.debug.assert(instance.object != null);
+        std.debug.assert(instance.get(self.gc).object != null);
 
         // Find the actual field
-        const property_idx = instance.type_def.resolved_type.?.ObjectInstance.of
+        const property_idx = instance.get(self.gc)
+            .type_def.get(self.gc)
+            .resolved_type.?.ObjectInstance.of.get(self.gc)
             .resolved_type.?.Object
             .fields.get(name).?.index;
 
         _ = self.invokeFromObject(
-            instance.object.?,
+            instance.get(self.gc).object.?,
             property_idx,
             arg_count,
             catch_value,
@@ -1776,13 +1824,12 @@ pub const VM = struct {
         const catch_count: u24 = @intCast(0x00ffffff & arg_instruction);
         const catch_value = if (catch_count > 0) self.pop() else null;
 
-        const instance = self.peek(arg_count).obj()
-            .access(obj.ObjObjectInstance, .ObjectInstance, self.gc).?;
+        const instance = self.peekAsIdx(obj.ObjObjectInstance, arg_count);
 
-        std.debug.assert(instance.object != null);
+        std.debug.assert(instance.get(self.gc).object != null);
 
         _ = self.invokeFromObject(
-            instance.object.?,
+            instance.get(self.gc).object.?,
             property_idx,
             arg_count,
             catch_value,
@@ -1812,27 +1859,26 @@ pub const VM = struct {
     }
 
     fn OP_PROTOCOL_TAIL_INVOKE(self: *Self, _: *CallFrame, _: u32, _: Chunk.OpCode, name_constant: u24) void {
-        const name = self.readConstant(name_constant)
-            .obj().access(obj.ObjString, .String, self.gc).?
-            .string;
+        const name = self.readConstantAs(obj.ObjString, name_constant).string;
 
         const arg_instruction = self.readInstruction();
         const arg_count: u8 = @intCast(arg_instruction >> 24);
         const catch_count: u24 = @intCast(0x00ffffff & arg_instruction);
         const catch_value = if (catch_count > 0) self.pop() else null;
 
-        const instance = self.peek(arg_count).obj()
-            .access(obj.ObjObjectInstance, .ObjectInstance, self.gc).?;
+        const instance = self.peekAsIdx(obj.ObjObjectInstance, arg_count);
 
-        std.debug.assert(instance.object != null);
+        std.debug.assert(instance.get(self.gc).object != null);
 
         // Find the actual field
-        const property_idx = instance.type_def.resolved_type.?.ObjectInstance.of
+        const property_idx = instance.get(self.gc)
+            .type_def.get(self.gc)
+            .resolved_type.?.ObjectInstance.of.get(self.gc)
             .resolved_type.?.Object
             .fields.get(name).?.index;
 
         _ = self.invokeFromObject(
-            instance.object.?,
+            instance.get(self.gc).object.?,
             property_idx,
             arg_count,
             catch_value,
@@ -2030,8 +2076,8 @@ pub const VM = struct {
         const catch_count: u24 = @intCast(0x00ffffff & arg_instruction);
         const catch_value = if (catch_count > 0) self.pop() else null;
 
-        const list = self.peek(arg_count).obj().access(obj.ObjList, .List, self.gc).?;
-        const member = list.member(self, method_idx) catch {
+        const list = self.peekAsIdx(obj.ObjList, arg_count);
+        const member = list.get(self.gc).member(self, method_idx) catch {
             self.panic("Out of memory");
             unreachable;
         };
@@ -2071,8 +2117,8 @@ pub const VM = struct {
         const catch_count: u24 = @intCast(0x00ffffff & arg_instruction);
         const catch_value = if (catch_count > 0) self.pop() else null;
 
-        const map = self.peek(arg_count).obj().access(obj.ObjMap, .Map, self.gc).?;
-        const member = map.member(self, method_idx) catch {
+        const map = self.peekAsIdx(obj.ObjMap, arg_count);
+        const member = map.get(self.gc).member(self, method_idx) catch {
             self.panic("Out of memory");
             unreachable;
         };
@@ -2147,7 +2193,7 @@ pub const VM = struct {
         return false;
     }
 
-    fn repurposeFrame(self: *Self, closure: *obj.ObjClosure, arg_count: u8, catch_value: ?Value) Error!void {
+    fn repurposeFrame(self: *Self, closure: Pool(obj.ObjClosure).Idx, arg_count: u8, catch_value: ?Value) Error!void {
         // Is or will be JIT compiled, call and stop there
         if (!is_wasm and self.current_fiber.parent_fiber == null and
             try self.compileAndCall(
@@ -2202,14 +2248,14 @@ pub const VM = struct {
     }
 
     fn OP_EXPORT(self: *Self, _: *CallFrame, _: u32, _: Chunk.OpCode, arg: u24) void {
-        self.push(Value.fromInteger(@as(v.Integer, @intCast(arg))));
+        self.push(.fromInteger(@as(v.Integer, @intCast(arg))));
 
         // Ends program, so we don't call dispatch
     }
 
     fn OP_IMPORT(self: *Self, _: *CallFrame, _: u32, _: Chunk.OpCode, _: u24) void {
-        const fullpath = self.peek(1).obj().access(obj.ObjString, .String, self.gc).?;
-        const closure = self.peek(0).obj().access(obj.ObjClosure, .Closure, self.gc).?;
+        const fullpath = Pool(obj.ObjString).Idx.idx(self.peek(1).obj().index);
+        const closure = self.peekAsIdx(obj.ObjClosure, 0);
 
         if (self.import_registry.get(fullpath)) |globals| {
             self.globals.appendSlice(self.gc.allocator, globals) catch {
@@ -2237,7 +2283,7 @@ pub const VM = struct {
             //     defer gn.deinit();
             // }
 
-            vm.interpret(self.current_ast, closure.function, null) catch |err| {
+            vm.interpret(self.current_ast, closure.get(self.gc).function, null) catch |err| {
                 switch (err) {
                     Error.RuntimeError => return,
                     else => {
@@ -2392,11 +2438,7 @@ pub const VM = struct {
         var list = self.gc.allocateObject(
             obj.ObjList.init(
                 self.gc.allocator,
-                self.readConstant(arg).obj().access(
-                    obj.ObjTypeDef,
-                    .Type,
-                    self.gc,
-                ).?,
+                .idx(self.readConstant(arg).obj().index),
             ) catch {
                 self.panic("Out of memory");
                 unreachable;
@@ -2406,7 +2448,9 @@ pub const VM = struct {
             unreachable;
         };
 
-        self.push(Value.fromObj(list.toObj()));
+        self.push(
+            .fromObj(.{ .index = list.index, .obj_type = .List }),
+        );
 
         const next_full_instruction = self.readInstruction();
         @call(
@@ -2427,15 +2471,20 @@ pub const VM = struct {
         const low = self.pop().integer();
 
         self.push(
-            Value.fromObj((self.gc.allocateObject(
-                obj.ObjRange{
-                    .high = high,
-                    .low = low,
+            .fromObj(
+                .{
+                    .index = (self.gc.allocateObject(
+                        obj.ObjRange{
+                            .high = high,
+                            .low = low,
+                        },
+                    ) catch {
+                        self.panic("Out of memory");
+                        unreachable;
+                    }).index,
+                    .obj_type = .Range,
                 },
-            ) catch {
-                self.panic("Out of memory");
-                unreachable;
-            }).toObj()),
+            ),
         );
 
         const next_full_instruction = self.readInstruction();
@@ -2453,12 +2502,12 @@ pub const VM = struct {
     }
 
     fn OP_LIST_APPEND(self: *Self, _: *CallFrame, _: u32, _: Chunk.OpCode, item_count: u24) void {
-        var list = self.peek(item_count).obj().access(obj.ObjList, .List, self.gc).?;
+        const list = self.peekAsIdx(obj.ObjList, item_count);
 
         var distance: i64 = @intCast(item_count - 1);
         while (distance >= 0) : (distance -= 1) {
             const item = self.peek(@intCast(distance));
-            list.rawAppend(self.gc, item) catch {
+            obj.ObjList.rawAppend(list, self.gc, item) catch {
                 self.panic("Out of memory");
                 unreachable;
             };
@@ -2485,7 +2534,7 @@ pub const VM = struct {
         var map = self.gc.allocateObject(
             obj.ObjMap.init(
                 self.gc.allocator,
-                self.readConstant(arg).obj().access(obj.ObjTypeDef, .Type, self.gc).?,
+                .idx(self.readConstant(arg).obj().index),
             ) catch {
                 self.panic("Out of memory");
                 unreachable;
@@ -2495,7 +2544,9 @@ pub const VM = struct {
             unreachable;
         };
 
-        self.push(Value.fromObj(map.toObj()));
+        self.push(
+            .fromObj(.{ .index = map.index, .obj_type = .Map }),
+        );
 
         const next_full_instruction = self.readInstruction();
         @call(
@@ -2512,15 +2563,14 @@ pub const VM = struct {
     }
 
     fn OP_SET_MAP(self: *Self, _: *CallFrame, _: u32, _: Chunk.OpCode, entries_count: u24) void {
-        var map = self.peek(entries_count * 2).obj()
-            .access(obj.ObjMap, .Map, self.gc).?;
+        const map = self.peekAsIdx(obj.ObjMap, entries_count * 2);
 
         var distance: i64 = @intCast((entries_count * 2) - 1);
         while (distance >= 0) : (distance -= 2) {
             const key = self.peek(@intCast(distance));
             const value = self.peek(@intCast(distance - 1));
 
-            map.set(self.gc, key, value) catch {
+            obj.ObjMap.set(map, self.gc, key, value) catch {
                 self.panic("Out of memory");
                 unreachable;
             };
@@ -2544,17 +2594,21 @@ pub const VM = struct {
     }
 
     fn OP_GET_LIST_SUBSCRIPT(self: *Self, _: *CallFrame, _: u32, _: Chunk.OpCode, checked_or_leave: u24) void {
-        const list = self.peek(1).obj()
-            .access(obj.ObjList, .List, self.gc).?;
+        const list = self.peekAsIdx(obj.ObjList, 1);
         const index = self.peek(0).integer();
 
         if (checked_or_leave != 1 and index < 0) {
             self.throw(
                 Error.OutOfBound,
-                (self.gc.copyString("Out of bound list access.") catch {
-                    self.panic("Out of memory");
-                    unreachable;
-                }).toValue(),
+                .fromObj(
+                    .{
+                        .index = (self.gc.copyString("Out of bound list access.") catch {
+                            self.panic("Out of memory");
+                            unreachable;
+                        }).index,
+                        .obj_type = .String,
+                    },
+                ),
                 null,
                 null,
             ) catch |err| {
@@ -2568,13 +2622,18 @@ pub const VM = struct {
             };
         }
 
-        if (checked_or_leave != 1 and index >= list.items.items.len) {
+        if (checked_or_leave != 1 and index >= list.get(self.gc).items.items.len) {
             self.throw(
                 Error.OutOfBound,
-                (self.gc.copyString("Out of bound list access.") catch {
-                    self.panic("Out of memory");
-                    unreachable;
-                }).toValue(),
+                .fromObj(
+                    .{
+                        .index = (self.gc.copyString("Out of bound list access.") catch {
+                            self.panic("Out of memory");
+                            unreachable;
+                        }).index,
+                        .obj_type = .String,
+                    },
+                ),
                 null,
                 null,
             ) catch |err| {
@@ -2590,10 +2649,10 @@ pub const VM = struct {
             return;
         }
 
-        const list_item = if (index >= list.items.items.len or index < 0)
+        const list_item = if (index >= list.get(self.gc).items.items.len or index < 0)
             Value.Null
         else
-            list.items.items[@intCast(index)];
+            list.get(self.gc).items.items[@intCast(index)];
 
         // Pop list and index
         if (checked_or_leave != 2) {
@@ -2618,7 +2677,7 @@ pub const VM = struct {
     }
 
     fn OP_GET_MAP_SUBSCRIPT(self: *Self, _: *CallFrame, _: u32, _: Chunk.OpCode, leave: u24) void {
-        var map = self.peek(1).obj().access(obj.ObjMap, .Map, self.gc).?;
+        var map = self.peekAsIdx(obj.ObjMap, 1);
         const index = self.peek(0);
 
         // Pop map and key
@@ -2626,7 +2685,7 @@ pub const VM = struct {
             self.discard(2);
         }
 
-        if (map.map.get(index)) |value| {
+        if (map.get(self.gc).map.get(index)) |value| {
             // Push value
             self.push(value);
         } else {
@@ -2648,16 +2707,21 @@ pub const VM = struct {
     }
 
     fn OP_GET_STRING_SUBSCRIPT(self: *Self, _: *CallFrame, _: u32, _: Chunk.OpCode, checked: u24) void {
-        const str = self.peek(1).obj().access(obj.ObjString, .String, self.gc).?;
+        const str = self.peekAsIdx(obj.ObjString, 1);
         const index = self.peek(0).integer();
 
         if (checked == 0 and index < 0) {
             self.throw(
                 Error.OutOfBound,
-                (self.gc.copyString("Out of bound string access.") catch {
-                    self.panic("Out of memory");
-                    unreachable;
-                }).toValue(),
+                .fromObj(
+                    .{
+                        .index = (self.gc.copyString("Out of bound string access.") catch {
+                            self.panic("Out of memory");
+                            unreachable;
+                        }).index,
+                        .obj_type = .String,
+                    },
+                ),
                 null,
                 null,
             ) catch |err| {
@@ -2673,13 +2737,18 @@ pub const VM = struct {
 
         const str_index: usize = @intCast(index);
 
-        if (checked == 0 and str_index >= str.string.len) {
+        if (checked == 0 and str_index >= str.get(self.gc).string.len) {
             self.throw(
                 Error.OutOfBound,
-                (self.gc.copyString("Out of bound str access.") catch {
-                    self.panic("Out of memory");
-                    unreachable;
-                }).toValue(),
+                .fromObj(
+                    .{
+                        .index = (self.gc.copyString("Out of bound str access.") catch {
+                            self.panic("Out of memory");
+                            unreachable;
+                        }).index,
+                        .obj_type = .String,
+                    },
+                ),
                 null,
                 null,
             ) catch |err| {
@@ -2692,13 +2761,18 @@ pub const VM = struct {
                 }
             };
         } else {
-            const str_item = if (str_index < 0 or str_index >= str.string.len)
+            const str_item = if (str_index < 0 or str_index >= str.get(self.gc).string.len)
                 Value.Null
             else
-                (self.gc.copyString(&([_]u8{str.string[str_index]})) catch {
-                    self.panic("Out of memory");
-                    unreachable;
-                }).toValue();
+                Value.fromObj(
+                    .{
+                        .index = (self.gc.copyString(&([_]u8{str.get(self.gc).string[str_index]})) catch {
+                            self.panic("Out of memory");
+                            unreachable;
+                        }).index,
+                        .obj_type = .String,
+                    },
+                );
 
             // Pop str and index
             self.discard(2);
@@ -2722,17 +2796,22 @@ pub const VM = struct {
     }
 
     fn OP_SET_LIST_SUBSCRIPT(self: *Self, _: *CallFrame, _: u32, _: Chunk.OpCode, _: u24) void {
-        var list = self.peek(2).obj().access(obj.ObjList, .List, self.gc).?;
+        const list_idx = self.peekAsIdx(obj.ObjList, 2);
         const index = self.peek(1);
         const value = self.peek(0);
 
         if (index.integer() < 0) {
             self.throw(
                 Error.OutOfBound,
-                (self.gc.copyString("Out of bound list access.") catch {
-                    self.panic("Out of memory");
-                    unreachable;
-                }).toValue(),
+                .fromObj(
+                    .{
+                        .index = (self.gc.copyString("Out of bound list access.") catch {
+                            self.panic("Out of memory");
+                            unreachable;
+                        }).index,
+                        .obj_type = .String,
+                    },
+                ),
                 null,
                 null,
             ) catch |err| {
@@ -2748,8 +2827,8 @@ pub const VM = struct {
 
         const list_index: usize = @intCast(index.integer());
 
-        if (list_index < list.items.items.len) {
-            list.set(self.gc, list_index, value) catch {
+        if (list_index < list_idx.get(self.gc).items.items.len) {
+            obj.ObjList.set(list_idx, self.gc, list_index, value) catch {
                 self.panic("Out of memory");
                 unreachable;
             };
@@ -2762,10 +2841,15 @@ pub const VM = struct {
         } else {
             self.throw(
                 Error.OutOfBound,
-                (self.gc.copyString("Out of bound list access.") catch {
-                    self.panic("Out of memory");
-                    unreachable;
-                }).toValue(),
+                .fromObj(
+                    .{
+                        .index = (self.gc.copyString("Out of bound list access.") catch {
+                            self.panic("Out of memory");
+                            unreachable;
+                        }).index,
+                        .obj_type = .String,
+                    },
+                ),
                 null,
                 null,
             ) catch |err| {
@@ -2794,11 +2878,11 @@ pub const VM = struct {
     }
 
     fn OP_SET_MAP_SUBSCRIPT(self: *Self, _: *CallFrame, _: u32, _: Chunk.OpCode, _: u24) void {
-        var map: *obj.ObjMap = self.peek(2).obj().access(obj.ObjMap, .Map, self.gc).?;
+        const map = self.peekAsIdx(obj.ObjMap, 2);
         const index = self.peek(1);
         const value = self.peek(0);
 
-        map.set(self.gc, index, value) catch {
+        obj.ObjMap.set(map, self.gc, index, value) catch {
             self.panic("Out of memory");
             unreachable;
         };
@@ -2824,9 +2908,9 @@ pub const VM = struct {
     }
 
     fn OP_GET_ENUM_CASE(self: *Self, _: *CallFrame, _: u32, _: Chunk.OpCode, arg: u24) void {
-        const enum_ = self.peek(0).obj().access(obj.ObjEnum, .Enum, self.gc).?;
+        const enum_ = self.peekAsIdx(obj.ObjEnum, 0);
 
-        var enum_case: *obj.ObjEnumInstance = self.gc.allocateObject(
+        const enum_case = self.gc.allocateObject(
             obj.ObjEnumInstance{
                 .enum_ref = enum_,
                 .case = arg,
@@ -2837,7 +2921,14 @@ pub const VM = struct {
         };
 
         _ = self.pop();
-        self.push(Value.fromObj(enum_case.toObj()));
+        self.push(
+            .fromObj(
+                .{
+                    .index = enum_case.index,
+                    .obj_type = .EnumInstance,
+                },
+            ),
+        );
 
         const next_full_instruction = self.readInstruction();
         @call(
@@ -2854,10 +2945,14 @@ pub const VM = struct {
     }
 
     fn OP_GET_ENUM_CASE_VALUE(self: *Self, _: *CallFrame, _: u32, _: Chunk.OpCode, _: u24) void {
-        const enum_case = self.peek(0).obj().access(obj.ObjEnumInstance, .EnumInstance, self.gc).?;
+        const enum_case = self.peekAsIdx(obj.ObjEnumInstance, 0);
 
         _ = self.pop();
-        self.push(enum_case.enum_ref.cases[enum_case.case]);
+        self.push(
+            enum_case.get(self.gc)
+                .enum_ref.get(self.gc)
+                .cases[enum_case.get(self.gc).case],
+        );
 
         const next_full_instruction = self.readInstruction();
         @call(
@@ -2875,14 +2970,14 @@ pub const VM = struct {
 
     fn OP_GET_ENUM_CASE_FROM_VALUE(self: *Self, _: *CallFrame, _: u32, _: Chunk.OpCode, _: u24) void {
         const case_value = self.pop();
-        const enum_ = self.pop().obj().access(obj.ObjEnum, .Enum, self.gc).?;
+        const enum_idx = Pool(obj.ObjEnum).Idx.idx(self.pop().obj().index);
 
         var found = false;
-        for (enum_.cases, 0..) |case, index| {
-            if (case.eql(case_value)) {
+        for (enum_idx.get(self.gc).cases, 0..) |case, index| {
+            if (case.eql(case_value, self.gc)) {
                 var enum_case = self.gc.allocateObject(
                     obj.ObjEnumInstance{
-                        .enum_ref = enum_,
+                        .enum_ref = enum_idx,
                         .case = @intCast(index),
                     },
                 ) catch {
@@ -2890,7 +2985,9 @@ pub const VM = struct {
                     unreachable;
                 };
 
-                self.push(Value.fromObj(enum_case.toObj()));
+                self.push(
+                    .fromObj(.{ .index = enum_case.index, .obj_type = .EnumInstance }),
+                );
                 found = true;
 
                 break;
@@ -2916,11 +3013,10 @@ pub const VM = struct {
     }
 
     fn OP_OBJECT(self: *Self, _: *CallFrame, _: u32, _: Chunk.OpCode, type_def_constant: u24) void {
-        var object = self.gc.allocateObject(
+        const object = self.gc.allocateObject(
             obj.ObjObject.init(
-                self.gc.allocator,
-                self.readConstant(type_def_constant)
-                    .obj().access(obj.ObjTypeDef, .Type, self.gc).?,
+                self.gc,
+                self.readConstantAsIdx(obj.ObjTypeDef, type_def_constant),
             ) catch {
                 self.panic("Out of memory");
                 unreachable;
@@ -2930,7 +3026,7 @@ pub const VM = struct {
             unreachable;
         };
 
-        self.push(Value.fromObj(object.toObj()));
+        self.push(.fromObj(.{ .index = object.index, .obj_type = .Object }));
 
         const next_full_instruction = self.readInstruction();
         @call(
@@ -2947,11 +3043,11 @@ pub const VM = struct {
     }
 
     fn OP_FCONTAINER_INSTANCE(self: *Self, _: *CallFrame, _: u32, _: Chunk.OpCode, _: u24) void {
-        const typedef = self.pop().obj().access(obj.ObjTypeDef, .Type, self.gc);
+        const typedef = self.popAsIdx(obj.ObjTypeDef);
         const instance = (self.gc.allocateObject(
             obj.ObjForeignContainer.init(
                 self,
-                typedef.?,
+                typedef,
             ) catch {
                 self.panic("Out of memory");
                 unreachable;
@@ -2959,9 +3055,16 @@ pub const VM = struct {
         ) catch {
             self.panic("Out of memory");
             unreachable;
-        }).toValue();
+        });
 
-        self.push(instance);
+        self.push(
+            .fromObj(
+                .{
+                    .index = instance.index,
+                    .obj_type = .ForeignContainer,
+                },
+            ),
+        );
 
         const next_full_instruction = self.readInstruction();
         @call(
@@ -2978,17 +3081,17 @@ pub const VM = struct {
     }
 
     fn OP_INSTANCE(self: *Self, _: *CallFrame, _: u32, _: Chunk.OpCode, _: u24) void {
-        const typedef = self.pop().obj().access(obj.ObjTypeDef, .Type, self.gc).?;
+        const typedef = self.popAsIdx(obj.ObjTypeDef);
         const object_or_null = self.pop();
-        const object = if (object_or_null.isObj())
-            object_or_null.obj().access(obj.ObjObject, .Object, self.gc).?
+        const object_idx: ?Pool(obj.ObjObject).Idx = if (object_or_null.isObj())
+            .idx(object_or_null.obj().index)
         else
             null;
 
-        var obj_instance = self.gc.allocateObject(
+        const obj_instance_idx = self.gc.allocateObject(
             obj.ObjObjectInstance.init(
                 self,
-                object,
+                object_idx,
                 typedef,
                 self.gc,
             ) catch {
@@ -3001,11 +3104,13 @@ pub const VM = struct {
         };
 
         // If not anonymous, set default fields
-        if (object) |uobject| {
+        if (object_idx) |idx| {
+            const object = idx.get(self.gc);
             // Set instance fields with default values
-            for (uobject.defaults, 0..) |default_opt, i| {
+            for (object.defaults, 0..) |default_opt, i| {
                 if (default_opt) |default| {
-                    obj_instance.setField(
+                    obj.ObjObjectInstance.setField(
+                        obj_instance_idx,
                         self.gc,
                         i,
                         self.cloneValue(default) catch {
@@ -3020,7 +3125,14 @@ pub const VM = struct {
             }
         }
 
-        self.push(obj_instance.toValue());
+        self.push(
+            .fromObj(
+                .{
+                    .index = obj_instance_idx.index,
+                    .obj_type = .ObjectInstance,
+                },
+            ),
+        );
 
         const next_full_instruction = self.readInstruction();
         @call(
@@ -3037,9 +3149,8 @@ pub const VM = struct {
     }
 
     fn OP_OBJECT_DEFAULT(self: *Self, _: *CallFrame, _: u32, _: Chunk.OpCode, property_idx: u24) void {
-        self.peek(1).obj()
-            .access(obj.ObjObject, .Object, self.gc).?
-            .setPropertyDefaultValue(
+        obj.ObjObject.setPropertyDefaultValue(
+            self.peekAsIdx(obj.ObjObject, 1),
             self.gc,
             property_idx,
             self.peek(0),
@@ -3065,9 +3176,8 @@ pub const VM = struct {
     }
 
     fn OP_PROPERTY(self: *Self, _: *CallFrame, _: u32, _: Chunk.OpCode, property_idx: u24) void {
-        self.peek(1).obj()
-            .access(obj.ObjObject, .Object, self.gc).?
-            .setField(
+        obj.ObjObject.setField(
+            self.peekAsIdx(obj.ObjObject, 1),
             self.gc,
             property_idx,
             self.peek(0),
@@ -3093,10 +3203,10 @@ pub const VM = struct {
     }
 
     fn OP_GET_OBJECT_PROPERTY(self: *Self, _: *CallFrame, _: u32, _: Chunk.OpCode, property_idx: u24) void {
-        const object = self.peek(0).obj().access(obj.ObjObject, .Object, self.gc).?;
+        const object = self.peekAsIdx(obj.ObjObject, 0);
 
         _ = self.pop(); // Pop instance
-        self.push(object.fields[property_idx]);
+        self.push(object.get(self.gc).fields[property_idx]);
 
         const next_full_instruction = self.readInstruction();
         @call(
@@ -3113,16 +3223,10 @@ pub const VM = struct {
     }
 
     fn OP_GET_FCONTAINER_INSTANCE_PROPERTY(self: *Self, _: *CallFrame, _: u32, _: Chunk.OpCode, field_idx: u24) void {
-        const instance_value = self.peek(0);
-
-        const struct_instance = instance_value.obj().access(
-            obj.ObjForeignContainer,
-            .ForeignContainer,
-            self.gc,
-        ).?;
+        const instance = self.peekAsIdx(obj.ObjForeignContainer, 0);
 
         _ = self.pop(); // Pop instance
-        self.push(struct_instance.getField(self, field_idx));
+        self.push(instance.get(self.gc).getField(self, field_idx));
 
         const next_full_instruction = self.readInstruction();
         @call(
@@ -3139,14 +3243,10 @@ pub const VM = struct {
     }
 
     fn OP_GET_INSTANCE_PROPERTY(self: *Self, _: *CallFrame, _: u32, _: Chunk.OpCode, property_idx: u24) void {
-        const instance_value = self.peek(0);
+        const instance = self.peekAsIdx(obj.ObjObjectInstance, 0);
 
         _ = self.pop(); // Pop instance
-        self.push(
-            instance_value.obj()
-                .access(obj.ObjObjectInstance, .ObjectInstance, self.gc).?
-                .fields[property_idx],
-        );
+        self.push(instance.get(self.gc).fields[property_idx]);
 
         const next_full_instruction = self.readInstruction();
         @call(
@@ -3163,16 +3263,15 @@ pub const VM = struct {
     }
 
     fn OP_GET_INSTANCE_METHOD(self: *Self, _: *CallFrame, _: u32, _: Chunk.OpCode, method_idx: u24) void {
-        const instance_value = self.peek(0);
+        const instance = self.peekAsIdx(obj.ObjObjectInstance, 0);
 
         self.bindMethod(
-            instance_value
-                .obj()
-                .access(obj.ObjObjectInstance, .ObjectInstance, self.gc).?
-                .object.?
-                .fields[method_idx]
-                .obj()
-                .access(obj.ObjClosure, .Closure, self.gc),
+            .idx(
+                self.gc.ptr(
+                    obj.ObjObjectInstance,
+                    .idx(instance.get(self.gc).object.?.index),
+                ).?.fields[method_idx].obj().index,
+            ),
             null,
         ) catch {
             self.panic("Out of memory");
@@ -3194,24 +3293,25 @@ pub const VM = struct {
     }
 
     fn OP_GET_PROTOCOL_METHOD(self: *Self, _: *CallFrame, _: u32, _: Chunk.OpCode, name_constant: u24) void {
-        const instance: *obj.ObjObjectInstance = self.peek(0).obj()
-            .access(obj.ObjObjectInstance, .ObjectInstance, self.gc).?;
+        const instance = self.peekAsIdx(obj.ObjObjectInstance, 0);
 
-        const name = self.readConstant(name_constant).obj()
-            .access(obj.ObjString, .String, self.gc).?
+        const name = self.readConstantAs(obj.ObjString, name_constant)
             .string;
 
         // Find the actual field
-        const method_idx = instance.type_def.resolved_type.?.ObjectInstance.of
+        const method_idx = instance.get(self.gc)
+            .type_def.get(self.gc)
+            .resolved_type.?.ObjectInstance.of.get(self.gc)
             .resolved_type.?.Object
             .fields.get(name).?.index;
 
+        const object = instance.get(self.gc).object.?;
+
         self.bindMethod(
-            instance
-                .object.?
-                .fields[method_idx]
-                .obj()
-                .access(obj.ObjClosure, .Closure, self.gc),
+            .idx(
+                object.get(self.gc).fields[method_idx]
+                    .obj().index,
+            ),
             null,
         ) catch {
             self.panic("Out of memory");
@@ -3233,14 +3333,13 @@ pub const VM = struct {
     }
 
     fn OP_GET_LIST_PROPERTY(self: *Self, _: *CallFrame, _: u32, _: Chunk.OpCode, method_idx: u24) void {
-        self.bindMethod(
-            null,
-            (self.peek(0).obj().access(obj.ObjList, .List, self.gc).?
-                .member(self, method_idx) catch {
-                self.panic("Out of memory");
-                unreachable;
-            }).obj().access(obj.ObjNative, .Native, self.gc).?,
-        ) catch {
+        const list = self.peekAsIdx(obj.ObjList, 0);
+        const member = list.get(self.gc).member(self, method_idx) catch {
+            self.panic("Out of memory");
+            unreachable;
+        };
+
+        self.bindMethod(null, .idx(member.obj().index)) catch {
             self.panic("Out of memory");
             unreachable;
         };
@@ -3261,11 +3360,13 @@ pub const VM = struct {
     fn OP_GET_MAP_PROPERTY(self: *Self, _: *CallFrame, _: u32, _: Chunk.OpCode, method_idx: u24) void {
         self.bindMethod(
             null,
-            (self.peek(0).obj().access(obj.ObjMap, .Map, self.gc).?
-                .member(self, method_idx) catch {
-                self.panic("Out of memory");
-                unreachable;
-            }).obj().access(obj.ObjNative, .Native, self.gc),
+            .idx(
+                (self.peekAsIdx(obj.ObjMap, 0).get(self.gc)
+                    .member(self, method_idx) catch {
+                    self.panic("Out of memory");
+                    unreachable;
+                }).obj().index,
+            ),
         ) catch {
             self.panic("Out of memory");
             unreachable;
@@ -3288,11 +3389,13 @@ pub const VM = struct {
     fn OP_GET_STRING_PROPERTY(self: *Self, _: *CallFrame, _: u32, _: Chunk.OpCode, method_idx: u24) void {
         self.bindMethod(
             null,
-            (obj.ObjString
-                .member(self, method_idx) catch {
-                self.panic("Out of memory");
-                unreachable;
-            }).obj().access(obj.ObjNative, .Native, self.gc),
+            .idx(
+                (obj.ObjString
+                    .member(self, method_idx) catch {
+                    self.panic("Out of memory");
+                    unreachable;
+                }).obj().index,
+            ),
         ) catch {
             self.panic("Out of memory");
             unreachable;
@@ -3315,11 +3418,13 @@ pub const VM = struct {
     fn OP_GET_PATTERN_PROPERTY(self: *Self, _: *CallFrame, _: u32, _: Chunk.OpCode, method_idx: u24) void {
         self.bindMethod(
             null,
-            (obj.ObjPattern
-                .member(self, method_idx) catch {
-                self.panic("Out of memory");
-                unreachable;
-            }).obj().access(obj.ObjNative, .Native, self.gc),
+            .idx(
+                (obj.ObjPattern
+                    .member(self, method_idx) catch {
+                    self.panic("Out of memory");
+                    unreachable;
+                }).obj().index,
+            ),
         ) catch {
             self.panic("Out of memory");
             unreachable;
@@ -3342,11 +3447,13 @@ pub const VM = struct {
     fn OP_GET_FIBER_PROPERTY(self: *Self, _: *CallFrame, _: u32, _: Chunk.OpCode, method_idx: u24) void {
         self.bindMethod(
             null,
-            (obj.ObjFiber
-                .member(self, method_idx) catch {
-                self.panic("Out of memory");
-                unreachable;
-            }).obj().access(obj.ObjNative, .Native, self.gc),
+            .idx(
+                (obj.ObjFiber
+                    .member(self, method_idx) catch {
+                    self.panic("Out of memory");
+                    unreachable;
+                }).obj().index,
+            ),
         ) catch {
             self.panic("Out of memory");
             unreachable;
@@ -3369,10 +3476,12 @@ pub const VM = struct {
     fn OP_GET_RANGE_PROPERTY(self: *Self, _: *CallFrame, _: u32, _: Chunk.OpCode, method_idx: u24) void {
         self.bindMethod(
             null,
-            (obj.ObjRange.member(self, method_idx) catch {
-                self.panic("Out of memory");
-                unreachable;
-            }).obj().access(obj.ObjNative, .Native, self.gc),
+            .idx(
+                (obj.ObjRange.member(self, method_idx) catch {
+                    self.panic("Out of memory");
+                    unreachable;
+                }).obj().index,
+            ),
         ) catch {
             self.panic("Out of memory");
             unreachable;
@@ -3393,10 +3502,9 @@ pub const VM = struct {
     }
 
     fn OP_SET_OBJECT_PROPERTY(self: *Self, _: *CallFrame, _: u32, _: Chunk.OpCode, property_idx: u24) void {
-        const object = self.peek(1).obj().access(obj.ObjObject, .Object, self.gc).?;
-
         // Set new value
-        object.setField(
+        obj.ObjObject.setField(
+            self.peekAsIdx(obj.ObjObject, 1),
             self.gc,
             property_idx,
             self.peek(0),
@@ -3425,15 +3533,10 @@ pub const VM = struct {
     }
 
     fn OP_SET_FCONTAINER_INSTANCE_PROPERTY(self: *Self, _: *CallFrame, _: u32, _: Chunk.OpCode, field_idx: u24) void {
-        const instance_value = self.peek(1);
+        const struct_instance = self.peekAsIdx(obj.ObjForeignContainer, 1);
 
-        const struct_instance = instance_value.obj().access(
-            obj.ObjForeignContainer,
-            .ForeignContainer,
-            self.gc,
-        ).?;
-
-        struct_instance.setField(
+        obj.ObjForeignContainer.setField(
+            struct_instance,
             self,
             field_idx,
             self.peek(0),
@@ -3462,14 +3565,9 @@ pub const VM = struct {
     }
 
     fn OP_SET_INSTANCE_PROPERTY(self: *Self, _: *CallFrame, _: u32, _: Chunk.OpCode, property_idx: u24) void {
-        const instance_value = self.peek(1);
-
         // Set new value
-        instance_value.obj().access(
-            obj.ObjObjectInstance,
-            .ObjectInstance,
-            self.gc,
-        ).?.setField(
+        obj.ObjObjectInstance.setField(
+            self.peekAsIdx(obj.ObjObjectInstance, 1),
             self.gc,
             property_idx,
             self.peek(0),
@@ -3498,7 +3596,7 @@ pub const VM = struct {
     }
 
     fn OP_NOT(self: *Self, _: *CallFrame, _: u32, _: Chunk.OpCode, _: u24) void {
-        self.push(Value.fromBoolean(!self.pop().boolean()));
+        self.push(.fromBoolean(!self.pop().boolean()));
 
         const next_full_instruction = self.readInstruction();
         @call(
@@ -3517,7 +3615,7 @@ pub const VM = struct {
     fn OP_BNOT(self: *Self, _: *CallFrame, _: u32, _: Chunk.OpCode, _: u24) void {
         const value = self.pop();
 
-        self.push(Value.fromInteger(~value.integer()));
+        self.push(.fromInteger(~value.integer()));
 
         const next_full_instruction = self.readInstruction();
         @call(
@@ -3544,15 +3642,15 @@ pub const VM = struct {
 
         if (left_f) |lf| {
             if (right_f) |rf| {
-                self.push(Value.fromBoolean(lf > rf));
+                self.push(.fromBoolean(lf > rf));
             } else {
-                self.push(Value.fromBoolean(lf > @as(v.Double, @floatFromInt(right_i.?))));
+                self.push(.fromBoolean(lf > @as(v.Double, @floatFromInt(right_i.?))));
             }
         } else {
             if (right_f) |rf| {
-                self.push(Value.fromBoolean(@as(v.Double, @floatFromInt(left_i.?)) > rf));
+                self.push(.fromBoolean(@as(v.Double, @floatFromInt(left_i.?)) > rf));
             } else {
-                self.push(Value.fromBoolean(left_i.? > right_i.?));
+                self.push(.fromBoolean(left_i.? > right_i.?));
             }
         }
 
@@ -3581,15 +3679,15 @@ pub const VM = struct {
 
         if (left_f) |lf| {
             if (right_f) |rf| {
-                self.push(Value.fromBoolean(lf < rf));
+                self.push(.fromBoolean(lf < rf));
             } else {
-                self.push(Value.fromBoolean(lf < @as(v.Double, @floatFromInt(right_i.?))));
+                self.push(.fromBoolean(lf < @as(v.Double, @floatFromInt(right_i.?))));
             }
         } else {
             if (right_f) |rf| {
-                self.push(Value.fromBoolean(@as(v.Double, @floatFromInt(left_i.?)) < rf));
+                self.push(.fromBoolean(@as(v.Double, @floatFromInt(left_i.?)) < rf));
             } else {
-                self.push(Value.fromBoolean(left_i.? < right_i.?));
+                self.push(.fromBoolean(left_i.? < right_i.?));
             }
         }
 
@@ -3608,15 +3706,18 @@ pub const VM = struct {
     }
 
     fn OP_ADD_STRING(self: *Self, _: *CallFrame, _: u32, _: Chunk.OpCode, _: u24) void {
-        const right = self.pop().obj().access(obj.ObjString, .String, self.gc).?;
-        const left = self.pop().obj().access(obj.ObjString, .String, self.gc).?;
+        const right = self.popAsIdx(obj.ObjString);
+        const left = self.popAsIdx(obj.ObjString);
 
         self.push(
-            Value.fromObj(
-                (left.concat(self, right) catch {
-                    self.panic("Out of memory");
-                    unreachable;
-                }).toObj(),
+            .fromObj(
+                .{
+                    .index = (left.get(self.gc).concat(self, right.get(self.gc)) catch {
+                        self.panic("Out of memory");
+                        unreachable;
+                    }).index,
+                    .obj_type = .String,
+                },
             ),
         );
 
@@ -3635,30 +3736,35 @@ pub const VM = struct {
     }
 
     fn OP_ADD_LIST(self: *Self, _: *CallFrame, _: u32, _: Chunk.OpCode, _: u24) void {
-        const right = self.pop().obj().access(obj.ObjList, .List, self.gc).?;
-        const left = self.pop().obj().access(obj.ObjList, .List, self.gc).?;
+        const right = self.popAsIdx(obj.ObjList);
+        const left = self.popAsIdx(obj.ObjList);
 
         var new_list = std.ArrayList(Value){};
-        new_list.appendSlice(self.gc.allocator, left.items.items) catch {
+        new_list.appendSlice(self.gc.allocator, left.get(self.gc).items.items) catch {
             self.panic("Out of memory");
             unreachable;
         };
-        new_list.appendSlice(self.gc.allocator, right.items.items) catch {
+        new_list.appendSlice(self.gc.allocator, right.get(self.gc).items.items) catch {
             self.panic("Out of memory");
             unreachable;
         };
 
         self.push(
-            (self.gc.allocateObject(
-                obj.ObjList{
-                    .type_def = left.type_def,
-                    .methods = left.methods,
-                    .items = new_list,
+            .fromObj(
+                .{
+                    .index = (self.gc.allocateObject(
+                        obj.ObjList{
+                            .type_def = left.get(self.gc).type_def,
+                            .methods = left.get(self.gc).methods,
+                            .items = new_list,
+                        },
+                    ) catch {
+                        self.panic("Out of memory");
+                        unreachable;
+                    }).index,
+                    .obj_type = .List,
                 },
-            ) catch {
-                self.panic("Out of memory");
-                unreachable;
-            }).toValue(),
+            ),
         );
 
         const next_full_instruction = self.readInstruction();
@@ -3676,14 +3782,14 @@ pub const VM = struct {
     }
 
     fn OP_ADD_MAP(self: *Self, _: *CallFrame, _: u32, _: Chunk.OpCode, _: u24) void {
-        const right = self.pop().obj().access(obj.ObjMap, .Map, self.gc).?;
-        const left = self.pop().obj().access(obj.ObjMap, .Map, self.gc).?;
+        const right = self.popAsIdx(obj.ObjMap);
+        const left = self.popAsIdx(obj.ObjMap);
 
-        var new_map = left.map.clone(self.gc.allocator) catch {
+        var new_map = left.get(self.gc).map.clone(self.gc.allocator) catch {
             self.panic("Out of memory");
             unreachable;
         };
-        var it = right.map.iterator();
+        var it = right.get(self.gc).map.iterator();
         while (it.next()) |entry| {
             new_map.put(
                 self.gc.allocator,
@@ -3696,16 +3802,21 @@ pub const VM = struct {
         }
 
         self.push(
-            (self.gc.allocateObject(
-                obj.ObjMap{
-                    .type_def = left.type_def,
-                    .methods = left.methods,
-                    .map = new_map,
+            .fromObj(
+                .{
+                    .index = (self.gc.allocateObject(
+                        obj.ObjMap{
+                            .type_def = left.get(self.gc).type_def,
+                            .methods = left.get(self.gc).methods,
+                            .map = new_map,
+                        },
+                    ) catch {
+                        self.panic("Out of memory");
+                        unreachable;
+                    }).index,
+                    .obj_type = .Map,
                 },
-            ) catch {
-                self.panic("Out of memory");
-                unreachable;
-            }).toValue(),
+            ),
         );
 
         const next_full_instruction = self.readInstruction();
@@ -3726,7 +3837,7 @@ pub const VM = struct {
         const right = self.pop().integer();
         const left = self.pop().integer();
 
-        self.push(Value.fromInteger(left +% right));
+        self.push(.fromInteger(left +% right));
 
         const next_full_instruction = self.readInstruction();
         @call(
@@ -3746,7 +3857,7 @@ pub const VM = struct {
         const right = self.pop().double();
         const left = self.pop().double();
 
-        self.push(Value.fromDouble(left + right));
+        self.push(.fromDouble(left + right));
 
         const next_full_instruction = self.readInstruction();
         @call(
@@ -3766,7 +3877,7 @@ pub const VM = struct {
         const right = self.pop();
         const left = self.pop();
 
-        self.push(Value.fromInteger(left.integer() -% right.integer()));
+        self.push(.fromInteger(left.integer() -% right.integer()));
 
         const next_full_instruction = self.readInstruction();
         @call(
@@ -3786,7 +3897,7 @@ pub const VM = struct {
         const right = self.pop();
         const left = self.pop();
 
-        self.push(Value.fromDouble(left.double() - right.double()));
+        self.push(.fromDouble(left.double() - right.double()));
 
         const next_full_instruction = self.readInstruction();
         @call(
@@ -3806,7 +3917,7 @@ pub const VM = struct {
         const right = self.pop();
         const left = self.pop();
 
-        self.push(Value.fromInteger(left.integer() *% right.integer()));
+        self.push(.fromInteger(left.integer() *% right.integer()));
 
         const next_full_instruction = self.readInstruction();
         @call(
@@ -3826,7 +3937,7 @@ pub const VM = struct {
         const right = self.pop();
         const left = self.pop();
 
-        self.push(Value.fromDouble(left.double() * right.double()));
+        self.push(.fromDouble(left.double() * right.double()));
 
         const next_full_instruction = self.readInstruction();
         @call(
@@ -3852,7 +3963,7 @@ pub const VM = struct {
         }
 
         self.push(
-            Value.fromInteger(@divTrunc(left.integer(), right.integer())),
+            .fromInteger(@divTrunc(left.integer(), right.integer())),
         );
 
         const next_full_instruction = self.readInstruction();
@@ -3879,7 +3990,7 @@ pub const VM = struct {
         }
 
         self.push(
-            Value.fromDouble(
+            .fromDouble(
                 left.double() / right.double(),
             ),
         );
@@ -3908,7 +4019,7 @@ pub const VM = struct {
         }
 
         self.push(
-            Value.fromInteger(
+            .fromInteger(
                 @mod(left.integer(), right.integer()),
             ),
         );
@@ -3937,7 +4048,7 @@ pub const VM = struct {
         }
 
         self.push(
-            Value.fromDouble(
+            .fromDouble(
                 @mod(left.double(), right.double()),
             ),
         );
@@ -3960,7 +4071,7 @@ pub const VM = struct {
         const right: Value = self.pop();
         const left: Value = self.pop();
 
-        self.push(Value.fromInteger(left.integer() & right.integer()));
+        self.push(.fromInteger(left.integer() & right.integer()));
 
         const next_full_instruction = self.readInstruction();
         @call(
@@ -3980,7 +4091,7 @@ pub const VM = struct {
         const right: Value = self.pop();
         const left: Value = self.pop();
 
-        self.push(Value.fromInteger(left.integer() | right.integer()));
+        self.push(.fromInteger(left.integer() | right.integer()));
 
         const next_full_instruction = self.readInstruction();
         @call(
@@ -4000,7 +4111,7 @@ pub const VM = struct {
         const right: Value = self.pop();
         const left: Value = self.pop();
 
-        self.push(Value.fromInteger(left.integer() ^ right.integer()));
+        self.push(.fromInteger(left.integer() ^ right.integer()));
 
         const next_full_instruction = self.readInstruction();
         @call(
@@ -4022,15 +4133,15 @@ pub const VM = struct {
 
         if (right < 0) {
             if (right * -1 > std.math.maxInt(u5)) {
-                self.push(Value.fromInteger(0));
+                self.push(.fromInteger(0));
             } else {
-                self.push(Value.fromInteger(left >> @intCast(right * -1)));
+                self.push(.fromInteger(left >> @intCast(right * -1)));
             }
         } else {
             if (right > std.math.maxInt(u5)) {
-                self.push(Value.fromInteger(0));
+                self.push(.fromInteger(0));
             } else {
-                self.push(Value.fromInteger(left << @as(u5, @truncate(@as(u64, @intCast(right))))));
+                self.push(.fromInteger(left << @as(u5, @truncate(@as(u64, @intCast(right))))));
             }
         }
 
@@ -4054,15 +4165,15 @@ pub const VM = struct {
 
         if (right < 0) {
             if (right * -1 > std.math.maxInt(u5)) {
-                self.push(Value.fromInteger(0));
+                self.push(.fromInteger(0));
             } else {
-                self.push(Value.fromInteger(left << @as(u5, @truncate(@as(u64, @intCast(right * -1))))));
+                self.push(.fromInteger(left << @as(u5, @truncate(@as(u64, @intCast(right * -1))))));
             }
         } else {
             if (right > std.math.maxInt(u5)) {
-                self.push(Value.fromInteger(0));
+                self.push(.fromInteger(0));
             } else {
-                self.push(Value.fromInteger(left >> @as(u5, @truncate(@as(u64, @intCast(right))))));
+                self.push(.fromInteger(left >> @as(u5, @truncate(@as(u64, @intCast(right))))));
             }
         }
 
@@ -4081,7 +4192,11 @@ pub const VM = struct {
     }
 
     fn OP_EQUAL(self: *Self, _: *CallFrame, _: u32, _: Chunk.OpCode, _: u24) void {
-        self.push(Value.fromBoolean(self.pop().eql(self.pop())));
+        self.push(
+            .fromBoolean(
+                self.pop().eql(self.pop(), self.gc),
+            ),
+        );
 
         const next_full_instruction = self.readInstruction();
         @call(
@@ -4098,7 +4213,11 @@ pub const VM = struct {
     }
 
     fn OP_IS(self: *Self, _: *CallFrame, _: u32, _: Chunk.OpCode, _: u24) void {
-        self.push(Value.fromBoolean(self.pop().is(self.pop())));
+        self.push(
+            .fromBoolean(
+                self.pop().is(self.pop(), self.gc),
+            ),
+        );
 
         const next_full_instruction = self.readInstruction();
         @call(
@@ -4189,9 +4308,9 @@ pub const VM = struct {
     fn OP_STRING_FOREACH(self: *Self, _: *CallFrame, _: u32, _: Chunk.OpCode, _: u24) void {
         const key_slot: *Value = @ptrCast(self.current_fiber.stack_top - 3);
         const value_slot: *Value = @ptrCast(self.current_fiber.stack_top - 2);
-        const str = self.peek(0).obj().access(obj.ObjString, .String, self.gc).?;
+        const str = self.peekAsIdx(obj.ObjString, 0);
 
-        key_slot.* = if (str.next(
+        key_slot.* = if (str.get(self.gc).next(
             self,
             if (key_slot.*.isNull())
                 null
@@ -4201,20 +4320,25 @@ pub const VM = struct {
             self.panic("Out of memory");
             unreachable;
         }) |new_index|
-            Value.fromInteger(new_index)
+            .fromInteger(new_index)
         else
             Value.Null;
 
         // Set new value
         if (key_slot.*.isInteger()) {
-            value_slot.* = (self.gc.copyString(
-                &([_]u8{
-                    str.string[@as(usize, @intCast(key_slot.integer()))],
-                }),
-            ) catch {
-                self.panic("Out of memory");
-                unreachable;
-            }).toValue();
+            value_slot.* = .fromObj(
+                .{
+                    .index = (self.gc.copyString(
+                        &([_]u8{
+                            str.get(self.gc).string[@as(usize, @intCast(key_slot.integer()))],
+                        }),
+                    ) catch {
+                        self.panic("Out of memory");
+                        unreachable;
+                    }).index,
+                    .obj_type = .String,
+                },
+            );
         }
 
         const next_full_instruction = self.readInstruction();
@@ -4234,23 +4358,23 @@ pub const VM = struct {
     fn OP_LIST_FOREACH(self: *Self, _: *CallFrame, _: u32, _: Chunk.OpCode, _: u24) void {
         var key_slot: *Value = @ptrCast(self.current_fiber.stack_top - 3);
         const value_slot: *Value = @ptrCast(self.current_fiber.stack_top - 2);
-        var list = self.peek(0).obj().access(obj.ObjList, .List, self.gc).?;
+        const list = self.peekAsIdx(obj.ObjList, 0);
 
         // Get next index
-        key_slot.* = if (list.rawNext(
+        key_slot.* = if (list.get(self.gc).rawNext(
             self,
             if (key_slot.*.isNull()) null else key_slot.integer(),
         ) catch {
             self.panic("Out of memory");
             unreachable;
         }) |new_index|
-            Value.fromInteger(new_index)
+            .fromInteger(new_index)
         else
             Value.Null;
 
         // Set new value
         if (key_slot.*.isInteger()) {
-            value_slot.* = list.items.items[@as(usize, @intCast(key_slot.integer()))];
+            value_slot.* = list.get(self.gc).items.items[@as(usize, @intCast(key_slot.integer()))];
         }
 
         const next_full_instruction = self.readInstruction();
@@ -4269,22 +4393,22 @@ pub const VM = struct {
 
     fn OP_RANGE_FOREACH(self: *Self, _: *CallFrame, _: u32, _: Chunk.OpCode, _: u24) void {
         const value_slot: *Value = @ptrCast(self.current_fiber.stack_top - 2);
-        const range = self.peek(0).obj().access(obj.ObjRange, .Range, self.gc).?;
+        const range = self.peekAsIdx(obj.ObjRange, 0);
 
         if (value_slot.integerOrNull()) |index| {
-            if (range.low < range.high) {
-                value_slot.* = if (index + 1 >= range.high)
+            if (range.get(self.gc).low < range.get(self.gc).high) {
+                value_slot.* = if (index + 1 >= range.get(self.gc).high)
                     Value.Null
                 else
-                    Value.fromInteger(index + 1);
+                    .fromInteger(index + 1);
             } else {
-                value_slot.* = if (index - 1 <= range.high)
+                value_slot.* = if (index - 1 <= range.get(self.gc).high)
                     Value.Null
                 else
-                    Value.fromInteger(index - 1);
+                    .fromInteger(index - 1);
             }
         } else {
-            value_slot.* = Value.fromInteger(range.low);
+            value_slot.* = .fromInteger(range.get(self.gc).low);
         }
 
         const next_full_instruction = self.readInstruction();
@@ -4302,19 +4426,27 @@ pub const VM = struct {
     }
 
     fn OP_ENUM_FOREACH(self: *Self, _: *CallFrame, _: u32, _: Chunk.OpCode, _: u24) void {
-        var value_slot: *Value = @ptrCast(self.current_fiber.stack_top - 2);
+        const value_slot: *Value = @ptrCast(self.current_fiber.stack_top - 2);
         const enum_case = if (value_slot.*.isNull())
             null
         else
-            value_slot.obj().access(obj.ObjEnumInstance, .EnumInstance, self.gc).?;
-        var enum_: *obj.ObjEnum = self.peek(0).obj().access(obj.ObjEnum, .Enum, self.gc).?;
+            Pool(obj.ObjEnumInstance).Idx.idx(value_slot.obj().index);
+        const enum_ = self.peekAsIdx(obj.ObjEnum, 0);
 
         // Get next enum case
-        const next_case = enum_.rawNext(self, enum_case) catch {
+        const next_case = obj.ObjEnum.rawNext(enum_, self, enum_case) catch {
             self.panic("Out of memory");
             unreachable;
         };
-        value_slot.* = (if (next_case) |new_case| Value.fromObj(new_case.toObj()) else Value.Null);
+        value_slot.* = if (next_case) |new_case|
+            .fromObj(
+                .{
+                    .index = new_case.index,
+                    .obj_type = .EnumInstance,
+                },
+            )
+        else
+            Value.Null;
 
         const next_full_instruction = self.readInstruction();
         @call(
@@ -4333,14 +4465,14 @@ pub const VM = struct {
     fn OP_MAP_FOREACH(self: *Self, _: *CallFrame, _: u32, _: Chunk.OpCode, _: u24) void {
         const key_slot: *Value = @ptrCast(self.current_fiber.stack_top - 3);
         const value_slot: *Value = @ptrCast(self.current_fiber.stack_top - 2);
-        var map: *obj.ObjMap = self.peek(0).obj().access(obj.ObjMap, .Map, self.gc).?;
+        const map = self.peekAsIdx(obj.ObjMap, 0);
         const current_key = if (!key_slot.*.isNull()) key_slot.* else null;
 
-        const next_key = map.rawNext(current_key);
+        const next_key = map.get(self.gc).rawNext(current_key);
         key_slot.* = if (next_key) |unext_key| unext_key else Value.Null;
 
         if (next_key) |unext_key| {
-            value_slot.* = map.map.get(unext_key) orelse Value.Null;
+            value_slot.* = map.get(self.gc).map.get(unext_key) orelse Value.Null;
         }
 
         const next_full_instruction = self.readInstruction();
@@ -4359,12 +4491,12 @@ pub const VM = struct {
 
     fn OP_FIBER_FOREACH(self: *Self, _: *CallFrame, _: u32, _: Chunk.OpCode, _: u24) void {
         const value_slot: *Value = @ptrCast(self.current_fiber.stack_top - 2);
-        var fiber = self.peek(0).obj().access(obj.ObjFiber, .Fiber, self.gc).?;
+        const fiber = self.peekAsIdx(obj.ObjFiber, 0);
 
-        if (fiber.fiber.status == .Over) {
+        if (fiber.get(self.gc).fiber.status == .Over) {
             value_slot.* = Value.Null;
         } else {
-            fiber.fiber.@"resume"(self) catch {
+            fiber.get(self.gc).fiber.@"resume"(self) catch {
                 self.panic("Out of memory");
                 unreachable;
             };
@@ -4389,10 +4521,15 @@ pub const VM = struct {
             // TODO: Should we throw or @panic?
             self.throw(
                 Error.UnwrappedNull,
-                (self.gc.copyString("Force unwrapped optional is null") catch {
-                    self.panic("Out of memory");
-                    unreachable;
-                }).toValue(),
+                .fromObj(
+                    .{
+                        .index = (self.gc.copyString("Force unwrapped optional is null") catch {
+                            self.panic("Out of memory");
+                            unreachable;
+                        }).index,
+                        .obj_type = .String,
+                    },
+                ),
                 null,
                 null,
             ) catch |err| {
@@ -4421,10 +4558,17 @@ pub const VM = struct {
     }
 
     fn OP_TYPEOF(self: *Self, _: *CallFrame, _: u32, _: Chunk.OpCode, _: u24) void {
-        self.push((Value.typeOf(self.pop(), self.gc) catch {
-            self.panic("Out of memory");
-            unreachable;
-        }).toValue());
+        self.push(
+            .fromObj(
+                .{
+                    .index = (Value.typeOf(self.pop(), self.gc) catch {
+                        self.panic("Out of memory");
+                        unreachable;
+                    }).index,
+                    .obj_type = .Type,
+                },
+            ),
+        );
 
         const next_full_instruction = self.readInstruction();
         @call(
@@ -4453,7 +4597,7 @@ pub const VM = struct {
 
             if (self.jit.?.compileHotSpot(
                 self.current_ast,
-                self.currentFrame().?.closure,
+                self.currentClosureIdx().?,
                 node,
             ) catch null) |native| {
                 const obj_native = self.gc.allocateObject(
@@ -4466,27 +4610,27 @@ pub const VM = struct {
                 };
 
                 // Prevent collection
-                self.gc.markObj(obj_native.toObj()) catch {
+                self.gc.markObj(obj.ObjNative, obj_native) catch {
                     self.panic("Out of memory");
                     unreachable;
                 };
-                obj_native.mark(self.gc);
+                obj_native.get(self.gc).mark(self.gc);
 
                 if (BuildOptions.jit_debug) {
                     io.print(
                         "Compiled hotspot {s} in function `{s}` in {d} ms\n",
                         .{
                             @tagName(self.current_ast.nodes.items(.tag)[node]),
-                            self.currentFrame().?.closure.function.type_def.resolved_type.?.Function.name.string,
+                            self.currentClosure().?.function.type_def.resolved_type.?.Function.name.string,
                             @as(v.Double, @floatFromInt(timer.read())) / 1000000,
                         },
                     );
                 }
 
                 // The now compile hotspot must be a new constant for the current function
-                self.currentFrame().?.closure.function.chunk.constants.append(
-                    self.currentFrame().?.closure.function.chunk.allocator,
-                    obj_native.toValue(),
+                self.currentFunction().?.chunk.constants.append(
+                    self.currentFunction().?.chunk.allocator,
+                    .fromObj(.{ .index = obj_native.index, .obj_type = .Native }),
                 ) catch {
                     self.panic("Out of memory");
                     unreachable;
@@ -4495,7 +4639,7 @@ pub const VM = struct {
                 // Patch bytecode to replace hotspot with function call
                 self.patchHotspot(
                     self.current_ast.nodes.items(.location)[node],
-                    self.currentFrame().?.closure.function.chunk.constants.items.len - 1,
+                    self.currentFunction().?.chunk.constants.items.len - 1,
                     end_ip,
                 ) catch {
                     self.panic("Out of memory");
@@ -4532,7 +4676,7 @@ pub const VM = struct {
         if (self.callHotspot(
             @ptrCast(
                 @alignCast(
-                    self.pop().obj().access(obj.ObjNative, .Native, self.gc).?.native,
+                    self.popAsIdx(obj.ObjNative).get(self.gc).native,
                 ),
             ),
         ) and self.returnFrame()) {
@@ -4709,7 +4853,9 @@ pub const VM = struct {
         const error_site = if (previous_error_site) |perror_site|
             perror_site
         else if (self.currentFrame()) |current_frame|
-            current_frame.closure.function.chunk.locations.items[current_frame.ip - 1]
+            current_frame.closure.get(self.gc)
+                .function.get(self.gc)
+                .chunk.locations.items[current_frame.ip - 1]
         else
             null;
 
@@ -4717,7 +4863,10 @@ pub const VM = struct {
             const frame_ptr = self.currentFrame();
             const frame_val = if (frame_ptr) |ptr| ptr.* else null;
             if (self.current_fiber.frame_count > 0) {
-                const function_type = frame_ptr.?.closure.function.type_def.resolved_type.?.Function.function_type;
+                const function_type = frame_ptr.?.closure.get(self.gc)
+                    .function.get(self.gc)
+                    .type_def.get(self.gc)
+                    .resolved_type.?.Function.function_type;
                 if (function_type != .ScriptEntryPoint and function_type != .Repl) {
                     try stack.append(self.gc.allocator, frame_val.?);
                 }
@@ -4746,8 +4895,10 @@ pub const VM = struct {
                 // If object instance, does it have a str `message` field ?
                 const processed_payload =
                     if (payload.isObj()) payload: {
-                        if (payload.obj().access(obj.ObjObjectInstance, .ObjectInstance, self.gc)) |instance| {
-                            const object_def = instance.type_def.resolved_type.?.ObjectInstance.of
+                        if (payload.obj().obj_type == .ObjectInstance) {
+                            const instance = self.gc.ptr(obj.ObjObjectInstance, .idx(payload.obj().index)).?;
+                            const object_def = instance.type_def.get(self.gc)
+                                .resolved_type.?.ObjectInstance.of.get(self.gc)
                                 .resolved_type.?.Object;
 
                             if (object_def.fields.get("message")) |field| {
@@ -4760,7 +4911,7 @@ pub const VM = struct {
                         break :payload payload;
                     } else payload;
 
-                const value_str = try processed_payload.toStringAlloc(self.gc.allocator);
+                const value_str = try processed_payload.toStringAlloc(self.gc);
                 defer self.gc.allocator.free(value_str);
 
                 self.reportRuntimeError(
@@ -4805,7 +4956,9 @@ pub const VM = struct {
         self.reportRuntimeError(
             message,
             if (self.currentFrame()) |frame|
-                frame.closure.function.chunk.locations.items[frame.ip - 1]
+                frame.closure.get(self.gc)
+                    .function.get(self.gc)
+                    .chunk.locations.items[frame.ip - 1]
             else
                 null,
             self.current_fiber.frames.items,
@@ -4826,7 +4979,11 @@ pub const VM = struct {
             var msg = std.Io.Writer.Allocating.init(self.gc.allocator);
 
             if (next) |unext| {
-                const function_name = unext.closure.function.type_def.resolved_type.?.Function.name.string;
+                const function = unext.closure.get(self.gc)
+                    .function.get(self.gc);
+                const function_type_def = function.type_def.get(self.gc);
+
+                const function_name = function_type_def.resolved_type.?.Function.name.get(self.gc).string;
                 msg.writer.print(
                     if (builtin.os.tag != .windows)
                         "\t{s} in \x1b[36m{s}\x1b[0m at {s}"
@@ -4843,7 +5000,7 @@ pub const VM = struct {
                         if (frame.call_site) |call_site|
                             self.current_ast.tokens.items(.script_name)[call_site]
                         else
-                            frame.closure.function.type_def.resolved_type.?.Function.script_name.string,
+                            function_type_def.resolved_type.?.Function.script_name.get(self.gc).string,
                     },
                 ) catch @panic("Could not report error");
             } else {
@@ -4859,13 +5016,21 @@ pub const VM = struct {
                         if (frame.call_site) |call_site|
                             self.current_ast.tokens.items(.script_name)[call_site]
                         else
-                            frame.closure.function.type_def.resolved_type.?.Function.script_name.string,
+                            frame.closure.get(self.gc)
+                                .function.get(self.gc)
+                                .type_def.get(self.gc)
+                                .resolved_type.?.Function.script_name.get(self.gc)
+                                .string,
                     },
                 ) catch @panic("Could not report error");
             }
 
             if (frame.call_site) |call_site| {
-                if (frame.closure.function.type_def.resolved_type.?.Function.function_type != .ScriptEntryPoint) {
+                if (frame.closure.get(self.gc)
+                    .function.get(self.gc)
+                    .type_def.get(self.gc)
+                    .resolved_type.?.Function.function_type != .ScriptEntryPoint)
+                {
                     msg.writer.print(
                         ":{d}:{d}",
                         .{
@@ -4907,17 +5072,19 @@ pub const VM = struct {
         self.reporter.last_error = .runtime;
     }
 
-    fn compileAndCall(self: *Self, closure: *obj.ObjClosure, arg_count: u8, catch_value: ?Value) Error!bool {
-        var native = closure.function.native;
+    fn compileAndCall(self: *Self, closure_idx: Pool(obj.ObjClosure).Idx, arg_count: u8, catch_value: ?Value) Error!bool {
+        const closure = closure_idx.get(self.gc);
+
+        var native = closure.function.get(self.gc).native;
         if (self.jit) |*jit| {
             jit.call_count += 1;
             // Do we need to jit the function?
             // TODO: figure out threshold strategy
-            if (self.shouldCompileFunction(closure)) {
+            if (self.shouldCompileFunction(closure_idx)) {
                 var timer = if (!is_wasm) std.time.Timer.start() catch unreachable else {};
 
                 var success = true;
-                jit.compileFunction(self.current_ast, closure) catch |err| {
+                jit.compileFunction(self.current_ast, closure_idx) catch |err| {
                     if (err == Error.CantCompile) {
                         success = false;
                     } else {
@@ -4938,7 +5105,7 @@ pub const VM = struct {
                 jit.jit_time += timer.read();
 
                 if (success) {
-                    native = closure.function.native;
+                    native = closure.function.get(self.gc).native;
                 }
             }
         }
@@ -4969,12 +5136,16 @@ pub const VM = struct {
         return false;
     }
 
-    fn call(self: *Self, closure: *obj.ObjClosure, arg_count: u8, catch_value: ?Value) Error!void {
-        closure.function.call_count += 1;
+    fn call(self: *Self, closure_idx: Pool(obj.ObjClosure).Idx, arg_count: u8, catch_value: ?Value) Error!void {
+        const closure = closure_idx.get(self.gc);
+        const function = closure.function.get(self.gc);
+        const function_type_def = function.type_def.get(self.gc);
+
+        function.call_count += 1;
 
         if (BuildOptions.recursive_call_limit) |recursive_call_limit| {
             // If recursive call, update counter
-            self.current_fiber.recursive_count = if (self.currentFrame() != null and self.currentFrame().?.closure.function == closure.function)
+            self.current_fiber.recursive_count = if (self.currentFrame() != null and self.currentClosure().?.function == closure.function)
                 self.current_fiber.recursive_count + 1
             else
                 0;
@@ -4995,7 +5166,7 @@ pub const VM = struct {
         if (!is_wasm and
             self.current_fiber.parent_fiber == null and
             try self.compileAndCall(
-                closure,
+                closure_idx,
                 arg_count,
                 catch_value,
             ))
@@ -5003,20 +5174,23 @@ pub const VM = struct {
             return;
         }
 
-        if (self.flavor == .Test and closure.function.type_def.resolved_type.?.Function.function_type == .Test) {
+        if (self.flavor == .Test and function_type_def.resolved_type.?.Function.function_type == .Test) {
             io.print(
                 if (builtin.os.tag != .windows)
                     "\x1b[33m▶ Test: {s}\x1b[0m\n"
                 else
                     "▶ Test: {s}\n",
                 .{
-                    self.current_ast.tokens.items(.lexeme)[self.current_ast.nodes.items(.components)[closure.function.node].Function.test_message.?],
+                    self.current_ast.tokens.items(.lexeme)[
+                        self.current_ast.nodes.items(.components)[function.node]
+                            .Function.test_message.?
+                    ],
                 },
             );
         }
 
         const frame = CallFrame{
-            .closure = closure,
+            .closure = closure_idx,
             .ip = 0,
             // -1 is because we reserve slot 0 for this
             .slots = self.current_fiber.stack_top - arg_count - 1,
@@ -5033,10 +5207,10 @@ pub const VM = struct {
         self.current_fiber.frame_count += 1;
 
         if (self.debugger != null) {
-            for (closure.function.type_def.resolved_type.?.Function.parameters.keys(), 0..) |arg_name, i| {
+            for (function_type_def.resolved_type.?.Function.parameters.keys(), 0..) |arg_name, i| {
                 self.addDbgLocal(
                     (frame.slots - @as([*]Value, @ptrCast(self.current_fiber.stack))) + i,
-                    arg_name.toValue(),
+                    .fromObj(.{ .index = arg_name.index, .obj_type = .String }),
                 );
             }
         }
@@ -5055,11 +5229,15 @@ pub const VM = struct {
 
     fn getSite(self: *Self) ?Ast.TokenIndex {
         return if (self.currentFrame()) |current_frame|
-            current_frame.closure.function.chunk.locations.items[@max(1, current_frame.ip) - 1]
+            current_frame.closure.get(self.gc)
+                .function.get(self.gc)
+                .chunk.locations.items[@max(1, current_frame.ip) - 1]
         else if (self.current_fiber.parent_fiber) |parent_fiber| parent: {
             const parent_frame = parent_fiber.frames.items[parent_fiber.frame_count - 1];
 
-            break :parent parent_frame.closure.function.chunk.locations.items[@max(1, parent_frame.ip - 1)];
+            break :parent parent_frame.closure.get(self.gc)
+                .function.get(self.gc)
+                .chunk.locations.items[@max(1, parent_frame.ip - 1)];
         } else null;
     }
 
@@ -5074,8 +5252,8 @@ pub const VM = struct {
 
         var ctx = obj.NativeCtx{
             .vm = self,
-            .globals = self.currentFrame().?.closure.globals.items.ptr,
-            .upvalues = self.currentFrame().?.closure.upvalues.ptr,
+            .globals = self.currentClosure().?.globals.items.ptr,
+            .upvalues = self.currentClosure().?.upvalues.ptr,
             .base = self.currentFrame().?.slots,
             .stack_top = &self.current_fiber.stack_top,
         };
@@ -5093,7 +5271,7 @@ pub const VM = struct {
         var ctx = obj.NativeCtx{
             .vm = self,
             .globals = &[_]Value{},
-            .upvalues = &[_]*obj.ObjUpValue{},
+            .upvalues = &[_]Pool(obj.ObjUpValue).Idx{},
             .base = self.current_fiber.stack_top - arg_count - 1,
             .stack_top = &self.current_fiber.stack_top,
         };
@@ -5188,8 +5366,8 @@ pub const VM = struct {
         }
     }
 
-    fn bindMethod(self: *Self, method: ?*obj.ObjClosure, native: ?*obj.ObjNative) !void {
-        var bound = try self.gc.allocateObject(
+    fn bindMethod(self: *Self, method: ?Pool(obj.ObjClosure).Idx, native: ?Pool(obj.ObjNative).Idx) !void {
+        const bound = try self.gc.allocateObject(
             obj.ObjBoundMethod{
                 .receiver = self.peek(0),
                 .closure = method,
@@ -5198,14 +5376,14 @@ pub const VM = struct {
         );
 
         _ = self.pop(); // Pop instane
-        self.push(Value.fromObj(bound.toObj()));
+        self.push(.fromObj(.{ .index = bound.index, .obj_type = .Bound }));
     }
 
     pub fn callValue(self: *Self, callee: Value, arg_count: u8, catch_value: ?Value) Error!void {
         var object = callee.obj();
         switch (object.obj_type) {
             .Bound => {
-                const bound = object.access(obj.ObjBoundMethod, .Bound, self.gc).?;
+                const bound = self.gc.ptr(obj.ObjBoundMethod, .idx(object.index)).?;
                 (self.current_fiber.stack_top - arg_count - 1)[0] = bound.receiver;
 
                 if (bound.closure) |closure| {
@@ -5216,8 +5394,9 @@ pub const VM = struct {
                     );
                 } else {
                     std.debug.assert(bound.native != null);
+                    const native = bound.native.?.get(self.gc);
                     return try self.callNative(
-                        @ptrCast(@alignCast(bound.native.?.native)),
+                        @ptrCast(@alignCast(native.native)),
                         arg_count,
                         catch_value,
                     );
@@ -5225,14 +5404,15 @@ pub const VM = struct {
             },
             .Closure => {
                 return try self.call(
-                    object.access(obj.ObjClosure, .Closure, self.gc).?,
+                    .idx(object.index),
                     arg_count,
                     catch_value,
                 );
             },
             .Native => {
+                const native = self.gc.ptr(obj.ObjNative, .idx(object.index)).?;
                 return try self.callNative(
-                    @ptrCast(@alignCast(object.access(obj.ObjNative, .Native, self.gc).?.native)),
+                    @ptrCast(@alignCast(native.native)),
                     arg_count,
                     catch_value,
                 );
@@ -5247,7 +5427,7 @@ pub const VM = struct {
         var object = callee.obj();
         switch (object.obj_type) {
             .Bound => {
-                const bound = object.access(obj.ObjBoundMethod, .Bound, self.gc).?;
+                const bound = self.gc.ptr(obj.ObjBoundMethod, .idx(object.index)).?;
                 (self.current_fiber.stack_top - arg_count - 1)[0] = bound.receiver;
 
                 if (bound.closure) |closure| {
@@ -5258,8 +5438,9 @@ pub const VM = struct {
                     );
                 } else {
                     std.debug.assert(bound.native != null);
+                    const native = bound.native.?.get(self.gc);
                     return try self.callNative(
-                        @ptrCast(@alignCast(bound.native.?.native)),
+                        @ptrCast(@alignCast(native.native)),
                         arg_count,
                         catch_value,
                     );
@@ -5267,14 +5448,16 @@ pub const VM = struct {
             },
             .Closure => {
                 return try self.repurposeFrame(
-                    object.access(obj.ObjClosure, .Closure, self.gc).?,
+                    .idx(object.index),
                     arg_count,
                     catch_value,
                 );
             },
             .Native => {
                 return try self.callNative(
-                    @ptrCast(@alignCast(object.access(obj.ObjNative, .Native, self.gc).?.native)),
+                    @ptrCast(@alignCast(
+                        self.gc.ptr(obj.ObjNative, .idx(object.index)).?.native,
+                    )),
                     arg_count,
                     catch_value,
                 );
@@ -5287,12 +5470,13 @@ pub const VM = struct {
 
     fn invokeFromObject(
         self: *Self,
-        object: *obj.ObjObject,
+        object_idx: Pool(obj.ObjObject).Idx,
         method_idx: usize,
         arg_count: u8,
         catch_value: ?Value,
         tail_call: bool,
     ) !Value {
+        const object = object_idx.get(self.gc);
         const method = object.fields[method_idx];
 
         if (tail_call)
@@ -5303,7 +5487,7 @@ pub const VM = struct {
             )
         else
             try self.call(
-                method.obj().access(obj.ObjClosure, .Closure, self.gc).?,
+                .idx(method.obj().index),
                 arg_count,
                 catch_value,
             );
@@ -5325,7 +5509,7 @@ pub const VM = struct {
         var object = receiver.obj();
         switch (object.obj_type) {
             .ObjectInstance => {
-                const instance = object.access(obj.ObjObjectInstance, .ObjectInstance, self.gc).?;
+                const instance = self.gc.ptr(obj.ObjObjectInstance, .idx(object.index)).?;
 
                 std.debug.assert(instance.object != null);
 
@@ -5363,8 +5547,10 @@ pub const VM = struct {
                     .String => try obj.ObjString.member(self, member_idx),
                     .Pattern => try obj.ObjPattern.member(self, member_idx),
                     .Fiber => try obj.ObjFiber.member(self, member_idx),
-                    .List => try object.access(obj.ObjList, .List, self.gc).?.member(self, member_idx),
-                    .Map => try object.access(obj.ObjMap, .Map, self.gc).?.member(self, member_idx),
+                    .List => try self.gc.ptr(obj.ObjList, .idx(object.index)).?
+                        .member(self, member_idx),
+                    .Map => try self.gc.ptr(obj.ObjMap, .idx(object.index)).?
+                        .member(self, member_idx),
                     else => unreachable,
                 };
 
@@ -5383,33 +5569,35 @@ pub const VM = struct {
     }
 
     pub fn closeUpValues(self: *Self, last: *Value) void {
-        while (self.current_fiber.open_upvalues != null and @intFromPtr(self.current_fiber.open_upvalues.?.location) >= @intFromPtr(last)) {
-            var upvalue: *obj.ObjUpValue = self.current_fiber.open_upvalues.?;
+        while (self.current_fiber.open_upvalues != null and
+            @intFromPtr(self.current_fiber.open_upvalues.?.get(self.gc).location) >= @intFromPtr(last))
+        {
+            const upvalue = self.current_fiber.open_upvalues.?.get(self.gc);
             upvalue.closed = upvalue.location.*;
             upvalue.location = &upvalue.closed.?;
             self.current_fiber.open_upvalues = upvalue.next;
         }
     }
 
-    pub fn captureUpvalue(self: *Self, local: *Value) !*obj.ObjUpValue {
-        var prev_upvalue: ?*obj.ObjUpValue = null;
-        var upvalue: ?*obj.ObjUpValue = self.current_fiber.open_upvalues;
-        while (upvalue != null and @intFromPtr(upvalue.?.location) > @intFromPtr(local)) {
+    pub fn captureUpvalue(self: *Self, local: *Value) !Pool(obj.ObjUpValue).Idx {
+        var prev_upvalue: ?Pool(obj.ObjUpValue).Idx = null;
+        var upvalue = self.current_fiber.open_upvalues;
+        while (upvalue != null and @intFromPtr(upvalue.?.get(self.gc).location) > @intFromPtr(local)) {
             prev_upvalue = upvalue;
-            upvalue = upvalue.?.next;
+            upvalue = upvalue.?.get(self.gc).next;
         }
 
-        if (upvalue != null and upvalue.?.location == local) {
+        if (upvalue != null and upvalue.?.get(self.gc).location == local) {
             return upvalue.?;
         }
 
-        var created_upvalue: *obj.ObjUpValue = try self.gc.allocateObject(
+        const created_upvalue = try self.gc.allocateObject(
             obj.ObjUpValue.init(local),
         );
-        created_upvalue.next = upvalue;
+        created_upvalue.get(self.gc).next = upvalue;
 
         if (prev_upvalue) |uprev_upvalue| {
-            uprev_upvalue.next = created_upvalue;
+            uprev_upvalue.get(self.gc).next = created_upvalue;
         } else {
             self.current_fiber.open_upvalues = created_upvalue;
         }
@@ -5417,8 +5605,11 @@ pub const VM = struct {
         return created_upvalue;
     }
 
-    fn shouldCompileFunction(self: *Self, closure: *obj.ObjClosure) bool {
-        const function_type = closure.function.type_def.resolved_type.?.Function.function_type;
+    fn shouldCompileFunction(self: *Self, closure_idx: Pool(obj.ObjClosure).Idx) bool {
+        const closure = closure_idx.get(self.gc);
+        const function = closure.function.get(self.gc);
+        const function_type = function.type_def.get(self.gc)
+            .resolved_type.?.Function.function_type;
 
         switch (function_type) {
             .Extern,
@@ -5432,20 +5623,20 @@ pub const VM = struct {
 
         if (
         // Marked as compilable
-        self.current_ast.nodes.items(.compilable)[closure.function.node] and
+        self.current_ast.nodes.items(.compilable)[function.node] and
             self.jit != null and
             (
                 // Always on
                 BuildOptions.jit_always_on or
                     // Threshold reached
-                    (closure.function.call_count > 10 and (@as(f128, @floatFromInt(closure.function.call_count)) / @as(f128, @floatFromInt(self.jit.?.call_count))) > BuildOptions.jit_prof_threshold)))
+                    (function.call_count > 10 and (@as(f128, @floatFromInt(function.call_count)) / @as(f128, @floatFromInt(self.jit.?.call_count))) > BuildOptions.jit_prof_threshold)))
         {
             // Not blacklisted or already compiled
-            self.current_ast.nodes.items(.compilable)[closure.function.node] =
-                self.jit.?.compiled_nodes.get(closure.function.node) == null and
-                self.jit.?.blacklisted_nodes.get(closure.function.node) == null;
+            self.current_ast.nodes.items(.compilable)[function.node] =
+                self.jit.?.compiled_nodes.get(function.node) == null and
+                self.jit.?.blacklisted_nodes.get(function.node) == null;
 
-            return self.current_ast.nodes.items(.compilable)[closure.function.node];
+            return self.current_ast.nodes.items(.compilable)[function.node];
         }
 
         return false;
@@ -5480,7 +5671,7 @@ pub const VM = struct {
         constant: usize,
         to: usize,
     ) !void {
-        const chunk = &self.currentFrame().?.closure.function.chunk;
+        const chunk = &self.currentFunction().?.chunk;
 
         // In order to not fuck up any other ip absolute instructions (like OP_JUMP, etc.), we only put the revelant
         // new bytecode at the end of the range and jump to it.
@@ -5524,7 +5715,10 @@ pub const VM = struct {
         if (BuildOptions.debug) {
             disassembler.disassembleChunk(
                 chunk,
-                self.currentFrame().?.closure.function.type_def.resolved_type.?.Function.name.string,
+                self.currentClosure().?.function.get(self.gc)
+                    .type_def.get(self.gc)
+                    .resolved_type.?.Function.name.get(self.gc).string,
+                self.gc,
             );
         }
     }

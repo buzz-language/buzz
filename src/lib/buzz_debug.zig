@@ -11,7 +11,10 @@ else
     std.os;
 
 pub export fn dump(ctx: *api.NativeCtx) callconv(.c) c_int {
-    ctx.vm.bz_peek(0).bz_valueDump(ctx.vm);
+    api.bz_valueDump(
+        ctx.vm,
+        api.bz_peek(ctx.vm, 0),
+    );
 
     io.print("\n", .{});
 

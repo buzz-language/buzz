@@ -8,6 +8,7 @@ const Parser = @import("Parser.zig");
 const ZigType = @import("zigtypes.zig").Type;
 const Reporter = @import("Reporter.zig");
 const GC = @import("GC.zig");
+const Pool = @import("pool.zig").Pool;
 
 const Self = @This();
 
@@ -181,7 +182,7 @@ const zig_basic_types = std.StaticStringMap(ZigType).initComptime(
 
 pub const Zdef = struct {
     name: []const u8,
-    type_def: *o.ObjTypeDef,
+    type_def: Pool(o.ObjTypeDef).Idx,
     zig_type: ZigType,
 };
 
@@ -204,7 +205,7 @@ pub fn init(gc: *GC) Self {
     return .{
         .gc = gc,
         .reporter = .{
-            .allocator = gc.allocator,
+            .gc = gc,
             .error_prefix = "FFI",
         },
     };
@@ -394,7 +395,7 @@ fn getZdef(self: *Self, decl_index: Ast.Node.Index) !?*Zdef {
                             .child = &uzdef.zig_type,
                         },
                     },
-                    .type_def = try uzdef.type_def.cloneOptional(&self.gc.type_registry),
+                    .type_def = try o.ObjTypeDef.cloneOptional(uzdef.type_def, &self.gc.type_registry),
                     .name = uzdef.name,
                 };
 
@@ -485,7 +486,7 @@ fn containerDecl(self: *Self, name: []const u8, decl_index: Ast.Node.Index) Erro
 fn unionContainer(self: *Self, name: []const u8, container: Ast.full.ContainerDecl) Error!*Zdef {
     var fields = std.ArrayList(ZigType.UnionField).empty;
     var get_set_fields = std.StringArrayHashMapUnmanaged(o.ObjForeignContainer.ContainerDef.Field).empty;
-    var buzz_fields = std.StringArrayHashMapUnmanaged(*o.ObjTypeDef).empty;
+    var buzz_fields = std.StringArrayHashMapUnmanaged(Pool(o.ObjTypeDef).Idx).empty;
     var decls = std.ArrayList(ZigType.Declaration).empty;
     var next_field: ?*Zdef = null;
     for (container.ast.members, 0..) |member, idx| {
@@ -578,7 +579,7 @@ fn unionContainer(self: *Self, name: []const u8, container: Ast.full.ContainerDe
 fn structContainer(self: *Self, name: []const u8, container: Ast.full.ContainerDecl) Error!*Zdef {
     var fields = std.ArrayList(ZigType.StructField).empty;
     var get_set_fields = std.StringArrayHashMapUnmanaged(o.ObjForeignContainer.ContainerDef.Field).empty;
-    var buzz_fields = std.StringArrayHashMapUnmanaged(*o.ObjTypeDef).empty;
+    var buzz_fields = std.StringArrayHashMapUnmanaged(Pool(o.ObjTypeDef).Idx).empty;
     var decls = std.ArrayList(ZigType.Declaration).empty;
     var offset: usize = 0;
     var next_field: ?*Zdef = null;
@@ -716,14 +717,14 @@ fn identifier(self: *Self, decl_index: Ast.Node.Index) Error!*Zdef {
         else
             null;
 
-        if (global != null and global.?.type_def.def_type == .ForeignContainer) {
-            type_def = global.?.type_def.*;
-            zig_type = global.?.type_def.resolved_type.?.ForeignContainer.zig_type;
+        if (global != null and global.?.type_def.get(self.gc).def_type == .ForeignContainer) {
+            type_def = global.?.type_def.get(self.gc).*;
+            zig_type = type_def.?.resolved_type.?.ForeignContainer.zig_type;
         }
 
         if (global == null) {
             if (self.state.?.structs.get(id)) |container| {
-                type_def = container.type_def.*;
+                type_def = container.type_def.get(self.gc).*;
                 zig_type = container.zig_type;
             }
         }
@@ -788,7 +789,7 @@ fn ptrType(self: *Self, tag: Ast.Node.Tag, decl_index: Ast.Node.Index) Error!*Zd
                 },
                 .name = "ptr",
             }
-        else if (child_type.type_def.def_type == .ForeignContainer)
+        else if (child_type.type_def.get(self.gc).def_type == .ForeignContainer)
             .{
                 .type_def = child_type.type_def,
                 .zig_type = ZigType{

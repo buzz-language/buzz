@@ -5,6 +5,7 @@ const v = @import("../value.zig");
 const builtin = @import("builtin");
 const is_wasm = builtin.cpu.arch.isWasm();
 const Token = @import("../Token.zig");
+const Pool = @import("../pool.zig").Pool;
 
 // In a wasm build, the host is providing the pattern matching (JS regexes)
 extern fn patternReplaceLength(
@@ -60,7 +61,7 @@ const fake_token: Token = .{
 };
 
 // Return match anonymous object type: obj{ start: int, end: int, capture: str }
-fn matchType(vm: *VM) !*o.ObjTypeDef {
+fn matchType(vm: *VM) !Pool(o.ObjTypeDef).Idx {
     var object_def = o.ObjObject.ObjectDef.init(
         0,
         try vm.gc.copyString("match"),
@@ -116,25 +117,26 @@ fn matchType(vm: *VM) !*o.ObjTypeDef {
         },
     );
 
-    return (try vm.gc.type_registry.getTypeDef(
-        .{
-            .def_type = .Object,
-            .resolved_type = .{
-                .Object = object_def,
+    return o.ObjTypeDef.toInstance(
+        (try vm.gc.type_registry.getTypeDef(
+            .{
+                .def_type = .Object,
+                .resolved_type = .{
+                    .Object = object_def,
+                },
             },
-        },
-    )).toInstance(
+        )),
         &vm.gc.type_registry,
         false,
     );
 }
 
-fn rawMatch(self: *o.ObjPattern, vm: *VM, subject: *o.ObjString, offset: *usize) !?*o.ObjList {
+fn rawMatch(self: *o.ObjPattern, vm: *VM, subject: *o.ObjString, offset: *usize) !?Pool(o.ObjList).Idx {
     if (subject.string.len == 0) {
         return null;
     }
 
-    var results: ?*o.ObjList = null;
+    var results: ?Pool(o.ObjList).Idx = null;
     var match_data = self.pattern.createMatchData(null) orelse {
         vm.panic("Out of memory");
         unreachable;
@@ -184,13 +186,20 @@ fn rawMatch(self: *o.ObjPattern, vm: *VM, subject: *o.ObjString, offset: *usize)
             );
 
             // Prevent gc collection
-            vm.push(results.?.toValue());
+            vm.push(
+                .fromObj(
+                    .{
+                        .index = results.?.index,
+                        .obj_type = .List,
+                    },
+                ),
+            );
 
             const match_type = try matchType(vm);
 
             var i: usize = 0;
             while (i < rc) : (i += 1) {
-                const match_instance = try vm.gc.allocateObject(
+                const match_instance_idx = try vm.gc.allocateObject(
                     try o.ObjObjectInstance.init(
                         vm,
                         null,
@@ -200,17 +209,28 @@ fn rawMatch(self: *o.ObjPattern, vm: *VM, subject: *o.ObjString, offset: *usize)
                 );
 
                 // start
-                match_instance.fields[2] = v.Value.fromInteger(@intCast(output_vector[2 * i]));
+                match_instance_idx.get(vm.gc).fields[2] = .fromInteger(@intCast(output_vector[2 * i]));
                 // end
-                match_instance.fields[1] = v.Value.fromInteger(@intCast(output_vector[2 * i + 1]));
+                match_instance_idx.get(vm.gc).fields[1] = .fromInteger(@intCast(output_vector[2 * i + 1]));
                 // capture
-                match_instance.fields[0] = (try vm.gc.copyString(
-                    subject.string[@intCast(output_vector[2 * i])..@intCast(output_vector[2 * i + 1])],
-                )).toValue();
+                match_instance_idx.get(vm.gc).fields[0] = .fromObj(
+                    .{
+                        .index = (try vm.gc.copyString(
+                            subject.string[@intCast(output_vector[2 * i])..@intCast(output_vector[2 * i + 1])],
+                        )).index,
+                        .obj_type = .String,
+                    },
+                );
 
-                try results.?.items.append(
+                try results.?.get(vm.gc)
+                    .items.append(
                     vm.gc.allocator,
-                    match_instance.toValue(),
+                    .fromObj(
+                        .{
+                            .index = match_instance_idx.index,
+                            .obj_type = .ObjectInstance,
+                        },
+                    ),
                 );
             }
 
@@ -221,12 +241,12 @@ fn rawMatch(self: *o.ObjPattern, vm: *VM, subject: *o.ObjString, offset: *usize)
     return results;
 }
 
-fn rawMatchAll(self: *o.ObjPattern, vm: *VM, subject: *o.ObjString) !?*o.ObjList {
+fn rawMatchAll(self: *o.ObjPattern, vm: *VM, subject: *o.ObjString) !?Pool(o.ObjList).Idx {
     if (subject.string.len == 0) {
         return null;
     }
 
-    var results: ?*o.ObjList = null;
+    var results: ?Pool(o.ObjList).Idx = null;
     var offset: usize = 0;
     while (true) {
         if (try rawMatch(self, vm, subject, &offset)) |matches| {
@@ -239,8 +259,8 @@ fn rawMatchAll(self: *o.ObjPattern, vm: *VM, subject: *o.ObjString) !?*o.ObjList
                             .def_type = .List,
                             .optional = false,
                             .resolved_type = .{
-                                .List = o.ObjList.ListDef.init(
-                                    matches.type_def,
+                                .List = .init(
+                                    matches.get(vm.gc).type_def,
                                     false,
                                 ),
                             },
@@ -250,10 +270,26 @@ fn rawMatchAll(self: *o.ObjPattern, vm: *VM, subject: *o.ObjString) !?*o.ObjList
             );
 
             if (was_null) {
-                vm.push(results.?.toValue());
+                vm.push(
+                    .fromObj(
+                        .{
+                            .index = results.?.index,
+                            .obj_type = .List,
+                        },
+                    ),
+                );
             }
 
-            try results.?.items.append(vm.gc.allocator, matches.toValue());
+            try results.?.get(vm.gc)
+                .items.append(
+                vm.gc.allocator,
+                .fromObj(
+                    .{
+                        .index = matches.index,
+                        .obj_type = .List,
+                    },
+                ),
+            );
         } else {
             if (results != null) {
                 _ = vm.pop();
@@ -270,9 +306,12 @@ fn rawMatchAll(self: *o.ObjPattern, vm: *VM, subject: *o.ObjString) !?*o.ObjList
     return results;
 }
 
-fn rawReplace(self: *o.ObjPattern, vm: *VM, subject: *o.ObjString, replacement: *o.ObjString, offset: *usize) !*o.ObjString {
+fn rawReplace(self: *o.ObjPattern, vm: *VM, subject_idx: Pool(o.ObjString).Idx, replacement_idx: Pool(o.ObjString).Idx, offset: *usize) !Pool(o.ObjString).Idx {
+    const subject = subject_idx.get(vm.gc);
+    const replacement = replacement_idx.get(vm.gc);
+
     if (subject.string.len == 0) {
-        return subject;
+        return subject_idx;
     }
 
     var result = std.Io.Writer.Allocating.init(vm.gc.allocator);
@@ -294,7 +333,7 @@ fn rawReplace(self: *o.ObjPattern, vm: *VM, subject: *o.ObjString, replacement: 
     );
 
     switch (rc) {
-        @intFromEnum(pcre.MatchingError.DFA_UINVALID_UTF)...@intFromEnum(pcre.MatchingError.NOMATCH) => return subject,
+        @intFromEnum(pcre.MatchingError.DFA_UINVALID_UTF)...@intFromEnum(pcre.MatchingError.NOMATCH) => return subject_idx,
         // TODO: handle ouptut_vector too small
         0 => {
             vm.panic("Could not match pattern");
@@ -323,23 +362,25 @@ fn rawReplace(self: *o.ObjPattern, vm: *VM, subject: *o.ObjString, replacement: 
     return try vm.gc.copyString(result.written());
 }
 
-fn rawReplaceAll(self: *o.ObjPattern, vm: *VM, subject: *o.ObjString, replacement: *o.ObjString) !*o.ObjString {
+fn rawReplaceAll(self: *o.ObjPattern, vm: *VM, subject_idx: Pool(o.ObjString).Idx, replacement_idx: Pool(o.ObjString).Idx) !Pool(o.ObjString).Idx {
+    const subject = subject_idx.get(vm.gc);
+
     if (subject.string.len == 0) {
-        return subject;
+        return subject_idx;
     }
 
     var offset: usize = 0;
-    var current = subject;
+    var current = subject_idx;
     while (true) {
         const replaced = try rawReplace(
             self,
             vm,
             current,
-            replacement,
+            replacement_idx,
             &offset,
         );
 
-        if (replaced == current) {
+        if (replaced.index == current.index) {
             break;
         } else {
             current = replaced;
@@ -350,36 +391,43 @@ fn rawReplaceAll(self: *o.ObjPattern, vm: *VM, subject: *o.ObjString, replacemen
 }
 
 pub fn match(ctx: *o.NativeCtx) callconv(.c) c_int {
-    const self = o.ObjPattern.cast(ctx.vm.peek(1).obj()).?;
-    const subject = o.ObjString.cast(ctx.vm.peek(0).obj()).?;
+    const self = ctx.vm.peekAsIdx(o.ObjPattern, 1);
+    const subject = ctx.vm.peekAsIdx(o.ObjString, 0);
 
     var offset: usize = 0;
     if (rawMatch(
-        self,
+        self.get(ctx.vm.gc),
         ctx.vm,
-        subject,
+        subject.get(ctx.vm.gc),
         &offset,
     ) catch {
         ctx.vm.panic("Out of memory");
         unreachable;
     }) |results| {
-        ctx.vm.push(results.toValue());
+        ctx.vm.push(
+            .fromObj(
+                .{
+                    .index = results.index,
+                    .obj_type = .List,
+                },
+            ),
+        );
     } else {
-        ctx.vm.push(v.Value.Null);
+        ctx.vm.push(.Null);
     }
 
     return 1;
 }
 
 pub fn replace(ctx: *o.NativeCtx) callconv(.c) c_int {
-    const self = o.ObjPattern.cast(ctx.vm.peek(2).obj()).?;
-    const subject = o.ObjString.cast(ctx.vm.peek(1).obj()).?;
-    const replacement = o.ObjString.cast(ctx.vm.peek(0).obj()).?;
+    const self = ctx.vm.peekAsIdx(o.ObjPattern, 2);
+    const subject = ctx.vm.peekAsIdx(o.ObjString, 1);
+    const replacement = ctx.vm.peekAsIdx(o.ObjString, 0);
 
     if (!is_wasm) {
         var offset: usize = 0;
         const result = rawReplace(
-            self,
+            self.get(ctx.vm.gc),
             ctx.vm,
             subject,
             replacement,
@@ -389,7 +437,14 @@ pub fn replace(ctx: *o.NativeCtx) callconv(.c) c_int {
             unreachable;
         };
 
-        ctx.vm.push(result.toValue());
+        ctx.vm.push(
+            .fromObj(
+                .{
+                    .index = result.index,
+                    .obj_type = .String,
+                },
+            ),
+        );
     } else {
         const buffer = ctx.vm.gc.allocator.alloc(
             u8,
@@ -432,33 +487,40 @@ pub fn replace(ctx: *o.NativeCtx) callconv(.c) c_int {
 }
 
 pub fn matchAll(ctx: *o.NativeCtx) callconv(.c) c_int {
-    const self = o.ObjPattern.cast(ctx.vm.peek(1).obj()).?;
-    const subject = o.ObjString.cast(ctx.vm.peek(0).obj()).?;
+    const self = ctx.vm.peekAsIdx(o.ObjPattern, 1);
+    const subject = ctx.vm.peekAsIdx(o.ObjString, 0);
 
     if (rawMatchAll(
-        self,
+        self.get(ctx.vm.gc),
         ctx.vm,
-        subject,
+        subject.get(ctx.vm.gc),
     ) catch {
         ctx.vm.panic("Out of memory");
         unreachable;
     }) |results| {
-        ctx.vm.push(results.toValue());
+        ctx.vm.push(
+            .fromObj(
+                .{
+                    .index = results.index,
+                    .obj_type = .List,
+                },
+            ),
+        );
     } else {
-        ctx.vm.push(v.Value.Null);
+        ctx.vm.push(.Null);
     }
 
     return 1;
 }
 
 pub fn replaceAll(ctx: *o.NativeCtx) callconv(.c) c_int {
-    const self = o.ObjPattern.cast(ctx.vm.peek(2).obj()).?;
-    const subject = o.ObjString.cast(ctx.vm.peek(1).obj()).?;
-    const replacement = o.ObjString.cast(ctx.vm.peek(0).obj()).?;
+    const self = ctx.vm.peekAsIdx(o.ObjPattern, 2);
+    const subject = ctx.vm.peekAsIdx(o.ObjString, 1);
+    const replacement = ctx.vm.peekAsIdx(o.ObjString, 0);
 
     if (!is_wasm) {
         const result = rawReplaceAll(
-            self,
+            self.get(ctx.vm.gc),
             ctx.vm,
             subject,
             replacement,
@@ -467,7 +529,14 @@ pub fn replaceAll(ctx: *o.NativeCtx) callconv(.c) c_int {
             unreachable;
         };
 
-        ctx.vm.push(result.toValue());
+        ctx.vm.push(
+            .fromObj(
+                .{
+                    .index = result.index,
+                    .obj_type = .String,
+                },
+            ),
+        );
     } else {
         const buffer = ctx.vm.gc.allocator.alloc(
             u8,
