@@ -10,6 +10,7 @@ const builtin = @import("builtin");
 const is_wasm = builtin.cpu.arch.isWasm();
 const io = @import("io.zig");
 const BuildOptions = @import("build_options");
+const GC = @import("GC.zig");
 
 const Self = @This();
 
@@ -884,12 +885,14 @@ pub fn reportTypeCheck(
 }
 
 // Got to the root placeholder and report it
-pub fn reportPlaceholder(self: *Self, ast: Ast.Slice, placeholder: PlaceholderDef) void {
+pub fn reportPlaceholder(self: *Self, ast: Ast.Slice, gc: *GC, placeholder: PlaceholderDef) void {
     @branchHint(.cold);
 
-    if (placeholder.parent) |parent| {
+    if (placeholder.parent) |parent_idx| {
+        const parent = gc.get(o.ObjTypeDef, parent_idx).?;
+
         if (parent.def_type == .Placeholder) {
-            self.reportPlaceholder(ast, parent.resolved_type.?.Placeholder);
+            self.reportPlaceholder(ast, gc, parent.resolved_type.?.Placeholder);
         } else if (BuildOptions.debug) {
             self.reportErrorFmt(
                 .runtime,

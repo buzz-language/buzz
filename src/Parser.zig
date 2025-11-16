@@ -18,6 +18,7 @@ const StringParser = @import("StringParser.zig");
 const pcre = if (!is_wasm) @import("pcre.zig") else void;
 const buzz_api = @import("lib/buzz_api.zig");
 const io = @import("io.zig");
+const Pool = @import("pool.zig").Pool;
 
 // In the wasm build, libraries are statically linked
 const std_lib = if (is_wasm) @import("lib/buzz_std.zig") else void;
@@ -253,7 +254,7 @@ pub const CompileError = error{
 pub const Local = struct {
     name: Ast.TokenIndex,
     node: Ast.Node.Index,
-    type_def: *obj.ObjTypeDef,
+    type_def: Pool(obj.ObjTypeDef).Idx,
     depth: i32,
     captured: bool,
     final: bool,
@@ -261,11 +262,12 @@ pub const Local = struct {
     referenced: bool = false,
     assigned: bool = false,
 
-    pub fn isReferenced(self: Local, ast: Ast) bool {
+    pub fn isReferenced(self: Local, ast: Ast, gc: *GC) bool {
         const lexemes = ast.tokens.items(.lexeme);
+        const type_def = gc.get(obj.ObjTypeDef, self.type_def).?;
         return self.referenced or
-            self.type_def.def_type == .Void or
-            self.type_def.def_type == .Placeholder or
+            type_def.def_type == .Void or
+            type_def.def_type == .Placeholder or
             lexemes[self.name][0] == '$' or
             (lexemes[self.name][0] == '_' and lexemes[self.name].len == 1);
     }
@@ -283,7 +285,7 @@ pub const Local = struct {
 pub const Global = struct {
     name: []const Ast.TokenIndex,
     node: Ast.Node.Index,
-    type_def: *obj.ObjTypeDef,
+    type_def: Pool(obj.ObjTypeDef).Idx,
     export_alias: ?Ast.TokenIndex = null,
     imported_from: ?[]const u8 = null,
     placeholder_referrers: std.ArrayList(Ast.Node.Index) = .{},
@@ -295,16 +297,17 @@ pub const Global = struct {
     mutable: bool,
     referenced: bool = false,
 
-    pub fn isReferenced(self: Global, ast: Ast) bool {
+    pub fn isReferenced(self: Global, ast: Ast, gc: *GC) bool {
         const lexemes = ast.tokens.items(.lexeme);
-        const function_type = if (self.type_def.def_type == .Function)
-            self.type_def.resolved_type.?.Function.function_type
+        const type_def = gc.get(obj.ObjTypeDef, self.type_def).?;
+        const function_type = if (type_def.def_type == .Function)
+            type_def.resolved_type.?.Function.function_type
         else
             null;
 
         return self.referenced or
-            self.type_def.def_type == .Void or
-            self.type_def.def_type == .Placeholder or
+            type_def.def_type == .Void or
+            type_def.def_type == .Placeholder or
             (function_type == .Extern or function_type == .Abstract or function_type == .EntryPoint or function_type == .ScriptEntryPoint or function_type != .Repl) or
             lexemes[self.name[self.name.len - 1]][0] == '$' or
             (lexemes[self.name[self.name.len - 1]][0] == '_' and lexemes[self.name[self.name.len - 1]].len == 1) or
@@ -356,8 +359,8 @@ pub const Frame = struct {
     /// If false, `return` was omitted or within a conditionned block (if, loop, etc.)
     /// We only count `return` emitted within the scope_depth 0 of the current function or unconditionned else statement
     function_node: Ast.Node.Index,
-    function: ?*obj.ObjFunction = null,
-    generics: ?*std.AutoArrayHashMapUnmanaged(*obj.ObjString, *obj.ObjTypeDef) = null,
+    function: ?Pool(obj.ObjFunction).Idx = null,
+    generics: ?*std.AutoArrayHashMapUnmanaged(Pool(obj.ObjString).Idx, Pool(obj.ObjTypeDef).Idx) = null,
 
     in_try: bool = false,
     in_block_expression: ?u32 = null,
@@ -367,7 +370,7 @@ pub const Frame = struct {
         // self.generics ends up in AST node so we don't deinit it
     }
 
-    pub fn resolveGeneric(self: Frame, name: *obj.ObjString) ?*obj.ObjTypeDef {
+    pub fn resolveGeneric(self: Frame, name: Pool(obj.ObjString).Idx) ?Pool(obj.ObjTypeDef).Idx {
         if (self.generics) |generics| {
             if (generics.get(name)) |type_def| {
                 return type_def;
@@ -383,14 +386,14 @@ pub const Frame = struct {
 
 pub const ObjectFrame = struct {
     name: Ast.TokenIndex,
-    type_def: *obj.ObjTypeDef,
-    generics: ?*std.AutoArrayHashMapUnmanaged(*obj.ObjString, *obj.ObjTypeDef) = null,
+    type_def: Pool(obj.ObjTypeDef).Idx,
+    generics: ?*std.AutoArrayHashMapUnmanaged(Pool(obj.ObjString).Idx, Pool(obj.ObjTypeDef).Idx) = null,
 };
 
 pub const ScriptImport = struct {
     function: Ast.Node.Index,
     globals: std.ArrayList(Global) = .{},
-    absolute_path: *obj.ObjString,
+    absolute_path: Pool(obj.ObjString).Idx,
     imported_by: std.AutoHashMapUnmanaged(*Frame, void) = .{},
 };
 
@@ -1055,7 +1058,8 @@ pub fn parse(self: *Self, source: []const u8, file_name: ?[]const u8, name: []co
                     global.matchNamespace(self.ast, self.namespace.?)))
             {
                 entry.main_slot = index;
-                entry.push_cli_args = global.type_def.resolved_type.?.Function.parameters.count() > 0;
+                entry.push_cli_args = self.gc.get(obj.ObjTypeDef, global.type_def).?
+                    .resolved_type.?.Function.parameters.count() > 0;
                 entry.main_location = global.name[global.name.len - 1];
                 break;
             }
@@ -1066,7 +1070,8 @@ pub fn parse(self: *Self, source: []const u8, file_name: ?[]const u8, name: []co
     var test_locations = std.ArrayList(Ast.TokenIndex).empty;
     // Create an entry point wich runs all `test`
     for (self.globals.items, 0..) |global, index| {
-        if (global.type_def.def_type == .Function and global.type_def.resolved_type.?.Function.function_type == .Test) {
+        const global_type_def = self.gc.get(obj.ObjTypeDef, global.type_def).?;
+        if (global_type_def.def_type == .Function and global_type_def.resolved_type.?.Function.function_type == .Test) {
             try test_slots.append(self.gc.allocator, index);
             try test_locations.append(self.gc.allocator, global.name[0]);
         }
@@ -1081,9 +1086,15 @@ pub fn parse(self: *Self, source: []const u8, file_name: ?[]const u8, name: []co
     }
 
     for (self.globals.items) |global| {
+        const global_type_def = self.gc.get(obj.ObjTypeDef, global.type_def).?;
         // Check there's no more root placeholders
-        if (global.type_def.def_type == .Placeholder) {
-            self.reporter.reportPlaceholder(self.ast.slice(), global.type_def.resolved_type.?.Placeholder);
+        if (global_type_def.def_type == .Placeholder) {
+            self.reporter.reportPlaceholder(
+                self.ast.slice(),
+                self.gc,
+                self.gc.get(obj.ObjTypeDef, global.type_def).?
+                    .resolved_type.?.Placeholder,
+            );
         }
     }
 
@@ -1122,7 +1133,12 @@ pub fn parse(self: *Self, source: []const u8, file_name: ?[]const u8, name: []co
     return if (self.reporter.last_error != null) null else self.ast;
 }
 
-fn beginFrame(self: *Self, function_type: obj.ObjFunction.FunctionType, function_node: Ast.Node.Index, this: ?*obj.ObjTypeDef) !void {
+fn beginFrame(
+    self: *Self,
+    function_type: obj.ObjFunction.FunctionType,
+    function_node: Ast.Node.Index,
+    this: ?Pool(obj.ObjTypeDef).Idx,
+) !void {
     const enclosing = self.current;
     // FIXME: is this ever deallocated?
     self.current = try self.gc.allocator.create(Frame);
@@ -1204,7 +1220,7 @@ fn endFrame(self: *Self) Ast.Node.Index {
 
         if (self.flavor != .Repl) {
             // Check discarded locals
-            if (!local.isReferenced(self.ast)) {
+            if (!local.isReferenced(self.ast, self.gc)) {
                 const location = self.ast.tokens.get(local.name);
                 self.reporter.warnFmt(
                     .unused_argument,
@@ -1234,11 +1250,16 @@ fn endFrame(self: *Self) Ast.Node.Index {
     }
 
     // If global scope, check unused globals
-    const function_type = self.ast.nodes.items(.type_def)[self.current.?.function_node].?.resolved_type.?.Function.function_type;
+    const function_type = self.gc.get(
+        obj.ObjTypeDef,
+        self.ast.nodes.items(.type_def)[self.current.?.function_node].?,
+    ).?
+        .resolved_type.?.Function.function_type;
+
     if (function_type == .Script or function_type == .ScriptEntryPoint) {
         for (self.globals.items) |global| {
-            if (!global.isReferenced(self.ast)) {
-                const type_def_str = global.type_def.toStringAlloc(self.gc.allocator, false) catch unreachable;
+            if (!global.isReferenced(self.ast, self.gc)) {
+                const type_def_str = obj.ObjTypeDef.toStringAlloc(global.type_def, self.gc, false) catch unreachable;
                 defer self.gc.allocator.free(type_def_str);
 
                 const location = self.ast.tokens.get(global.name[0]);
@@ -1389,7 +1410,10 @@ fn parsePrecedence(self: *Self, precedence: Precedence, hanging: bool) Error!Ast
 
                 const node_type_def_ptr = &self.ast.nodes.items(.type_def)[node];
                 if (node_type_def_ptr.* != null) {
-                    node_type_def_ptr.* = try node_type_def_ptr.*.?.cloneOptional(&self.gc.type_registry);
+                    node_type_def_ptr.* = try obj.ObjTypeDef.cloneOptional(
+                        node_type_def_ptr.*.?,
+                        &self.gc.type_registry,
+                    );
                 }
             }
         }
@@ -1419,9 +1443,9 @@ fn parsePrecedence(self: *Self, precedence: Precedence, hanging: bool) Error!Ast
 
         self.ast.nodes.items(.patch_opt_jumps)[node] = true;
 
-        const node_type_def = self.ast.nodes.items(.type_def)[node];
-        if (node_type_def != null) {
-            self.ast.nodes.items(.type_def)[node] = try node_type_def.?.cloneOptional(&self.gc.type_registry);
+        if (self.ast.nodes.items(.type_def)[node]) |idx| {
+            self.ast.nodes.items(.type_def)[node] = try obj.ObjTypeDef
+                .cloneOptional(idx, &self.gc.type_registry);
         }
     }
 
@@ -1710,7 +1734,7 @@ fn statement(self: *Self, docblock: ?Ast.TokenIndex, hanging: bool, loop_scope: 
     return try self.expressionStatement(hanging);
 }
 
-fn addLocal(self: *Self, node: Ast.Node.Index, name: Ast.TokenIndex, local_type: *obj.ObjTypeDef, final: bool, mutable: bool) Error!usize {
+fn addLocal(self: *Self, node: Ast.Node.Index, name: Ast.TokenIndex, local_type: Pool(obj.ObjTypeDef).Idx, final: bool, mutable: bool) Error!usize {
     if (self.current.?.local_count == std.math.maxInt(u8)) {
         const location = self.ast.tokens.get(name);
         self.reporter.reportErrorAt(
@@ -1722,7 +1746,8 @@ fn addLocal(self: *Self, node: Ast.Node.Index, name: Ast.TokenIndex, local_type:
         return 0;
     }
 
-    const function_type = self.ast.nodes.items(.type_def)[self.current.?.function_node].?.resolved_type.?.Function.function_type;
+    const function_type = self.gc.get(obj.ObjTypeDef, self.ast.nodes.items(.type_def)[self.current.?.function_node].?).?
+        .resolved_type.?.Function.function_type;
     self.current.?.locals[self.current.?.local_count] = Local{
         .name = name,
         .node = node,
@@ -1754,20 +1779,21 @@ fn addGlobal(
     self: *Self,
     node: Ast.Node.Index,
     name: Ast.TokenIndex,
-    global_type: *obj.ObjTypeDef,
+    global_type: Pool(obj.ObjTypeDef).Idx,
     final: bool,
     mutable: bool,
 ) Error!usize {
     const lexemes = self.ast.tokens.items(.lexeme);
     // Search for an existing placeholder global with the same name
     for (self.globals.items, 0..) |*global, index| {
-        if (global.type_def.def_type == .Placeholder and
+        const global_type_def = self.gc.get(obj.ObjTypeDef, global.type_def).?;
+        if (global_type_def.def_type == .Placeholder and
             (self.namespace == null or global.matchNamespace(self.ast, self.namespace.?)) and
             std.mem.eql(u8, lexemes[global.name[global.name.len - 1]], lexemes[name]))
         {
             global.exported = self.exporting;
 
-            if (global_type.def_type != .Placeholder) {
+            if (self.gc.get(obj.ObjTypeDef, global_type).?.def_type != .Placeholder) {
                 try self.resolvePlaceholder(global.type_def, global_type, final);
 
                 if (self.flavor == .Ast) {
@@ -1816,7 +1842,7 @@ fn addGlobal(
     return self.globals.items.len - 1;
 }
 
-fn resolveGeneric(self: *Self, name: *obj.ObjString) ?*obj.ObjTypeDef {
+fn resolveGeneric(self: *Self, name: Pool(obj.ObjString).Idx) ?Pool(obj.ObjTypeDef).Idx {
     return if (self.current_object != null and self.current_object.?.generics != null)
         self.current_object.?.generics.?.get(name) orelse self.current.?.resolveGeneric(name)
     else
@@ -1876,7 +1902,8 @@ pub fn resolveGlobal(self: *Self, referrer: Ast.Node.Index, name: []const Ast.To
 
     var i: usize = self.globals.items.len - 1;
     while (i >= 0) : (i -= 1) {
-        const global: *Global = &self.globals.items[i];
+        const global = &self.globals.items[i];
+        const global_type_def = self.gc.get(obj.ObjTypeDef, global.type_def).?;
 
         if (global.matchName(
             self.ast,
@@ -1907,7 +1934,7 @@ pub fn resolveGlobal(self: *Self, referrer: Ast.Node.Index, name: []const Ast.To
 
             global.referenced = true;
 
-            if (self.flavor == .Ast and global.type_def.def_type == .Placeholder) {
+            if (self.flavor == .Ast and global_type_def.def_type == .Placeholder) {
                 try global.placeholder_referrers.append(self.gc.allocator, referrer);
             }
 
@@ -1923,11 +1950,13 @@ pub fn resolveGlobal(self: *Self, referrer: Ast.Node.Index, name: []const Ast.To
 
 fn resolvePlaceholderWithRelation(
     self: *Self,
-    child: *obj.ObjTypeDef,
-    resolved_type: *obj.ObjTypeDef,
+    child_idx: Pool(obj.ObjTypeDef).Idx,
+    resolved_type_idx: Pool(obj.ObjTypeDef).Idx,
     final: bool,
     relation: obj.PlaceholderDef.Relation,
 ) Error!void {
+    const child = self.gc.get(obj.ObjTypeDef, child_idx).?;
+    const resolved_type = self.gc.get(obj.ObjTypeDef, resolved_type_idx).?;
     const child_placeholder = child.resolved_type.?.Placeholder;
     const child_placeholder_name = self.ast.tokens.items(.lexeme)[child_placeholder.where];
 
@@ -1946,8 +1975,9 @@ fn resolvePlaceholderWithRelation(
     switch (relation) {
         .GenericResolve => {
             try self.resolvePlaceholder(
-                child,
-                try resolved_type.populateGenerics(
+                child_idx,
+                try obj.ObjTypeDef.populateGenerics(
+                    resolved_type_idx,
                     self.current_token.? - 1,
                     switch (resolved_type.def_type) {
                         .Function => resolved_type.resolved_type.?.Function.id,
@@ -1956,7 +1986,6 @@ fn resolvePlaceholderWithRelation(
                     },
                     child_placeholder.resolved_generics.?,
                     &self.gc.type_registry,
-                    self.gc.allocator,
                     null,
                 ),
                 true,
@@ -1964,22 +1993,23 @@ fn resolvePlaceholderWithRelation(
         },
         .Optional => {
             try self.resolvePlaceholder(
-                child,
-                try resolved_type.cloneOptional(&self.gc.type_registry),
+                child_idx,
+                try obj.ObjTypeDef.cloneOptional(resolved_type_idx, &self.gc.type_registry),
                 false,
             );
         },
         .Unwrap => {
             try self.resolvePlaceholder(
-                child,
-                try resolved_type.cloneNonOptional(&self.gc.type_registry),
+                child_idx,
+                try obj.ObjTypeDef.cloneNonOptional(resolved_type_idx, &self.gc.type_registry),
                 false,
             );
         },
         .Instance => {
             try self.resolvePlaceholder(
-                child,
-                try resolved_type.toInstance(
+                child_idx,
+                try obj.ObjTypeDef.toInstance(
+                    resolved_type_idx,
                     &self.gc.type_registry,
                     child.isMutable(),
                 ),
@@ -1988,8 +2018,8 @@ fn resolvePlaceholderWithRelation(
         },
         .Parent => {
             try self.resolvePlaceholder(
-                child,
-                try resolved_type.toParentType(&self.gc.type_registry),
+                child_idx,
+                try obj.ObjTypeDef.toParentType(resolved_type_idx, &self.gc.type_registry),
                 false,
             );
         },
@@ -2002,14 +2032,14 @@ fn resolvePlaceholderWithRelation(
                     self.ast.tokens.get(child_placeholder.where_end),
                     "`{s}` can't be called",
                     .{
-                        try resolved_type.toStringAlloc(self.gc.allocator, false),
+                        try obj.ObjTypeDef.toStringAlloc(resolved_type_idx, self.gc, false),
                     },
                 );
                 return;
             }
 
             try self.resolvePlaceholder(
-                child,
+                child_idx,
                 resolved_type.resolved_type.?.Function.return_type,
                 false,
             );
@@ -2023,14 +2053,14 @@ fn resolvePlaceholderWithRelation(
                     self.ast.tokens.get(child_placeholder.where_end),
                     "`{s}` can't be called",
                     .{
-                        try resolved_type.toStringAlloc(self.gc.allocator, false),
+                        try obj.ObjTypeDef.toStringAlloc(resolved_type_idx, self.gc, false),
                     },
                 );
                 return;
             }
 
             try self.resolvePlaceholder(
-                child,
+                child_idx,
                 resolved_type.resolved_type.?.Function.yield_type,
                 false,
             );
@@ -2038,19 +2068,19 @@ fn resolvePlaceholderWithRelation(
         .Subscript => {
             if (resolved_type.def_type == .List) {
                 try self.resolvePlaceholder(
-                    child,
+                    child_idx,
                     resolved_type.resolved_type.?.List.item_type,
                     false,
                 );
             } else if (resolved_type.def_type == .Map) {
                 try self.resolvePlaceholder(
-                    child,
-                    try resolved_type.resolved_type.?.Map.value_type.cloneOptional(&self.gc.type_registry),
+                    child_idx,
+                    try obj.ObjTypeDef.cloneOptional(resolved_type.resolved_type.?.Map.value_type, &self.gc.type_registry),
                     false,
                 );
             } else if (resolved_type.def_type == .String) {
                 try self.resolvePlaceholder(
-                    child,
+                    child_idx,
                     self.gc.type_registry.str_type,
                     false,
                 );
@@ -2061,7 +2091,7 @@ fn resolvePlaceholderWithRelation(
                     self.ast.tokens.get(child_placeholder.where_end),
                     "`{s}` can't be subscripted",
                     .{
-                        try resolved_type.toStringAlloc(self.gc.allocator, false),
+                        try obj.ObjTypeDef.toStringAlloc(resolved_type_idx, self.gc, false),
                     },
                 );
                 return;
@@ -2070,19 +2100,19 @@ fn resolvePlaceholderWithRelation(
         .UnwrappedSubscript => {
             if (resolved_type.def_type == .List) {
                 try self.resolvePlaceholder(
-                    child,
+                    child_idx,
                     resolved_type.resolved_type.?.List.item_type,
                     false,
                 );
             } else if (resolved_type.def_type == .Map) {
                 try self.resolvePlaceholder(
-                    child,
+                    child_idx,
                     resolved_type.resolved_type.?.Map.value_type,
                     false,
                 );
             } else if (resolved_type.def_type == .String) {
                 try self.resolvePlaceholder(
-                    child,
+                    child_idx,
                     self.gc.type_registry.str_type,
                     false,
                 );
@@ -2093,7 +2123,7 @@ fn resolvePlaceholderWithRelation(
                     self.ast.tokens.get(child_placeholder.where_end),
                     "`{s}` can't be subscripted",
                     .{
-                        try resolved_type.toStringAlloc(self.gc.allocator, false),
+                        try obj.ObjTypeDef.toStringAlloc(resolved_type_idx, self.gc, false),
                     },
                 );
                 return;
@@ -2102,13 +2132,13 @@ fn resolvePlaceholderWithRelation(
         .Key => {
             if (resolved_type.def_type == .Map) {
                 try self.resolvePlaceholder(
-                    child,
+                    child_idx,
                     resolved_type.resolved_type.?.Map.key_type,
                     false,
                 );
             } else if (resolved_type.def_type == .List or resolved_type.def_type == .String) {
                 try self.resolvePlaceholder(
-                    child,
+                    child_idx,
                     self.gc.type_registry.int_type,
                     false,
                 );
@@ -2119,7 +2149,7 @@ fn resolvePlaceholderWithRelation(
                     self.ast.tokens.get(child_placeholder.where_end),
                     "Bad key type for `{s}`",
                     .{
-                        try resolved_type.toStringAlloc(self.gc.allocator, false),
+                        try obj.ObjTypeDef.toStringAlloc(resolved_type_idx, self.gc, false),
                     },
                 );
                 return;
@@ -2129,20 +2159,20 @@ fn resolvePlaceholderWithRelation(
             switch (resolved_type.def_type) {
                 .List => {
                     if (try obj.ObjList.ListDef.member(
-                        resolved_type,
+                        resolved_type_idx,
                         self,
                         child_placeholder_name,
                     )) |member| {
-                        try self.resolvePlaceholder(child, member.type_def, false);
+                        try self.resolvePlaceholder(child_idx, member.type_def, false);
                     }
                 },
                 .Map => {
                     if (try obj.ObjMap.MapDef.member(
-                        resolved_type,
+                        resolved_type_idx,
                         self,
                         child_placeholder_name,
                     )) |member| {
-                        try self.resolvePlaceholder(child, member.type_def, false);
+                        try self.resolvePlaceholder(child_idx, member.type_def, false);
                     }
                 },
                 .String => {
@@ -2150,7 +2180,7 @@ fn resolvePlaceholderWithRelation(
                         self,
                         child_placeholder_name,
                     )) |member| {
-                        try self.resolvePlaceholder(child, member, false);
+                        try self.resolvePlaceholder(child_idx, member, false);
                     }
                 },
                 .Pattern => {
@@ -2158,7 +2188,7 @@ fn resolvePlaceholderWithRelation(
                         self,
                         child_placeholder_name,
                     )) |member| {
-                        try self.resolvePlaceholder(child, member, false);
+                        try self.resolvePlaceholder(child_idx, member, false);
                     }
                 },
                 .Fiber => {
@@ -2166,7 +2196,7 @@ fn resolvePlaceholderWithRelation(
                         self,
                         child_placeholder_name,
                     )) |member| {
-                        try self.resolvePlaceholder(child, member, false);
+                        try self.resolvePlaceholder(child_idx, member, false);
                     }
                 },
                 .Object => {
@@ -2177,7 +2207,7 @@ fn resolvePlaceholderWithRelation(
                     if (object_def.fields.get(child_placeholder_name)) |field| {
                         // TODO: remove? should only resolve with a field if field accessing an object instance?
                         try self.resolvePlaceholder(
-                            child,
+                            child_idx,
                             field.type_def,
                             field.final,
                         );
@@ -2188,7 +2218,7 @@ fn resolvePlaceholderWithRelation(
                             self.ast.tokens.get(child.resolved_type.?.Placeholder.where_end),
                             "`{s}` has no static field `{s}`",
                             .{
-                                object_def.name.string,
+                                self.gc.get(obj.ObjString, object_def.name).?.string,
                                 child_placeholder_name,
                             },
                         );
@@ -2196,12 +2226,13 @@ fn resolvePlaceholderWithRelation(
                 },
                 .ObjectInstance => {
                     // We can't create a field access placeholder without a name
-                    const object_def = resolved_type.resolved_type.?.ObjectInstance.of.resolved_type.?.Object;
+                    const object_def = self.gc.get(obj.ObjTypeDef, resolved_type.resolved_type.?.ObjectInstance.of).?
+                        .resolved_type.?.Object;
 
                     // Search for a field matching the placeholder
                     if (object_def.fields.get(child_placeholder_name)) |field| {
                         try self.resolvePlaceholder(
-                            child,
+                            child_idx,
                             field.type_def,
                             field.final,
                         );
@@ -2212,7 +2243,7 @@ fn resolvePlaceholderWithRelation(
                             self.ast.tokens.get(child.resolved_type.?.Placeholder.where_end),
                             "`{s}` has no field `{s}`",
                             .{
-                                object_def.name.string,
+                                self.gc.get(obj.ObjString, object_def.name).?.string,
                                 child_placeholder_name,
                             },
                         );
@@ -2224,7 +2255,7 @@ fn resolvePlaceholderWithRelation(
 
                     // Search for a field matching the placeholder
                     if (f_def.buzz_type.get(child_placeholder_name)) |field| {
-                        try self.resolvePlaceholder(child, field, false);
+                        try self.resolvePlaceholder(child_idx, field, false);
                     } else {
                         self.reporter.reportErrorFmt(
                             .property_does_not_exists,
@@ -2232,7 +2263,7 @@ fn resolvePlaceholderWithRelation(
                             self.ast.tokens.get(child.resolved_type.?.Placeholder.where_end),
                             "`{s}` has no field `{s}`",
                             .{
-                                f_def.name.string,
+                                self.gc.get(obj.ObjString, f_def.name).?.string,
                                 child_placeholder_name,
                             },
                         );
@@ -2240,11 +2271,12 @@ fn resolvePlaceholderWithRelation(
                 },
                 .ProtocolInstance => {
                     // We can't create a field access placeholder without a name
-                    const protocol_def = resolved_type.resolved_type.?.ProtocolInstance.of.resolved_type.?.Protocol;
+                    const protocol_def = self.gc.get(obj.ObjTypeDef, resolved_type.resolved_type.?.ProtocolInstance.of).?
+                        .resolved_type.?.Protocol;
 
                     // Search for a field matching the placeholder
                     if (protocol_def.methods.get(child_placeholder_name)) |method_def| {
-                        try self.resolvePlaceholder(child, method_def.type_def, true);
+                        try self.resolvePlaceholder(child_idx, method_def.type_def, true);
                     } else {
                         self.reporter.reportErrorFmt(
                             .property_does_not_exists,
@@ -2252,7 +2284,7 @@ fn resolvePlaceholderWithRelation(
                             self.ast.tokens.get(child.resolved_type.?.Placeholder.where_end),
                             "`{s}` has no method `{s}`",
                             .{
-                                protocol_def.name.string,
+                                self.gc.get(obj.ObjString, protocol_def.name).?.string,
                                 child_placeholder_name,
                             },
                         );
@@ -2266,13 +2298,13 @@ fn resolvePlaceholderWithRelation(
                     for (enum_def.cases) |case| {
                         if (std.mem.eql(u8, case, child_placeholder_name)) {
                             try self.resolvePlaceholder(
-                                child,
+                                child_idx,
                                 try self.gc.type_registry.getTypeDef(
                                     .{
                                         .def_type = .EnumInstance,
                                         .resolved_type = .{
                                             .EnumInstance = .{
-                                                .of = resolved_type,
+                                                .of = resolved_type_idx,
                                                 .mutable = false,
                                             },
                                         },
@@ -2287,8 +2319,9 @@ fn resolvePlaceholderWithRelation(
                 .EnumInstance => {
                     if (std.mem.eql(u8, "value", child_placeholder_name)) {
                         try self.resolvePlaceholder(
-                            child,
-                            resolved_type.resolved_type.?.EnumInstance.of.resolved_type.?.Enum.enum_type,
+                            child_idx,
+                            self.gc.get(obj.ObjTypeDef, resolved_type.resolved_type.?.EnumInstance.of).?
+                                .resolved_type.?.Enum.enum_type,
                             false,
                         );
                     } else {
@@ -2308,7 +2341,7 @@ fn resolvePlaceholderWithRelation(
                         self.ast.tokens.get(child_placeholder.where_end),
                         "`{s}` can't be field accessed",
                         .{
-                            try resolved_type.toStringAlloc(self.gc.allocator, false),
+                            try obj.ObjTypeDef.toStringAlloc(resolved_type_idx, self.gc, false),
                         },
                     );
                     return;
@@ -2328,9 +2361,10 @@ fn resolvePlaceholderWithRelation(
 
             // Is child type matching the parent?
             try self.resolvePlaceholder(
-                child,
+                child_idx,
                 // Assignment relation from a once Placeholder and now Object/Enum is creating an instance
-                try resolved_type.toInstance(
+                try obj.ObjTypeDef.toInstance(
+                    resolved_type_idx,
                     &self.gc.type_registry,
                     child.resolved_type.?.Placeholder.mutable.?,
                 ),
@@ -2343,7 +2377,9 @@ fn resolvePlaceholderWithRelation(
 // When we encounter the missing declaration we replace it with the resolved type.
 // We then follow the chain of placeholders to see if their assumptions were correct.
 // If not we raise a compile error.
-pub fn resolvePlaceholder(self: *Self, placeholder: *obj.ObjTypeDef, resolved_type: *obj.ObjTypeDef, final: bool) Error!void {
+pub fn resolvePlaceholder(self: *Self, placeholder_idx: Pool(obj.ObjTypeDef).Idx, resolved_type_idx: Pool(obj.ObjTypeDef).Idx, final: bool) Error!void {
+    const placeholder = self.gc.get(obj.ObjTypeDef, placeholder_idx).?;
+    const resolved_type = self.gc.get(obj.ObjTypeDef, resolved_type_idx).?;
     std.debug.assert(placeholder.def_type == .Placeholder);
 
     if (BuildOptions.debug_placeholders) {
@@ -2370,14 +2406,15 @@ pub fn resolvePlaceholder(self: *Self, placeholder: *obj.ObjTypeDef, resolved_ty
             );
         }
 
-        if (resolved_type.resolved_type.?.Placeholder.parent) |parent| {
+        if (resolved_type.resolved_type.?.Placeholder.parent) |parent_idx| {
+            const parent = self.gc.get(obj.ObjTypeDef, parent_idx).?;
             if (parent.def_type == .Placeholder) {
-                try parent.resolved_type.?.Placeholder.children.append(self.gc.allocator, placeholder);
+                try parent.resolved_type.?.Placeholder.children.append(self.gc.allocator, placeholder_idx);
             } else {
                 // Parent already resolved, resolve this now orphan placeholder
                 try self.resolvePlaceholderWithRelation(
-                    resolved_type,
-                    parent,
+                    resolved_type_idx,
+                    parent_idx,
                     final,
                     resolved_type.resolved_type.?.Placeholder.parent_relation.?,
                 );
@@ -2418,14 +2455,15 @@ pub fn resolvePlaceholder(self: *Self, placeholder: *obj.ObjTypeDef, resolved_ty
     placeholder.obj = o;
     // Put it in the registry so any cloneOptional/cloneNonOptional don't create new types
     // FIXME: if the type was already registered this makes an orphan copy of that type
-    try self.gc.type_registry.setTypeDef(placeholder);
+    try self.gc.type_registry.setTypeDef(placeholder_idx);
 
     // Now walk the chain of placeholders and see if they hold up
-    for (placeholder_def.children.items) |child| {
+    for (placeholder_def.children.items) |child_idx| {
+        const child = self.gc.get(obj.ObjTypeDef, child_idx).?;
         if (child.def_type == .Placeholder) {
             try self.resolvePlaceholderWithRelation(
-                child,
-                placeholder,
+                child_idx,
+                placeholder_idx,
                 final,
                 child.resolved_type.?.Placeholder.parent_relation.?,
             );
@@ -2502,12 +2540,13 @@ fn resolveUpvalue(self: *Self, frame: *Frame, name: Ast.TokenIndex) Error!?usize
 fn declareVariable(
     self: *Self,
     node: Ast.Node.Index,
-    variable_type: *obj.ObjTypeDef,
+    variable_type_idx: Pool(obj.ObjTypeDef).Idx,
     name: Ast.TokenIndex,
     final: bool,
     mutable: bool,
     check_name: bool,
 ) Error!usize {
+    const variable_type = self.gc.get(obj.ObjTypeDef, variable_type_idx).?;
     const lexemes = self.ast.tokens.items(.lexeme);
     const name_lexeme = lexemes[name];
 
@@ -2548,7 +2587,7 @@ fn declareVariable(
         return try self.addLocal(
             node,
             name,
-            variable_type,
+            variable_type_idx,
             final,
             mutable,
         );
@@ -2556,6 +2595,8 @@ fn declareVariable(
         if (check_name) {
             // Check a global with the same name doesn't exists
             for (self.globals.items, 0..) |*global, index| {
+                const global_type_def = self.gc.get(obj.ObjTypeDef, global.type_def).?;
+
                 if (!std.mem.eql(u8, name_lexeme, "_") and
                     global.matchName(
                         self.ast,
@@ -2565,7 +2606,7 @@ fn declareVariable(
                     !global.hidden)
                 {
                     // If we found a placeholder with that name, try to resolve it with `variable_type`
-                    if (global.type_def.def_type == .Placeholder) {
+                    if (global_type_def.def_type == .Placeholder) {
                         // A function declares a global with an incomplete typedef so that it can handle recursion
                         // The placeholder resolution occurs after we parsed the functions body in `funDeclaration`
                         if (variable_type.resolved_type != null or @intFromEnum(variable_type.def_type) < @intFromEnum(obj.ObjTypeDef.Type.ObjectInstance)) {
@@ -2573,7 +2614,7 @@ fn declareVariable(
                                 io.print(
                                     "Global placeholder @{} resolve with @{} {s} (opt {})\n",
                                     .{
-                                        @intFromPtr(global.type_def),
+                                        global.type_def,
                                         @intFromPtr(variable_type),
                                         try variable_type.toStringAlloc(self.gc.allocator),
                                         variable_type.optional,
@@ -2581,7 +2622,7 @@ fn declareVariable(
                                 );
                             }
 
-                            try self.resolvePlaceholder(global.type_def, variable_type, final);
+                            try self.resolvePlaceholder(global.type_def, variable_type_idx, final);
 
                             if (self.flavor == .Ast) {
                                 for (global.placeholder_referrers.items) |referrer| {
@@ -2622,7 +2663,7 @@ fn declareVariable(
         return try self.addGlobal(
             node,
             name,
-            variable_type,
+            variable_type_idx,
             final,
             mutable,
         );
@@ -2633,7 +2674,7 @@ fn parseVariable(
     self: *Self,
     node: Ast.Node.Index,
     identifier: ?Ast.TokenIndex,
-    variable_type: *obj.ObjTypeDef,
+    variable_type: Pool(obj.ObjTypeDef).Idx,
     final: bool,
     mutable: bool,
     comptime error_message: []const u8,
@@ -2660,13 +2701,11 @@ fn markInitialized(self: *Self) void {
     }
 }
 
-fn declarePlaceholder(self: *Self, name: Ast.TokenIndex, placeholder: ?*obj.ObjTypeDef) Error!usize {
-    var placeholder_type: *obj.ObjTypeDef = undefined;
-
-    if (placeholder) |uplaceholder| {
-        placeholder_type = uplaceholder;
-    } else {
-        placeholder_type = try self.gc.type_registry.getTypeDef(
+fn declarePlaceholder(self: *Self, name: Ast.TokenIndex, placeholder: ?Pool(obj.ObjTypeDef).Idx) Error!usize {
+    const placeholder_type_idx = if (placeholder) |uplaceholder|
+        uplaceholder
+    else
+        try self.gc.type_registry.getTypeDef(
             .{
                 .def_type = .Placeholder,
                 .resolved_type = .{
@@ -2678,14 +2717,14 @@ fn declarePlaceholder(self: *Self, name: Ast.TokenIndex, placeholder: ?*obj.ObjT
                 },
             },
         );
-    }
 
+    const placeholder_type = self.gc.get(obj.ObjTypeDef, placeholder_type_idx).?;
     std.debug.assert(!placeholder_type.optional);
 
     const global = try self.addGlobal(
         0, // Will be populated once the placeholder is resolved
         name,
-        placeholder_type,
+        placeholder_type_idx,
         false,
         true,
     );
@@ -2706,7 +2745,7 @@ fn declarePlaceholder(self: *Self, name: Ast.TokenIndex, placeholder: ?*obj.ObjT
     return global;
 }
 
-pub fn parseTypeDefFrom(self: *Self, source: []const u8) Error!*obj.ObjTypeDef {
+pub fn parseTypeDefFrom(self: *Self, source: []const u8) Error!Pool(obj.ObjTypeDef).Idx {
     const type_scanner = Scanner.init(self.gc.allocator, self.script_name, source);
     // Replace parser scanner with one that only looks at that substring
     const scanner = self.scanner;
@@ -2735,7 +2774,7 @@ pub fn parseTypeDefFrom(self: *Self, source: []const u8) Error!*obj.ObjTypeDef {
 
 fn parseTypeDef(
     self: *Self,
-    generic_types: ?std.AutoArrayHashMapUnmanaged(*obj.ObjString, *obj.ObjTypeDef),
+    generic_types: ?std.AutoArrayHashMapUnmanaged(Pool(obj.ObjString).Idx, Pool(obj.ObjTypeDef).Idx),
     instance: bool,
 ) Error!Ast.Node.Index {
     const mutable = try self.match(.Mut);
@@ -3038,7 +3077,8 @@ fn parseTypeDef(
     } else if (try self.match(.Obj)) {
         const type_def_node = try self.parseObjType(generic_types);
         if (instance) {
-            self.ast.nodes.items(.type_def)[type_def_node] = try self.ast.nodes.items(.type_def)[type_def_node].?.toInstance(
+            self.ast.nodes.items(.type_def)[type_def_node] = try obj.ObjTypeDef.toInstance(
+                self.ast.nodes.items(.type_def)[type_def_node].?,
                 &self.gc.type_registry,
                 mutable,
             );
@@ -3054,7 +3094,7 @@ fn parseTypeDef(
         const identifier_lexeme = self.ast.tokens.items(.lexeme)[identifier];
 
         var user_type_node: ?Ast.Node.Index = null;
-        var user_type: ?*obj.ObjTypeDef = null;
+        var user_type: ?Pool(obj.ObjTypeDef).Idx = null;
         // Is it a generic type defined in enclosing functions or object?
         if (self.resolveGeneric(try self.gc.copyString(identifier_lexeme))) |generic_type| {
             user_type = generic_type;
@@ -3072,7 +3112,7 @@ fn parseTypeDef(
         }
 
         if (try self.match(.Question)) {
-            user_type = try user_type.?.cloneOptional(&self.gc.type_registry);
+            user_type = try obj.ObjTypeDef.cloneOptional(user_type.?, &self.gc.type_registry);
 
             if (user_type_node) |un| {
                 self.ast.nodes.items(.type_def)[un] = user_type;
@@ -3118,7 +3158,7 @@ fn parseTypeDef(
     }
 }
 
-fn parseFiberType(self: *Self, generic_types: ?std.AutoArrayHashMapUnmanaged(*obj.ObjString, *obj.ObjTypeDef)) Error!Ast.Node.Index {
+fn parseFiberType(self: *Self, generic_types: ?std.AutoArrayHashMapUnmanaged(Pool(obj.ObjString).Idx, Pool(obj.ObjTypeDef).Idx)) Error!Ast.Node.Index {
     const start_location = self.current_token.? - 1;
 
     try self.consume(.Less, "Expected `<` after `fib`");
@@ -3126,7 +3166,7 @@ fn parseFiberType(self: *Self, generic_types: ?std.AutoArrayHashMapUnmanaged(*ob
     try self.consume(.Comma, "Expected `,` after fiber return type");
     const yield_type = try self.parseTypeDef(generic_types, true);
 
-    const yield_type_def = self.ast.nodes.items(.type_def)[yield_type].?;
+    const yield_type_def = self.gc.get(obj.ObjTypeDef, self.ast.nodes.items(.type_def)[yield_type].?).?;
     if (!yield_type_def.optional and yield_type_def.def_type != .Void) {
         self.reportErrorAtNode(
             .yield_type,
@@ -3165,7 +3205,7 @@ fn parseFiberType(self: *Self, generic_types: ?std.AutoArrayHashMapUnmanaged(*ob
     );
 }
 
-fn parseListType(self: *Self, generic_types: ?std.AutoArrayHashMapUnmanaged(*obj.ObjString, *obj.ObjTypeDef), mutable: bool) Error!Ast.Node.Index {
+fn parseListType(self: *Self, generic_types: ?std.AutoArrayHashMapUnmanaged(Pool(obj.ObjString).Idx, Pool(obj.ObjTypeDef).Idx), mutable: bool) Error!Ast.Node.Index {
     const start_location = if (mutable) self.current_token.? - 2 else self.current_token.? - 1;
     const item_type = try self.parseTypeDef(generic_types, true);
 
@@ -3197,7 +3237,7 @@ fn parseListType(self: *Self, generic_types: ?std.AutoArrayHashMapUnmanaged(*obj
     );
 }
 
-fn parseMapType(self: *Self, generic_types: ?std.AutoArrayHashMapUnmanaged(*obj.ObjString, *obj.ObjTypeDef), mutable: bool) Error!Ast.Node.Index {
+fn parseMapType(self: *Self, generic_types: ?std.AutoArrayHashMapUnmanaged(Pool(obj.ObjString).Idx, Pool(obj.ObjTypeDef).Idx), mutable: bool) Error!Ast.Node.Index {
     const start_location = if (mutable) self.current_token.? - 2 else self.current_token.? - 1;
 
     const key_type = try self.parseTypeDef(generic_types, true);
@@ -3238,7 +3278,7 @@ fn parseMapType(self: *Self, generic_types: ?std.AutoArrayHashMapUnmanaged(*obj.
     );
 }
 
-fn parseFunctionType(self: *Self, parent_generic_types: ?std.AutoArrayHashMapUnmanaged(*obj.ObjString, *obj.ObjTypeDef)) Error!Ast.Node.Index {
+fn parseFunctionType(self: *Self, parent_generic_types: ?std.AutoArrayHashMapUnmanaged(Pool(obj.ObjString).Idx, Pool(obj.ObjTypeDef).Idx)) Error!Ast.Node.Index {
     const start_location = self.current_token.? - 1;
     const tag = self.ast.tokens.items(.tag)[start_location];
 
@@ -3251,13 +3291,13 @@ fn parseFunctionType(self: *Self, parent_generic_types: ?std.AutoArrayHashMapUnm
     }
 
     var name_token: ?Ast.TokenIndex = null;
-    var name: ?*obj.ObjString = null;
+    var name: ?Pool(obj.ObjString).Idx = null;
     if (try self.match(.Identifier)) {
         name_token = self.current_token.? - 1;
         name = try self.gc.copyString(self.ast.tokens.items(.lexeme)[self.current_token.? - 1]);
     }
 
-    var merged_generic_types = std.AutoArrayHashMapUnmanaged(*obj.ObjString, *obj.ObjTypeDef){};
+    var merged_generic_types = std.AutoArrayHashMapUnmanaged(Pool(obj.ObjString).Idx, Pool(obj.ObjTypeDef).Idx).empty;
     defer merged_generic_types.deinit(self.gc.allocator);
     if (parent_generic_types != null) {
         var it = parent_generic_types.?.iterator();
@@ -3272,7 +3312,7 @@ fn parseFunctionType(self: *Self, parent_generic_types: ?std.AutoArrayHashMapUnm
 
     var generic_types_list = std.ArrayList(Ast.Node.Index){};
     // To avoid duplicates
-    var generic_types = std.AutoArrayHashMapUnmanaged(*obj.ObjString, *obj.ObjTypeDef){};
+    var generic_types = std.AutoArrayHashMapUnmanaged(Pool(obj.ObjString).Idx, Pool(obj.ObjTypeDef).Idx).empty;
     if (try self.match(.DoubleColon)) {
         try self.consume(.Less, "Expected `<` at start of generic types list.");
 
@@ -3355,8 +3395,8 @@ fn parseFunctionType(self: *Self, parent_generic_types: ?std.AutoArrayHashMapUnm
     try self.consume(.LeftParen, "Expected `(` after function name.");
 
     var arguments = std.ArrayList(Ast.FunctionType.Argument).empty;
-    var parameters = std.AutoArrayHashMapUnmanaged(*obj.ObjString, *obj.ObjTypeDef).empty;
-    var defaults = std.AutoArrayHashMapUnmanaged(*obj.ObjString, Value).empty;
+    var parameters = std.AutoArrayHashMapUnmanaged(Pool(obj.ObjString).Idx, Pool(obj.ObjTypeDef).Idx).empty;
+    var defaults = std.AutoArrayHashMapUnmanaged(Pool(obj.ObjString).Idx, Value).empty;
     var arity: usize = 0;
     while (!self.check(.RightParen) and !self.check(.Eof)) {
         arity += 1;
@@ -3380,23 +3420,31 @@ fn parseFunctionType(self: *Self, parent_generic_types: ?std.AutoArrayHashMapUnm
             merged_generic_types,
             true,
         );
-        const arg_type_def = self.ast.nodes.items(.type_def)[arg_type];
+        const arg_type_def_idx = self.ast.nodes.items(.type_def)[arg_type];
+        const arg_type_def = if (arg_type_def_idx) |idx|
+            self.gc.get(obj.ObjTypeDef, idx).?
+        else
+            null;
 
         var default: ?Ast.Node.Index = null;
         if (try self.match(.Equal)) {
             const expr = try self.expression(false);
-            const expr_type_def = self.ast.nodes.items(.type_def)[expr];
+            const expr_type_def_idx = self.ast.nodes.items(.type_def)[expr];
+            const expr_type_def = if (expr_type_def_idx) |idx|
+                self.gc.get(obj.ObjTypeDef, idx).?
+            else
+                null;
 
             if (expr_type_def != null and expr_type_def.?.def_type == .Placeholder and arg_type_def.?.def_type == .Placeholder) {
                 try obj.PlaceholderDef.link(
-                    self.gc.allocator,
-                    arg_type_def.?,
-                    expr_type_def.?,
+                    self.gc,
+                    arg_type_def_idx.?,
+                    expr_type_def_idx.?,
                     .Assignment,
                 );
             }
 
-            if (!try self.ast.slice().isConstant(self.gc.allocator, expr)) {
+            if (!try self.ast.slice().isConstant(self.gc, expr)) {
                 self.reportErrorAtNode(
                     .constant_default,
                     expr,
@@ -3432,7 +3480,7 @@ fn parseFunctionType(self: *Self, parent_generic_types: ?std.AutoArrayHashMapUnm
         try parameters.put(
             self.gc.allocator,
             try self.gc.copyString(arg_name),
-            arg_type_def.?,
+            arg_type_def_idx.?,
         );
 
         if (!self.check(.RightParen)) {
@@ -3454,7 +3502,7 @@ fn parseFunctionType(self: *Self, parent_generic_types: ?std.AutoArrayHashMapUnm
     }
 
     var error_types_list = std.ArrayList(Ast.Node.Index).empty;
-    var error_types = std.ArrayList(*obj.ObjTypeDef).empty;
+    var error_types = std.ArrayList(Pool(obj.ObjTypeDef).Idx).empty;
     if (try self.match(.BangGreater)) {
         const expects_multiple_error_types = try self.match(.LeftParen);
 
@@ -3464,7 +3512,7 @@ fn parseFunctionType(self: *Self, parent_generic_types: ?std.AutoArrayHashMapUnm
             try error_types_list.append(self.gc.allocator, error_type);
             try error_types.append(self.gc.allocator, error_type_def);
 
-            if (error_type_def.optional) {
+            if (self.gc.get(obj.ObjTypeDef, error_type_def).?.optional) {
                 self.reportErrorAtNode(
                     .error_type,
                     error_type,
@@ -3531,7 +3579,7 @@ fn parseFunctionType(self: *Self, parent_generic_types: ?std.AutoArrayHashMapUnm
 }
 
 // Only used to parse anonymouse object type
-fn parseObjType(self: *Self, generic_types: ?std.AutoArrayHashMapUnmanaged(*obj.ObjString, *obj.ObjTypeDef)) Error!Ast.Node.Index {
+fn parseObjType(self: *Self, generic_types: ?std.AutoArrayHashMapUnmanaged(Pool(obj.ObjString).Idx, Pool(obj.ObjTypeDef).Idx)) Error!Ast.Node.Index {
     const start_location = self.current_token.? - 1;
 
     try self.consume(.LeftBrace, "Expected `{` after `obj`");
@@ -3692,14 +3740,14 @@ fn parseUserType(self: *Self, instance: bool, mutable: bool) Error!Ast.Node.Inde
     const node_slot = try self.ast.nodes.addOne(self.ast.allocator);
 
     const user_type_name = try self.qualifiedName();
-    var var_type: ?*obj.ObjTypeDef = null;
+    var var_type_idx: ?Pool(obj.ObjTypeDef).Idx = null;
     var global_slot: ?usize = null;
 
     // Search for a global with that name
     if (try self.resolveGlobal(@intCast(node_slot), user_type_name)) |slot| {
         const global = self.globals.items[slot];
 
-        var_type = global.type_def;
+        var_type_idx = global.type_def;
         global_slot = @intCast(slot);
 
         if (global.imported_from != null and self.script_imports.get(global.imported_from.?) != null) {
@@ -3718,8 +3766,8 @@ fn parseUserType(self: *Self, instance: bool, mutable: bool) Error!Ast.Node.Inde
     }
 
     // If none found, create a placeholder
-    if (var_type == null) {
-        var_type = try self.gc.type_registry.getTypeDef(
+    if (var_type_idx == null) {
+        var_type_idx = try self.gc.type_registry.getTypeDef(
             .{
                 .def_type = .Placeholder,
                 .resolved_type = .{
@@ -3735,12 +3783,14 @@ fn parseUserType(self: *Self, instance: bool, mutable: bool) Error!Ast.Node.Inde
         std.debug.assert(user_type_name.len > 0);
         global_slot = try self.declarePlaceholder(
             user_type_name[user_type_name.len - 1],
-            var_type.?,
+            var_type_idx.?,
         );
     }
 
+    const var_type = self.gc.get(obj.ObjTypeDef, var_type_idx.?).?;
+
     // Concrete generic types list
-    var resolved_generics = std.ArrayList(*obj.ObjTypeDef).empty;
+    var resolved_generics = std.ArrayList(Pool(obj.ObjTypeDef).Idx).empty;
     var generic_nodes = std.ArrayList(Ast.Node.Index).empty;
     const generic_resolve = if (try self.match(.DoubleColon)) gn: {
         const generic_start = self.current_token.? - 1;
@@ -3780,13 +3830,13 @@ fn parseUserType(self: *Self, instance: bool, mutable: bool) Error!Ast.Node.Inde
                 location,
                 "Expected at least one type",
             );
-        } else if (var_type.?.def_type == .Object) {
-            var_type = try var_type.?.populateGenerics(
+        } else if (var_type.def_type == .Object) {
+            var_type_idx = try obj.ObjTypeDef.populateGenerics(
+                var_type_idx.?,
                 self.current_token.? - 1,
-                var_type.?.resolved_type.?.Object.id,
+                var_type.resolved_type.?.Object.id,
                 try resolved_generics.toOwnedSlice(self.gc.allocator),
                 &self.gc.type_registry,
-                self.gc.allocator,
                 null,
             );
             break :gn try self.ast.appendNode(
@@ -3794,7 +3844,7 @@ fn parseUserType(self: *Self, instance: bool, mutable: bool) Error!Ast.Node.Inde
                     .tag = .GenericResolveType,
                     .location = generic_start,
                     .end_location = self.current_token.? - 1,
-                    .type_def = var_type,
+                    .type_def = var_type_idx,
                     .components = .{
                         .GenericResolveType = try generic_nodes.toOwnedSlice(self.gc.allocator),
                     },
@@ -3814,12 +3864,13 @@ fn parseUserType(self: *Self, instance: bool, mutable: bool) Error!Ast.Node.Inde
             .location = if (mutable) user_type_name[0] - 1 else user_type_name[0],
             .end_location = self.current_token.? - 1,
             .type_def = if (instance)
-                try var_type.?.toInstance(
+                try obj.ObjTypeDef.toInstance(
+                    var_type_idx.?,
                     &self.gc.type_registry,
                     mutable,
                 )
             else
-                var_type.?,
+                var_type_idx.?,
             .components = .{
                 .UserType = .{
                     .generic_resolve = generic_resolve,
@@ -3832,14 +3883,15 @@ fn parseUserType(self: *Self, instance: bool, mutable: bool) Error!Ast.Node.Inde
     return @intCast(node_slot);
 }
 
-fn parseGenericResolve(self: *Self, callee_type_def: *obj.ObjTypeDef, expr: ?Ast.Node.Index) Error!Ast.Node.Index {
+fn parseGenericResolve(self: *Self, callee_type_def_idx: Pool(obj.ObjTypeDef).Idx, expr: ?Ast.Node.Index) Error!Ast.Node.Index {
+    const callee_type_def = self.gc.get(obj.ObjTypeDef, callee_type_def_idx).?;
     const start_location = if (expr) |e|
         self.ast.nodes.items(.location)[e]
     else
         self.current_token.? - 1;
 
     var resolved_generics = std.ArrayList(Ast.Node.Index).empty;
-    var resolved_generics_types = std.ArrayList(*obj.ObjTypeDef).empty;
+    var resolved_generics_types = std.ArrayList(Pool(obj.ObjTypeDef).Idx).empty;
 
     try self.consume(.Less, "Expected `<` at start of generic types list");
 
@@ -3873,7 +3925,8 @@ fn parseGenericResolve(self: *Self, callee_type_def: *obj.ObjTypeDef, expr: ?Ast
                 .GenericResolveType,
             .location = start_location,
             .end_location = self.current_token.? - 1,
-            .type_def = try callee_type_def.populateGenerics(
+            .type_def = try obj.ObjTypeDef.populateGenerics(
+                callee_type_def_idx,
                 self.current_token.? - 1,
                 if (callee_type_def.def_type == .Function)
                     callee_type_def.resolved_type.?.Function.id
@@ -3883,7 +3936,6 @@ fn parseGenericResolve(self: *Self, callee_type_def: *obj.ObjTypeDef, expr: ?Ast
                     null,
                 try resolved_generics_types.toOwnedSlice(self.gc.allocator),
                 &self.gc.type_registry,
-                self.gc.allocator,
                 null,
             ),
             .components = if (expr) |e| .{
@@ -3901,24 +3953,26 @@ fn parseGenericResolve(self: *Self, callee_type_def: *obj.ObjTypeDef, expr: ?Ast
 fn subscript(self: *Self, can_assign: bool, subscripted: Ast.Node.Index) Error!Ast.Node.Index {
     const start_location = self.ast.nodes.items(.location)[subscripted];
 
-    const subscript_type_def = self.ast.nodes.items(.type_def)[subscripted] orelse self.gc.type_registry.any_type;
+    const subscript_type_def_idx = self.ast.nodes.items(.type_def)[subscripted] orelse self.gc.type_registry.any_type;
+    const subscript_type_def = self.gc.get(obj.ObjTypeDef, subscript_type_def_idx).?;
     const checked = try self.match(.Question);
     const index = try self.expression(false);
-    const index_type_def = self.ast.nodes.items(.type_def)[index];
+    const index_type_def = self.gc.get(obj.ObjTypeDef, self.ast.nodes.items(.type_def)[index].?).?;
 
     const type_defs = self.ast.nodes.items(.type_def);
-    if (subscript_type_def.def_type == .Placeholder and index_type_def.?.def_type == .Placeholder) {
+    if (subscript_type_def.def_type == .Placeholder and index_type_def.def_type == .Placeholder) {
         try obj.PlaceholderDef.link(
-            self.gc.allocator,
+            self.gc,
             type_defs[subscripted].?,
             type_defs[index].?,
             .Key,
         );
     }
 
-    var subscripted_type_def: ?*obj.ObjTypeDef = null;
+    var subscripted_type_def: ?Pool(obj.ObjTypeDef).Idx = null;
 
-    if (type_defs[subscripted]) |type_def| {
+    if (type_defs[subscripted]) |type_def_idx| {
+        const type_def = self.gc.get(obj.ObjTypeDef, type_def_idx).?;
         if (!type_def.optional) {
             switch (type_def.def_type) {
                 .Placeholder => {
@@ -3936,23 +3990,23 @@ fn subscript(self: *Self, can_assign: bool, subscripted: Ast.Node.Index) Error!A
                     );
 
                     try obj.PlaceholderDef.link(
-                        self.gc.allocator,
-                        type_def,
+                        self.gc,
+                        type_def_idx,
                         placeholder,
                         .Subscript,
                     );
 
                     subscripted_type_def = placeholder;
                 },
-                .String => subscripted_type_def = type_def,
+                .String => subscripted_type_def = type_def_idx,
                 .List => subscripted_type_def = type_def.resolved_type.?.List.item_type,
-                .Map => subscripted_type_def = try type_def.resolved_type.?.Map.value_type.cloneOptional(&self.gc.type_registry),
+                .Map => subscripted_type_def = try obj.ObjTypeDef.cloneOptional(type_def.resolved_type.?.Map.value_type, &self.gc.type_registry),
                 else => self.reportErrorAtNode(
                     .subscriptable,
                     subscripted,
                     "Type `{s}` is not subscriptable",
                     .{
-                        try type_def.toStringAlloc(self.gc.allocator, false),
+                        try obj.ObjTypeDef.toStringAlloc(type_def_idx, self.gc, false),
                     },
                 ),
             }
@@ -3987,13 +4041,14 @@ fn subscript(self: *Self, can_assign: bool, subscripted: Ast.Node.Index) Error!A
         }
 
         value = try self.expression(false);
-        const value_type_def = self.ast.nodes.items(.type_def)[value.?];
+        const value_type_def_idx = self.ast.nodes.items(.type_def)[value.?].?;
+        const value_type_def = self.gc.get(obj.ObjTypeDef, value_type_def_idx).?;
 
-        if (subscript_type_def.def_type == .Placeholder and value_type_def.?.def_type == .Placeholder) {
+        if (subscript_type_def.def_type == .Placeholder and value_type_def.def_type == .Placeholder) {
             try obj.PlaceholderDef.link(
-                self.gc.allocator,
-                subscript_type_def,
-                value_type_def.?,
+                self.gc,
+                subscript_type_def_idx,
+                value_type_def_idx,
                 .Subscript,
             );
         }
@@ -4005,7 +4060,7 @@ fn subscript(self: *Self, can_assign: bool, subscripted: Ast.Node.Index) Error!A
             .location = start_location,
             .end_location = self.current_token.? - 1,
             .type_def = if (subscripted_type_def != null and checked)
-                try subscripted_type_def.?.cloneOptional(&self.gc.type_registry)
+                try obj.ObjTypeDef.cloneOptional(subscripted_type_def.?, &self.gc.type_registry)
             else
                 subscripted_type_def,
             .components = .{
@@ -4048,7 +4103,7 @@ fn list(self: *Self, _: bool) Error!Ast.Node.Index {
 
     var items = std.ArrayList(Ast.Node.Index).empty;
     var explicit_item_type: ?Ast.Node.Index = null;
-    var item_type: ?*obj.ObjTypeDef = null;
+    var item_type: ?Pool(obj.ObjTypeDef).Idx = null;
 
     // A list expression can specify its type `[<int>, ...]`
     if (try self.match(.Less)) {
@@ -4059,7 +4114,7 @@ fn list(self: *Self, _: bool) Error!Ast.Node.Index {
     }
 
     if (item_type == null or try self.match(.Comma)) {
-        var common_type: ?*obj.ObjTypeDef = null;
+        var common_type_idx: ?Pool(obj.ObjTypeDef).Idx = null;
         var mutable_item = true;
         while (!(try self.match(.RightBracket)) and !(try self.match(.Eof))) {
             const actual_item = try self.expression(false);
@@ -4067,22 +4122,32 @@ fn list(self: *Self, _: bool) Error!Ast.Node.Index {
             try items.append(self.gc.allocator, actual_item);
 
             if (item_type == null) {
-                if (common_type == null) {
-                    common_type = self.ast.nodes.items(.type_def)[actual_item];
-                } else if (self.ast.nodes.items(.type_def)[actual_item]) |actual_type_def| {
-                    if (!common_type.?.eql(actual_type_def)) {
-                        if (common_type.?.def_type == .ObjectInstance and actual_type_def.def_type == .ObjectInstance) {
-                            common_type = if (common_type.?.resolved_type.?
-                                .ObjectInstance.of.resolved_type.?
-                                .Object.bothConforms(actual_type_def.resolved_type.?.ObjectInstance.of.resolved_type.?.Object)) |protocol_type_def|
-                                try protocol_type_def.toInstance(
+                if (common_type_idx == null) {
+                    common_type_idx = self.ast.nodes.items(.type_def)[actual_item];
+                } else if (self.ast.nodes.items(.type_def)[actual_item]) |actual_type_def_idx| {
+                    const common_type = self.gc.get(obj.ObjTypeDef, common_type_idx.?).?;
+                    const actual_type_def = self.gc.get(obj.ObjTypeDef, actual_type_def_idx).?;
+                    if (!obj.ObjTypeDef.eql(common_type_idx.?, actual_type_def_idx, self.gc)) {
+                        if (common_type.def_type == .ObjectInstance and actual_type_def.def_type == .ObjectInstance) {
+                            const object_type = self.gc.get(obj.ObjTypeDef, common_type.resolved_type.?
+                                .ObjectInstance.of).?;
+                            const actual_object_type = self.gc.get(
+                                obj.ObjTypeDef,
+                                actual_type_def.resolved_type.?.ObjectInstance.of,
+                            ).?;
+
+                            common_type_idx = if (object_type.resolved_type.?.Object.bothConforms(
+                                actual_object_type.resolved_type.?.Object,
+                            )) |protocol_type_def_idx|
+                                try obj.ObjTypeDef.toInstance(
+                                    protocol_type_def_idx,
                                     &self.gc.type_registry,
-                                    common_type.?.resolved_type.?.ObjectInstance.mutable,
+                                    common_type.resolved_type.?.ObjectInstance.mutable,
                                 )
                             else
-                                common_type;
+                                common_type_idx;
                         } else {
-                            common_type = self.gc.type_registry.any_type;
+                            common_type_idx = self.gc.type_registry.any_type;
                         }
                     }
                 }
@@ -4093,15 +4158,16 @@ fn list(self: *Self, _: bool) Error!Ast.Node.Index {
             }
 
             if (self.ast.nodes.items(.type_def)[actual_item]) |actual_type_def| {
-                if (!actual_type_def.isMutable()) {
+                if (!self.gc.get(obj.ObjTypeDef, actual_type_def).?.isMutable()) {
                     mutable_item = false;
                 }
             }
         }
 
         // When inferring type, if at least one item is not mutable, the list item type is immutable
-        if (common_type != null and common_type.?.isMutable() and !mutable_item) {
-            common_type = try common_type.?.cloneMutable(
+        if (common_type_idx != null and self.gc.get(obj.ObjTypeDef, common_type_idx.?).?.isMutable() and !mutable_item) {
+            common_type_idx = try obj.ObjTypeDef.cloneMutable(
+                common_type_idx.?,
                 &self.gc.type_registry,
                 false,
             );
@@ -4132,7 +4198,7 @@ fn list(self: *Self, _: bool) Error!Ast.Node.Index {
             }
         }
 
-        item_type = item_type orelse common_type;
+        item_type = item_type orelse common_type_idx;
     } else {
         try self.consume(.RightBracket, "Expected `]`");
     }
@@ -4300,7 +4366,11 @@ fn argumentList(self: *Self) ![]Ast.Call.Argument {
 
 fn call(self: *Self, _: bool, callee: Ast.Node.Index) Error!Ast.Node.Index {
     const start_location = self.ast.nodes.items(.location)[callee];
-    const callee_type_def = self.ast.nodes.items(.type_def)[callee];
+    const callee_type_def_idx = self.ast.nodes.items(.type_def)[callee];
+    const callee_type_def = if (callee_type_def_idx) |idx|
+        self.gc.get(obj.ObjTypeDef, idx).?
+    else
+        null;
 
     const arguments = try self.argumentList();
     const catch_default = if (try self.match(.Catch))
@@ -4312,8 +4382,14 @@ fn call(self: *Self, _: bool, callee: Ast.Node.Index) Error!Ast.Node.Index {
     var type_def = if (callee_type_def != null and callee_type_def.?.def_type == .Function)
         callee_type_def.?.resolved_type.?.Function.return_type
     else if (callee_type_def != null and callee_type_def.?.def_type == .Enum)
-        try (try callee_type_def.?.toInstance(&self.gc.type_registry, false))
-            .cloneOptional(&self.gc.type_registry)
+        try obj.ObjTypeDef.cloneOptional(
+            try obj.ObjTypeDef.toInstance(
+                callee_type_def_idx.?,
+                &self.gc.type_registry,
+                false,
+            ),
+            &self.gc.type_registry,
+        )
     else
         null;
 
@@ -4343,8 +4419,8 @@ fn call(self: *Self, _: bool, callee: Ast.Node.Index) Error!Ast.Node.Index {
             );
 
             try obj.PlaceholderDef.link(
-                self.gc.allocator,
-                callee_type_def.?,
+                self.gc,
+                callee_type_def_idx.?,
                 type_def.?,
                 .Call,
             );
@@ -4379,9 +4455,9 @@ fn map(self: *Self, _: bool) Error!Ast.Node.Index {
     const start_location = self.current_token.? - 1;
 
     var value_type_node: ?Ast.Node.Index = null;
-    var value_type_def: ?*obj.ObjTypeDef = null;
+    var value_type_def: ?Pool(obj.ObjTypeDef).Idx = null;
     var key_type_node: ?Ast.Node.Index = null;
-    var key_type_def: ?*obj.ObjTypeDef = null;
+    var key_type_def: ?Pool(obj.ObjTypeDef).Idx = null;
 
     // A map expression can specify its type `{<str: str>, ...}`
     if (try self.match(.Less)) {
@@ -4398,8 +4474,8 @@ fn map(self: *Self, _: bool) Error!Ast.Node.Index {
 
     var entries = std.ArrayList(Ast.Map.Entry).empty;
     if (key_type_node == null or try self.match(.Comma)) {
-        var common_key_type: ?*obj.ObjTypeDef = null;
-        var common_value_type: ?*obj.ObjTypeDef = null;
+        var common_key_type_idx: ?Pool(obj.ObjTypeDef).Idx = null;
+        var common_value_type_idx: ?Pool(obj.ObjTypeDef).Idx = null;
         var mutable_key = true;
         var mutable_value = true;
         while (!(try self.match(.RightBrace)) and !(try self.match(.Eof))) {
@@ -4416,56 +4492,70 @@ fn map(self: *Self, _: bool) Error!Ast.Node.Index {
             );
 
             if (key_type_node == null) {
-                if (common_key_type == null) {
-                    common_key_type = self.ast.nodes.items(.type_def)[key];
-                } else if (self.ast.nodes.items(.type_def)[key]) |actual_type_def| {
-                    if (!common_key_type.?.eql(actual_type_def)) {
-                        if (common_key_type.?.def_type == .ObjectInstance and
+                if (common_key_type_idx == null) {
+                    common_key_type_idx = self.ast.nodes.items(.type_def)[key];
+                } else if (self.ast.nodes.items(.type_def)[key]) |actual_type_def_idx| {
+                    const actual_type_def = self.gc.get(obj.ObjTypeDef, actual_type_def_idx).?;
+                    const common_key_type = self.gc.get(obj.ObjTypeDef, common_key_type_idx.?).?;
+                    if (!obj.ObjTypeDef.eql(common_key_type_idx.?, actual_type_def_idx, self.gc)) {
+                        if (common_key_type.def_type == .ObjectInstance and
                             actual_type_def.def_type == .ObjectInstance)
                         {
-                            common_key_type = if (common_key_type.?.resolved_type.?.ObjectInstance
-                                .of.resolved_type.?.Object
-                                .bothConforms(
-                                actual_type_def.resolved_type.?.ObjectInstance.of.resolved_type.?.Object,
-                            )) |protocol_type_def|
-                                try protocol_type_def.toInstance(
+                            const object_type = self.gc.get(obj.ObjTypeDef, common_key_type.resolved_type.?.ObjectInstance.of).?;
+                            const actual_object_type = self.gc.get(obj.ObjTypeDef, actual_type_def.resolved_type.?.ObjectInstance.of).?;
+                            common_key_type_idx = if (object_type.resolved_type.?.Object
+                                .bothConforms(actual_object_type.resolved_type.?.Object)) |protocol_type_def|
+                                try obj.ObjTypeDef.toInstance(
+                                    protocol_type_def,
                                     &self.gc.type_registry,
-                                    common_key_type.?.isMutable(),
+                                    common_key_type.isMutable(),
                                 )
                             else
-                                common_key_type;
+                                common_key_type_idx;
                         } else {
-                            common_key_type = self.gc.type_registry.any_type;
+                            common_key_type_idx = self.gc.type_registry.any_type;
                         }
                     }
                 }
             }
 
             if (value_type_node == null) {
-                if (common_value_type == null) {
-                    common_value_type = self.ast.nodes.items(.type_def)[value];
-                } else if (self.ast.nodes.items(.type_def)[value]) |actual_type_def| {
-                    if (!common_value_type.?.eql(actual_type_def)) {
-                        if (common_value_type.?.def_type == .ObjectInstance and
-                            actual_type_def.def_type == .ObjectInstance)
-                        {
-                            common_value_type = if (common_value_type.?.resolved_type.?.ObjectInstance.of.resolved_type.?.Object.bothConforms(
-                                actual_type_def.resolved_type.?.ObjectInstance.of.resolved_type.?.Object,
+                if (common_value_type_idx == null) {
+                    common_value_type_idx = self.ast.nodes.items(.type_def)[value];
+                } else if (self.ast.nodes.items(.type_def)[value]) |actual_type_def_idx| {
+                    const actual_type_def = self.gc.get(obj.ObjTypeDef, actual_type_def_idx).?;
+                    const common_value_type_def = self.gc.get(obj.ObjTypeDef, common_value_type_idx.?).?;
+                    if (!obj.ObjTypeDef.eql(common_value_type_idx.?, actual_type_def_idx, self.gc)) {
+                        if (common_value_type_def.def_type == .ObjectInstance and actual_type_def.def_type == .ObjectInstance) {
+                            common_value_type_idx = if (self.gc.get(
+                                obj.ObjTypeDef,
+                                common_value_type_def.resolved_type.?.ObjectInstance.of,
+                            ).?.resolved_type.?.Object.bothConforms(
+                                self.gc.get(
+                                    obj.ObjTypeDef,
+                                    actual_type_def.resolved_type.?.ObjectInstance.of,
+                                ).?.resolved_type.?.Object,
                             )) |protocol_type_def|
-                                try protocol_type_def.toInstance(
+                                try obj.ObjTypeDef.toInstance(
+                                    protocol_type_def,
                                     &self.gc.type_registry,
                                     // All values must be mutable for the map value type to be mutable
-                                    common_value_type.?.isMutable() and actual_type_def.isMutable(),
+                                    common_value_type_def.isMutable() and
+                                        actual_type_def.isMutable(),
                                 )
                             else
-                                common_value_type;
+                                common_value_type_idx;
                         } else {
-                            common_value_type = self.gc.type_registry.any_type;
+                            common_value_type_idx = self.gc.type_registry.any_type;
                         }
                     } else {
                         // If one value is not mutable the map value type can't be mutable
-                        if (common_value_type.?.isMutable() and !actual_type_def.isMutable()) {
-                            common_value_type = try common_value_type.?.cloneMutable(&self.gc.type_registry, false);
+                        if (common_value_type_def.isMutable() and !actual_type_def.isMutable()) {
+                            common_value_type_idx = try obj.ObjTypeDef.cloneMutable(
+                                common_value_type_idx.?,
+                                &self.gc.type_registry,
+                                false,
+                            );
                         }
                     }
                 }
@@ -4475,28 +4565,33 @@ fn map(self: *Self, _: bool) Error!Ast.Node.Index {
                 try self.consume(.Comma, "Expected `,` after map entry.");
             }
 
-            if (self.ast.nodes.items(.type_def)[key]) |actual_type_def| {
-                if (!actual_type_def.isMutable()) {
+            if (self.ast.nodes.items(.type_def)[key]) |actual_type_def_idx| {
+                if (!self.gc.get(obj.ObjTypeDef, actual_type_def_idx).?.isMutable()) {
                     mutable_key = false;
                 }
             }
 
-            if (self.ast.nodes.items(.type_def)[value]) |actual_type_def| {
-                if (!actual_type_def.isMutable()) {
+            if (self.ast.nodes.items(.type_def)[value]) |actual_type_def_idx| {
+                if (!self.gc.get(obj.ObjTypeDef, actual_type_def_idx).?.isMutable()) {
                     mutable_value = false;
                 }
             }
         }
 
         // When inferring type, if at least one item is not mutable, the list item type is immutable
-        if (common_key_type != null and common_key_type.?.isMutable() and !mutable_key) {
-            common_key_type = try common_key_type.?.cloneMutable(
+        const common_key_type_def = self.gc.get(obj.ObjTypeDef, common_key_type_idx.?).?;
+        if (common_key_type_idx != null and common_key_type_def.isMutable() and !mutable_key) {
+            common_key_type_idx = try obj.ObjTypeDef.cloneMutable(
+                common_key_type_idx.?,
                 &self.gc.type_registry,
                 false,
             );
         }
-        if (common_value_type != null and common_value_type.?.isMutable() and !mutable_value) {
-            common_value_type = try common_value_type.?.cloneMutable(
+
+        const common_value_type_def = self.gc.get(obj.ObjTypeDef, common_value_type_idx.?).?;
+        if (common_value_type_idx != null and common_value_type_def.isMutable() and !mutable_value) {
+            common_value_type_idx = try obj.ObjTypeDef.cloneMutable(
+                common_value_type_idx.?,
                 &self.gc.type_registry,
                 false,
             );
@@ -4512,8 +4607,8 @@ fn map(self: *Self, _: bool) Error!Ast.Node.Index {
             );
         }
 
-        key_type_def = key_type_def orelse common_key_type;
-        value_type_def = value_type_def orelse common_value_type;
+        key_type_def = key_type_def orelse common_key_type_idx;
+        value_type_def = value_type_def orelse common_value_type_idx;
     } else {
         try self.consume(.RightBrace, "Expected `}`");
     }
@@ -4579,10 +4674,14 @@ fn objectInit(self: *Self, _: bool, object: Ast.Node.Index) Error!Ast.Node.Index
             property_name,
         );
 
-        var property_placeholder: ?*obj.ObjTypeDef = null;
+        var property_placeholder: ?Pool(obj.ObjTypeDef).Idx = null;
 
         // Object is placeholder, create placeholder for the property and link it
-        const object_type_def = self.ast.nodes.items(.type_def)[object];
+        const object_type_def_idx = self.ast.nodes.items(.type_def)[object];
+        const object_type_def = if (object_type_def_idx) |idx|
+            self.gc.get(obj.ObjTypeDef, idx).?
+        else
+            null;
         if (object_type_def != null and object_type_def.?.def_type == .Placeholder) {
             property_placeholder = try self.gc.type_registry.getTypeDef(
                 .{
@@ -4598,7 +4697,7 @@ fn objectInit(self: *Self, _: bool, object: Ast.Node.Index) Error!Ast.Node.Index
             );
 
             try obj.PlaceholderDef.link(
-                self.gc.allocator,
+                self.gc,
                 obj_type_def.?,
                 property_placeholder.?,
                 .FieldAccess,
@@ -4638,8 +4737,9 @@ fn objectInit(self: *Self, _: bool, object: Ast.Node.Index) Error!Ast.Node.Index
             .tag = .ObjectInit,
             .location = start_location,
             .end_location = self.current_token.? - 1,
-            .type_def = if (self.ast.nodes.items(.type_def)[object]) |type_def|
-                try type_def.toInstance(
+            .type_def = if (self.ast.nodes.items(.type_def)[object]) |type_def_idx|
+                try obj.ObjTypeDef.toInstance(
+                    type_def_idx,
                     &self.gc.type_registry,
                     false, // Will be modified by `mutableExpression`
                 )
@@ -4863,7 +4963,8 @@ fn anonymousObjectInit(self: *Self, _: bool) Error!Ast.Node.Index {
             .tag = .ObjectInit,
             .location = start_location,
             .end_location = self.current_token.? - 1,
-            .type_def = try (try self.gc.type_registry.getTypeDef(object_type)).toInstance(
+            .type_def = try obj.ObjTypeDef.toInstance(
+                try self.gc.type_registry.getTypeDef(object_type),
                 &self.gc.type_registry,
                 false, // Will be modified by `mutableExpression`
             ),
@@ -4903,9 +5004,10 @@ fn dot(self: *Self, can_assign: bool, callee: Ast.Node.Index) Error!Ast.Node.Ind
     );
 
     // Check that name is a property
-    const callee_type_def = self.ast.nodes.items(.type_def)[callee];
-    if (callee_type_def != null) {
-        const callee_def_type = callee_type_def.?.def_type;
+    const callee_type_def_idx = self.ast.nodes.items(.type_def)[callee];
+    if (callee_type_def_idx) |idx| {
+        const callee_type_def = self.gc.get(obj.ObjTypeDef, idx).?;
+        const callee_def_type = callee_type_def.def_type;
         switch (callee_def_type) {
             .String => {
                 if (try obj.ObjString.memberDefByName(self, member_name)) |member_type_def| {
@@ -5092,7 +5194,7 @@ fn dot(self: *Self, can_assign: bool, callee: Ast.Node.Index) Error!Ast.Node.Ind
                 }
             },
             .Object => {
-                const obj_def = callee_type_def.?.resolved_type.?.Object;
+                const obj_def = callee_type_def.resolved_type.?.Object;
                 const property_field = obj_def.fields.get(member_name);
                 var property_type = if (property_field) |field| field.type_def else null;
 
@@ -5113,7 +5215,7 @@ fn dot(self: *Self, can_assign: bool, callee: Ast.Node.Index) Error!Ast.Node.Ind
                 if (property_type == null and self.current_object != null and std.mem.eql(
                     u8,
                     self.ast.tokens.items(.lexeme)[self.current_object.?.name],
-                    obj_def.name.string,
+                    self.gc.get(obj.ObjString, obj_def.name).?.string,
                 )) {
                     const placeholder = try self.gc.type_registry.getTypeDef(
                         .{
@@ -5139,7 +5241,7 @@ fn dot(self: *Self, can_assign: bool, callee: Ast.Node.Index) Error!Ast.Node.Ind
                         );
                     }
 
-                    const kv = try callee_type_def.?.resolved_type.?.Object.static_placeholders
+                    const kv = try callee_type_def.resolved_type.?.Object.static_placeholders
                         .getOrPut(self.gc.allocator, member_name);
 
                     if (!kv.found_existing) {
@@ -5160,7 +5262,7 @@ fn dot(self: *Self, can_assign: bool, callee: Ast.Node.Index) Error!Ast.Node.Ind
                         "Static property `{s}` does not exists in {s}",
                         .{
                             member_name,
-                            obj_def.name.string,
+                            self.gc.get(obj.ObjString, obj_def.name).?.string,
                         },
                     );
                 }
@@ -5212,7 +5314,7 @@ fn dot(self: *Self, can_assign: bool, callee: Ast.Node.Index) Error!Ast.Node.Ind
                 }
             },
             .ForeignContainer => {
-                const f_def = callee_type_def.?.resolved_type.?.ForeignContainer;
+                const f_def = callee_type_def.resolved_type.?.ForeignContainer;
 
                 if (f_def.buzz_type.get(member_name)) |field| {
                     if (can_assign and try self.matchOpEqual()) {
@@ -5239,13 +5341,14 @@ fn dot(self: *Self, can_assign: bool, callee: Ast.Node.Index) Error!Ast.Node.Ind
                         "Property `{s}` does not exists in container `{s}`",
                         .{
                             member_name,
-                            f_def.name.string,
+                            self.gc.get(obj.ObjString, f_def.name).?.string,
                         },
                     );
                 }
             },
             .ObjectInstance => {
-                const object = callee_type_def.?.resolved_type.?.ObjectInstance.of;
+                const object_idx = callee_type_def.resolved_type.?.ObjectInstance.of;
+                const object = self.gc.get(obj.ObjTypeDef, object_idx).?;
                 const obj_def = object.resolved_type.?.Object;
 
                 const property_field = obj_def.fields.get(member_name);
@@ -5258,7 +5361,7 @@ fn dot(self: *Self, can_assign: bool, callee: Ast.Node.Index) Error!Ast.Node.Ind
                 if (property_type == null and self.current_object != null and std.mem.eql(
                     u8,
                     self.ast.tokens.items(.lexeme)[self.current_object.?.name],
-                    obj_def.name.string,
+                    self.gc.get(obj.ObjString, obj_def.name).?.string,
                 )) {
                     const placeholder = try self.gc.type_registry.getTypeDef(
                         .{
@@ -5304,7 +5407,10 @@ fn dot(self: *Self, can_assign: bool, callee: Ast.Node.Index) Error!Ast.Node.Ind
                         location,
                         location,
                         "Property `{s}` does not exists in object `{s}`",
-                        .{ member_name, obj_def.name.string },
+                        .{
+                            member_name,
+                            self.gc.get(obj.ObjString, obj_def.name).?.string,
+                        },
                     );
                 }
 
@@ -5355,7 +5461,8 @@ fn dot(self: *Self, can_assign: bool, callee: Ast.Node.Index) Error!Ast.Node.Ind
                 }
             },
             .ProtocolInstance => {
-                const protocol = callee_type_def.?.resolved_type.?.ProtocolInstance.of;
+                const protocol_idx = callee_type_def.resolved_type.?.ProtocolInstance.of;
+                const protocol = self.gc.get(obj.ObjTypeDef, protocol_idx).?;
                 const protocol_def = protocol.resolved_type.?.Protocol;
 
                 var method_type = if (protocol_def.methods.get(member_name)) |field| field.type_def else null;
@@ -5370,7 +5477,7 @@ fn dot(self: *Self, can_assign: bool, callee: Ast.Node.Index) Error!Ast.Node.Ind
                         "Method `{s}` does not exists in protocol `{s}`",
                         .{
                             member_name,
-                            protocol_def.name.string,
+                            self.gc.get(obj.ObjString, protocol_def.name).?.string,
                         },
                     );
                 }
@@ -5408,7 +5515,7 @@ fn dot(self: *Self, can_assign: bool, callee: Ast.Node.Index) Error!Ast.Node.Ind
                 }
             },
             .Enum => {
-                const enum_def = callee_type_def.?.resolved_type.?.Enum;
+                const enum_def = callee_type_def.resolved_type.?.Enum;
 
                 self.ast.nodes.items(.type_def)[dot_node] = try self.gc.type_registry.getTypeDef(
                     .{
@@ -5416,7 +5523,7 @@ fn dot(self: *Self, can_assign: bool, callee: Ast.Node.Index) Error!Ast.Node.Ind
                         .def_type = .EnumInstance,
                         .resolved_type = .{
                             .EnumInstance = .{
-                                .of = callee_type_def orelse self.gc.type_registry.any_type,
+                                .of = callee_type_def_idx orelse self.gc.type_registry.any_type,
                                 .mutable = false,
                             },
                         },
@@ -5466,11 +5573,11 @@ fn dot(self: *Self, can_assign: bool, callee: Ast.Node.Index) Error!Ast.Node.Ind
                 }
 
                 self.ast.nodes.items(.components)[dot_node].Dot.member_kind = .Ref;
-                self.ast.nodes.items(.type_def)[dot_node] = callee_type_def.?.resolved_type.?.EnumInstance.of
+                self.ast.nodes.items(.type_def)[dot_node] = self.gc.get(obj.ObjTypeDef, callee_type_def.resolved_type.?.EnumInstance.of).?
                     .resolved_type.?.Enum.enum_type;
             },
             .List => {
-                if (try obj.ObjList.ListDef.member(callee_type_def.?, self, member_name)) |member_def| {
+                if (try obj.ObjList.ListDef.member(callee_type_def_idx.?, self, member_name)) |member_def| {
                     const generic_resolve = if (try self.match(.DoubleColon))
                         try self.parseGenericResolve(member_def.type_def, null)
                     else
@@ -5515,7 +5622,7 @@ fn dot(self: *Self, can_assign: bool, callee: Ast.Node.Index) Error!Ast.Node.Ind
                 }
             },
             .Map => {
-                if (try obj.ObjMap.MapDef.member(callee_type_def.?, self, member_name)) |member_def| {
+                if (try obj.ObjMap.MapDef.member(idx, self, member_name)) |member_def| {
                     const generic_resolve = if (try self.match(.DoubleColon))
                         try self.parseGenericResolve(member_def.type_def, null)
                     else
@@ -5572,8 +5679,8 @@ fn dot(self: *Self, can_assign: bool, callee: Ast.Node.Index) Error!Ast.Node.Ind
                 );
 
                 try obj.PlaceholderDef.link(
-                    self.gc.allocator,
-                    callee_type_def.?,
+                    self.gc,
+                    idx,
                     placeholder,
                     .FieldAccess,
                 );
@@ -5629,7 +5736,7 @@ fn dot(self: *Self, can_assign: bool, callee: Ast.Node.Index) Error!Ast.Node.Ind
                     callee,
                     "`{s}` is not field accessible",
                     .{
-                        try callee_type_def.?.toStringAlloc(self.gc.allocator, false),
+                        try obj.ObjTypeDef.toStringAlloc(idx, self.gc, false),
                     },
                 );
             },
@@ -5650,20 +5757,20 @@ fn forceUnwrap(self: *Self, _: bool, unwrapped: Ast.Node.Index) Error!Ast.Node.I
 }
 
 fn unwrap(self: *Self, force: bool, unwrapped: Ast.Node.Index) Error!Ast.Node.Index {
-    const unwrapped_type_def = self.ast.nodes.items(.type_def)[unwrapped] orelse self.gc.type_registry.any_type;
+    const unwrapped_type_def_idx = self.ast.nodes.items(.type_def)[unwrapped] orelse self.gc.type_registry.any_type;
 
     const node = self.ast.appendNode(
         .{
             .tag = if (force) .ForceUnwrap else .Unwrap,
             .location = self.ast.nodes.items(.location)[unwrapped],
             .end_location = self.current_token.? - 1,
-            .type_def = try unwrapped_type_def.cloneNonOptional(&self.gc.type_registry),
+            .type_def = try obj.ObjTypeDef.cloneNonOptional(unwrapped_type_def_idx, &self.gc.type_registry),
             .components = if (force)
                 .{
                     .ForceUnwrap = .{
                         .start_opt_jumps = false,
                         .unwrapped = unwrapped,
-                        .original_type = unwrapped_type_def,
+                        .original_type = unwrapped_type_def_idx,
                     },
                 }
             else
@@ -5671,7 +5778,7 @@ fn unwrap(self: *Self, force: bool, unwrapped: Ast.Node.Index) Error!Ast.Node.In
                     .Unwrap = .{
                         .start_opt_jumps = self.opt_jumps == null,
                         .unwrapped = unwrapped,
-                        .original_type = unwrapped_type_def,
+                        .original_type = unwrapped_type_def_idx,
                     },
                 },
         },
@@ -5773,7 +5880,8 @@ fn @"if"(self: *Self, is_statement: bool, loop_scope: ?LoopScope) Error!Ast.Node
 
     try self.beginScope(null);
     const condition = try self.expression(false);
-    const condition_type_def = self.ast.nodes.items(.type_def)[condition];
+    const condition_type_def_idx = self.ast.nodes.items(.type_def)[condition].?;
+    const condition_type_def = self.gc.get(obj.ObjTypeDef, condition_type_def_idx).?;
 
     var unwrapped_identifier: ?Ast.TokenIndex = null;
     var casted_type: ?Ast.Node.Index = null;
@@ -5782,9 +5890,12 @@ fn @"if"(self: *Self, is_statement: bool, loop_scope: ?LoopScope) Error!Ast.Node
         _ = try self.parseVariable(
             @intCast(node_slot),
             self.current_token.? - 1,
-            try condition_type_def.?.cloneNonOptional(&self.gc.type_registry),
+            try obj.ObjTypeDef.cloneNonOptional(
+                condition_type_def_idx,
+                &self.gc.type_registry,
+            ),
             true,
-            condition_type_def.?.isMutable(),
+            condition_type_def.isMutable(),
             "Expected optional unwrap identifier",
         );
         self.markInitialized();
@@ -5798,12 +5909,13 @@ fn @"if"(self: *Self, is_statement: bool, loop_scope: ?LoopScope) Error!Ast.Node
         _ = try self.parseVariable(
             @intCast(node_slot),
             unwrapped_identifier,
-            try self.ast.nodes.items(.type_def)[casted_type.?].?.toInstance(
+            try obj.ObjTypeDef.toInstance(
+                self.ast.nodes.items(.type_def)[casted_type.?].?,
                 &self.gc.type_registry,
-                condition_type_def.?.isMutable(),
+                condition_type_def.isMutable(),
             ),
             true,
-            condition_type_def.?.isMutable(),
+            condition_type_def.isMutable(),
             "Expected casted identifier",
         );
         self.markInitialized();
@@ -5843,12 +5955,27 @@ fn @"if"(self: *Self, is_statement: bool, loop_scope: ?LoopScope) Error!Ast.Node
             .end_location = self.current_token.? - 1,
             .type_def = if (!is_statement) type_def: {
                 const type_defs = self.ast.nodes.items(.type_def);
-                const body_type_def = type_defs[body];
-                const else_branch_type_def = if (else_branch) |eb| type_defs[eb] else null;
-                var if_type_def = if (body_type_def == null or body_type_def.?.def_type == .Void)
-                    else_branch_type_def
+
+                const body_type_def_idx = type_defs[body];
+                const body_type_def = if (body_type_def_idx) |idx|
+                    self.gc.get(obj.ObjTypeDef, idx).?
                 else
-                    body_type_def;
+                    null;
+
+                const else_branch_type_def_idx = if (else_branch) |eb| type_defs[eb] else null;
+                const else_branch_type_def = if (else_branch_type_def_idx) |idx|
+                    self.gc.get(obj.ObjTypeDef, idx).?
+                else
+                    null;
+
+                const if_type_def_idx = if (body_type_def_idx == null or body_type_def.?.def_type == .Void)
+                    else_branch_type_def_idx
+                else
+                    body_type_def_idx;
+                const if_type_def = if (if_type_def_idx) |idx|
+                    self.gc.get(obj.ObjTypeDef, idx).?
+                else
+                    null;
 
                 const is_optional = if_type_def.?.optional or
                     body_type_def.?.optional or
@@ -5856,10 +5983,13 @@ fn @"if"(self: *Self, is_statement: bool, loop_scope: ?LoopScope) Error!Ast.Node
                     body_type_def.?.def_type == .Void or
                     else_branch_type_def.?.def_type == .Void;
                 if (is_optional and !if_type_def.?.optional) {
-                    break :type_def try if_type_def.?.cloneOptional(&self.gc.type_registry);
+                    break :type_def try obj.ObjTypeDef.cloneOptional(
+                        if_type_def_idx.?,
+                        &self.gc.type_registry,
+                    );
                 }
 
-                break :type_def if_type_def.?;
+                break :type_def if_type_def_idx.?;
             } else null,
             .components = .{
                 .If = .{
@@ -5888,7 +6018,7 @@ fn inlineIf(self: *Self, _: bool) Error!Ast.Node.Index {
 fn isAs(self: *Self, left: Ast.Node.Index, is_expr: bool) Error!Ast.Node.Index {
     const start_location = self.ast.nodes.items(.location)[left];
     const constant = try self.parseTypeDef(null, true);
-    const type_def = self.ast.nodes.items(.type_def)[constant].?;
+    const type_def_idx = self.ast.nodes.items(.type_def)[constant].?;
 
     return try self.ast.appendNode(
         .{
@@ -5898,7 +6028,10 @@ fn isAs(self: *Self, left: Ast.Node.Index, is_expr: bool) Error!Ast.Node.Index {
             .type_def = if (is_expr)
                 self.gc.type_registry.bool_type
             else
-                (try type_def.cloneOptional(&self.gc.type_registry)),
+                (try obj.ObjTypeDef.cloneOptional(
+                    type_def_idx,
+                    &self.gc.type_registry,
+                )),
             .components = if (is_expr)
                 .{
                     .Is = .{
@@ -5969,7 +6102,7 @@ fn namedVariable(self: *Self, name: []const Ast.TokenIndex, can_assign: bool) Er
     const node_slot = try self.ast.nodes.addOne(self.ast.allocator);
     const start_location = name[0];
 
-    var var_def: ?*obj.ObjTypeDef = null;
+    var var_def: ?Pool(obj.ObjTypeDef).Idx = null;
     var slot: usize = undefined;
     var slot_type: Ast.SlotType = undefined;
     var slot_final = false;
@@ -6113,7 +6246,7 @@ fn function(
     self: *Self,
     name: ?Ast.TokenIndex,
     function_type: obj.ObjFunction.FunctionType,
-    this: ?*obj.ObjTypeDef,
+    this: ?Pool(obj.ObjTypeDef).Idx,
 ) Error!Ast.Node.Index {
     var error_types = std.ArrayList(Ast.Node.Index).empty;
     var arguments = std.ArrayList(Ast.FunctionType.Argument).empty;
@@ -6180,18 +6313,21 @@ fn function(
         .Function = function_def,
     };
 
-    var function_typedef = obj.ObjTypeDef{
-        .def_type = .Function,
-        .resolved_type = function_resolved_type,
-    };
+    const function_typedef_idx = try self.gc.allocateObject(
+        obj.ObjTypeDef{
+            .def_type = .Function,
+            .resolved_type = function_resolved_type,
+        },
+    );
+    const function_typedef = self.gc.get(obj.ObjTypeDef, function_typedef_idx).?;
 
     // We replace it with a self.gc.type_registry.getTypeDef pointer at the end
     const type_defs = self.ast.nodes.items(.type_def);
-    type_defs[function_node] = @constCast(&function_typedef);
-    type_defs[function_signature] = @constCast(&function_typedef);
+    type_defs[function_node] = function_typedef_idx;
+    type_defs[function_signature] = function_typedef_idx;
 
     // So any reference to a generic in the function's body can be resolved
-    self.current.?.generics = @constCast(&function_typedef.resolved_type.?.Function.generic_types);
+    self.current.?.generics = &function_typedef.resolved_type.?.Function.generic_types;
 
     // Parse generic & argument list
     if (function_type == .Test) {
@@ -6217,7 +6353,8 @@ fn function(
                                 .def_type = .Generic,
                                 .resolved_type = .{
                                     .Generic = .{
-                                        .origin = self.ast.nodes.items(.type_def)[function_node].?.resolved_type.?.Function.id,
+                                        .origin = self.gc.get(obj.ObjTypeDef, self.ast.nodes.items(.type_def)[function_node].?).?
+                                            .resolved_type.?.Function.id,
                                         .index = i,
                                     },
                                 },
@@ -6288,12 +6425,13 @@ fn function(
                 argument_type_node
             ];
 
-            const argument_type = self.ast.nodes.items(.type_def)[argument_type_node].?;
+            const argument_type_idx = self.ast.nodes.items(.type_def)[argument_type_node].?;
+            const argument_type = self.gc.get(obj.ObjTypeDef, argument_type_idx).?;
 
             const slot = try self.parseVariable(
                 function_node,
                 identifier,
-                argument_type,
+                argument_type_idx,
                 true, // function arguments are final
                 false,
                 "Expected argument name",
@@ -6316,7 +6454,7 @@ fn function(
                     if (try self.match(.Equal)) {
                         const expr = try self.expression(false);
 
-                        if (!try self.ast.slice().isConstant(self.gc.allocator, expr)) {
+                        if (!try self.ast.slice().isConstant(self.gc, expr)) {
                             self.reporter.reportErrorAt(
                                 .constant_default,
                                 self.ast.tokens.get(self.ast.nodes.items(.location)[expr]),
@@ -6325,13 +6463,17 @@ fn function(
                             );
                         }
 
-                        const expr_type_def = self.ast.nodes.items(.type_def)[expr];
+                        const expr_type_def_idx = self.ast.nodes.items(.type_def)[expr];
+                        const expr_type_def = if (expr_type_def_idx) |idx|
+                            self.gc.get(obj.ObjTypeDef, idx).?
+                        else
+                            null;
 
                         if (expr_type_def != null and expr_type_def.?.def_type == .Placeholder and argument_type.def_type == .Placeholder) {
                             try obj.PlaceholderDef.link(
-                                self.gc.allocator,
-                                argument_type,
-                                expr_type_def.?,
+                                self.gc,
+                                argument_type_idx,
+                                expr_type_def_idx.?,
                                 .Assignment,
                             );
                         }
@@ -6399,7 +6541,8 @@ fn function(
             function_typedef.resolved_type.?.Function.generic_types,
             true,
         );
-        const yield_type = self.ast.nodes.items(.type_def)[yield_type_node].?;
+        const yield_type_idx = self.ast.nodes.items(.type_def)[yield_type_node].?;
+        const yield_type = self.gc.get(obj.ObjTypeDef, yield_type_idx).?;
 
         if (!yield_type.optional and yield_type.def_type != .Void) {
             self.reportErrorAtNode(
@@ -6410,7 +6553,7 @@ fn function(
             );
         }
 
-        function_typedef.resolved_type.?.Function.yield_type = yield_type;
+        function_typedef.resolved_type.?.Function.yield_type = yield_type_idx;
 
         break :yield yield_type_node;
     } else null;
@@ -6427,19 +6570,21 @@ fn function(
 
     // Error set
     if (function_type.canHaveErrorSet() and (try self.match(.BangGreater))) {
-        var error_typedefs = std.ArrayList(*obj.ObjTypeDef).empty;
+        var error_typedefs = std.ArrayList(Pool(obj.ObjTypeDef).Idx).empty;
 
         const end_token: Token.Type = if (function_type.canOmitBody()) .Semicolon else .LeftBrace;
 
         while (!self.check(end_token) and !self.check(.DoubleArrow) and !self.check(.Eof)) {
             const error_type_node = try self.parseTypeDef(
-                self.ast.nodes.items(.type_def)[function_node].?.resolved_type.?.Function.generic_types,
+                self.gc.get(obj.ObjTypeDef, self.ast.nodes.items(.type_def)[function_node].?).?
+                    .resolved_type.?.Function.generic_types,
                 true,
             );
-            const error_type = self.ast.nodes.items(.type_def)[error_type_node].?;
+            const error_type_idx = self.ast.nodes.items(.type_def)[error_type_node].?;
+            const error_type = self.gc.get(obj.ObjTypeDef, error_type_idx).?;
 
             try error_types.append(self.gc.allocator, error_type_node);
-            try error_typedefs.append(self.gc.allocator, error_type);
+            try error_typedefs.append(self.gc.allocator, error_type_idx);
 
             if (error_type.optional) {
                 self.reportErrorAtNode(
@@ -6498,17 +6643,18 @@ fn function(
 
     if (function_type == .Extern) {
         if (self.flavor.resolveImports()) {
+            const function_name = self.gc.get(obj.ObjString, function_typedef.resolved_type.?.Function.name).?;
             const native_opt = if (!is_wasm)
                 try self.importLibSymbol(
                     self.ast.nodes.items(.location)[function_node],
                     self.current_token.? - 1,
                     self.script_name,
-                    function_typedef.resolved_type.?.Function.name.string,
+                    function_name.string,
                 )
             else
                 try self.importStaticLibSymbol(
                     self.script_name,
-                    function_typedef.resolved_type.?.Function.name.string,
+                    function_name.string,
                 );
 
             // Search for a dylib/so/dll with the same name as the current script
@@ -6532,7 +6678,8 @@ fn function(
         }
     }
 
-    self.ast.nodes.items(.type_def)[function_node] = try self.gc.type_registry.getTypeDef(function_typedef);
+    // Will this be an issue?
+    // self.ast.nodes.items(.type_def)[function_node] = try self.gc.type_registry.getTypeDef(function_typedef);
     self.ast.nodes.items(.end_location)[function_node] = self.current_token.? - 1;
 
     return self.endFrame();
@@ -6648,7 +6795,8 @@ fn asyncCall(self: *Self, _: bool) Error!Ast.Node.Index {
 
     call_components.Call.is_async = true;
 
-    const function_type = call_components.Call.callee_type_def;
+    const function_type_idx = call_components.Call.callee_type_def;
+    const function_type = self.gc.get(obj.ObjTypeDef, function_type_idx).?;
 
     if (function_type.def_type == .Placeholder) {
         // create placeholders for return and yield types and link them with .Call and .Yield
@@ -6666,8 +6814,8 @@ fn asyncCall(self: *Self, _: bool) Error!Ast.Node.Index {
         );
 
         try obj.PlaceholderDef.link(
-            self.gc.allocator,
-            function_type,
+            self.gc,
+            function_type_idx,
             return_placeholder,
             .Call,
         );
@@ -6686,8 +6834,8 @@ fn asyncCall(self: *Self, _: bool) Error!Ast.Node.Index {
         );
 
         try obj.PlaceholderDef.link(
-            self.gc.allocator,
-            function_type,
+            self.gc,
+            function_type_idx,
             yield_placeholder,
             .Yield,
         );
@@ -6766,12 +6914,11 @@ fn resumeFiber(self: *Self, _: bool) Error!Ast.Node.Index {
         },
     );
 
-    const fiber_type = self.ast.nodes.items(.type_def)[fiber_node];
+    const fiber_type_idx = self.ast.nodes.items(.type_def)[fiber_node].?;
+    const fiber_type = self.gc.get(obj.ObjTypeDef, fiber_type_idx).?;
 
-    if (fiber_type == null) {
-        unreachable;
-    } else if (fiber_type.?.def_type == .Placeholder) {
-        const yield_placeholder = try (try self.gc.type_registry.getTypeDef(
+    if (fiber_type.def_type == .Placeholder) {
+        const yield_placeholder_idx = try self.gc.type_registry.getTypeDef(
             .{
                 .def_type = .Placeholder,
                 .resolved_type = .{
@@ -6782,18 +6929,18 @@ fn resumeFiber(self: *Self, _: bool) Error!Ast.Node.Index {
                     ),
                 },
             },
-        )).cloneOptional(&self.gc.type_registry);
+        );
 
         try obj.PlaceholderDef.link(
-            self.gc.allocator,
-            fiber_type.?,
-            yield_placeholder,
+            self.gc,
+            fiber_type_idx,
+            yield_placeholder_idx,
             .Yield,
         );
 
-        self.ast.nodes.items(.type_def)[node] = yield_placeholder;
+        self.ast.nodes.items(.type_def)[node] = yield_placeholder_idx;
     } else {
-        if (fiber_type.?.def_type != .Fiber) {
+        if (fiber_type.def_type != .Fiber) {
             self.reportErrorAtNode(
                 .resumable,
                 fiber_node,
@@ -6801,10 +6948,8 @@ fn resumeFiber(self: *Self, _: bool) Error!Ast.Node.Index {
                 .{},
             );
         } else {
-            const fiber = fiber_type.?.resolved_type.?.Fiber;
-
             // Resume returns null if nothing was yielded and/or fiber reached its return statement
-            self.ast.nodes.items(.type_def)[node] = fiber.yield_type;
+            self.ast.nodes.items(.type_def)[node] = fiber_type.resolved_type.?.Fiber.yield_type;
         }
     }
 
@@ -6838,11 +6983,10 @@ fn resolveFiber(self: *Self, _: bool) Error!Ast.Node.Index {
             },
         },
     );
-    const fiber_type = self.ast.nodes.items(.type_def)[fiber];
+    const fiber_type_idx = self.ast.nodes.items(.type_def)[fiber].?;
+    const fiber_type = self.gc.get(obj.ObjTypeDef, fiber_type_idx).?;
 
-    if (fiber_type == null) {
-        unreachable;
-    } else if (fiber_type.?.def_type == .Placeholder) {
+    if (fiber_type.def_type == .Placeholder) {
         const return_placeholder = try self.gc.type_registry.getTypeDef(
             .{
                 .def_type = .Placeholder,
@@ -6857,15 +7001,15 @@ fn resolveFiber(self: *Self, _: bool) Error!Ast.Node.Index {
         );
 
         try obj.PlaceholderDef.link(
-            self.gc.allocator,
-            fiber_type.?,
+            self.gc,
+            fiber_type_idx,
             return_placeholder,
             .Yield,
         );
 
         self.ast.nodes.items(.type_def)[node] = return_placeholder;
     } else {
-        if (fiber_type.?.def_type != .Fiber) {
+        if (fiber_type.def_type != .Fiber) {
             self.reportErrorAtNode(
                 .resolvable,
                 fiber,
@@ -6873,9 +7017,7 @@ fn resolveFiber(self: *Self, _: bool) Error!Ast.Node.Index {
                 .{},
             );
         } else {
-            const fiber_def = fiber_type.?.resolved_type.?.Fiber;
-
-            self.ast.nodes.items(.type_def)[node] = fiber_def.return_type;
+            self.ast.nodes.items(.type_def)[node] = fiber_type.resolved_type.?.Fiber.return_type;
         }
     }
 
@@ -6963,8 +7105,13 @@ fn mutableExpression(self: *Self, _: bool) Error!Ast.Node.Index {
     const start_location = self.current_token.? - 1;
 
     const expr = try self.parsePrecedence(.Unary, false);
+    const expr_type_def_idx = self.ast.nodes.items(.type_def)[expr].?;
 
-    self.ast.nodes.items(.type_def)[expr] = try self.ast.nodes.items(.type_def)[expr].?.cloneMutable(&self.gc.type_registry, true);
+    self.ast.nodes.items(.type_def)[expr] = try obj.ObjTypeDef.cloneMutable(
+        expr_type_def_idx,
+        &self.gc.type_registry,
+        true,
+    );
     self.ast.nodes.items(.location)[expr] = start_location;
 
     switch (self.ast.nodes.items(.tag)[expr]) {
@@ -7063,8 +7210,8 @@ fn binary(self: *Self, _: bool, left: Ast.Node.Index) Error!Ast.Node.Index {
     );
 
     const type_defs = self.ast.nodes.items(.type_def);
-    const right_type_def = type_defs[right];
-    const left_type_def = type_defs[left];
+    const right_type_def_idx = type_defs[right];
+    const left_type_def_idx = type_defs[left];
 
     return try self.ast.appendNode(
         .{
@@ -7072,7 +7219,7 @@ fn binary(self: *Self, _: bool, left: Ast.Node.Index) Error!Ast.Node.Index {
             .location = start_location,
             .end_location = self.current_token.? - 1,
             .type_def = switch (operator) {
-                .QuestionQuestion => right_type_def,
+                .QuestionQuestion => right_type_def_idx.?,
 
                 .Greater,
                 .Less,
@@ -7087,7 +7234,7 @@ fn binary(self: *Self, _: bool, left: Ast.Node.Index) Error!Ast.Node.Index {
                 .Percent,
                 .Slash,
                 .Plus,
-                => left_type_def orelse right_type_def,
+                => left_type_def_idx orelse right_type_def_idx,
 
                 .ShiftLeft,
                 .ShiftRight,
@@ -7143,7 +7290,11 @@ fn funDeclaration(self: *Self) Error!Ast.Node.Index {
     try self.consume(.Identifier, "Expected function name.");
     const name_token = self.current_token.? - 1;
 
-    const current_function_type_def = self.ast.nodes.items(.type_def)[self.current.?.function_node];
+    const current_function_type_def_idx = self.ast.nodes.items(.type_def)[self.current.?.function_node];
+    const current_function_type_def = if (current_function_type_def_idx) |idx|
+        self.gc.get(obj.ObjTypeDef, idx).?
+    else
+        null;
     const is_main = std.mem.eql(u8, self.ast.tokens.items(.lexeme)[name_token], "main") and
         current_function_type_def != null and
         current_function_type_def.?.resolved_type.?.Function.function_type == .ScriptEntryPoint;
@@ -7162,7 +7313,8 @@ fn funDeclaration(self: *Self) Error!Ast.Node.Index {
     }
 
     const function_node = try self.function(name_token, function_type, null);
-    const fun_typedef = self.ast.nodes.items(.type_def)[function_node].?;
+    const fun_typedef_idx = self.ast.nodes.items(.type_def)[function_node].?;
+    const fun_typedef = self.gc.get(obj.ObjTypeDef, fun_typedef_idx).?;
 
     if (fun_typedef.resolved_type.?.Function.lambda) {
         try self.consume(.Semicolon, "Expected `;` after statement");
@@ -7176,19 +7328,29 @@ fn funDeclaration(self: *Self) Error!Ast.Node.Index {
     const fun_def = fun_typedef.resolved_type.?.Function;
     if (is_main) {
         var signature_valid = true;
-        if (fun_def.parameters.count() > 1 or (fun_def.return_type.def_type != .Integer and fun_def.return_type.def_type != .Void)) {
+        const return_type = self.gc.get(obj.ObjTypeDef, fun_def.return_type).?;
+        if (fun_def.parameters.count() > 1 or (return_type.def_type != .Integer and return_type.def_type != .Void)) {
             signature_valid = false;
         } else if (fun_def.parameters.count() > 0) {
             const first_param = fun_def.parameters.get(fun_def.parameters.keys()[0]);
             if (first_param == null or
-                !(try self.parseTypeDefFrom("[str]")).eql(first_param.?))
+                !obj.ObjTypeDef
+                    .eql(
+                    (try self.parseTypeDefFrom("[str]")),
+                    first_param.?,
+                    self.gc,
+                ))
             {
                 signature_valid = false;
             }
         }
 
         if (!signature_valid) {
-            const main_def_str = fun_typedef.toStringAlloc(self.gc.allocator, false) catch @panic("Out of memory");
+            const main_def_str = obj.ObjTypeDef.toStringAlloc(
+                fun_typedef_idx,
+                self.gc,
+                false,
+            ) catch @panic("Out of memory");
             defer self.gc.allocator.free(main_def_str);
             self.reporter.reportErrorFmt(
                 .main_signature,
@@ -7206,7 +7368,7 @@ fn funDeclaration(self: *Self) Error!Ast.Node.Index {
 
     const slot: usize = try self.declareVariable(
         @intCast(node_slot),
-        fun_typedef,
+        fun_typedef_idx,
         name_token,
         true,
         false,
@@ -7221,7 +7383,7 @@ fn funDeclaration(self: *Self) Error!Ast.Node.Index {
             .tag = .FunDeclaration,
             .location = start_location,
             .end_location = self.current_token.? - 1,
-            .type_def = fun_typedef,
+            .type_def = fun_typedef_idx,
             .components = .{
                 .FunDeclaration = .{
                     .function = function_node,
@@ -7385,7 +7547,7 @@ fn objectDeclaration(self: *Self) Error!Ast.Node.Index {
     const start_location = self.current_token.? - 1;
 
     // Conforms to protocols?
-    var protocols = std.AutoHashMapUnmanaged(*obj.ObjTypeDef, void){};
+    var protocols = std.AutoHashMapUnmanaged(Pool(obj.ObjTypeDef).Idx, void){};
     var protocol_nodes = std.ArrayList(Ast.Node.Index).empty;
     var protocol_count: usize = 0;
     if (try self.match(.Less)) {
@@ -7403,9 +7565,10 @@ fn objectDeclaration(self: *Self) Error!Ast.Node.Index {
             try self.consume(.Identifier, "Expected protocol identifier");
 
             const protocol_node = try self.parseUserType(false, false);
-            const protocol = self.ast.nodes.items(.type_def)[protocol_node].?;
+            const protocol_idx = self.ast.nodes.items(.type_def)[protocol_node].?;
+            const protocol = self.gc.get(obj.ObjTypeDef, protocol_idx).?;
 
-            if (protocols.get(protocol) != null) {
+            if (protocols.get(protocol_idx) != null) {
                 const locations = self.ast.nodes.items(.location);
                 const end_locations = self.ast.nodes.items(.end_location);
                 self.reporter.reportWithOrigin(
@@ -7416,7 +7579,7 @@ fn objectDeclaration(self: *Self) Error!Ast.Node.Index {
                     self.ast.tokens.get(protocol.resolved_type.?.Protocol.location),
                     "Already conforming to `{s}`.",
                     .{
-                        protocol.resolved_type.?.Protocol.name.string,
+                        self.gc.get(obj.ObjString, protocol.resolved_type.?.Protocol.name).?.string,
                     },
                     null,
                 );
@@ -7424,7 +7587,7 @@ fn objectDeclaration(self: *Self) Error!Ast.Node.Index {
 
             try protocols.put(
                 self.gc.allocator,
-                protocol,
+                protocol_idx,
                 {},
             );
             try protocol_nodes.append(self.gc.allocator, protocol_node);
@@ -7455,31 +7618,33 @@ fn objectDeclaration(self: *Self) Error!Ast.Node.Index {
         },
     );
 
-    // Create a placeholder for self-reference which will be resolved at the end when declaring the object
+    // Create a placeholder for self-reference which will be resolved at the end when the object definition is complete
     const placeholder_index = try self.declarePlaceholder(object_name_token, null);
-    const object_placeholder = self.globals.items[placeholder_index].type_def;
+    const object_placeholder_idx = self.globals.items[placeholder_index].type_def;
+    const object_placeholder = self.gc.get(obj.ObjTypeDef, object_placeholder_idx).?;
 
-    var object_def = obj.ObjObject.ObjectDef.init(
-        object_name_token,
-        try self.gc.copyString(object_name_lexeme),
-        try self.gc.copyString(qualified_object_name.written()),
-        false,
+    // Outside of type registry until complete
+    const object_type_idx = try self.gc.allocateObject(
+        obj.ObjTypeDef{
+            .def_type = .Object,
+            .resolved_type = .{
+                .Object = obj.ObjObject.ObjectDef.init(
+                    object_name_token,
+                    try self.gc.copyString(object_name_lexeme),
+                    try self.gc.copyString(qualified_object_name.written()),
+                    false,
+                ),
+            },
+        },
     );
+    const object_type = self.gc.get(obj.ObjTypeDef, object_type_idx).?;
 
-    object_def.conforms_to.deinit(self.gc.allocator);
-    object_def.conforms_to = protocols;
-
-    const resolved_type = obj.ObjTypeDef.TypeUnion{ .Object = object_def };
-
-    // Create type
-    var object_type = obj.ObjTypeDef{
-        .def_type = .Object,
-        .resolved_type = resolved_type,
-    };
+    object_type.resolved_type.?.Object.conforms_to.deinit(self.gc.allocator);
+    object_type.resolved_type.?.Object.conforms_to = protocols;
 
     const object_frame = ObjectFrame{
         .name = object_name_token,
-        .type_def = object_placeholder,
+        .type_def = object_placeholder_idx,
         .generics = &object_type.resolved_type.?.Object.generic_types,
     };
 
@@ -7497,7 +7662,7 @@ fn objectDeclaration(self: *Self) Error!Ast.Node.Index {
             const generic_identifier = try self.gc.copyString(self.ast.tokens.items(.lexeme)[generic_identifier_token]);
             if (object_type.resolved_type.?.Object.generic_types.get(generic_identifier) == null) {
                 const generic = obj.ObjTypeDef.GenericDef{
-                    .origin = object_def.id,
+                    .origin = object_type.resolved_type.?.Object.id,
                     .index = i,
                 };
                 const resolved_generic_type = obj.ObjTypeDef.TypeUnion{ .Generic = generic };
@@ -7556,7 +7721,7 @@ fn objectDeclaration(self: *Self) Error!Ast.Node.Index {
     defer fields.deinit(self.gc.allocator);
 
     // Members types
-    var properties_type = std.StringHashMapUnmanaged(*obj.ObjTypeDef).empty;
+    var properties_type = std.StringHashMapUnmanaged(Pool(obj.ObjTypeDef).Idx).empty;
 
     // Docblocks
     var property_idx: usize = 0;
@@ -7577,16 +7742,18 @@ fn objectDeclaration(self: *Self) Error!Ast.Node.Index {
                 false,
                 static,
                 if (static)
-                    object_placeholder
+                    object_placeholder_idx
                 else
-                    try object_placeholder.toInstance(
+                    try obj.ObjTypeDef.toInstance(
+                        object_placeholder_idx,
                         &self.gc.type_registry,
                         mutable,
                     ),
             );
 
-            const method_type_def = self.ast.nodes.items(.type_def)[method_node];
-            const method_name = method_type_def.?.resolved_type.?.Function.name.string;
+            const method_type_def_idx = self.ast.nodes.items(.type_def)[method_node].?;
+            const method_type_def = self.gc.get(obj.ObjTypeDef, method_type_def_idx).?;
+            const method_name = self.gc.get(obj.ObjString, method_type_def.resolved_type.?.Function.name).?.string;
 
             if (fields.get(method_name) != null) {
                 const location = self.ast.tokens.get(method_token);
@@ -7601,7 +7768,11 @@ fn objectDeclaration(self: *Self) Error!Ast.Node.Index {
             // Does a placeholder exists for this name ?
             if (static) {
                 if (object_type.resolved_type.?.Object.static_placeholders.get(method_name)) |placeholder| {
-                    try self.resolvePlaceholder(placeholder.placeholder, method_type_def.?, true);
+                    try self.resolvePlaceholder(
+                        placeholder.placeholder,
+                        method_type_def_idx,
+                        true,
+                    );
 
                     if (self.flavor == .Ast) {
                         for (placeholder.referrers.items) |referrer| {
@@ -7625,7 +7796,11 @@ fn objectDeclaration(self: *Self) Error!Ast.Node.Index {
                 }
             } else {
                 if (object_type.resolved_type.?.Object.placeholders.get(method_name)) |placeholder| {
-                    try self.resolvePlaceholder(placeholder.placeholder, method_type_def.?, true);
+                    try self.resolvePlaceholder(
+                        placeholder.placeholder,
+                        method_type_def_idx,
+                        true,
+                    );
 
                     if (self.flavor == .Ast) {
                         for (placeholder.referrers.items) |referrer| {
@@ -7654,7 +7829,7 @@ fn objectDeclaration(self: *Self) Error!Ast.Node.Index {
                 method_name,
                 .{
                     .name = method_name,
-                    .type_def = method_type_def.?,
+                    .type_def = method_type_def_idx,
                     .final = true,
                     .static = static,
                     .location = method_token,
@@ -7692,7 +7867,8 @@ fn objectDeclaration(self: *Self) Error!Ast.Node.Index {
 
             try self.consume(.Colon, "Expected `:`");
             const property_type = try self.parseTypeDef(null, true);
-            const property_type_def = self.ast.nodes.items(.type_def)[property_type];
+            const property_type_def_idx = self.ast.nodes.items(.type_def)[property_type].?;
+            const property_type_def = self.gc.get(obj.ObjTypeDef, property_type_def_idx).?;
 
             if (fields.get(property_lexeme) != null) {
                 self.reporter.reportErrorAt(
@@ -7706,7 +7882,11 @@ fn objectDeclaration(self: *Self) Error!Ast.Node.Index {
             // Does a placeholder exists for this name ?
             if (static) {
                 if (object_type.resolved_type.?.Object.static_placeholders.get(property_lexeme)) |placeholder| {
-                    try self.resolvePlaceholder(placeholder.placeholder, property_type_def.?, false);
+                    try self.resolvePlaceholder(
+                        placeholder.placeholder,
+                        property_type_def_idx,
+                        false,
+                    );
 
                     if (self.flavor == .Ast) {
                         for (placeholder.referrers.items) |referrer| {
@@ -7732,7 +7912,7 @@ fn objectDeclaration(self: *Self) Error!Ast.Node.Index {
                 if (object_type.resolved_type.?.Object.placeholders.get(property_lexeme)) |placeholder| {
                     try self.resolvePlaceholder(
                         placeholder.placeholder,
-                        property_type_def.?,
+                        property_type_def_idx,
                         false,
                     );
 
@@ -7760,7 +7940,7 @@ fn objectDeclaration(self: *Self) Error!Ast.Node.Index {
 
             const default = if (try self.match(.Equal))
                 try self.expression(false)
-            else if (property_type_def.?.optional)
+            else if (property_type_def.optional)
                 try self.ast.appendNode(
                     .{
                         .tag = .Null,
@@ -7775,7 +7955,7 @@ fn objectDeclaration(self: *Self) Error!Ast.Node.Index {
             else
                 null;
 
-            if (default != null and !(try self.ast.slice().isConstant(self.gc.allocator, default.?))) {
+            if (default != null and !(try self.ast.slice().isConstant(self.gc, default.?))) {
                 self.reportErrorAtNode(
                     .constant_default,
                     default.?,
@@ -7850,9 +8030,10 @@ fn objectDeclaration(self: *Self) Error!Ast.Node.Index {
 
     const node_slot = try self.ast.nodes.addOne(self.gc.allocator);
 
+    // This results is a new global at which point the object placeholder is resolved and any self-reference is now ok
     const slot = try self.declareVariable(
         @intCast(node_slot),
-        &object_type, // Should resolve object_name_tokenect_placeholder and be discarded
+        object_type_idx,
         object_name_token,
         true, // Object is always final
         false,
@@ -7871,7 +8052,7 @@ fn objectDeclaration(self: *Self) Error!Ast.Node.Index {
             .tag = .ObjectDeclaration,
             .location = start_location,
             .end_location = self.current_token.? - 1,
-            .type_def = object_placeholder,
+            .type_def = object_placeholder_idx,
             .ends_scope = scope_end,
             .components = .{
                 .ObjectDeclaration = .{
@@ -7895,7 +8076,7 @@ fn objectDeclaration(self: *Self) Error!Ast.Node.Index {
     return @intCast(node_slot);
 }
 
-fn method(self: *Self, abstract: bool, static: bool, this: *obj.ObjTypeDef) Error!Ast.Node.Index {
+fn method(self: *Self, abstract: bool, static: bool, this: Pool(obj.ObjTypeDef).Idx) Error!Ast.Node.Index {
     try self.consume(.Identifier, "Expected method name.");
 
     const func = try self.function(
@@ -7909,7 +8090,9 @@ fn method(self: *Self, abstract: bool, static: bool, this: *obj.ObjTypeDef) Erro
         this,
     );
 
-    if (self.ast.nodes.items(.type_def)[func].?.resolved_type.?.Function.lambda) {
+    if (self.gc.get(obj.ObjTypeDef, self.ast.nodes.items(.type_def)[func].?).?
+        .resolved_type.?.Function.lambda)
+    {
         try self.consume(.Semicolon, "Expected `;`.");
     }
 
@@ -7948,19 +8131,22 @@ fn protocolDeclaration(self: *Self) Error!Ast.Node.Index {
 
     // Create a placeholder for self-reference which will be resolved at the end when declaring the object
     const placeholder_index = try self.declarePlaceholder(protocol_name, null);
-    const protocol_placeholder = self.globals.items[placeholder_index].type_def;
+    const protocol_placeholder_idx = self.globals.items[placeholder_index].type_def;
 
     // Create type
-    var protocol_type: obj.ObjTypeDef = .{
-        .def_type = .Protocol,
-        .resolved_type = .{
-            .Protocol = obj.ObjObject.ProtocolDef.init(
-                protocol_name,
-                try self.gc.copyString(self.ast.tokens.items(.lexeme)[protocol_name]),
-                try self.gc.copyString(qualified_protocol_name.written()),
-            ),
+    const protocol_type_idx = try self.gc.allocateObject(
+        obj.ObjTypeDef{
+            .def_type = .Protocol,
+            .resolved_type = .{
+                .Protocol = obj.ObjObject.ProtocolDef.init(
+                    protocol_name,
+                    try self.gc.copyString(self.ast.tokens.items(.lexeme)[protocol_name]),
+                    try self.gc.copyString(qualified_protocol_name.written()),
+                ),
+            },
         },
-    };
+    );
+    const protocol_type = self.gc.get(obj.ObjTypeDef, protocol_type_idx).?;
 
     try self.beginScope(null);
 
@@ -7983,16 +8169,18 @@ fn protocolDeclaration(self: *Self) Error!Ast.Node.Index {
         const method_node = try self.method(
             true,
             false,
-            try protocol_placeholder.toInstance(
+            try obj.ObjTypeDef.toInstance(
+                protocol_placeholder_idx,
                 &self.gc.type_registry,
                 mutable,
             ),
         );
-        const method_type_def = self.ast.nodes.items(.type_def)[method_node];
+        const method_type_def_idx = self.ast.nodes.items(.type_def)[method_node].?;
+        const method_type_def = self.gc.get(obj.ObjTypeDef, method_type_def_idx).?;
 
         try self.consume(.Semicolon, "Expected `;` after method definition");
 
-        const method_name = method_type_def.?.resolved_type.?.Function.name.string;
+        const method_name = self.gc.get(obj.ObjString, method_type_def.resolved_type.?.Function.name).?.string;
 
         if (fields.get(method_name) != null) {
             const location = self.ast.tokens.get(method_name_token);
@@ -8008,7 +8196,7 @@ fn protocolDeclaration(self: *Self) Error!Ast.Node.Index {
             self.gc.allocator,
             method_name,
             .{
-                .type_def = method_type_def.?,
+                .type_def = method_type_def_idx,
                 .mutable = mutable,
             },
         );
@@ -8037,7 +8225,7 @@ fn protocolDeclaration(self: *Self) Error!Ast.Node.Index {
 
     const slot = try self.declareVariable(
         @intCast(node_slot),
-        &protocol_type, // Should resolve protocol_placeholder and be discarded
+        protocol_type_idx,
         protocol_name,
         true, // Protocol is always final
         false,
@@ -8056,7 +8244,7 @@ fn protocolDeclaration(self: *Self) Error!Ast.Node.Index {
             .tag = .ProtocolDeclaration,
             .location = start_location,
             .end_location = self.current_token.? - 1,
-            .type_def = protocol_placeholder,
+            .type_def = protocol_placeholder_idx,
             .ends_scope = scope_end,
             .components = .{
                 .ProtocolDeclaration = .{
@@ -8095,13 +8283,15 @@ fn enumDeclaration(self: *Self) Error!Ast.Node.Index {
         try self.consume(.Greater, "Expected `>` after enum type.");
     }
 
-    const enum_case_type = if (enum_case_type_node) |enum_type|
-        try self.ast.nodes.items(.type_def)[enum_type].?.toInstance(
+    const enum_case_type_idx = if (enum_case_type_node) |enum_type|
+        try obj.ObjTypeDef.toInstance(
+            self.ast.nodes.items(.type_def)[enum_type].?,
             &self.gc.type_registry,
             false,
         )
     else
         self.gc.type_registry.int_type;
+    const enum_case_type = self.gc.get(obj.ObjTypeDef, enum_case_type_idx).?;
 
     try self.consume(.Identifier, "Expected enum name.");
     const enum_name = self.current_token.? - 1;
@@ -8117,27 +8307,26 @@ fn enumDeclaration(self: *Self) Error!Ast.Node.Index {
         .{ qualifier, enum_name_lexeme },
     );
 
-    const enum_def = obj.ObjEnum.EnumDef{
-        .name = try self.gc.copyString(enum_name_lexeme),
-        .location = enum_name,
-        .qualified_name = try self.gc.copyString(qualified_name.written()),
-        .enum_type = enum_case_type,
-        .cases = undefined,
-        .cases_locations = undefined,
-    };
-
-    const enum_resolved = obj.ObjTypeDef.TypeUnion{ .Enum = enum_def };
-
-    const enum_type = try self.gc.type_registry.getTypeDef(
+    const enum_type_idx = try self.gc.type_registry.getTypeDef(
         .{
             .def_type = .Enum,
-            .resolved_type = enum_resolved,
+            .resolved_type = .{
+                .Enum = .{
+                    .name = try self.gc.copyString(enum_name_lexeme),
+                    .location = enum_name,
+                    .qualified_name = try self.gc.copyString(qualified_name.written()),
+                    .enum_type = enum_case_type_idx,
+                    .cases = undefined,
+                    .cases_locations = undefined,
+                },
+            },
         },
     );
+    const enum_type = self.gc.get(obj.ObjTypeDef, enum_type_idx).?;
 
     const slot: usize = try self.declareVariable(
         @intCast(node_slot),
-        enum_type,
+        enum_type_idx,
         enum_name,
         true,
         false,
@@ -8260,7 +8449,7 @@ fn enumDeclaration(self: *Self) Error!Ast.Node.Index {
             .tag = .Enum,
             .location = start_location,
             .end_location = self.current_token.? - 1,
-            .type_def = enum_type,
+            .type_def = enum_type_idx,
             .components = .{
                 .Enum = .{
                     .values_omitted = values_omitted,
@@ -8274,13 +8463,14 @@ fn enumDeclaration(self: *Self) Error!Ast.Node.Index {
     );
 
     // Generate the enum constant
-    var @"enum" = try self.gc.allocateObject(
-        obj.ObjEnum.init(enum_type),
+    const enum_idx = try self.gc.allocateObject(
+        obj.ObjEnum.init(enum_type_idx),
     );
+    const @"enum" = self.gc.get(obj.ObjEnum, enum_idx).?;
 
     var obj_cases = std.ArrayList(Value).empty;
     for (cases_slice, 0..) |case, idx| {
-        if (case.value != null and !(try self.ast.slice().isConstant(self.gc.allocator, case.value.?))) {
+        if (case.value != null and !(try self.ast.slice().isConstant(self.gc, case.value.?))) {
             self.reportErrorAtNode(
                 .enum_case,
                 case.value.?,
@@ -8298,7 +8488,12 @@ fn enumDeclaration(self: *Self) Error!Ast.Node.Index {
             else if (enum_type.def_type == .Integer)
                 Value.fromInteger(@intCast(idx))
             else if (enum_type.def_type == .String)
-                (try self.gc.copyString(self.ast.tokens.items(.lexeme)[case.name])).toValue()
+                Value.fromObj(
+                    .{
+                        .index = (try self.gc.copyString(self.ast.tokens.items(.lexeme)[case.name])).index,
+                        .obj_type = .String,
+                    },
+                )
             else
                 unreachable,
         );
@@ -8306,8 +8501,13 @@ fn enumDeclaration(self: *Self) Error!Ast.Node.Index {
 
     @"enum".cases = try obj_cases.toOwnedSlice(self.gc.allocator);
 
-    enum_type.resolved_type.?.Enum.value = @"enum";
-    self.ast.nodes.items(.value)[node_slot] = @"enum".toValue();
+    enum_type.resolved_type.?.Enum.value = enum_idx;
+    self.ast.nodes.items(.value)[node_slot] = Value.fromObj(
+        .{
+            .index = enum_idx.index,
+            .obj_type = .Enum,
+        },
+    );
 
     return @intCast(node_slot);
 }
@@ -8322,14 +8522,24 @@ fn varDeclaration(
     should_assign: bool,
     type_provided_later: bool,
 ) Error!Ast.Node.Index {
+    const parsed_type_def_idx = if (parsed_type) |ptype|
+        self.ast.nodes.items(.type_def)[ptype]
+    else
+        null;
+    const parsed_type_def = if (parsed_type_def_idx) |idx|
+        self.gc.get(obj.ObjTypeDef, idx).?
+    else
+        null;
     const node_slot = try self.ast.nodes.addOne(self.gc.allocator);
-    var var_type = if (parsed_type) |ptype|
-        try self.ast.nodes.items(.type_def)[ptype].?.toInstance(
+    var var_type_idx = if (parsed_type_def_idx) |ptype|
+        try obj.ObjTypeDef.toInstance(
+            ptype,
             &self.gc.type_registry,
-            self.ast.nodes.items(.type_def)[ptype].?.isMutable(), // ???
+            parsed_type_def.?.isMutable(), // ???
         )
     else
         self.gc.type_registry.any_type; // When var type omitted, will be replaced by the value type bellow
+    const var_type = self.gc.get(obj.ObjTypeDef, var_type_idx).?;
 
     const start_location = if (omits_qualifier)
         identifier.?
@@ -8341,7 +8551,7 @@ fn varDeclaration(
     const slot: usize = try self.parseVariable(
         @intCast(node_slot),
         identifier,
-        var_type,
+        var_type_idx,
         final,
         var_type.isMutable(),
         "Expected variable name.",
@@ -8353,12 +8563,16 @@ fn varDeclaration(
         try self.expression(false)
     else
         null;
-    const value_type_def = if (value) |val|
+    const value_type_def_idx = if (value) |val|
         self.ast.nodes.items(.type_def)[val]
     else
         null;
+    const value_type_def = if (value_type_def_idx) |idx|
+        self.gc.get(obj.ObjTypeDef, idx).?
+    else
+        null;
 
-    if (should_assign and value == null and (parsed_type == null or !self.ast.nodes.items(.type_def)[parsed_type.?].?.optional)) {
+    if (should_assign and value == null and (parsed_type == null or !parsed_type_def.?.optional)) {
         const location = self.ast.tokens.get(self.current_token.? - 1);
         self.reporter.reportErrorAt(
             .syntax,
@@ -8370,20 +8584,20 @@ fn varDeclaration(
 
     if (var_type.def_type == .Placeholder and value != null and value_type_def != null and value_type_def.?.def_type == .Placeholder) {
         try obj.PlaceholderDef.link(
-            self.gc.allocator,
-            var_type,
-            value_type_def.?,
+            self.gc,
+            var_type_idx,
+            value_type_def_idx.?,
             .Assignment,
         );
     }
 
     if (parsed_type == null and value != null and value_type_def != null) {
-        var_type = value_type_def.?;
+        var_type_idx = value_type_def_idx.?;
 
         if (self.current.?.scope_depth == 0) {
-            self.globals.items[slot].type_def = var_type;
+            self.globals.items[slot].type_def = var_type_idx;
         } else {
-            self.current.?.locals[slot].type_def = var_type;
+            self.current.?.locals[slot].type_def = var_type_idx;
         }
     } else if (parsed_type == null and !type_provided_later) {
         self.reporter.reportErrorAt(
@@ -8397,7 +8611,6 @@ fn varDeclaration(
     if (value) |uvalue| {
         const tags = self.ast.nodes.items(.tag);
         const components = self.ast.nodes.items(.components);
-        const parsed_type_def = if (parsed_type) |pt| self.ast.nodes.items(.type_def)[pt] else null;
 
         // var variable: [T] = [<any>] -> var variable: [T] = [<T>];
         if (parsed_type_def != null and
@@ -8406,7 +8619,7 @@ fn varDeclaration(
             components[uvalue].List.explicit_item_type == null and
             components[uvalue].List.items.len == 0)
         {
-            self.ast.nodes.items(.type_def)[uvalue] = parsed_type_def.?;
+            self.ast.nodes.items(.type_def)[uvalue] = parsed_type_def_idx.?;
         }
 
         // var variable: {K: V} = {<any: any>} -> var variable: {K: V} = [<K: V>];
@@ -8417,7 +8630,7 @@ fn varDeclaration(
             components[uvalue].Map.explicit_value_type == null and
             components[uvalue].Map.entries.len == 0)
         {
-            self.ast.nodes.items(.type_def)[uvalue] = parsed_type_def.?;
+            self.ast.nodes.items(.type_def)[uvalue] = parsed_type_def_idx.?;
         }
     }
 
@@ -8436,7 +8649,7 @@ fn varDeclaration(
             .tag = .VarDeclaration,
             .location = start_location,
             .end_location = self.current_token.? - 1,
-            .type_def = var_type,
+            .type_def = var_type_idx,
             .components = .{
                 .VarDeclaration = .{
                     .name = name,
@@ -8459,18 +8672,19 @@ fn varDeclaration(
 fn implicitVarDeclaration(
     self: *Self,
     name: Ast.TokenIndex,
-    parsed_type: *obj.ObjTypeDef,
+    parsed_type_idx: Pool(obj.ObjTypeDef).Idx,
     final: bool,
     mutable: bool,
 ) Error!Ast.Node.Index {
     const node_slot = try self.ast.nodes.addOne(self.gc.allocator);
-    const var_type = try parsed_type.toInstance(
+    const var_type_idx = try obj.ObjTypeDef.toInstance(
+        parsed_type_idx,
         &self.gc.type_registry,
         mutable,
     );
     const slot = try self.declareVariable(
         @intCast(node_slot),
-        var_type,
+        var_type_idx,
         name,
         final,
         mutable,
@@ -8484,7 +8698,7 @@ fn implicitVarDeclaration(
             .tag = .VarDeclaration,
             .location = name,
             .end_location = self.current_token.? - 1,
-            .type_def = var_type,
+            .type_def = var_type_idx,
             .components = .{
                 .VarDeclaration = .{
                     .name = name,
@@ -8510,15 +8724,17 @@ fn testStatement(self: *Self) Error!Ast.Node.Index {
     // We can't consume the name because declareVariable will do it
     const name_token = self.current_token.?;
 
-    var function_def_placeholder = obj.ObjTypeDef{
-        .def_type = .Function,
-    };
+    const function_def_placeholder_idx = try self.gc.allocateObject(
+        obj.ObjTypeDef{
+            .def_type = .Function,
+        },
+    );
 
     self.test_count += 1;
 
     const slot = try self.declareVariable(
         @intCast(node_slot),
-        &function_def_placeholder,
+        function_def_placeholder_idx,
         name_token,
         true,
         false,
@@ -9113,7 +9329,7 @@ fn importScript(
 }
 
 // This is used in the wasm build. There, we only allow the import of std libs by name
-fn importStaticLibSymbol(self: *Self, file_name: []const u8, symbol: []const u8) !?*obj.ObjNative {
+fn importStaticLibSymbol(self: *Self, file_name: []const u8, symbol: []const u8) !?Pool(obj.ObjNative).Idx {
     const symbol_ptr = if (libs.get(file_name)) |lib|
         lib.get(symbol)
     else
@@ -9150,7 +9366,7 @@ fn importLibSymbol(
     end_location: Ast.TokenIndex,
     full_file_name: []const u8,
     symbol: []const u8,
-) !?*obj.ObjNative {
+) !?Pool(obj.ObjNative).Idx {
     // Don't bother if we're not actually running the script
     if (!self.flavor.resolveDynLib()) {
         return undefined;
@@ -9512,7 +9728,7 @@ fn zdefStatement(self: *Self) Error!Ast.Node.Index {
 fn userVarDeclaration(self: *Self, identifier: Ast.TokenIndex, final: bool, mutable: bool, omits_qualifier: bool) Error!Ast.Node.Index {
     const node_slot = try self.ast.nodes.addOne(self.gc.allocator);
     const start_location = self.current_token.? - 1;
-    var var_type: ?*obj.ObjTypeDef = null;
+    var var_type_idx: ?Pool(obj.ObjTypeDef).Idx = null;
 
     var generic_resolve: ?Ast.Node.Index = null;
 
@@ -9522,20 +9738,20 @@ fn userVarDeclaration(self: *Self, identifier: Ast.TokenIndex, final: bool, muta
 
     // Is it a generic type defined in enclosing functions or object?
     if (self.resolveGeneric(try self.gc.copyString(self.ast.tokens.items(.lexeme)[self.current_token.? - 1]))) |generic_type| {
-        var_type = generic_type;
+        var_type_idx = generic_type;
     } else if (self.current.?.generics != null) {
         // Is it generic type defined in a function signature being parsed?
         if (self.current.?.generics.?.get(try self.gc.copyString(self.ast.tokens.items(.lexeme)[self.current_token.? - 1]))) |generic_type| {
-            var_type = generic_type;
+            var_type_idx = generic_type;
         }
     }
 
     // Search for a global with that name
-    if (var_type == null) {
+    if (var_type_idx == null) {
         if (try self.resolveGlobal(@intCast(node_slot), user_type_name)) |slot| {
             const global = self.globals.items[slot];
 
-            var_type = global.type_def;
+            var_type_idx = global.type_def;
 
             if (global.imported_from != null and self.script_imports.get(global.imported_from.?) != null) {
                 const imported_from = global.imported_from.?;
@@ -9554,8 +9770,8 @@ fn userVarDeclaration(self: *Self, identifier: Ast.TokenIndex, final: bool, muta
     }
 
     // If none found, create a placeholder
-    if (var_type == null) {
-        var_type = try self.gc.type_registry.getTypeDef(
+    if (var_type_idx == null) {
+        var_type_idx = try self.gc.type_registry.getTypeDef(
             .{
                 .def_type = .Placeholder,
                 .resolved_type = .{
@@ -9571,7 +9787,7 @@ fn userVarDeclaration(self: *Self, identifier: Ast.TokenIndex, final: bool, muta
 
         _ = try self.declarePlaceholder(
             user_type_name[user_type_name.len - 1],
-            var_type,
+            var_type_idx,
         );
     }
 
@@ -9581,7 +9797,7 @@ fn userVarDeclaration(self: *Self, identifier: Ast.TokenIndex, final: bool, muta
 
         try self.consume(.Less, "Expected generic types list after `::`");
 
-        var resolved_generics = std.ArrayList(*obj.ObjTypeDef).empty;
+        var resolved_generics = std.ArrayList(Pool(obj.ObjTypeDef).Idx).empty;
         var generic_nodes = std.ArrayList(Ast.Node.Index).empty;
         var i: usize = 0;
         while (!self.check(.Greater) and !self.check(.Eof)) : (i += 1) {
@@ -9618,12 +9834,12 @@ fn userVarDeclaration(self: *Self, identifier: Ast.TokenIndex, final: bool, muta
         }
 
         // Shouldn't we populate only in codegen?
-        var_type = try var_type.?.populateGenerics(
+        var_type_idx = try obj.ObjTypeDef.populateGenerics(
+            var_type_idx.?,
             self.current_token.? - 1,
-            var_type.?.resolved_type.?.Object.id,
+            self.gc.get(obj.ObjTypeDef, var_type_idx.?).?.resolved_type.?.Object.id,
             try resolved_generics.toOwnedSlice(self.gc.allocator),
             &self.gc.type_registry,
-            self.gc.allocator,
             null,
         );
 
@@ -9632,7 +9848,7 @@ fn userVarDeclaration(self: *Self, identifier: Ast.TokenIndex, final: bool, muta
                 .tag = .GenericResolveType,
                 .location = generic_start,
                 .end_location = self.current_token.? - 1,
-                .type_def = var_type,
+                .type_def = var_type_idx,
                 .components = .{
                     .GenericResolveType = try generic_nodes.toOwnedSlice(self.gc.allocator),
                 },
@@ -9640,13 +9856,17 @@ fn userVarDeclaration(self: *Self, identifier: Ast.TokenIndex, final: bool, muta
         );
     } else null;
 
-    var_type = try var_type.?.toInstance(
+    var_type_idx = try obj.ObjTypeDef.toInstance(
+        var_type_idx.?,
         &self.gc.type_registry,
         mutable,
     );
 
     if (try self.match(.Question)) {
-        var_type = try var_type.?.cloneOptional(&self.gc.type_registry);
+        var_type_idx = try obj.ObjTypeDef.cloneOptional(
+            var_type_idx.?,
+            &self.gc.type_registry,
+        );
     }
 
     self.ast.nodes.set(
@@ -9655,7 +9875,7 @@ fn userVarDeclaration(self: *Self, identifier: Ast.TokenIndex, final: bool, muta
             .tag = .UserType,
             .location = start_location,
             .end_location = self.current_token.? - 1,
-            .type_def = var_type,
+            .type_def = var_type_idx,
             .components = .{
                 .UserType = .{
                     .name = user_type_name,
@@ -9846,9 +10066,10 @@ fn forEachStatement(self: *Self) Error!Ast.Node.Index {
     );
 
     const iterable = try self.expression(false);
-    const iterable_type_def = self.ast.nodes.items(.type_def)[iterable] orelse self.gc.type_registry.any_type;
+    const iterable_type_def_idx = self.ast.nodes.items(.type_def)[iterable] orelse self.gc.type_registry.any_type;
+    const iterable_type_def = self.gc.get(obj.ObjTypeDef, iterable_type_def_idx).?;
 
-    self.current.?.locals[iterable_slot].type_def = iterable_type_def;
+    self.current.?.locals[iterable_slot].type_def = iterable_type_def_idx;
 
     // Infer key/value type
     const key_type = switch (iterable_type_def.def_type) {
@@ -9870,8 +10091,8 @@ fn forEachStatement(self: *Self) Error!Ast.Node.Index {
             );
 
             try obj.PlaceholderDef.link(
-                self.gc.allocator,
-                iterable_type_def,
+                self.gc,
+                iterable_type_def_idx,
                 placeholder,
                 .Key,
             );
@@ -9891,7 +10112,11 @@ fn forEachStatement(self: *Self) Error!Ast.Node.Index {
         .Range => self.gc.type_registry.int_type,
         .String => self.gc.type_registry.str_type,
         .Map => iterable_type_def.resolved_type.?.Map.value_type,
-        .Enum => try iterable_type_def.toInstance(&self.gc.type_registry, false),
+        .Enum => try obj.ObjTypeDef.toInstance(
+            iterable_type_def_idx,
+            &self.gc.type_registry,
+            false,
+        ),
         .Fiber => iterable_type_def.resolved_type.?.Fiber.yield_type,
         .Placeholder => placeholder: {
             const placeholder = try self.gc.type_registry.getTypeDef(
@@ -9908,8 +10133,8 @@ fn forEachStatement(self: *Self) Error!Ast.Node.Index {
             );
 
             try obj.PlaceholderDef.link(
-                self.gc.allocator,
-                iterable_type_def,
+                self.gc,
+                iterable_type_def_idx,
                 placeholder,
                 .UnwrappedSubscript,
             );

@@ -14,6 +14,7 @@ const api = @import("lib/buzz_api.zig");
 const io = @import("io.zig");
 const Chunk = @import("Chunk.zig");
 const Token = @import("Token.zig");
+const Pool = @import("pool.zig").Pool;
 
 pub const Error = error{
     CantCompile,
@@ -46,7 +47,7 @@ const GenState = struct {
     prototypes: std.AutoHashMapUnmanaged(ExternApi, m.MIR_item_t) = .empty,
 
     /// Root closure (not necessarily the one being compiled)
-    closure: *o.ObjClosure,
+    closure: Pool(o.ObjClosure).Idx,
     opt_jumps: std.ArrayList(OptJump) = .empty,
 
     // Frame related stuff, since we compile one function at a time, we don't stack frames while compiling
@@ -107,7 +108,7 @@ blacklisted_nodes: std.AutoHashMapUnmanaged(Ast.Node.Index, void) = .empty,
 /// Once compiled, the value is set to an array of the native and raw native func_items
 functions_queue: std.AutoHashMapUnmanaged(Ast.Node.Index, ?[2]?m.MIR_item_t) = .empty,
 /// ObjClosures for which we later compiled the function and need to set it's native and native_raw fields
-objclosures_queue: std.AutoHashMapUnmanaged(*o.ObjClosure, void) = .empty,
+objclosures_queue: std.AutoHashMapUnmanaged(Pool(o.ObjClosure).Idx, void) = .empty,
 /// External api to link
 required_ext_api: std.AutoHashMapUnmanaged(ExternApi, void) = .empty,
 /// Modules to load when linking/generating
@@ -152,8 +153,9 @@ fn reset(self: *Self, allocator: std.mem.Allocator) void {
     self.state = null;
 }
 
-pub fn compileFunction(self: *Self, ast: Ast.Slice, closure: *o.ObjClosure) Error!void {
-    const function = closure.function;
+pub fn compileFunction(self: *Self, ast: Ast.Slice, closure_idx: Pool(o.ObjClosure).Idx) Error!void {
+    const closure = self.vm.gc.get(o.ObjClosure, closure_idx).?;
+    const function = self.vm.gc.get(o.ObjFunction, closure.function).?;
 
     // Did we already compile a function with the same body?
     if (self.compiled_functions_bodies.get(function.chunk)) |compiled| {
@@ -169,10 +171,7 @@ pub fn compileFunction(self: *Self, ast: Ast.Slice, closure: *o.ObjClosure) Erro
 
     const ast_node = function.node;
 
-    if (try ast.usesFiber(
-        self.vm.gc.allocator,
-        ast_node,
-    )) {
+    if (try ast.usesFiber(self.vm.gc, ast_node)) {
         if (BuildOptions.jit_debug) {
             io.print(
                 "Not compiling node {s}#{}, likely because it uses a fiber\n",
@@ -183,17 +182,21 @@ pub fn compileFunction(self: *Self, ast: Ast.Slice, closure: *o.ObjClosure) Erro
             );
         }
         _ = self.functions_queue.remove(ast_node);
-        _ = self.objclosures_queue.remove(closure);
-        try self.blacklisted_nodes.put(self.vm.gc.allocator, closure.function.node, {});
+        _ = self.objclosures_queue.remove(closure_idx);
+        try self.blacklisted_nodes.put(self.vm.gc.allocator, function.node, {});
 
         return error.CantCompile;
     }
 
     // Remember we need to set this functions fields
-    try self.objclosures_queue.put(self.vm.gc.allocator, closure, {});
+    try self.objclosures_queue.put(
+        self.vm.gc.allocator,
+        closure_idx,
+        {},
+    );
 
     // Build the function
-    try self.buildFunction(ast, closure, ast_node);
+    try self.buildFunction(ast, closure_idx, ast_node);
 
     // Did we encounter other functions to compile?
     try self.buildCollateralFunctions(ast);
@@ -235,13 +238,15 @@ pub fn compileFunction(self: *Self, ast: Ast.Slice, closure: *o.ObjClosure) Erro
         // Find out if we need to set it in a ObjFunction
         var it3 = self.objclosures_queue.iterator();
         while (it3.next()) |kv2| {
-            if (kv2.key_ptr.*.function.node == node) {
-                kv2.key_ptr.*.function.native = native;
-                kv2.key_ptr.*.function.native_raw = native_raw;
+            const cls = self.vm.gc.get(o.ObjClosure, kv2.key_ptr.*).?;
+            const fun = self.vm.gc.get(o.ObjFunction, cls.function).?;
+            if (fun.node == node) {
+                fun.native = native;
+                fun.native_raw = native_raw;
 
                 try self.compiled_functions_bodies.put(
                     self.vm.gc.allocator,
-                    kv2.key_ptr.*.function.chunk,
+                    fun.chunk,
                     .{
                         .native = native.?,
                         .native_raw = native_raw.?,
@@ -349,9 +354,11 @@ fn buildCollateralFunctions(self: *Self, ast: Ast.Slice) Error!void {
         if (kv.value_ptr.* == null) {
             // Does it have an associated closure?
             var it2 = self.objclosures_queue.iterator();
-            var sub_closure: ?*o.ObjClosure = null;
+            var sub_closure: ?Pool(o.ObjClosure).Idx = null;
             while (it2.next()) |kv2| {
-                if (kv2.key_ptr.*.function.node == node) {
+                const cls = self.vm.gc.get(o.ObjClosure, kv2.key_ptr.*).?;
+                const fun = self.vm.gc.get(o.ObjFunction, cls.function).?;
+                if (fun.node == node) {
                     sub_closure = kv2.key_ptr.*;
                     break;
                 }
@@ -374,7 +381,7 @@ fn buildCollateralFunctions(self: *Self, ast: Ast.Slice) Error!void {
     }
 }
 
-fn buildFunction(self: *Self, ast: Ast.Slice, closure: ?*o.ObjClosure, ast_node: Ast.Node.Index) Error!void {
+fn buildFunction(self: *Self, ast: Ast.Slice, closure: ?Pool(o.ObjClosure).Idx, ast_node: Ast.Node.Index) Error!void {
     self.state = .{
         .ast = ast,
         .module = undefined,
@@ -402,7 +409,12 @@ fn buildFunction(self: *Self, ast: Ast.Slice, closure: ?*o.ObjClosure, ast_node:
     self.state.?.module = module;
 
     if (closure) |uclosure| {
-        try self.compiled_nodes.put(self.vm.gc.allocator, uclosure.function.node, {});
+        const cls = self.vm.gc.get(o.ObjClosure, uclosure).?;
+        try self.compiled_nodes.put(
+            self.vm.gc.allocator,
+            self.vm.gc.get(o.ObjFunction, cls.function).?.node,
+            {},
+        );
 
         if (BuildOptions.jit_debug) {
             io.print(
@@ -450,8 +462,13 @@ fn buildFunction(self: *Self, ast: Ast.Slice, closure: ?*o.ObjClosure, ast_node:
 
             _ = self.functions_queue.remove(ast_node);
             if (closure) |uclosure| {
+                const cls = self.vm.gc.get(o.ObjClosure, uclosure).?;
                 _ = self.objclosures_queue.remove(uclosure);
-                try self.blacklisted_nodes.put(self.vm.gc.allocator, uclosure.function.node, {});
+                try self.blacklisted_nodes.put(
+                    self.vm.gc.allocator,
+                    self.vm.gc.get(o.ObjFunction, cls.function).?.node,
+                    {},
+                );
             }
         }
 
@@ -478,10 +495,11 @@ fn buildFunction(self: *Self, ast: Ast.Slice, closure: ?*o.ObjClosure, ast_node:
 fn generateNode(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
     const components = self.state.?.ast.nodes.items(.components);
     const tag = self.state.?.ast.nodes.items(.tag)[node];
-    const constant = self.state.?.ast.nodes.items(.value)[node] orelse if (try self.state.?.ast.isConstant(self.vm.gc.allocator, node))
-        try self.state.?.ast.toValue(node, &self.vm.reporter, self.vm.gc)
-    else
-        null;
+    const constant = self.state.?.ast.nodes.items(.value)[node] orelse
+        if (try self.state.?.ast.isConstant(self.vm.gc, node))
+            try self.state.?.ast.toValue(node, &self.vm.reporter, self.vm.gc)
+        else
+            null;
 
     var value = if (constant != null)
         m.MIR_new_uint_op(self.ctx, constant.?.val)
@@ -500,7 +518,7 @@ fn generateNode(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
         ),
         .StringLiteral => m.MIR_new_uint_op(
             self.ctx,
-            components[node].StringLiteral.literal.toValue().val,
+            Value.fromObj(.{ .index = components[node].StringLiteral.literal.index, .obj_type = .String }).val,
         ),
         .Null => m.MIR_new_uint_op(
             self.ctx,
@@ -1744,15 +1762,21 @@ fn generateString(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
     if (elements.len == 0) {
         return m.MIR_new_uint_op(
             self.ctx,
-            self.state.?.closure.function.chunk.constants.items[0].val,
+            self.vm.gc.get(
+                o.ObjFunction,
+                self.vm.gc.get(o.ObjClosure, self.state.?.closure).?
+                    .function,
+            ).?
+                .chunk.constants.items[0].val,
         ); // Constant 0 is the empty string
     }
 
     var previous: ?m.MIR_op_t = null;
     for (elements) |element| {
         var value = (try self.generateNode(element)).?;
+        const element_type_def = self.vm.gc.get(o.ObjTypeDef, type_defs[element].?).?;
 
-        if (type_defs[element].?.def_type != .String or type_defs[element].?.optional) {
+        if (element_type_def.def_type != .String or element_type_def.optional) {
             const dest = m.MIR_new_reg_op(
                 self.ctx,
                 try self.REG("result", m.MIR_T_I64),
@@ -1805,7 +1829,11 @@ fn generateString(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
 
 fn generateNamedVariable(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
     const components = self.state.?.ast.nodes.items(.components)[node].NamedVariable;
-    const type_def = self.state.?.ast.nodes.items(.type_def)[node];
+    const type_def_idx = self.state.?.ast.nodes.items(.type_def)[node];
+    const type_def = if (type_def_idx) |idx|
+        self.vm.gc.get(o.ObjTypeDef, idx).?
+    else
+        null;
     const tags = self.state.?.ast.tokens.items(.tag);
 
     const function_type = if (type_def.?.def_type == .Function)
@@ -1841,22 +1869,30 @@ fn generateNamedVariable(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
                 return null;
             } else if (is_constant_fn) {
                 // Get the actual Value as it is right now (which is correct since a function doesn't change)
-                const closure = o.ObjClosure.cast(self.state.?.closure.globals.items[components.slot].obj()).?;
+                const closure_idx = Pool(o.ObjClosure).Idx.idx(
+                    self.vm.gc.get(o.ObjClosure, self.state.?.closure).?
+                        .globals.items[components.slot].obj().index,
+                );
+                const closure = self.vm.gc.get(o.ObjClosure, closure_idx).?;
 
                 // Does it need to be compiled?
-                if (self.compiled_nodes.get(closure.function.node) == null) {
-                    if (self.blacklisted_nodes.get(closure.function.node) != null) {
+                const function = self.vm.gc.get(o.ObjFunction, closure.function).?;
+                if (self.compiled_nodes.get(function.node) == null) {
+                    if (self.blacklisted_nodes.get(function.node) != null) {
                         return Error.CantCompile;
                     }
 
                     // Remember we need to set native fields of this ObjFunction later
-                    try self.objclosures_queue.put(self.vm.gc.allocator, closure, {});
+                    try self.objclosures_queue.put(self.vm.gc.allocator, closure_idx, {});
 
                     // Remember that we need to compile this function later
-                    try self.functions_queue.put(self.vm.gc.allocator, closure.function.node, null);
+                    try self.functions_queue.put(self.vm.gc.allocator, function.node, null);
                 }
 
-                return m.MIR_new_uint_op(self.ctx, closure.toValue().val);
+                return m.MIR_new_uint_op(
+                    self.ctx,
+                    Value.fromObj(.{ .index = closure_idx.index, .obj_type = .Closure }).val,
+                );
             } else {
                 return try self.buildGetGlobal(components.slot);
             }
@@ -1948,9 +1984,10 @@ fn generateCall(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
     const components = node_components[node].Call;
     const type_defs = self.state.?.ast.nodes.items(.type_def);
     const lexemes = self.state.?.ast.tokens.items(.lexeme);
+    const callee_type_def = self.vm.gc.get(o.ObjTypeDef, type_defs[components.callee].?).?;
 
     // This is not a call but an Enum(value)
-    if (type_defs[components.callee].?.def_type == .Enum) {
+    if (callee_type_def.def_type == .Enum) {
         const result_reg = try self.REG("enum_case", m.MIR_T_I64);
 
         try self.buildExternApiCall(
@@ -1972,7 +2009,7 @@ fn generateCall(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
     else
         null;
     const invoked_on = if (dot != null)
-        type_defs[node_components[dot.?].Dot.callee].?.def_type
+        self.vm.gc.get(o.ObjTypeDef, type_defs[node_components[dot.?].Dot.callee].?).?.def_type
     else
         null;
 
@@ -1993,7 +2030,7 @@ fn generateCall(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
                     subject.?,
                     m.MIR_new_uint_op(
                         self.ctx,
-                        type_defs[node_components[components.callee].Dot.callee].?
+                        self.vm.gc.get(o.ObjTypeDef, type_defs[node_components[components.callee].Dot.callee].?).?
                             .resolved_type.?.Object
                             .fields.get(member_lexeme).?
                             .index,
@@ -2001,9 +2038,13 @@ fn generateCall(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
                 },
             ),
             .ObjectInstance => instance: {
-                const field = type_defs[node_components[components.callee].Dot.callee].?
-                    .resolved_type.?.ObjectInstance.of
-                    .resolved_type.?.Object
+                const field = self.vm.gc.get(
+                    o.ObjTypeDef,
+                    self.vm.gc.get(
+                        o.ObjTypeDef,
+                        type_defs[node_components[components.callee].Dot.callee].?,
+                    ).?.resolved_type.?.ObjectInstance.of,
+                ).?.resolved_type.?.Object
                     .fields.get(member_lexeme).?;
 
                 break :instance try self.buildExternApiCall(
@@ -2080,9 +2121,14 @@ fn generateCall(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
                         // member
                         m.MIR_new_uint_op(
                             self.ctx,
-                            (try self.vm.gc.copyString(
-                                self.state.?.ast.tokens.items(.lexeme)[node_components[dot.?].Dot.identifier],
-                            )).toValue().val,
+                            Value.fromObj(
+                                .{
+                                    .index = (try self.vm.gc.copyString(
+                                        self.state.?.ast.tokens.items(.lexeme)[node_components[dot.?].Dot.identifier],
+                                    )).index,
+                                    .obj_type = .String,
+                                },
+                            ).val,
                         ),
                         // vm
                         m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
@@ -2099,7 +2145,7 @@ fn generateCall(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
     else
         type_defs[components.callee];
 
-    const function_type_def = callee_type.?;
+    const function_type_def = self.vm.gc.get(o.ObjTypeDef, callee_type.?).?;
     const function_type = function_type_def.resolved_type.?.Function.function_type;
 
     const error_types = function_type_def.resolved_type.?.Function.error_types;
@@ -2208,7 +2254,7 @@ fn generateCall(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
     const defaults = function_type_def.resolved_type.?.Function.defaults;
     const arg_keys = args.keys();
 
-    var arguments = std.AutoArrayHashMapUnmanaged(*o.ObjString, m.MIR_op_t).empty;
+    var arguments = std.AutoArrayHashMapUnmanaged(Pool(o.ObjString).Idx, m.MIR_op_t).empty;
     defer arguments.deinit(self.vm.gc.allocator);
 
     // Evaluate arguments
@@ -2231,7 +2277,7 @@ fn generateCall(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
             try self.buildPush(arg);
         } else {
             var value = defaults.get(key).?;
-            value = if (value.isObj()) try o.cloneObject(value.obj(), self.vm) else value;
+            value = if (value.isObj()) try value.obj().clone(self.vm.gc) else value;
 
             // Push clone of default
             const clone = try self.REG("clone", m.MIR_T_I64);
@@ -2298,7 +2344,10 @@ fn generateCall(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
     if (function_type == .Extern) {
         return try self.generateHandleExternReturn(
             function_type_def.resolved_type.?.Function.error_types != null,
-            function_type_def.resolved_type.?.Function.return_type.def_type != .Void,
+            self.vm.gc.get(
+                o.ObjTypeDef,
+                function_type_def.resolved_type.?.Function.return_type,
+            ).?.def_type != .Void,
             m.MIR_new_reg_op(self.ctx, result),
             function_type_def.resolved_type.?.Function.parameters.count(),
             catch_value,
@@ -2484,7 +2533,12 @@ fn generateIf(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
                 condition_value.?,
                 m.MIR_new_uint_op(
                     self.ctx,
-                    @constCast(type_defs[casted_type].?).toValue().val,
+                    Value.fromObj(
+                        .{
+                            .index = type_defs[casted_type].?.index,
+                            .obj_type = .Type,
+                        },
+                    ).val,
                 ),
             },
         );
@@ -2620,7 +2674,12 @@ fn generateTypeExpression(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
     const type_expression = self.state.?.ast.nodes.items(.components)[node].TypeExpression;
     return m.MIR_new_uint_op(
         self.ctx,
-        @constCast(self.state.?.ast.nodes.items(.type_def)[type_expression].?).toValue().val,
+        Value.fromObj(
+            .{
+                .index = self.state.?.ast.nodes.items(.type_def)[type_expression].?.index,
+                .obj_type = .Type,
+            },
+        ).val,
     );
 }
 
@@ -2929,7 +2988,7 @@ fn generateBinary(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
         => try self.generateComparison(components),
         else => bin: {
             const type_defs = self.state.?.ast.nodes.items(.type_def);
-            const type_def = type_defs[components.left].?.def_type;
+            const def_type = self.vm.gc.get(o.ObjTypeDef, type_defs[components.left].?).?.def_type;
 
             const left_value = (try self.generateNode(components.left)).?;
             const right_value = (try self.generateNode(components.right)).?;
@@ -2941,7 +3000,7 @@ fn generateBinary(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
 
             try self.buildBinary(
                 components.operator,
-                type_def,
+                def_type,
                 left_value,
                 right_value,
                 res,
@@ -2955,8 +3014,8 @@ fn generateBinary(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
 fn generateComparison(self: *Self, components: Ast.Binary) Error!?m.MIR_op_t {
     const type_defs = self.state.?.ast.nodes.items(.type_def);
 
-    const left_type_def = type_defs[components.left].?.def_type;
-    const right_type_def = type_defs[components.right].?.def_type;
+    const left_def_type = self.vm.gc.get(o.ObjTypeDef, type_defs[components.left].?).?.def_type;
+    const right_def_type = self.vm.gc.get(o.ObjTypeDef, type_defs[components.right].?).?.def_type;
 
     const left_value = (try self.generateNode(components.left)).?;
     const right_value = (try self.generateNode(components.right)).?;
@@ -2968,35 +3027,35 @@ fn generateComparison(self: *Self, components: Ast.Binary) Error!?m.MIR_op_t {
 
     var left = m.MIR_new_reg_op(
         self.ctx,
-        try self.REG("left", if (left_type_def == .Double) m.MIR_T_D else m.MIR_T_I64),
+        try self.REG("left", if (left_def_type == .Double) m.MIR_T_D else m.MIR_T_I64),
     );
     var right = m.MIR_new_reg_op(
         self.ctx,
-        try self.REG("right", if (right_type_def == .Double) m.MIR_T_D else m.MIR_T_I64),
+        try self.REG("right", if (right_def_type == .Double) m.MIR_T_D else m.MIR_T_I64),
     );
 
-    if (left_type_def == .Integer) {
+    if (left_def_type == .Integer) {
         try self.unwrap(.Integer, left_value, left);
-    } else if (left_type_def == .Double) {
+    } else if (left_def_type == .Double) {
         try self.unwrap(.Double, left_value, left);
     } else {
         self.MOV(left, left_value);
     }
 
-    if (right_type_def == .Integer) {
+    if (right_def_type == .Integer) {
         try self.unwrap(.Integer, right_value, right);
-    } else if (right_type_def == .Double) {
+    } else if (right_def_type == .Double) {
         try self.unwrap(.Double, right_value, right);
     } else {
         self.MOV(right, right_value);
     }
 
     // Avoid collection
-    if (left_type_def != .Integer and left_type_def != .Double) {
+    if (left_def_type != .Integer and left_def_type != .Double) {
         try self.buildPush(left_value);
     }
 
-    if (right_type_def != .Integer and right_type_def != .Double) {
+    if (right_def_type != .Integer and right_def_type != .Double) {
         try self.buildPush(right_value);
     }
 
@@ -3047,8 +3106,8 @@ fn generateComparison(self: *Self, components: Ast.Binary) Error!?m.MIR_op_t {
             self.append(out_label);
         },
         .Greater, .Less, .GreaterEqual, .LessEqual => {
-            if (left_type_def == .Double or right_type_def == .Double) {
-                if (left_type_def == .Integer) {
+            if (left_def_type == .Double or right_def_type == .Double) {
+                if (left_def_type == .Integer) {
                     const left_f = m.MIR_new_reg_op(
                         self.ctx,
                         try self.REG("left_float", m.MIR_T_D),
@@ -3057,7 +3116,7 @@ fn generateComparison(self: *Self, components: Ast.Binary) Error!?m.MIR_op_t {
                     left = left_f;
                 }
 
-                if (right_type_def == .Integer) {
+                if (right_def_type == .Integer) {
                     const right_f = m.MIR_new_reg_op(
                         self.ctx,
                         try self.REG("right_float", m.MIR_T_D),
@@ -3090,11 +3149,11 @@ fn generateComparison(self: *Self, components: Ast.Binary) Error!?m.MIR_op_t {
         else => {},
     }
 
-    if (left_type_def != .Integer and left_type_def != .Double) {
+    if (left_def_type != .Integer and left_def_type != .Double) {
         try self.buildPop(null);
     }
 
-    if (right_type_def != .Integer and right_type_def != .Double) {
+    if (right_def_type != .Integer and right_def_type != .Double) {
         try self.buildPop(null);
     }
 
@@ -3393,7 +3452,10 @@ fn generateList(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
         new_list,
         &[_]m.MIR_op_t{
             m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
-            m.MIR_new_uint_op(self.ctx, type_def.?.toValue().val),
+            m.MIR_new_uint_op(
+                self.ctx,
+                Value.fromObj(.{ .index = type_def.?.index, .obj_type = .Type }).val,
+            ),
         },
     );
 
@@ -3452,7 +3514,10 @@ fn generateMap(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
         new_map,
         &[_]m.MIR_op_t{
             m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
-            m.MIR_new_uint_op(self.ctx, @constCast(type_def.?).toValue().val),
+            m.MIR_new_uint_op(
+                self.ctx,
+                Value.fromObj(.{ .index = type_def.?.index, .obj_type = .Type }).val,
+            ),
         },
     );
 
@@ -3482,9 +3547,14 @@ fn generateDot(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
     const type_defs = self.state.?.ast.nodes.items(.type_def);
     const tags = self.state.?.ast.tokens.items(.tag);
 
-    const callee_type = type_defs[components.callee].?;
+    const callee_type = self.vm.gc.get(o.ObjTypeDef, type_defs[components.callee].?).?;
     const member_lexeme = self.state.?.ast.tokens.items(.lexeme)[components.identifier];
-    const member_identifier = (try self.vm.gc.copyString(member_lexeme)).toValue().val;
+    const member_identifier = Value.fromObj(
+        .{
+            .index = (try self.vm.gc.copyString(member_lexeme)).index,
+            .obj_type = .String,
+        },
+    ).val;
 
     switch (callee_type.def_type) {
         .Fiber => {
@@ -3636,7 +3706,7 @@ fn generateDot(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
 
                     try self.buildBinary(
                         assign_token,
-                        field.type_def.def_type,
+                        self.vm.gc.get(o.ObjTypeDef, field.type_def).?.def_type,
                         res,
                         gen_value,
                         res,
@@ -3682,7 +3752,7 @@ fn generateDot(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
                 .Call => return try self.generateCall(components.value_or_call_or_enum.Call),
                 .Value => {
                     std.debug.assert(callee_type.def_type == .ObjectInstance);
-                    const field = callee_type.resolved_type.?.ObjectInstance.of
+                    const field = self.vm.gc.get(o.ObjTypeDef, callee_type.resolved_type.?.ObjectInstance.of).?
                         .resolved_type.?.Object.fields
                         .get(member_lexeme).?;
 
@@ -3723,7 +3793,7 @@ fn generateDot(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
 
                     try self.buildBinary(
                         assign_token,
-                        field.type_def.def_type,
+                        self.vm.gc.get(o.ObjTypeDef, field.type_def).?.def_type,
                         res,
                         gen_value,
                         res,
@@ -3747,7 +3817,7 @@ fn generateDot(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
                 },
                 else => {
                     const field = if (callee_type.def_type == .ObjectInstance)
-                        callee_type.resolved_type.?.ObjectInstance.of
+                        self.vm.gc.get(o.ObjTypeDef, callee_type.resolved_type.?.ObjectInstance.of).?
                             .resolved_type.?.Object.fields
                             .get(member_lexeme)
                     else
@@ -3849,7 +3919,7 @@ fn generateDot(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
 
                     try self.buildBinary(
                         assign_token,
-                        field_type_def.def_type,
+                        self.vm.gc.get(o.ObjTypeDef, field_type_def).?.def_type,
                         res,
                         gen_value,
                         res,
@@ -3992,7 +4062,7 @@ fn generateSubscript(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
     const index_val = (try self.generateNode(components.index)).?;
     const value = if (components.value) |val| (try self.generateNode(val)).? else null;
 
-    switch (type_defs[components.subscripted].?.def_type) {
+    switch (self.vm.gc.get(o.ObjTypeDef, type_defs[components.subscripted].?).?.def_type) {
         .List => {
             const index = m.MIR_new_reg_op(
                 self.ctx,
@@ -4019,7 +4089,7 @@ fn generateSubscript(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
 
                     try self.buildBinary(
                         tags[components.assign_token.?],
-                        type_defs[components.value.?].?.def_type,
+                        self.vm.gc.get(o.ObjTypeDef, type_defs[components.value.?].?).?.def_type,
                         res,
                         val,
                         res,
@@ -4350,7 +4420,15 @@ fn generateTry(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
             m.MIR_new_reg_op(self.ctx, matches),
             &[_]m.MIR_op_t{
                 m.MIR_new_reg_op(self.ctx, err_payload),
-                m.MIR_new_uint_op(self.ctx, @constCast(type_defs[clause.type_def].?).toValue().val),
+                m.MIR_new_uint_op(
+                    self.ctx,
+                    Value.fromObj(
+                        .{
+                            .index = type_defs[clause.type_def].?.index,
+                            .obj_type = .Type,
+                        },
+                    ).val,
+                ),
             },
         );
 
@@ -4507,18 +4585,18 @@ fn generateObjectInit(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
     const type_defs = self.state.?.ast.nodes.items(.type_def);
     const type_def = type_defs[node];
 
-    if (type_def.?.def_type == .ForeignContainer) {
+    if (self.vm.gc.get(o.ObjTypeDef, type_def.?).?.def_type == .ForeignContainer) {
         return self.generateForeignContainerInit(node);
     }
 
-    const object = if (components.object != null and type_defs[components.object.?].?.def_type == .Object)
+    const object = if (components.object != null and self.vm.gc.get(o.ObjTypeDef, type_defs[components.object.?].?).?.def_type == .Object)
         (try self.generateNode(components.object.?)).?
     else
         m.MIR_new_uint_op(self.ctx, Value.Null.val);
 
     const typedef = m.MIR_new_uint_op(
         self.ctx,
-        @constCast(type_def.?).toValue().val,
+        Value.fromObj(.{ .index = type_def.?.index, .obj_type = .Type }).val,
     );
 
     const instance = m.MIR_new_reg_op(
@@ -4546,8 +4624,11 @@ fn generateObjectInit(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
                 instance,
                 m.MIR_new_uint_op(
                     self.ctx,
-                    type_def.?.resolved_type.?.ObjectInstance.of
-                        .resolved_type.?.Object.fields
+                    self.vm.gc.get(
+                        o.ObjTypeDef,
+                        self.vm.gc.get(o.ObjTypeDef, type_def.?).?
+                            .resolved_type.?.ObjectInstance.of,
+                    ).?.resolved_type.?.Object.fields
                         .get(lexemes[property.name]).?.index,
                 ),
                 (try self.generateNode(property.value)).?,
@@ -4578,7 +4659,7 @@ fn generateForeignContainerInit(self: *Self, node: Ast.Node.Index) Error!?m.MIR_
             m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
             m.MIR_new_uint_op(
                 self.ctx,
-                @constCast(type_def.?).toValue().val,
+                Value.fromObj(.{ .index = type_def.?.index, .obj_type = .Type }).val,
             ),
         },
     );
@@ -4591,7 +4672,8 @@ fn generateForeignContainerInit(self: *Self, node: Ast.Node.Index) Error!?m.MIR_
                 instance,
                 m.MIR_new_uint_op(
                     self.ctx,
-                    type_def.?.resolved_type.?.ForeignContainer
+                    self.vm.gc.get(o.ObjTypeDef, type_def.?).?
+                        .resolved_type.?.ForeignContainer
                         .fields
                         .getIndex(lexemes[property.name]).?,
                 ),
@@ -4622,7 +4704,15 @@ fn generateForceUnwrap(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
         null,
         &[_]m.MIR_op_t{
             m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
-            m.MIR_new_uint_op(self.ctx, (try self.vm.gc.copyString("Force unwrapped optional is null")).toValue().val),
+            m.MIR_new_uint_op(
+                self.ctx,
+                Value.fromObj(
+                    .{
+                        .index = (try self.vm.gc.copyString("Force unwrapped optional is null")).index,
+                        .obj_type = .String,
+                    },
+                ).val,
+            ),
         },
     );
 
@@ -4633,7 +4723,8 @@ fn generateForceUnwrap(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
 
 fn generateUnary(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
     const components = self.state.?.ast.nodes.items(.components)[node].Unary;
-    const left_type_def = self.state.?.ast.nodes.items(.type_def)[components.expression];
+    const left_type_def_idx = self.state.?.ast.nodes.items(.type_def)[components.expression];
+    const left_type_def = self.vm.gc.get(o.ObjTypeDef, left_type_def_idx.?).?;
 
     const left = (try self.generateNode(components.expression)).?;
     const result = m.MIR_new_reg_op(
@@ -4678,14 +4769,14 @@ fn generateUnary(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
         .Minus => {
             try self.unwrap(.Integer, left, result);
 
-            if (left_type_def.?.def_type == .Integer) {
+            if (left_type_def.def_type == .Integer) {
                 self.NEG(result, result);
             } else {
                 self.DNEG(result, result);
             }
 
             try self.wrap(
-                left_type_def.?.def_type,
+                left_type_def.def_type,
                 result,
                 result,
             );
@@ -4699,22 +4790,33 @@ fn generateUnary(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
 fn generatePattern(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
     return m.MIR_new_uint_op(
         self.ctx,
-        self.state.?.ast.nodes.items(.components)[node].Pattern.toValue().val,
+        Value.fromObj(
+            .{
+                .index = self.state.?.ast.nodes.items(.components)[node].Pattern.index,
+                .obj_type = .Pattern,
+            },
+        ).val,
     );
 }
 
 fn generateForEach(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
     const components = self.state.?.ast.nodes.items(.components)[node].ForEach;
-    const iterable_type_def = self.state.?.ast.nodes.items(.type_def)[components.iterable];
+    const iterable_type_def_idx = self.state.?.ast.nodes.items(.type_def)[components.iterable].?;
+    const iterable_type_def = self.vm.gc.get(o.ObjTypeDef, iterable_type_def_idx).?;
 
     // If iterable is empty constant, skip the node
     if (self.state.?.ast.nodes.items(.value)[components.iterable]) |iterable| {
         if (switch (iterable.obj().obj_type) {
-            .List => o.ObjList.cast(iterable.obj()).?.items.items.len == 0,
-            .Map => o.ObjMap.cast(iterable.obj()).?.map.count() == 0,
-            .String => o.ObjString.cast(iterable.obj()).?.string.len == 0,
-            .Enum => o.ObjEnum.cast(iterable.obj()).?.cases.len == 0,
-            .Range => o.ObjRange.cast(iterable.obj()).?.high == o.ObjRange.cast(iterable.obj()).?.low,
+            .List => self.vm.gc.get(o.ObjList, .idx(iterable.obj().index)).?
+                .items.items.len == 0,
+            .Map => self.vm.gc.get(o.ObjMap, .idx(iterable.obj().index)).?
+                .map.count() == 0,
+            .String => self.vm.gc.get(o.ObjString, .idx(iterable.obj().index)).?
+                .string.len == 0,
+            .Enum => self.vm.gc.get(o.ObjEnum, .idx(iterable.obj().index)).?
+                .cases.len == 0,
+            .Range => self.vm.gc.get(o.ObjRange, .idx(iterable.obj().index)).?.high ==
+                self.vm.gc.get(o.ObjRange, .idx(iterable.obj().index)).?.low,
             else => unreachable,
         }) {
             return null;
@@ -4771,10 +4873,10 @@ fn generateForEach(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
     self.append(cond_label);
 
     // Call appropriate `next` method
-    if (iterable_type_def.?.def_type == .Fiber) {
+    if (iterable_type_def.def_type == .Fiber) {
         // TODO: fiber foreach (tricky, need to complete foreach op after it has yielded)
         return Error.CantCompile;
-    } else if (iterable_type_def.?.def_type == .Enum) {
+    } else if (iterable_type_def.def_type == .Enum) {
         try self.buildExternApiCall(
             .bz_enumNext,
             try self.LOAD(value_ptr),
@@ -4791,7 +4893,7 @@ fn generateForEach(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
             try self.LOAD(value_ptr),
             m.MIR_new_uint_op(self.ctx, Value.Null.val),
         );
-    } else if (iterable_type_def.?.def_type == .Range) {
+    } else if (iterable_type_def.def_type == .Range) {
         try self.buildExternApiCall(
             .bz_rangeNext,
             try self.LOAD(value_ptr),
@@ -4810,14 +4912,14 @@ fn generateForEach(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
     } else {
         // The `next` method will store the new key in the key local
         try self.buildExternApiCall(
-            switch (iterable_type_def.?.def_type) {
+            switch (iterable_type_def.def_type) {
                 .String => .bz_stringNext,
                 .List => .bz_listNext,
                 .Map => .bz_mapNext,
                 else => unreachable,
             },
             try self.LOAD(value_ptr),
-            if (iterable_type_def.?.def_type == .Map)
+            if (iterable_type_def.def_type == .Map)
                 &[_]m.MIR_op_t{
                     iterable,
                     // Pass ptr so the method can put he new key in it
@@ -4908,7 +5010,8 @@ fn generateFunction(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
     const function_signature = self.state.?.ast.nodes.items(.components)[components.function_signature.?].FunctionType;
     const type_defs = self.state.?.ast.nodes.items(.type_def);
 
-    const function_def = type_defs[node].?.resolved_type.?.Function;
+    const function_def = self.vm.gc.get(o.ObjTypeDef, type_defs[node].?).?
+        .resolved_type.?.Function;
     const function_type = function_def.function_type;
 
     // Those are not allowed to be compiled
@@ -5011,7 +5114,14 @@ fn generateFunction(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
         _ = try self.generateNode(components.body.?);
     }
 
-    if (type_defs[self.state.?.ast_node].?.resolved_type.?.Function.return_type.def_type == .Void and !self.state.?.return_emitted) {
+    if (self.vm.gc.get(
+        o.ObjTypeDef,
+        self.vm.gc.get(o.ObjTypeDef, type_defs[self.state.?.ast_node].?).?
+            .resolved_type.?.Function
+            .return_type,
+    ).?.def_type == .Void and
+        !self.state.?.return_emitted)
+    {
         try self.buildReturn(m.MIR_new_uint_op(self.ctx, Value.Void.val));
     }
 
@@ -5105,7 +5215,8 @@ fn generateHotspotFunction(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t 
 fn generateNativeFn(self: *Self, node: Ast.Node.Index, raw_fn: m.MIR_item_t) !m.MIR_item_t {
     const type_defs = self.state.?.ast.nodes.items(.type_def);
 
-    const function_def = type_defs[node].?.resolved_type.?.Function;
+    const function_def = self.vm.gc.get(o.ObjTypeDef, type_defs[node].?).?
+        .resolved_type.?.Function;
     const function_type = function_def.function_type;
 
     std.debug.assert(function_type != .Extern);
@@ -5245,7 +5356,7 @@ fn generateNativeFn(self: *Self, node: Ast.Node.Index, raw_fn: m.MIR_item_t) !m.
         ),
     );
 
-    const should_return = function_def.return_type.def_type != .Void;
+    const should_return = self.vm.gc.get(o.ObjTypeDef, function_def.return_type).?.def_type != .Void;
 
     // Push its result back into the VM
     if (should_return) {
@@ -5285,9 +5396,10 @@ fn getQualifiedName(self: *Self, node: Ast.Node.Index, raw: bool) ![]const u8 {
             const components = self.state.?.ast.nodes.items(.components)[node].Function;
             const type_defs = self.state.?.ast.nodes.items(.type_def);
 
-            const function_def = type_defs[node].?.resolved_type.?.Function;
+            const function_def = self.vm.gc.get(o.ObjTypeDef, type_defs[node].?).?
+                .resolved_type.?.Function;
             const function_type = function_def.function_type;
-            const name = function_def.name.string;
+            const name = self.vm.gc.get(o.ObjString, function_def.name).?.string;
 
             var qualified_name = std.Io.Writer.Allocating.init(self.vm.gc.allocator);
 
@@ -5385,7 +5497,9 @@ pub fn compileZdefContainer(self: *Self, ast: Ast.Slice, zdef_element: Ast.Zdef.
     };
     defer self.reset(self.vm.gc.allocator);
 
-    const foreign_def = zdef_element.zdef.type_def.resolved_type.?.ForeignContainer;
+    const foreign_def = self.vm.gc.get(o.ObjTypeDef, zdef_element.zdef.type_def).?
+        .resolved_type.?.ForeignContainer;
+    const fname = self.vm.gc.get(o.ObjString, foreign_def.name).?.string;
 
     var getters = std.ArrayList(m.MIR_item_t).empty;
     defer getters.deinit(self.vm.gc.allocator);
@@ -5396,14 +5510,15 @@ pub fn compileZdefContainer(self: *Self, ast: Ast.Slice, zdef_element: Ast.Zdef.
         .Struct => {
             for (foreign_def.zig_type.Struct.fields) |field| {
                 const container_field = foreign_def.fields.getEntry(field.name).?;
+                const field_name = self.vm.gc.get(o.ObjString, foreign_def.name).?.string;
 
                 try getters.append(
                     self.vm.gc.allocator,
                     try self.buildZdefContainerGetter(
                         container_field.value_ptr.*.offset,
-                        foreign_def.name.string,
-                        field.name,
-                        foreign_def.buzz_type.get(field.name).?,
+                        fname,
+                        field_name,
+                        foreign_def.buzz_type.get(field_name).?,
                         field.type,
                     ),
                 );
@@ -5412,9 +5527,9 @@ pub fn compileZdefContainer(self: *Self, ast: Ast.Slice, zdef_element: Ast.Zdef.
                     self.vm.gc.allocator,
                     try self.buildZdefContainerSetter(
                         container_field.value_ptr.*.offset,
-                        foreign_def.name.string,
-                        field.name,
-                        foreign_def.buzz_type.get(field.name).?,
+                        fname,
+                        field_name,
+                        foreign_def.buzz_type.get(field_name).?,
                         field.type,
                     ),
                 );
@@ -5423,14 +5538,13 @@ pub fn compileZdefContainer(self: *Self, ast: Ast.Slice, zdef_element: Ast.Zdef.
 
         .Union => {
             for (foreign_def.zig_type.Union.fields) |field| {
-                const container_field = foreign_def.fields.getEntry(field.name).?;
-                _ = container_field;
+                const field_name = self.vm.gc.get(o.ObjString, foreign_def.name).?.string;
 
                 try getters.append(
                     self.vm.gc.allocator,
                     try self.buildZdefUnionGetter(
-                        foreign_def.name.string,
-                        field.name,
+                        fname,
+                        field_name,
                         foreign_def.buzz_type.get(field.name).?,
                         field.type,
                     ),
@@ -5439,7 +5553,7 @@ pub fn compileZdefContainer(self: *Self, ast: Ast.Slice, zdef_element: Ast.Zdef.
                 try setters.append(
                     self.vm.gc.allocator,
                     try self.buildZdefUnionSetter(
-                        foreign_def.name.string,
+                        fname,
                         field.name,
                         foreign_def.buzz_type.get(field.name).?,
                         field.type,
@@ -5511,7 +5625,8 @@ pub fn compileZdefContainer(self: *Self, ast: Ast.Slice, zdef_element: Ast.Zdef.
     }
 }
 
-fn buildBuzzValueToZigValue(self: *Self, buzz_type: *o.ObjTypeDef, zig_type: ZigType, buzz_value: m.MIR_op_t, dest: m.MIR_op_t) !void {
+fn buildBuzzValueToZigValue(self: *Self, buzz_type_idx: Pool(o.ObjTypeDef).Idx, zig_type: ZigType, buzz_value: m.MIR_op_t, dest: m.MIR_op_t) !void {
+    const buzz_type = self.vm.gc.get(o.ObjTypeDef, buzz_type_idx).?;
     switch (zig_type) {
         .Int => {
             if (buzz_type.def_type == .Double) {
@@ -5569,7 +5684,8 @@ fn buildBuzzValueToZigValue(self: *Self, buzz_type: *o.ObjTypeDef, zig_type: Zig
     }
 }
 
-fn buildZigValueToBuzzValue(self: *Self, buzz_type: *o.ObjTypeDef, zig_type: ZigType, zig_value: m.MIR_op_t, dest: m.MIR_op_t) !void {
+fn buildZigValueToBuzzValue(self: *Self, buzz_type_idx: Pool(o.ObjTypeDef).Idx, zig_type: ZigType, zig_value: m.MIR_op_t, dest: m.MIR_op_t) !void {
+    const buzz_type = self.vm.gc.get(o.ObjTypeDef, buzz_type_idx).?;
     switch (zig_type) {
         .Int => {
             if (buzz_type.def_type == .Double) {
@@ -5633,7 +5749,7 @@ fn buildZigValueToBuzzValue(self: *Self, buzz_type: *o.ObjTypeDef, zig_type: Zig
     }
 }
 
-pub fn compileZdef(self: *Self, buzz_ast: Ast.Slice, zdef: Ast.Zdef.ZdefElement) Error!*o.ObjNative {
+pub fn compileZdef(self: *Self, buzz_ast: Ast.Slice, zdef: Ast.Zdef.ZdefElement) Error!Pool(o.ObjNative).Idx {
     var wrapper_name = std.Io.Writer.Allocating.init(self.vm.gc.allocator);
     defer wrapper_name.deinit();
 
@@ -5824,7 +5940,8 @@ fn buildZdefWrapper(self: *Self, zdef_element: Ast.Zdef.ZdefElement) Error!m.MIR
         ),
     );
 
-    const function_def = zdef_element.zdef.type_def.resolved_type.?.Function;
+    const function_def = self.vm.gc.get(o.ObjTypeDef, zdef_element.zdef.type_def).?
+        .resolved_type.?.Function;
     const zig_function_def = zdef_element.zdef.zig_type;
 
     // Get arguments from stack
@@ -5961,7 +6078,7 @@ fn buildZdefWrapper(self: *Self, zdef_element: Ast.Zdef.ZdefElement) Error!m.MIR
     self.RET(
         m.MIR_new_int_op(
             self.ctx,
-            if (function_def.return_type.def_type != .Void)
+            if (self.vm.gc.get(o.ObjTypeDef, function_def.return_type).?.def_type != .Void)
                 1
             else
                 0,
@@ -5977,7 +6094,7 @@ fn buildZdefUnionGetter(
     self: *Self,
     union_name: []const u8,
     field_name: []const u8,
-    buzz_type: *o.ObjTypeDef,
+    buzz_type: Pool(o.ObjTypeDef).Idx,
     zig_type: *const ZigType,
 ) Error!m.MIR_item_t {
     var getter_name = std.Io.Writer.Allocating.init(self.vm.gc.allocator);
@@ -6043,7 +6160,10 @@ fn buildZdefUnionGetter(
                 result_value,
                 &[_]m.MIR_op_t{
                     m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
-                    m.MIR_new_uint_op(self.ctx, @intFromPtr(buzz_type)),
+                    m.MIR_new_uint_op(
+                        self.ctx,
+                        v.Value.fromObj(.{ .index = buzz_type.index, .obj_type = .Type }).val,
+                    ),
                     m.MIR_new_reg_op(self.ctx, data_reg),
                     m.MIR_new_uint_op(self.ctx, zig_type.size()),
                 },
@@ -6087,7 +6207,7 @@ fn buildZdefUnionSetter(
     self: *Self,
     union_name: []const u8,
     field_name: []const u8,
-    buzz_type: *o.ObjTypeDef,
+    buzz_type: Pool(o.ObjTypeDef).Idx,
     zig_type: *const ZigType,
 ) Error!m.MIR_item_t {
     var setter_name = std.Io.Writer.Allocating.init(self.vm.gc.allocator);
@@ -6203,7 +6323,7 @@ fn buildZdefContainerGetter(
     offset: usize,
     struct_name: []const u8,
     field_name: []const u8,
-    buzz_type: *o.ObjTypeDef,
+    buzz_type: Pool(o.ObjTypeDef).Idx,
     zig_type: *const ZigType,
 ) Error!m.MIR_item_t {
     var getter_name = std.Io.Writer.Allocating.init(self.vm.gc.allocator);
@@ -6297,7 +6417,7 @@ fn buildZdefContainerSetter(
     offset: usize,
     struct_name: []const u8,
     field_name: []const u8,
-    buzz_type: *o.ObjTypeDef,
+    buzz_type: Pool(o.ObjTypeDef).Idx,
     zig_type: *const ZigType,
 ) Error!m.MIR_item_t {
     var setter_name = std.Io.Writer.Allocating.init(self.vm.gc.allocator);

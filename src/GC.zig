@@ -11,6 +11,9 @@ const Reporter = @import("Reporter.zig");
 const is_wasm = builtin.cpu.arch.isWasm();
 const io = @import("io.zig");
 const TypeRegistry = @import("TypeRegistry.zig");
+const p = @import("pool.zig");
+const Pool = p.Pool;
+const MultiPool = p.MultiPool;
 
 // Sticky Mark Bits Generational GC basic idea:
 // 1. First GC: do a normal mark, don't clear `marked` at the end
@@ -34,31 +37,53 @@ const Mode = enum {
 };
 
 allocator: std.mem.Allocator,
-strings: std.StringHashMapUnmanaged(*o.ObjString) = .empty,
+
+pools: MultiPool(
+    &.{
+        o.ObjString,
+        o.ObjTypeDef,
+        o.ObjUpValue,
+        o.ObjClosure,
+        o.ObjFunction,
+        o.ObjObjectInstance,
+        o.ObjObject,
+        o.ObjList,
+        o.ObjMap,
+        o.ObjEnum,
+        o.ObjEnumInstance,
+        o.ObjBoundMethod,
+        o.ObjNative,
+        o.ObjUserData,
+        o.ObjPattern,
+        o.ObjFiber,
+        o.ObjForeignContainer,
+        o.ObjRange,
+    },
+) = .empty,
+
+strings: std.StringHashMapUnmanaged(Pool(o.ObjString).Idx) = .empty,
 type_registry: TypeRegistry,
 bytes_allocated: usize = 0,
 // next_gc == next_full_gc at first so the first cycle is a full gc
 next_gc: usize = if (builtin.mode == .Debug) 1024 else 1024 * BuildOptions.initial_gc,
 next_full_gc: usize = if (builtin.mode == .Debug) 1024 else 1024 * BuildOptions.initial_gc,
 last_gc: ?Mode = null,
-objects: std.DoublyLinkedList = .{},
-gray_stack: std.ArrayList(*o.Obj) = .empty,
+gray_stack: std.ArrayList(o.ObjIdx) = .empty,
 active_vms: std.AutoHashMapUnmanaged(*v.VM, void) = .empty,
 // o.Obj being collected, useful to avoid setting object instance dirty while running its collector method
-obj_collected: ?*o.Obj = null,
+obj_collected: ?o.ObjIdx = null,
 
-debugger: ?Debugger,
 where: ?Token = null,
 
 // Types we generaly don't wan't to ever be collected
-objfiber_members: []?*o.ObjNative,
-objfiber_memberDefs: []?*o.ObjTypeDef,
-objpattern_members: []?*o.ObjNative,
-objpattern_memberDefs: []?*o.ObjTypeDef,
-objstring_members: []?*o.ObjNative,
-objstring_memberDefs: []?*o.ObjTypeDef,
-objrange_memberDefs: []?*o.ObjTypeDef,
-objrange_members: []?*o.ObjNative,
+objfiber_members: []?Pool(o.ObjNative).Idx,
+objfiber_memberDefs: []?Pool(o.ObjTypeDef).Idx,
+objpattern_members: []?Pool(o.ObjNative).Idx,
+objpattern_memberDefs: []?Pool(o.ObjTypeDef).Idx,
+objstring_members: []?Pool(o.ObjNative).Idx,
+objstring_memberDefs: []?Pool(o.ObjTypeDef).Idx,
+objrange_memberDefs: []?Pool(o.ObjTypeDef).Idx,
+objrange_members: []?Pool(o.ObjNative).Idx,
 
 full_collection_count: usize = 0,
 light_collection_count: usize = 0,
@@ -70,16 +95,15 @@ pub fn init(allocator: std.mem.Allocator) !GC {
     const self = GC{
         .allocator = allocator,
         .type_registry = undefined,
-        .debugger = if (BuildOptions.gc_debug_access) Debugger.init(allocator) else null,
-
-        .objfiber_members = try allocator.alloc(?*o.ObjNative, o.ObjFiber.members.len),
-        .objfiber_memberDefs = try allocator.alloc(?*o.ObjTypeDef, o.ObjFiber.members.len),
-        .objpattern_members = try allocator.alloc(?*o.ObjNative, o.ObjPattern.members.len),
-        .objpattern_memberDefs = try allocator.alloc(?*o.ObjTypeDef, o.ObjPattern.members.len),
-        .objstring_members = try allocator.alloc(?*o.ObjNative, o.ObjString.members.len),
-        .objstring_memberDefs = try allocator.alloc(?*o.ObjTypeDef, o.ObjString.members.len),
-        .objrange_members = try allocator.alloc(?*o.ObjNative, o.ObjRange.members.len),
-        .objrange_memberDefs = try allocator.alloc(?*o.ObjTypeDef, o.ObjRange.members.len),
+        // FIXME: we actually know the length of those at compile time so those could be arrays
+        .objfiber_members = try allocator.alloc(?Pool(o.ObjNative).Idx, o.ObjFiber.members.len),
+        .objfiber_memberDefs = try allocator.alloc(?Pool(o.ObjTypeDef).Idx, o.ObjFiber.members.len),
+        .objpattern_members = try allocator.alloc(?Pool(o.ObjNative).Idx, o.ObjPattern.members.len),
+        .objpattern_memberDefs = try allocator.alloc(?Pool(o.ObjTypeDef).Idx, o.ObjPattern.members.len),
+        .objstring_members = try allocator.alloc(?Pool(o.ObjNative).Idx, o.ObjString.members.len),
+        .objstring_memberDefs = try allocator.alloc(?Pool(o.ObjTypeDef).Idx, o.ObjString.members.len),
+        .objrange_members = try allocator.alloc(?Pool(o.ObjNative).Idx, o.ObjRange.members.len),
+        .objrange_memberDefs = try allocator.alloc(?Pool(o.ObjTypeDef).Idx, o.ObjRange.members.len),
     };
 
     for (0..o.ObjFiber.members.len) |i| {
@@ -118,12 +142,11 @@ pub fn unregisterVM(self: *GC, vm: *v.VM) void {
 }
 
 pub fn deinit(self: *GC) void {
+    self.pools.deinit(self.allocator);
+
     self.gray_stack.deinit(self.allocator);
     self.strings.deinit(self.allocator);
     self.active_vms.deinit(self.allocator);
-    if (BuildOptions.gc_debug_access) {
-        self.debugger.?.deinit();
-    }
 
     self.allocator.free(self.objfiber_members);
     self.allocator.free(self.objfiber_memberDefs);
@@ -135,7 +158,88 @@ pub fn deinit(self: *GC) void {
     self.allocator.free(self.objrange_memberDefs);
 }
 
-pub fn allocate(self: *GC, comptime T: type) !*T {
+pub fn get(self: *GC, comptime T: type, index: Pool(T).Idx) ?*T {
+    return self.pools.get(T, index);
+}
+
+pub fn getObj(self: *GC, obj_idx: o.ObjIdx) ?*o.Obj {
+    return switch (obj_idx.obj_type) {
+        .Range => if (self.get(o.ObjRange, .idx(obj_idx.index))) |instance|
+            instance.toObj()
+        else
+            null,
+        .String => if (self.get(o.ObjString, .idx(obj_idx.index))) |instance|
+            instance.toObj()
+        else
+            null,
+        .Pattern => if (self.get(o.ObjPattern, .idx(obj_idx.index))) |instance|
+            instance.toObj()
+        else
+            null,
+        .Fiber => if (self.get(o.ObjFiber, .idx(obj_idx.index))) |instance|
+            instance.toObj()
+        else
+            null,
+        .Type => if (self.get(o.ObjTypeDef, .idx(obj_idx.index))) |instance|
+            instance.toObj()
+        else
+            null,
+        .Object => if (self.get(o.ObjObject, .idx(obj_idx.index))) |instance|
+            instance.toObj()
+        else
+            null,
+        .Enum => if (self.get(o.ObjEnum, .idx(obj_idx.index))) |instance|
+            instance.toObj()
+        else
+            null,
+        .ObjectInstance => if (self.get(o.ObjObjectInstance, .idx(obj_idx.index))) |instance|
+            instance.toObj()
+        else
+            null,
+        .EnumInstance => if (self.get(o.ObjEnumInstance, .idx(obj_idx.index))) |instance|
+            instance.toObj()
+        else
+            null,
+        .Function => if (self.get(o.ObjFunction, .idx(obj_idx.index))) |instance|
+            instance.toObj()
+        else
+            null,
+        .UpValue => if (self.get(o.ObjUpValue, .idx(obj_idx.index))) |instance|
+            instance.toObj()
+        else
+            null,
+        .Closure => if (self.get(o.ObjClosure, .idx(obj_idx.index))) |instance|
+            instance.toObj()
+        else
+            null,
+        .List => if (self.get(o.ObjList, .idx(obj_idx.index))) |instance|
+            instance.toObj()
+        else
+            null,
+        .Map => if (self.get(o.ObjMap, .idx(obj_idx.index))) |instance|
+            instance.toObj()
+        else
+            null,
+        .Bound => if (self.get(o.ObjBoundMethod, .idx(obj_idx.index))) |instance|
+            instance.toObj()
+        else
+            null,
+        .ForeignContainer => if (self.get(o.ObjForeignContainer, .idx(obj_idx.index))) |instance|
+            instance.toObj()
+        else
+            null,
+        .UserData => if (self.get(o.ObjUserData, .idx(obj_idx.index))) |instance|
+            instance.toObj()
+        else
+            null,
+        .Native => if (self.get(o.ObjNative, .idx(obj_idx.index))) |instance|
+            instance.toObj()
+        else
+            null,
+    };
+}
+
+pub fn allocate(self: *GC, comptime T: type) !Pool(T).Idx {
     var timer = if (!is_wasm) std.time.Timer.start() catch unreachable else {};
 
     self.bytes_allocated += @sizeOf(T);
@@ -152,7 +256,7 @@ pub fn allocate(self: *GC, comptime T: type) !*T {
         return error.ReachedMaximumMemoryUsage;
     }
 
-    const allocated = try self.allocator.create(T);
+    const allocated = try self.pools.append(self.allocator, T, undefined);
 
     if (BuildOptions.gc_debug) {
         std.log.info(
@@ -194,68 +298,55 @@ pub fn allocateMany(self: *GC, comptime T: type, count: usize) ![]T {
     return try self.allocator.alloc(T, count);
 }
 
-pub fn allocateObject(self: *GC, data: anytype) !*@TypeOf(data) {
+pub fn allocateObject(self: *GC, data: anytype) !Pool(@TypeOf(data)).Idx {
     const T = @TypeOf(data);
 
-    const obj: *T = try self.allocate(T);
-    obj.* = data;
+    self.bytes_allocated += @sizeOf(T);
 
-    const object = obj.toObj();
-
-    // Add new object at start of vm.objects linked list
-    try self.addObject(object);
-
-    if (BuildOptions.gc_debug_access) {
-        self.debugger.?.allocated(
-            object,
-            self.where,
-            switch (T) {
-                o.ObjString => .String,
-                o.ObjTypeDef => .Type,
-                o.ObjUpValue => .UpValue,
-                o.ObjClosure => .Closure,
-                o.ObjFunction => .Function,
-                o.ObjObjectInstance => .ObjectInstance,
-                o.ObjObject => .Object,
-                o.ObjList => .List,
-                o.ObjMap => .Map,
-                o.ObjEnum => .Enum,
-                o.ObjEnumInstance => .EnumInstance,
-                o.ObjBoundMethod => .Bound,
-                o.ObjNative => .Native,
-                o.ObjUserData => .UserData,
-                o.ObjPattern => .Pattern,
-                o.ObjFiber => .Fiber,
-                o.ObjForeignContainer => .ForeignContainer,
-                o.ObjRange => .Range,
-                else => @panic("Unknown object type being allocated"),
-            },
-        );
+    if (self.bytes_allocated > self.max_allocated) {
+        self.max_allocated = self.bytes_allocated;
     }
 
-    return obj;
+    if (self.bytes_allocated > self.next_gc and BuildOptions.gc) {
+        try self.collectGarbage();
+    }
+
+    if (BuildOptions.memory_limit != null and self.bytes_allocated > BuildOptions.memory_limit.?) {
+        return error.ReachedMaximumMemoryUsage;
+    }
+
+    const idx = try self.pools.append(
+        self.allocator,
+        T,
+        data,
+    );
+
+    // Add new object at start of vm.objects linked list
+    // self.objects.append(
+    //     &self.get(T, idx).node,
+    // );
+
+    return idx;
 }
 
-fn addObject(self: *GC, obj: *o.Obj) !void {
-    self.objects.prepend(&obj.node);
-}
-
-pub fn allocateString(self: *GC, chars: []const u8) !*o.ObjString {
-    const string: *o.ObjString = try allocateObject(
+pub fn allocateString(self: *GC, chars: []const u8) !Pool(o.ObjString).Idx {
+    const idx = try allocateObject(
         self,
         o.ObjString{ .string = chars },
     );
 
+    const string = self.get(o.ObjString, idx).?;
+
     try self.strings.put(
         self.allocator,
         string.string,
-        string,
+        idx,
     );
 
-    return string;
+    return idx;
 }
 
-pub fn copyString(self: *GC, chars: []const u8) !*o.ObjString {
+pub fn copyString(self: *GC, chars: []const u8) !Pool(o.ObjString).Idx {
     if (self.strings.get(chars)) |interned| {
         return interned;
     }
@@ -270,15 +361,15 @@ pub fn copyString(self: *GC, chars: []const u8) !*o.ObjString {
     return try allocateString(self, copy);
 }
 
-fn free(self: *GC, comptime T: type, pointer: *T) void {
+fn free(self: *GC, comptime T: type, index: Pool(T).Idx) !void {
     var timer = if (!is_wasm) std.time.Timer.start() catch unreachable else {};
 
     if (BuildOptions.gc_debug) {
-        std.log.info("Going to free {*}", .{pointer});
+        std.log.info("Going to free {s}.{}", .{ @typeName(T), index });
     }
 
     self.bytes_allocated -= @sizeOf(T);
-    self.allocator.destroy(pointer);
+    try self.pools.remove(self.allocator, T, index);
 
     if (BuildOptions.gc_debug) {
         std.log.info(
@@ -294,6 +385,117 @@ fn free(self: *GC, comptime T: type, pointer: *T) void {
     if (!is_wasm) {
         self.gc_time += timer.read();
     }
+}
+
+fn freeObj(self: *GC, comptime T: type, index: Pool(T).Idx) (std.mem.Allocator.Error || std.fmt.BufPrintError)!void {
+    if (BuildOptions.gc_debug) {
+        std.log.info(
+            ">> freeing {} {}",
+            .{
+                index,
+                @typeName(T),
+            },
+        );
+    }
+
+    const instance = self.get(T, index).?;
+    self.obj_collected = .{
+        .index = index.index,
+        .obj_type = instance.obj.obj_type,
+    };
+    defer self.obj_collected = null;
+
+    switch (T) {
+        o.ObjString => {
+            // Remove it from interned strings
+            _ = self.strings.remove(instance.string);
+            freeMany(self, u8, instance.string);
+        },
+        o.ObjPattern => if (!is_wasm) {
+            instance.pattern.free();
+        },
+        o.ObjTypeDef => {
+            const hash = TypeRegistry.typeDefHash(self, instance.*);
+
+            if (self.type_registry.registry.get(hash)) |registered_obj| {
+                if (registered_obj.index == index.index) {
+                    _ = self.type_registry.registry.remove(hash);
+                    if (BuildOptions.gc_debug) {
+                        std.log.info(
+                            "Removed registered type @{} #{} `{s}`",
+                            .{
+                                @intFromPtr(registered_obj),
+                                hash,
+                                instance.toStringAlloc(self.allocator, true) catch unreachable,
+                            },
+                        );
+                    }
+                } else {
+                    // std.log.info(
+                    //     "ObjTypeDef {*} `{s}` was allocated outside of type registry\n",
+                    //     .{
+                    //         instance,
+                    //         try instance.toStringAlloc(self.allocator),
+                    //     },
+                    // );
+                    // unreachable;
+                    // FIXME: this should not occur. Right now this because of the way we resolve placeholders by changing their content and replacing the type in the typ registry
+                    // Previously registered same type is now outside of the type registry and is collected.
+                    return;
+                }
+            }
+
+            instance.deinit();
+        },
+        o.ObjUpValue => if (instance.closed) |value| {
+            if (value.isObj()) {
+                try self.freeObj(o.ObjUpValue, .{ .index = value.obj().index });
+            }
+        },
+        o.ObjClosure => instance.deinit(self.allocator),
+        o.ObjFunction => instance.deinit(),
+        o.ObjObjectInstance => {
+            // Calling eventual destructor method
+            if (instance.object) |object_idx| {
+                const object = self.get(o.ObjObject, object_idx).?;
+                const type_def = self.get(o.ObjTypeDef, object.type_def).?;
+                if (type_def.resolved_type.?.Object.fields.get("collect")) |field| {
+                    if (field.method and !field.static) {
+                        buzz_api.bz_invoke(
+                            instance.vm,
+                            Value.fromObj(.{ .index = index.index, .obj_type = .ObjectInstance }),
+                            field.index,
+                            null,
+                            0,
+                            null,
+                        );
+
+                        // Remove void result of the collect call
+                        _ = instance.vm.pop();
+                    }
+                }
+            }
+            instance.deinit(self.allocator);
+        },
+        o.ObjObject => instance.deinit(self.allocator),
+        o.ObjList => instance.deinit(self.allocator),
+        o.ObjMap => instance.deinit(self.allocator),
+        o.ObjEnum => self.allocator.free(instance.cases),
+        o.ObjFiber => {
+            instance.fiber.deinit();
+            self.allocator.destroy(instance.fiber);
+        },
+        o.ObjForeignContainer => self.freeMany(u8, instance.data),
+        o.ObjEnumInstance,
+        o.ObjBoundMethod,
+        o.ObjNative,
+        o.ObjUserData,
+        o.ObjRange,
+        => {},
+        else => std.debug.assert(false),
+    }
+
+    try free(self, T, index);
 }
 
 fn freeMany(self: *GC, comptime T: type, pointer: []const T) void {
@@ -323,280 +525,147 @@ fn freeMany(self: *GC, comptime T: type, pointer: []const T) void {
     }
 }
 
-pub fn markObjDirty(self: *GC, obj: *o.Obj) !void {
-    if (!obj.dirty and self.obj_collected != obj) {
-        obj.dirty = true;
+pub fn markObjDirty(self: *GC, comptime T: type, idx: Pool(T).Idx) !void {
+    const instance = self.get(T, idx);
+    if (!instance.obj.dirty and
+        self.obj_collected == null or
+        (self.obj_collected.?.obj_type != instance.obj.obj_type and self.obj_collected.?.index != idx.index))
+    {
+        instance.obj.dirty = true;
 
         // A dirty obj is: an old object with reference to potential young objects that will need to be marked
         // Since old object are ignored when tracing references, this will force tracing for it
-        try self.gray_stack.append(self.allocator, obj);
+        try self.gray_stack.append(
+            self.allocator,
+            .{ .obj_type = instance.obj.obj_type, .idx = idx },
+        );
     }
 }
 
-pub fn markObj(self: *GC, obj: *o.Obj) !void {
-    if (obj.marked or self.obj_collected == obj) {
+pub fn markObj(self: *GC, comptime T: type, idx: Pool(T).Idx) !void {
+    if (self.get(T, idx)) |instance| {
+        if (instance.obj.marked or
+            (self.obj_collected != null and
+                self.obj_collected.?.obj_type == instance.obj.obj_type and
+                self.obj_collected.?.index == idx.index))
+        {
+            if (BuildOptions.gc_debug) {
+                std.log.info(
+                    "{} {s} already marked or old",
+                    .{
+                        idx,
+                        try instance.toValue().toStringAlloc(self.allocator),
+                    },
+                );
+            }
+            return;
+        }
+
         if (BuildOptions.gc_debug) {
             std.log.info(
-                "{*} {s} already marked or old",
+                "marking {}: `{s}`",
                 .{
-                    obj,
-                    try Value.fromObj(obj).toStringAlloc(self.allocator),
+                    idx,
+                    try instance.toValue().toStringAlloc(self.allocator),
                 },
             );
         }
-        return;
-    }
 
-    if (BuildOptions.gc_debug) {
-        std.log.info(
-            "marking {*}: `{s}`",
-            .{
-                obj,
-                try Value.fromObj(obj).toStringAlloc(self.allocator),
-            },
+        instance.obj.marked = true;
+
+        // Move marked obj to tail so the sweeping can stop going through objects when finding the first marked object
+        // self.objects.remove(&instance.obj.node);
+        // // Just to be safe, reset node before inserting it again
+        // instance.obj.node = .{
+        //     .prev = null,
+        //     .next = null,
+        // };
+        // self.objects.append(&instance.obj.node);
+
+        try self.gray_stack.append(
+            self.allocator,
+            .{ .obj_type = instance.obj.obj_type, .index = idx.index },
         );
     }
-
-    obj.marked = true;
-
-    // Move marked obj to tail so the sweeping can stop going through objects when finding the first marked object
-    self.objects.remove(&obj.node);
-    // Just to be safe, reset node before inserting it again
-    obj.node = .{
-        .prev = null,
-        .next = null,
-    };
-    self.objects.append(&obj.node);
-
-    try self.gray_stack.append(self.allocator, obj);
 }
 
-fn blackenObject(self: *GC, obj: *o.Obj) !void {
+fn blackenObject(self: *GC, obj_idx: o.ObjIdx) !void {
+    const obj = self.getObj(obj_idx).?;
+
     if (BuildOptions.gc_debug) {
         std.log.info(
             "blackening @{} {}",
             .{
-                @intFromPtr(obj),
-                obj.obj_type,
+                obj_idx.index,
+                obj_idx.obj_type,
             },
         );
     }
 
     obj.dirty = false;
 
-    _ = try switch (obj.obj_type) {
-        .String, .Pattern, .UserData, .Native, .Range => {},
-        .Type => obj.access(o.ObjTypeDef, .Type, self).?.mark(self),
-        .UpValue => obj.access(o.ObjUpValue, .UpValue, self).?.mark(self),
-        .Closure => obj.access(o.ObjClosure, .Closure, self).?.mark(self),
-        .Function => obj.access(o.ObjFunction, .Function, self).?.mark(self),
-        .ObjectInstance => obj.access(o.ObjObjectInstance, .ObjectInstance, self).?.mark(self),
-        .Object => obj.access(o.ObjObject, .Object, self).?.mark(self),
-        .List => obj.access(o.ObjList, .List, self).?.mark(self),
-        .Map => obj.access(o.ObjMap, .Map, self).?.mark(self),
-        .Enum => obj.access(o.ObjEnum, .Enum, self).?.mark(self),
-        .EnumInstance => obj.access(o.ObjEnumInstance, .EnumInstance, self).?.mark(self),
-        .Bound => obj.access(o.ObjBoundMethod, .Bound, self).?.mark(self),
-        .Fiber => obj.access(o.ObjFiber, .Fiber, self).?.mark(self),
-        .ForeignContainer => obj.access(o.ObjForeignContainer, .ForeignContainer, self).?.mark(self),
+    try switch (obj.obj_type) {
+        .String => self.get(o.ObjString, .{ .index = obj_idx.index }).?.mark(self),
+        .Pattern => self.get(o.ObjPattern, .{ .index = obj_idx.index }).?.mark(self),
+        .UserData => self.get(o.ObjUserData, .{ .index = obj_idx.index }).?.mark(self),
+        .Native => self.get(o.ObjNative, .{ .index = obj_idx.index }).?.mark(self),
+        .Range => self.get(o.ObjRange, .{ .index = obj_idx.index }).?.mark(self),
+        .Type => self.get(o.ObjTypeDef, .{ .index = obj_idx.index }).?.mark(self),
+        .UpValue => self.get(o.ObjUpValue, .{ .index = obj_idx.index }).?.mark(self),
+        .Closure => self.get(o.ObjClosure, .{ .index = obj_idx.index }).?.mark(self),
+        .Function => self.get(o.ObjFunction, .{ .index = obj_idx.index }).?.mark(self),
+        .ObjectInstance => self.get(o.ObjObjectInstance, .{ .index = obj_idx.index }).?.mark(self),
+        .Object => self.get(o.ObjObject, .{ .index = obj_idx.index }).?.mark(self),
+        .List => self.get(o.ObjList, .{ .index = obj_idx.index }).?.mark(self),
+        .Map => self.get(o.ObjMap, .{ .index = obj_idx.index }).?.mark(self),
+        .Enum => self.get(o.ObjEnum, .{ .index = obj_idx.index }).?.mark(self),
+        .EnumInstance => self.get(o.ObjEnumInstance, .{ .index = obj_idx.index }).?.mark(self),
+        .Bound => self.get(o.ObjBoundMethod, .{ .index = obj_idx.index }).?.mark(self),
+        .Fiber => self.get(o.ObjFiber, .{ .index = obj_idx.index }).?.mark(self),
+        .ForeignContainer => self.get(o.ObjForeignContainer, .{ .index = obj_idx.index }).?.mark(self),
     };
 
     if (BuildOptions.gc_debug) {
         std.log.info(
             "done blackening @{} {}",
             .{
-                @intFromPtr(obj),
-                obj.obj_type,
+                obj_idx.index,
+                obj_idx.obj_type,
             },
         );
-    }
-}
-
-fn freeObj(self: *GC, obj: *o.Obj) (std.mem.Allocator.Error || std.fmt.BufPrintError)!void {
-    if (BuildOptions.gc_debug) {
-        std.log.info(
-            ">> freeing {} {}",
-            .{
-                @intFromPtr(obj),
-                obj.obj_type,
-            },
-        );
-    }
-
-    if (BuildOptions.gc_debug_access) {
-        self.debugger.?.collected(obj, self.where.?);
-    }
-
-    self.obj_collected = obj;
-    defer self.obj_collected = null;
-
-    switch (obj.obj_type) {
-        .String => {
-            const obj_string = o.ObjString.cast(obj).?;
-
-            // Remove it from interned strings
-            _ = self.strings.remove(obj_string.string);
-
-            freeMany(self, u8, obj_string.string);
-            free(self, o.ObjString, obj_string);
-        },
-        .Pattern => {
-            var obj_pattern = o.ObjPattern.cast(obj).?;
-            if (!is_wasm) {
-                obj_pattern.pattern.free();
-            }
-
-            free(self, o.ObjPattern, obj_pattern);
-        },
-        .Type => {
-            var obj_typedef = o.ObjTypeDef.cast(obj).?;
-            const hash = TypeRegistry.typeDefHash(obj_typedef.*);
-
-            if (self.type_registry.registry.get(hash)) |registered_obj| {
-                if (registered_obj == obj_typedef) {
-                    _ = self.type_registry.registry.remove(hash);
-                    if (BuildOptions.gc_debug) {
-                        std.log.info(
-                            "Removed registered type @{} #{} `{s}`",
-                            .{
-                                @intFromPtr(registered_obj),
-                                hash,
-                                obj_typedef.toStringAlloc(self.allocator, true) catch unreachable,
-                            },
-                        );
-                    }
-                } else {
-                    // std.log.info(
-                    //     "ObjTypeDef {*} `{s}` was allocated outside of type registry\n",
-                    //     .{
-                    //         obj_typedef,
-                    //         try obj_typedef.toStringAlloc(self.allocator),
-                    //     },
-                    // );
-                    // unreachable;
-                    // FIXME: this should not occur. Right now this because of the way we resolve placeholders by changing their content and replacing the type in the typ registry
-                    // Previously registered same type is now outside of the type registry and is collected.
-                    return;
-                }
-            }
-
-            obj_typedef.deinit();
-
-            free(self, o.ObjTypeDef, obj_typedef);
-        },
-        .UpValue => {
-            const obj_upvalue = o.ObjUpValue.cast(obj).?;
-            if (obj_upvalue.closed) |value| {
-                if (value.isObj()) {
-                    try freeObj(self, value.obj());
-                }
-            }
-
-            free(self, o.ObjUpValue, obj_upvalue);
-        },
-        .Closure => {
-            var obj_closure = o.ObjClosure.cast(obj).?;
-            obj_closure.deinit(self.allocator);
-
-            free(self, o.ObjClosure, obj_closure);
-        },
-        .Function => {
-            var obj_function = o.ObjFunction.cast(obj).?;
-            obj_function.deinit();
-
-            free(self, o.ObjFunction, obj_function);
-        },
-        .ObjectInstance => {
-            var obj_objectinstance = o.ObjObjectInstance.cast(obj).?;
-
-            // Calling eventual destructor method
-            if (obj_objectinstance.object) |object| {
-                if (object.type_def.resolved_type.?.Object.fields.get("collect")) |field| {
-                    if (field.method and !field.static) {
-                        if (BuildOptions.gc_debug_access) {
-                            self.debugger.?.invoking_collector = true;
-                        }
-                        buzz_api.bz_invoke(
-                            obj_objectinstance.vm,
-                            obj_objectinstance.toValue(),
-                            field.index,
-                            null,
-                            0,
-                            null,
-                        );
-                        if (BuildOptions.gc_debug_access) {
-                            self.debugger.?.invoking_collector = false;
-                        }
-
-                        // Remove void result of the collect call
-                        _ = obj_objectinstance.vm.pop();
-                    }
-                }
-            }
-
-            obj_objectinstance.deinit(self.allocator);
-
-            free(self, o.ObjObjectInstance, obj_objectinstance);
-        },
-        .Object => {
-            var obj_object = o.ObjObject.cast(obj).?;
-            obj_object.deinit(self.allocator);
-
-            free(self, o.ObjObject, obj_object);
-        },
-        .List => {
-            var obj_list = o.ObjList.cast(obj).?;
-            obj_list.deinit(self.allocator);
-
-            free(self, o.ObjList, obj_list);
-        },
-        .Map => {
-            var obj_map = o.ObjMap.cast(obj).?;
-            obj_map.deinit(self.allocator);
-
-            free(self, o.ObjMap, obj_map);
-        },
-        .Enum => {
-            const obj_enum = o.ObjEnum.cast(obj).?;
-            self.allocator.free(obj_enum.cases);
-
-            free(self, o.ObjEnum, obj_enum);
-        },
-        .EnumInstance => free(self, o.ObjEnumInstance, o.ObjEnumInstance.cast(obj).?),
-        .Bound => free(self, o.ObjBoundMethod, o.ObjBoundMethod.cast(obj).?),
-        .Native => free(self, o.ObjNative, o.ObjNative.cast(obj).?),
-        .UserData => free(self, o.ObjUserData, o.ObjUserData.cast(obj).?),
-        .Fiber => {
-            var obj_fiber = o.ObjFiber.cast(obj).?;
-            obj_fiber.fiber.deinit();
-
-            self.allocator.destroy(obj_fiber.fiber);
-
-            free(self, o.ObjFiber, obj_fiber);
-        },
-        .ForeignContainer => {
-            const obj_foreignstruct = o.ObjForeignContainer.cast(obj).?;
-
-            self.freeMany(u8, obj_foreignstruct.data);
-
-            free(self, o.ObjForeignContainer, obj_foreignstruct);
-        },
-        .Range => {
-            free(self, o.ObjRange, o.ObjRange.cast(obj).?);
-        },
     }
 }
 
 pub fn markValue(self: *GC, value: Value) !void {
     if (value.isObj()) {
-        try self.markObj(value.obj());
+        const obj_idx = value.obj();
+        try switch (obj_idx.obj_type) {
+            .String => self.markObj(o.ObjString, .{ .index = obj_idx.index }),
+            .Pattern => self.markObj(o.ObjPattern, .{ .index = obj_idx.index }),
+            .UserData => self.markObj(o.ObjUserData, .{ .index = obj_idx.index }),
+            .Native => self.markObj(o.ObjNative, .{ .index = obj_idx.index }),
+            .Range => self.markObj(o.ObjRange, .{ .index = obj_idx.index }),
+            .Type => self.markObj(o.ObjTypeDef, .{ .index = obj_idx.index }),
+            .UpValue => self.markObj(o.ObjUpValue, .{ .index = obj_idx.index }),
+            .Closure => self.markObj(o.ObjClosure, .{ .index = obj_idx.index }),
+            .Function => self.markObj(o.ObjFunction, .{ .index = obj_idx.index }),
+            .ObjectInstance => self.markObj(o.ObjObjectInstance, .{ .index = obj_idx.index }),
+            .Object => self.markObj(o.ObjObject, .{ .index = obj_idx.index }),
+            .List => self.markObj(o.ObjList, .{ .index = obj_idx.index }),
+            .Map => self.markObj(o.ObjMap, .{ .index = obj_idx.index }),
+            .Enum => self.markObj(o.ObjEnum, .{ .index = obj_idx.index }),
+            .EnumInstance => self.markObj(o.ObjEnumInstance, .{ .index = obj_idx.index }),
+            .Bound => self.markObj(o.ObjBoundMethod, .{ .index = obj_idx.index }),
+            .Fiber => self.markObj(o.ObjFiber, .{ .index = obj_idx.index }),
+            .ForeignContainer => self.markObj(o.ObjForeignContainer, .{ .index = obj_idx.index }),
+        };
     }
 }
 
 pub fn markFiber(self: *GC, fiber: *v.Fiber) !void {
     var current_fiber: ?*v.Fiber = fiber;
     while (current_fiber) |ufiber| {
-        try self.markObj(@constCast(ufiber.type_def.toObj()));
+        try self.markObj(o.ObjTypeDef, ufiber.type_def);
         // Mark main fiber
         if (BuildOptions.gc_debug) {
             std.log.info("MARKING STACK OF FIBER @{}", .{@intFromPtr(ufiber)});
@@ -614,7 +683,7 @@ pub fn markFiber(self: *GC, fiber: *v.Fiber) !void {
             std.log.info("MARKING FRAMES OF FIBER @{}", .{@intFromPtr(ufiber)});
         }
         for (fiber.frames.items) |frame| {
-            try self.markObj(frame.closure.toObj());
+            try self.markObj(o.ObjClosure, frame.closure);
             if (frame.error_value) |error_value| {
                 try self.markValue(error_value);
             }
@@ -631,9 +700,9 @@ pub fn markFiber(self: *GC, fiber: *v.Fiber) !void {
             std.log.info("MARKING UPVALUES OF FIBER @{}", .{@intFromPtr(ufiber)});
         }
         if (fiber.open_upvalues) |open_upvalues| {
-            var upvalue: ?*o.ObjUpValue = open_upvalues;
-            while (upvalue) |unwrapped| : (upvalue = unwrapped.next) {
-                try self.markObj(unwrapped.toObj());
+            var upvalue: ?Pool(o.ObjUpValue).Idx = open_upvalues;
+            while (upvalue) |unwrapped| : (upvalue = self.get(o.ObjUpValue, unwrapped).?.next) {
+                try self.markObj(o.ObjUpValue, unwrapped);
             }
         }
         if (BuildOptions.gc_debug) {
@@ -651,25 +720,25 @@ fn markMethods(self: *GC) !void {
     // Mark basic types methods
     for (self.objfiber_members) |member| {
         if (member) |umember| {
-            try self.markObj(umember.toObj());
+            try self.markObj(o.ObjNative, umember);
         }
     }
 
     for (self.objrange_members) |member| {
         if (member) |umember| {
-            try self.markObj(umember.toObj());
+            try self.markObj(o.ObjNative, umember);
         }
     }
 
     for (self.objstring_members) |member| {
         if (member) |umember| {
-            try self.markObj(umember.toObj());
+            try self.markObj(o.ObjNative, umember);
         }
     }
 
     for (self.objpattern_members) |member| {
         if (member) |umember| {
-            try self.markObj(umember.toObj());
+            try self.markObj(o.ObjNative, umember);
         }
     }
 
@@ -686,13 +755,13 @@ fn markRoots(self: *GC, vm: *v.VM) !void {
 
     // Mark special strings we always need
     if (self.strings.get("$")) |dollar| {
-        try self.markObj(dollar.toObj());
+        try self.markObj(o.ObjString, dollar);
     }
 
     // Mark import registry
     var it = vm.import_registry.iterator();
     while (it.next()) |kv| {
-        try self.markObj(kv.key_ptr.*.toObj());
+        try self.markObj(o.ObjString, kv.key_ptr.*);
         for (kv.value_ptr.*) |global| {
             try self.markValue(global);
         }
@@ -725,8 +794,8 @@ fn traceReference(self: *GC) !void {
     if (BuildOptions.gc_debug) {
         std.log.info("TRACING REFERENCE", .{});
     }
-    while (self.gray_stack.items.len > 0) {
-        try blackenObject(self, self.gray_stack.pop().?);
+    while (self.gray_stack.pop()) |obj| {
+        try blackenObject(self, obj);
     }
     if (BuildOptions.gc_debug) {
         std.log.info("DONE TRACING REFERENCE", .{});
@@ -737,40 +806,39 @@ fn sweep(self: *GC, mode: Mode) !void {
     const swept: usize = self.bytes_allocated;
 
     var obj_count: usize = 0;
-    var obj_node = self.objects.first;
     var count: usize = 0;
-    while (obj_node) |node| : (count += 1) {
-        const obj: *o.Obj = @fieldParentPtr("node", node);
-        const marked = obj.marked;
-        if (marked) {
-            if (BuildOptions.gc_debug and mode == .Full) {
-                std.log.info(
-                    "UNMARKING @{}",
-                    .{
-                        @intFromPtr(
-                            @as(*o.Obj, @fieldParentPtr("node", node)),
-                        ),
-                    },
-                );
+
+    inline for (@typeInfo(@TypeOf(self.pools.pools)).@"struct".fields) |field| {
+        const pool = @field(self.pools.pools, field.name);
+
+        for (pool.slots.items, 0..) |*slot, i| {
+            if (slot.*) |*instance| {
+                count += 1;
+
+                if (instance.obj.marked) {
+                    if (BuildOptions.gc_debug and mode == .Full) {
+                        std.log.info(
+                            "UNMARKING @{s}{}",
+                            .{
+                                field.name,
+                                i,
+                            },
+                        );
+                    }
+
+                    // If not a full gc, we reset marked, this object is now 'old'
+                    instance.obj.marked = if (mode == .Full) false else instance.obj.marked;
+
+                    // If a young collection we don't reset marked flags and since we move all marked object
+                    // to the tail of the list, we can stop here, there's no more objects to collect
+                    // if (mode == .Young) {
+                    //     break;
+                    // }
+                } else {
+                    try self.freeObj(@TypeOf(instance.*), .{ .index = @intCast(i) });
+                    obj_count += 1;
+                }
             }
-            // If not a full gc, we reset marked, this object is now 'old'
-            obj.marked = if (mode == .Full) false else marked;
-
-            // If a young collection we don't reset marked flags and since we move all marked object
-            // to the tail of the list, we can stop here, there's no more objects to collect
-            if (mode == .Young) {
-                break;
-            }
-
-            obj_node = node.next;
-        } else {
-            const unreached: *o.Obj = obj;
-            obj_node = node.next;
-
-            self.objects.remove(node);
-
-            try freeObj(self, unreached);
-            obj_count += 1;
         }
     }
 
@@ -870,152 +938,3 @@ pub fn collectGarbage(self: *GC) !void {
         self.gc_time += timer.read();
     }
 }
-
-pub const Debugger = struct {
-    const Self = @This();
-
-    pub const Ptr = struct {
-        what: o.ObjType,
-        allocated_at: ?Token,
-        collected_at: ?Token = null,
-    };
-
-    allocator: std.mem.Allocator,
-    reporter: Reporter,
-    tracker: std.AutoHashMapUnmanaged(*o.Obj, Ptr),
-    invoking_collector: bool = false,
-
-    pub fn init(allocator: std.mem.Allocator) Self {
-        return .{
-            .allocator = allocator,
-            .tracker = std.AutoHashMapUnmanaged(*o.Obj, Ptr){},
-            .reporter = Reporter{
-                .allocator = allocator,
-            },
-        };
-    }
-
-    pub fn deinit(self: *Self) void {
-        self.tracker.deinit(self.allocator);
-    }
-
-    pub fn allocated(self: *Self, ptr: *o.Obj, at: ?Token, what: o.ObjType) void {
-        std.debug.assert(self.tracker.get(ptr) == null);
-        self.tracker.put(
-            self.allocator,
-            ptr,
-            Ptr{
-                .what = what,
-                .allocated_at = at,
-            },
-        ) catch @panic("Could not track object");
-    }
-
-    pub fn collected(self: *Self, ptr: *o.Obj, at: Token) void {
-        if (self.tracker.getPtr(ptr)) |tracked| {
-            if (tracked.collected_at) |collected_at| {
-                self.reporter.reportWithOrigin(
-                    .gc,
-                    at,
-                    at,
-                    collected_at,
-                    collected_at,
-                    "Trying to collected already collected {} {*}",
-                    .{ tracked.what, ptr },
-                    "first collected here",
-                );
-
-                @panic("Double collect");
-            }
-
-            tracked.collected_at = at;
-        } else {
-            @panic("Collect of untracked object");
-        }
-    }
-
-    pub fn accessed(self: *Self, ptr: *o.Obj, at: ?Token) void {
-        if (self.invoking_collector) return;
-
-        if (self.tracker.getPtr(ptr)) |tracked| {
-            if (tracked.collected_at) |collected_at| {
-                var items = std.ArrayList(Reporter.ReportItem).empty;
-                defer items.deinit(self.allocator);
-
-                var message = std.Io.Writer.Allocating.init(self.allocator);
-                defer message.deinit();
-
-                message.writer.print(
-                    "Access to already collected {} {*}",
-                    .{
-                        tracked.what,
-                        ptr,
-                    },
-                ) catch unreachable;
-
-                items.append(
-                    self.allocator,
-                    .{
-                        .location = at.?,
-                        .end_location = at.?,
-                        .kind = .@"error",
-                        .message = message.written(),
-                    },
-                ) catch unreachable;
-
-                if (tracked.allocated_at) |allocated_at| {
-                    items.append(
-                        self.allocator,
-                        .{
-                            .location = allocated_at,
-                            .end_location = allocated_at,
-                            .kind = .hint,
-                            .message = "allocated here",
-                        },
-                    ) catch unreachable;
-                }
-
-                items.append(
-                    self.allocator,
-                    .{
-                        .location = collected_at,
-                        .end_location = collected_at,
-                        .kind = .hint,
-                        .message = "collected here",
-                    },
-                ) catch unreachable;
-
-                var report = Reporter.Report{
-                    .message = message.items,
-                    .error_type = .gc,
-                    .items = items.items,
-                };
-
-                report.reportStderr(&self.reporter) catch unreachable;
-
-                @panic("Access to already collected object");
-            }
-        } else {
-            if (at) |accessed_at| {
-                self.reporter.reportErrorFmt(
-                    .gc,
-                    accessed_at,
-                    accessed_at,
-                    "Untracked obj {*}",
-                    .{
-                        ptr,
-                    },
-                );
-            } else {
-                std.log.warn(
-                    "Untracked obj {*}",
-                    .{
-                        ptr,
-                    },
-                );
-            }
-
-            @panic("Access to untracked object");
-        }
-    }
-};

@@ -205,7 +205,7 @@ pub fn evaluate(self: *Runner, parent_fiber: *Fiber, parent_frame: *CallFrame, e
         const local_dbg = parent_fiber.locals_dbg.items[i];
 
         if (local_dbg.isObj()) {
-            const name = o.ObjString.cast(local_dbg.obj()).?.string;
+            const name = self.vm.gc.get(o.ObjString, .idx(local_dbg.obj().index)).?.string;
 
             // "Hidden" locals start with `$`
             if (name[0] != '$') {
@@ -213,8 +213,11 @@ pub fn evaluate(self: *Runner, parent_fiber: *Fiber, parent_frame: *CallFrame, e
                     "{s}: {s}, ",
                     .{
                         name,
-                        try (try parent_fiber.stack[i + 1].typeOf(&self.gc))
-                            .toStringAlloc(self.gc.allocator, false),
+                        o.ObjTypeDef.toStringAlloc(
+                            try parent_fiber.stack[i + 1].typeOf(&self.gc),
+                            self.vm.gc,
+                            false,
+                        ),
                     },
                 );
             }

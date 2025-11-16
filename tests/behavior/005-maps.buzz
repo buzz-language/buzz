@@ -14,7 +14,7 @@ test "Maps" {
     std\assert(({ 1: true, 2: false })[2] == false, message: "map expression subscript");
 
     std\assert(map.remove("hello") == 1, message: "removed element");
-    // std\assert(map["hello"] == null, message: "removed element");
+    std\assert(map["hello"] == null, message: "removed element");
     std\assert(map.size() == 1, message: "map size");
 }
 

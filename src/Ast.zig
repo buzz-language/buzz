@@ -11,6 +11,7 @@ const GC = @import("GC.zig");
 const Error = @import("Codegen.zig").Error;
 const Reporter = @import("Reporter.zig");
 const TypeChecker = @import("TypeChecker.zig");
+const Pool = @import("pool.zig").Pool;
 
 const Self = @This();
 
@@ -33,22 +34,22 @@ pub const Slice = struct {
 
     /// Do a breadth first walk of the AST, calling a callback for each node that can stop the walking from going deeper by returning true
     /// ctx should have:
-    /// - `fn processNode(ctx: @TypeOf(ctx), allocator: std.mem.Allocator, ast: Ast.Slice, node: Node.Index) error{OutOfMemory}!bool: returns true to stop walking deeper
+    /// - `fn processNode(ctx: @TypeOf(ctx), gc: *GC, ast: Ast.Slice, node: Node.Index) error{OutOfMemory}!bool: returns true to stop walking deeper
     // FIXME: the context should have a error type we can reuse in processNode signature
-    pub fn walk(self: Slice, allocator: std.mem.Allocator, ctx: anytype, root: Node.Index) !void {
+    pub fn walk(self: Slice, gc: *GC, ctx: anytype, root: Node.Index) !void {
         const tags = self.nodes.items(.tag);
         const components = self.nodes.items(.components);
 
         // Hold previous node's leaves
         var node_queue = std.ArrayList(Node.Index){};
-        try node_queue.append(allocator, root);
-        defer node_queue.deinit(allocator);
+        try node_queue.append(gc.allocator, root);
+        defer node_queue.deinit(gc.allocator);
 
         while (node_queue.items.len > 0) {
             const node = node_queue.orderedRemove(0);
 
             // Stop if requested and if there's no neighbors to process
-            if (try ctx.processNode(allocator, self, node) and node_queue.items.len == 0) {
+            if (try ctx.processNode(gc, self, node) and node_queue.items.len == 0) {
                 return;
             }
 
@@ -57,12 +58,12 @@ pub const Slice = struct {
             switch (tags[node]) {
                 .AnonymousObjectType => {
                     for (comp.AnonymousObjectType.fields) |field| {
-                        try node_queue.append(allocator, field.type);
+                        try node_queue.append(gc.allocator, field.type);
                     }
                 },
                 .Is => {
                     try node_queue.appendSlice(
-                        allocator,
+                        gc.allocator,
                         &.{
                             comp.Is.left,
                             comp.Is.constant,
@@ -71,234 +72,234 @@ pub const Slice = struct {
                 },
                 .As => {
                     try node_queue.appendSlice(
-                        allocator,
+                        gc.allocator,
                         &.{
                             comp.As.left,
                             comp.As.constant,
                         },
                     );
                 },
-                .AsyncCall => try node_queue.append(allocator, comp.AsyncCall),
+                .AsyncCall => try node_queue.append(gc.allocator, comp.AsyncCall),
                 .Binary => {
-                    try node_queue.append(allocator, comp.Binary.left);
-                    try node_queue.append(allocator, comp.Binary.right);
+                    try node_queue.append(gc.allocator, comp.Binary.left);
+                    try node_queue.append(gc.allocator, comp.Binary.right);
                 },
-                .Block => try node_queue.appendSlice(allocator, comp.Block),
-                .BlockExpression => try node_queue.appendSlice(allocator, comp.BlockExpression),
+                .Block => try node_queue.appendSlice(gc.allocator, comp.Block),
+                .BlockExpression => try node_queue.appendSlice(gc.allocator, comp.BlockExpression),
                 .Call => {
                     // Avoid loop between Call and Dot nodes
                     if (tags[comp.Call.callee] != .Dot or
                         components[comp.Call.callee].Dot.member_kind != .Call or
                         components[comp.Call.callee].Dot.value_or_call_or_enum.Call != node)
                     {
-                        try node_queue.append(allocator, comp.Call.callee);
+                        try node_queue.append(gc.allocator, comp.Call.callee);
                     }
                     if (comp.Call.catch_default) |default| {
-                        try node_queue.append(allocator, default);
+                        try node_queue.append(gc.allocator, default);
                     }
                     for (comp.Call.arguments) |arg| {
-                        try node_queue.append(allocator, arg.value);
+                        try node_queue.append(gc.allocator, arg.value);
                     }
                 },
                 .Dot => {
-                    try node_queue.append(allocator, comp.Dot.callee);
+                    try node_queue.append(gc.allocator, comp.Dot.callee);
                     if (comp.Dot.generic_resolve) |generic_resolve| {
-                        try node_queue.append(allocator, generic_resolve);
+                        try node_queue.append(gc.allocator, generic_resolve);
                     }
                     switch (comp.Dot.member_kind) {
-                        .Value => try node_queue.append(allocator, comp.Dot.value_or_call_or_enum.Value.value),
+                        .Value => try node_queue.append(gc.allocator, comp.Dot.value_or_call_or_enum.Value.value),
                         .Call => {
                             // We avoid the actual Call node, we're only interested in the Call's parts
                             const call = components[comp.Dot.value_or_call_or_enum.Call].Call;
                             if (call.catch_default) |default| {
-                                try node_queue.append(allocator, default);
+                                try node_queue.append(gc.allocator, default);
                             }
                             for (call.arguments) |arg| {
-                                try node_queue.append(allocator, arg.value);
+                                try node_queue.append(gc.allocator, arg.value);
                             }
                         },
                         .Ref, .EnumCase => {},
                     }
                 },
                 .DoUntil => {
-                    try node_queue.append(allocator, comp.DoUntil.condition);
-                    try node_queue.append(allocator, comp.DoUntil.body);
+                    try node_queue.append(gc.allocator, comp.DoUntil.condition);
+                    try node_queue.append(gc.allocator, comp.DoUntil.body);
                 },
                 .Enum => {
                     if (comp.Enum.case_type) |case_type| {
-                        try node_queue.append(allocator, case_type);
+                        try node_queue.append(gc.allocator, case_type);
                     }
                     for (comp.Enum.cases) |case| {
                         if (case.value) |value| {
-                            try node_queue.append(allocator, value);
+                            try node_queue.append(gc.allocator, value);
                         }
                     }
                 },
                 .Export => {
                     if (comp.Export.declaration) |decl| {
-                        try node_queue.append(allocator, decl);
+                        try node_queue.append(gc.allocator, decl);
                     }
                 },
-                .Expression => try node_queue.append(allocator, comp.Expression),
+                .Expression => try node_queue.append(gc.allocator, comp.Expression),
                 .FiberType => {
-                    try node_queue.append(allocator, comp.FiberType.return_type);
-                    try node_queue.append(allocator, comp.FiberType.yield_type);
+                    try node_queue.append(gc.allocator, comp.FiberType.return_type);
+                    try node_queue.append(gc.allocator, comp.FiberType.yield_type);
                 },
                 .For => {
-                    try node_queue.append(allocator, comp.For.condition);
-                    try node_queue.append(allocator, comp.For.body);
-                    try node_queue.appendSlice(allocator, comp.For.init_declarations);
-                    try node_queue.appendSlice(allocator, comp.For.post_loop);
+                    try node_queue.append(gc.allocator, comp.For.condition);
+                    try node_queue.append(gc.allocator, comp.For.body);
+                    try node_queue.appendSlice(gc.allocator, comp.For.init_declarations);
+                    try node_queue.appendSlice(gc.allocator, comp.For.post_loop);
                 },
-                .ForceUnwrap => try node_queue.append(allocator, comp.ForceUnwrap.unwrapped),
+                .ForceUnwrap => try node_queue.append(gc.allocator, comp.ForceUnwrap.unwrapped),
                 .ForEach => {
-                    try node_queue.append(allocator, comp.ForEach.iterable);
-                    try node_queue.append(allocator, comp.ForEach.body);
-                    try node_queue.append(allocator, comp.ForEach.key);
-                    try node_queue.append(allocator, comp.ForEach.value);
+                    try node_queue.append(gc.allocator, comp.ForEach.iterable);
+                    try node_queue.append(gc.allocator, comp.ForEach.body);
+                    try node_queue.append(gc.allocator, comp.ForEach.key);
+                    try node_queue.append(gc.allocator, comp.ForEach.value);
                 },
                 .Function => {
                     if (comp.Function.body) |body| {
-                        try node_queue.append(allocator, body);
+                        try node_queue.append(gc.allocator, body);
                     }
 
                     if (comp.Function.function_signature) |signature| {
-                        try node_queue.append(allocator, signature);
+                        try node_queue.append(gc.allocator, signature);
                     }
                 },
                 .FunctionType => {
                     if (comp.FunctionType.return_type) |return_type| {
-                        try node_queue.append(allocator, return_type);
+                        try node_queue.append(gc.allocator, return_type);
                     }
 
                     if (comp.FunctionType.yield_type) |yield_type| {
-                        try node_queue.append(allocator, yield_type);
+                        try node_queue.append(gc.allocator, yield_type);
                     }
 
-                    try node_queue.appendSlice(allocator, comp.FunctionType.error_types);
+                    try node_queue.appendSlice(gc.allocator, comp.FunctionType.error_types);
 
                     for (comp.FunctionType.arguments) |arg| {
-                        try node_queue.append(allocator, arg.type);
+                        try node_queue.append(gc.allocator, arg.type);
 
                         if (arg.default) |default| {
-                            try node_queue.append(allocator, default);
+                            try node_queue.append(gc.allocator, default);
                         }
                     }
                 },
-                .FunDeclaration => try node_queue.append(allocator, comp.FunDeclaration.function),
+                .FunDeclaration => try node_queue.append(gc.allocator, comp.FunDeclaration.function),
                 .GenericResolve => {
-                    try node_queue.append(allocator, comp.GenericResolve.expression);
-                    try node_queue.appendSlice(allocator, comp.GenericResolve.resolved_types);
+                    try node_queue.append(gc.allocator, comp.GenericResolve.expression);
+                    try node_queue.appendSlice(gc.allocator, comp.GenericResolve.resolved_types);
                 },
-                .GenericResolveType => try node_queue.appendSlice(allocator, comp.GenericResolveType),
-                .Grouping => try node_queue.append(allocator, comp.Grouping),
+                .GenericResolveType => try node_queue.appendSlice(gc.allocator, comp.GenericResolveType),
+                .Grouping => try node_queue.append(gc.allocator, comp.Grouping),
                 .If => {
-                    try node_queue.append(allocator, comp.If.condition);
-                    try node_queue.append(allocator, comp.If.body);
+                    try node_queue.append(gc.allocator, comp.If.condition);
+                    try node_queue.append(gc.allocator, comp.If.body);
                     if (comp.If.casted_type) |casted_type| {
-                        try node_queue.append(allocator, casted_type);
+                        try node_queue.append(gc.allocator, casted_type);
                     }
                     if (comp.If.else_branch) |else_branch| {
-                        try node_queue.append(allocator, else_branch);
+                        try node_queue.append(gc.allocator, else_branch);
                     }
                 },
                 .List => {
-                    try node_queue.appendSlice(allocator, comp.List.items);
+                    try node_queue.appendSlice(gc.allocator, comp.List.items);
                     if (comp.List.explicit_item_type) |item_type| {
-                        try node_queue.append(allocator, item_type);
+                        try node_queue.append(gc.allocator, item_type);
                     }
                 },
-                .ListType => try node_queue.append(allocator, comp.ListType),
+                .ListType => try node_queue.append(gc.allocator, comp.ListType),
                 .Map => {
                     if (comp.Map.explicit_key_type) |key_type| {
-                        try node_queue.append(allocator, key_type);
+                        try node_queue.append(gc.allocator, key_type);
                     }
 
                     if (comp.Map.explicit_value_type) |value_type| {
-                        try node_queue.append(allocator, value_type);
+                        try node_queue.append(gc.allocator, value_type);
                     }
 
                     for (comp.Map.entries) |entry| {
-                        try node_queue.append(allocator, entry.key);
-                        try node_queue.append(allocator, entry.value);
+                        try node_queue.append(gc.allocator, entry.key);
+                        try node_queue.append(gc.allocator, entry.value);
                     }
                 },
                 .MapType => {
-                    try node_queue.append(allocator, comp.MapType.key_type);
-                    try node_queue.append(allocator, comp.MapType.value_type);
+                    try node_queue.append(gc.allocator, comp.MapType.key_type);
+                    try node_queue.append(gc.allocator, comp.MapType.value_type);
                 },
                 .NamedVariable => if (comp.NamedVariable.value) |value|
-                    try node_queue.append(allocator, value),
+                    try node_queue.append(gc.allocator, value),
                 .ObjectDeclaration => {
-                    try node_queue.appendSlice(allocator, comp.ObjectDeclaration.protocols);
+                    try node_queue.appendSlice(gc.allocator, comp.ObjectDeclaration.protocols);
                     for (comp.ObjectDeclaration.members) |member| {
                         if (member.property_type) |property_type| {
-                            try node_queue.append(allocator, property_type);
+                            try node_queue.append(gc.allocator, property_type);
                         }
                         if (member.method_or_default_value) |value| {
-                            try node_queue.append(allocator, value);
+                            try node_queue.append(gc.allocator, value);
                         }
                     }
                 },
                 .ObjectInit => {
                     if (comp.ObjectInit.object) |object| {
-                        try node_queue.append(allocator, object);
+                        try node_queue.append(gc.allocator, object);
                     }
                     for (comp.ObjectInit.properties) |property| {
-                        try node_queue.append(allocator, property.value);
+                        try node_queue.append(gc.allocator, property.value);
                     }
                 },
-                .Out => try node_queue.append(allocator, comp.Out),
+                .Out => try node_queue.append(gc.allocator, comp.Out),
                 .ProtocolDeclaration => for (comp.ProtocolDeclaration.methods) |method| {
-                    try node_queue.append(allocator, method.method);
+                    try node_queue.append(gc.allocator, method.method);
                 },
                 .Range => {
-                    try node_queue.append(allocator, comp.Range.low);
-                    try node_queue.append(allocator, comp.Range.high);
+                    try node_queue.append(gc.allocator, comp.Range.low);
+                    try node_queue.append(gc.allocator, comp.Range.high);
                 },
-                .Resolve => try node_queue.append(allocator, comp.Resolve),
-                .Resume => try node_queue.append(allocator, comp.Resume),
+                .Resolve => try node_queue.append(gc.allocator, comp.Resolve),
+                .Resume => try node_queue.append(gc.allocator, comp.Resume),
                 .Return => if (comp.Return.value) |value|
-                    try node_queue.append(allocator, value),
+                    try node_queue.append(gc.allocator, value),
                 .String => for (comp.String) |el|
-                    try node_queue.append(allocator, el),
+                    try node_queue.append(gc.allocator, el),
                 .Subscript => {
-                    try node_queue.append(allocator, comp.Subscript.subscripted);
-                    try node_queue.append(allocator, comp.Subscript.index);
+                    try node_queue.append(gc.allocator, comp.Subscript.subscripted);
+                    try node_queue.append(gc.allocator, comp.Subscript.index);
                     if (comp.Subscript.value) |value| {
-                        try node_queue.append(allocator, value);
+                        try node_queue.append(gc.allocator, value);
                     }
                 },
-                .Throw => try node_queue.append(allocator, comp.Throw.expression),
+                .Throw => try node_queue.append(gc.allocator, comp.Throw.expression),
                 .Try => {
-                    try node_queue.append(allocator, comp.Try.body);
+                    try node_queue.append(gc.allocator, comp.Try.body);
                     if (comp.Try.unconditional_clause) |clause| {
-                        try node_queue.append(allocator, clause);
+                        try node_queue.append(gc.allocator, clause);
                     }
                     for (comp.Try.clauses) |clause| {
-                        try node_queue.append(allocator, clause.type_def);
-                        try node_queue.append(allocator, clause.body);
+                        try node_queue.append(gc.allocator, clause.type_def);
+                        try node_queue.append(gc.allocator, clause.body);
                     }
                 },
-                .TypeExpression => try node_queue.append(allocator, comp.TypeExpression),
-                .TypeOfExpression => try node_queue.append(allocator, comp.TypeOfExpression),
-                .Unary => try node_queue.append(allocator, comp.Unary.expression),
-                .Unwrap => try node_queue.append(allocator, comp.Unwrap.unwrapped),
+                .TypeExpression => try node_queue.append(gc.allocator, comp.TypeExpression),
+                .TypeOfExpression => try node_queue.append(gc.allocator, comp.TypeOfExpression),
+                .Unary => try node_queue.append(gc.allocator, comp.Unary.expression),
+                .Unwrap => try node_queue.append(gc.allocator, comp.Unwrap.unwrapped),
                 .UserType => if (comp.UserType.generic_resolve) |generic_resolve|
-                    try node_queue.append(allocator, generic_resolve),
+                    try node_queue.append(gc.allocator, generic_resolve),
                 .VarDeclaration => {
                     if (comp.VarDeclaration.value) |value| {
-                        try node_queue.append(allocator, value);
+                        try node_queue.append(gc.allocator, value);
                     }
                     if (comp.VarDeclaration.type) |type_def| {
-                        try node_queue.append(allocator, type_def);
+                        try node_queue.append(gc.allocator, type_def);
                     }
                 },
                 .While => {
-                    try node_queue.append(allocator, comp.While.condition);
-                    try node_queue.append(allocator, comp.While.body);
+                    try node_queue.append(gc.allocator, comp.While.condition);
+                    try node_queue.append(gc.allocator, comp.While.body);
                 },
-                .Yield => try node_queue.append(allocator, comp.Yield),
+                .Yield => try node_queue.append(gc.allocator, comp.Yield),
                 .Boolean,
                 .Break,
                 .Continue,
@@ -321,7 +322,7 @@ pub const Slice = struct {
     const UsesFiberContext = struct {
         result: bool = false,
 
-        pub fn processNode(self: *UsesFiberContext, _: std.mem.Allocator, ast: Self.Slice, node: Self.Node.Index) (std.mem.Allocator.Error || std.fmt.BufPrintError)!bool {
+        pub fn processNode(self: *UsesFiberContext, _: *GC, ast: Self.Slice, node: Self.Node.Index) (std.mem.Allocator.Error || std.fmt.BufPrintError)!bool {
             switch (ast.nodes.items(.tag)[node]) {
                 .AsyncCall,
                 .Resolve,
@@ -336,10 +337,10 @@ pub const Slice = struct {
         }
     };
 
-    pub fn usesFiber(self: Self.Slice, allocator: std.mem.Allocator, node: Node.Index) !bool {
+    pub fn usesFiber(self: Self.Slice, gc: *GC, node: Node.Index) !bool {
         var ctx = UsesFiberContext{};
 
-        try self.walk(allocator, &ctx, node);
+        try self.walk(gc, &ctx, node);
 
         return ctx.result;
     }
@@ -347,7 +348,7 @@ pub const Slice = struct {
     const IsConstantContext = struct {
         result: ?bool = null,
 
-        pub fn processNode(self: *IsConstantContext, _: std.mem.Allocator, ast: Self.Slice, node: Self.Node.Index) (std.mem.Allocator.Error || std.fmt.BufPrintError)!bool {
+        pub fn processNode(self: *IsConstantContext, gc: *GC, ast: Self.Slice, node: Self.Node.Index) (std.mem.Allocator.Error || std.fmt.BufPrintError)!bool {
             switch (ast.nodes.items(.tag)[node]) {
                 .AnonymousObjectType,
                 .FiberType,
@@ -403,7 +404,10 @@ pub const Slice = struct {
                 },
 
                 .Dot => {
-                    const type_def = ast.nodes.items(.type_def)[ast.nodes.items(.components)[node].Dot.callee].?;
+                    const type_def = gc.get(
+                        obj.ObjTypeDef,
+                        ast.nodes.items(.type_def)[ast.nodes.items(.components)[node].Dot.callee].?,
+                    ).?;
 
                     self.result = (self.result == null or self.result.?) and type_def.def_type == .Enum;
 
@@ -421,7 +425,9 @@ pub const Slice = struct {
                     const components = ast.nodes.items(.components)[node].List;
                     const node_types = ast.nodes.items(.tag);
 
-                    if (ast.nodes.items(.type_def)[node].?.resolved_type.?.List.mutable) {
+                    if (gc.get(obj.ObjTypeDef, ast.nodes.items(.type_def)[node].?).?
+                        .resolved_type.?.List.mutable)
+                    {
                         self.result = false;
                         return true;
                     }
@@ -441,7 +447,9 @@ pub const Slice = struct {
                     const components = ast.nodes.items(.components)[node].Map;
                     const node_types = ast.nodes.items(.tag);
 
-                    if (ast.nodes.items(.type_def)[node].?.resolved_type.?.Map.mutable) {
+                    if (gc.get(obj.ObjTypeDef, ast.nodes.items(.type_def)[node].?).?
+                        .resolved_type.?.Map.mutable)
+                    {
                         self.result = false;
                         return true;
                     }
@@ -488,10 +496,10 @@ pub const Slice = struct {
         }
     };
 
-    pub fn isConstant(self: Self.Slice, allocator: std.mem.Allocator, node: Node.Index) !bool {
+    pub fn isConstant(self: Self.Slice, gc: *GC, node: Node.Index) !bool {
         var ctx = IsConstantContext{};
 
-        try self.walk(allocator, &ctx, node);
+        try self.walk(gc, &ctx, node);
 
         return ctx.result orelse false;
     }
@@ -624,24 +632,47 @@ pub const Slice = struct {
 
                 return Value.fromBoolean(left_float orelse left_integer.? <= right_float orelse right_integer.?);
             },
-            .BangEqual => return Value.fromBoolean(!left.eql(right)),
-            .EqualEqual => return Value.fromBoolean(left.eql(right)),
+            .BangEqual => return Value.fromBoolean(!left.eql(right, gc)),
+            .EqualEqual => return Value.fromBoolean(left.eql(right, gc)),
             .Plus => {
-                const right_string = if (right.isObj()) obj.ObjString.cast(right.obj()) else null;
-                const left_string = if (left.isObj()) obj.ObjString.cast(left.obj()) else null;
+                const right_string = if (right.isObj() and right.obj().obj_type == .String)
+                    gc.get(obj.ObjString, .idx(right.obj().index)).?
+                else
+                    null;
+                const left_string = if (left.isObj() and left.obj().obj_type == .String)
+                    gc.get(obj.ObjString, .idx(left.obj().index)).?
+                else
+                    null;
 
-                const right_list = if (right.isObj()) obj.ObjList.cast(right.obj()) else null;
-                const left_list = if (left.isObj()) obj.ObjList.cast(left.obj()) else null;
+                const right_list = if (right.isObj() and right.obj().obj_type == .List)
+                    gc.get(obj.ObjList, .idx(right.obj().index))
+                else
+                    null;
+                const left_list = if (left.isObj() and left.obj().obj_type == .List)
+                    gc.get(obj.ObjList, .idx(left.obj().index))
+                else
+                    null;
 
-                const right_map = if (right.isObj()) obj.ObjMap.cast(right.obj()) else null;
-                const left_map = if (left.isObj()) obj.ObjMap.cast(left.obj()) else null;
+                const right_map = if (right.isObj() and right.obj().obj_type == .Map)
+                    gc.get(obj.ObjMap, .idx(right.obj().index))
+                else
+                    null;
+                const left_map = if (left.isObj() and left.obj().obj_type == .Map)
+                    gc.get(obj.ObjMap, .idx(left.obj().index))
+                else
+                    null;
 
                 if (right_string) |rs| {
                     var new_string = std.ArrayList(u8).empty;
                     try new_string.appendSlice(gc.allocator, left_string.?.string);
                     try new_string.appendSlice(gc.allocator, rs.string);
 
-                    return (try gc.copyString(try new_string.toOwnedSlice(gc.allocator))).toValue();
+                    return Value.fromObj(
+                        .{
+                            .index = (try gc.copyString(try new_string.toOwnedSlice(gc.allocator))).index,
+                            .obj_type = .String,
+                        },
+                    );
                 } else if (right_float) |rf| {
                     return Value.fromDouble(rf + left_float.?);
                 } else if (right_integer) |ri| {
@@ -651,13 +682,18 @@ pub const Slice = struct {
                     try new_list.appendSlice(gc.allocator, left_list.?.items.items);
                     try new_list.appendSlice(gc.allocator, rl.items.items);
 
-                    return (try gc.allocateObject(
-                        obj.ObjList{
-                            .type_def = left_list.?.type_def,
-                            .methods = left_list.?.methods,
-                            .items = new_list,
+                    return Value.fromObj(
+                        .{
+                            .index = (try gc.allocateObject(
+                                obj.ObjList{
+                                    .type_def = left_list.?.type_def,
+                                    .methods = left_list.?.methods,
+                                    .items = new_list,
+                                },
+                            )).index,
+                            .obj_type = .Native,
                         },
-                    )).toValue();
+                    );
                 } else {
                     var new_map = try left_map.?.map.clone(gc.allocator);
                     var it = right_map.?.map.iterator();
@@ -669,13 +705,18 @@ pub const Slice = struct {
                         );
                     }
 
-                    return (try gc.allocateObject(
-                        obj.ObjMap{
-                            .type_def = left_map.?.type_def,
-                            .methods = left_map.?.methods,
-                            .map = new_map,
+                    return Value.fromObj(
+                        .{
+                            .index = (try gc.allocateObject(
+                                obj.ObjMap{
+                                    .type_def = left_map.?.type_def,
+                                    .methods = left_map.?.methods,
+                                    .map = new_map,
+                                },
+                            )).index,
+                            .obj_type = .Native,
                         },
-                    )).toValue();
+                    );
                 }
             },
             .Minus => {
@@ -752,7 +793,7 @@ pub const Slice = struct {
         // const type_defs = self.nodes.items(.type_def);
         const components = self.nodes.items(.components);
 
-        if (value.* == null and try self.isConstant(gc.allocator, node)) {
+        if (value.* == null and try self.isConstant(gc, node)) {
             value.* = switch (self.nodes.items(.tag)[node]) {
                 .AnonymousObjectType,
                 .FiberType,
@@ -763,15 +804,40 @@ pub const Slice = struct {
                 .MapType,
                 .SimpleType,
                 .UserType,
-                => self.nodes.items(.type_def)[node].?.toValue(),
-                .StringLiteral => components[node].StringLiteral.literal.toValue(),
-                .TypeOfExpression => (try (try self.toValue(
-                    components[node].TypeOfExpression,
-                    reporter,
-                    gc,
-                )).typeOf(gc)).toValue(),
-                .TypeExpression => self.nodes.items(.type_def)[components[node].TypeExpression].?.toValue(),
-                .Pattern => components[node].Pattern.toValue(),
+                => Value.fromObj(
+                    .{
+                        .index = self.nodes.items(.type_def)[node].?.index,
+                        .obj_type = .Type,
+                    },
+                ),
+                .StringLiteral => Value.fromObj(
+                    .{
+                        .index = components[node].StringLiteral.literal.index,
+                        .obj_type = .String,
+                    },
+                ),
+                .TypeOfExpression => Value.fromObj(
+                    .{
+                        .index = (try (try self.toValue(
+                            components[node].TypeOfExpression,
+                            reporter,
+                            gc,
+                        )).typeOf(gc)).index,
+                        .obj_type = .Type,
+                    },
+                ),
+                .TypeExpression => Value.fromObj(
+                    .{
+                        .index = self.nodes.items(.type_def)[components[node].TypeExpression].?.index,
+                        .obj_type = .Type,
+                    },
+                ),
+                .Pattern => Value.fromObj(
+                    .{
+                        .index = components[node].Pattern.index,
+                        .obj_type = .Pattern,
+                    },
+                ),
                 .Void => Value.Void,
                 .Null => Value.Null,
                 .Double => Value.fromDouble(components[node].Double),
@@ -782,7 +848,10 @@ pub const Slice = struct {
                     const is_components = components[node].Is;
                     break :is Value.fromBoolean(
                         (try self.toValue(is_components.constant, reporter, gc))
-                            .is(try self.toValue(is_components.left, reporter, gc)),
+                            .is(
+                            try self.toValue(is_components.left, reporter, gc),
+                            gc,
+                        ),
                     );
                 },
                 .Binary => try self.binaryValue(node, reporter, gc),
@@ -791,12 +860,17 @@ pub const Slice = struct {
                     const dot_components = components[node].Dot;
                     const type_def = self.nodes.items(.type_def)[dot_components.callee].?;
 
-                    break :dot (try gc.allocateObject(
-                        obj.ObjEnumInstance{
-                            .enum_ref = type_def.resolved_type.?.Enum.value.?,
-                            .case = @intCast(dot_components.value_or_call_or_enum.EnumCase),
+                    break :dot Value.fromObj(
+                        .{
+                            .index = (try gc.allocateObject(
+                                obj.ObjEnumInstance{
+                                    .enum_ref = gc.get(obj.ObjTypeDef, type_def).?.resolved_type.?.Enum.value.?,
+                                    .case = @intCast(dot_components.value_or_call_or_enum.EnumCase),
+                                },
+                            )).index,
+                            .obj_type = .EnumInstance,
                         },
-                    )).toValue();
+                    );
                 },
                 .Expression => try self.toValue(components[node].Expression, reporter, gc),
                 .Grouping => try self.toValue(components[node].Grouping, reporter, gc),
@@ -820,22 +894,32 @@ pub const Slice = struct {
                 .Range => range: {
                     const rg_components = components[node].Range;
 
-                    break :range (try gc.allocateObject(
-                        obj.ObjRange{
-                            .low = (try self.toValue(rg_components.low, reporter, gc)).integer(),
-                            .high = (try self.toValue(rg_components.high, reporter, gc)).integer(),
+                    break :range Value.fromObj(
+                        .{
+                            .index = (try gc.allocateObject(
+                                obj.ObjRange{
+                                    .low = (try self.toValue(rg_components.low, reporter, gc)).integer(),
+                                    .high = (try self.toValue(rg_components.high, reporter, gc)).integer(),
+                                },
+                            )).index,
+                            .obj_type = .Range,
                         },
-                    )).toValue();
+                    );
                 },
                 .List => list: {
                     const list_components = components[node].List;
-                    const type_def = self.nodes.items(.type_def)[node];
+                    const type_def_idx = self.nodes.items(.type_def)[node].?;
+                    const type_def = gc.get(obj.ObjTypeDef, type_def_idx);
 
-                    std.debug.assert(type_def != null and type_def.?.def_type != .Placeholder);
-
-                    var list = try gc.allocateObject(
-                        try obj.ObjList.init(gc.allocator, type_def.?),
+                    std.debug.assert(
+                        type_def != null and
+                            type_def.?.def_type != .Placeholder,
                     );
+
+                    const list_idx = try gc.allocateObject(
+                        try obj.ObjList.init(gc.allocator, type_def_idx),
+                    );
+                    var list = gc.get(obj.ObjList, list_idx).?;
 
                     for (list_components.items) |item| {
                         try list.items.append(
@@ -844,17 +928,19 @@ pub const Slice = struct {
                         );
                     }
 
-                    break :list list.toValue();
+                    break :list Value.fromObj(.{ .index = list_idx.index, .obj_type = .List });
                 },
                 .Map => map: {
                     const map_components = components[node].Map;
-                    const type_def = self.nodes.items(.type_def)[node];
+                    const type_def_idx = self.nodes.items(.type_def)[node];
+                    const type_def = gc.get(obj.ObjTypeDef, type_def_idx.?).?;
 
-                    std.debug.assert(type_def != null and type_def.?.def_type != .Placeholder);
+                    std.debug.assert(type_def_idx != null and type_def.def_type != .Placeholder);
 
-                    var map = try gc.allocateObject(
-                        try obj.ObjMap.init(gc.allocator, type_def.?),
+                    const map_idx = try gc.allocateObject(
+                        try obj.ObjMap.init(gc.allocator, type_def_idx.?),
                     );
+                    var map = gc.get(obj.ObjMap, map_idx).?;
 
                     for (map_components.entries) |entry| {
                         try map.map.put(
@@ -864,7 +950,7 @@ pub const Slice = struct {
                         );
                     }
 
-                    break :map map.toValue();
+                    break :map Value.fromObj(.{ .index = map_idx.index, .obj_type = .Map });
                 },
                 .String => string: {
                     const elements = components[node].String;
@@ -873,10 +959,16 @@ pub const Slice = struct {
                     defer string.deinit();
 
                     for (elements) |element| {
-                        try (try self.toValue(element, reporter, gc)).toString(&string.writer);
+                        try (try self.toValue(element, reporter, gc))
+                            .toString(gc, &string.writer);
                     }
 
-                    break :string (try gc.copyString(string.written())).toValue();
+                    break :string Value.fromObj(
+                        .{
+                            .index = (try gc.copyString(string.written())).index,
+                            .obj_type = .String,
+                        },
+                    );
                 },
                 .Subscript => subscript: {
                     const subscript_components = components[node].Subscript;
@@ -886,7 +978,7 @@ pub const Slice = struct {
 
                     switch (subscriptable.obj_type) {
                         .List => {
-                            const list = obj.ObjList.cast(subscriptable).?;
+                            const list = gc.get(obj.ObjList, .idx(subscriptable.index)).?;
                             const index: usize = @intCast(key.integer());
 
                             if (index < 0 or index >= list.items.items.len) {
@@ -900,12 +992,12 @@ pub const Slice = struct {
                             break :subscript list.items.items[index];
                         },
                         .Map => {
-                            const map = obj.ObjMap.cast(subscriptable).?;
+                            const map = gc.get(obj.ObjMap, .idx(subscriptable.index)).?;
 
                             break :subscript map.map.get(key) orelse Value.Null;
                         },
                         .String => {
-                            const str = obj.ObjString.cast(subscriptable).?;
+                            const str = gc.get(obj.ObjString, .idx(subscriptable.index)).?;
                             const index: usize = @intCast(key.integer());
 
                             if (index < 0 or index >= str.string.len) {
@@ -916,9 +1008,12 @@ pub const Slice = struct {
                                 return Error.OutOfBound;
                             }
 
-                            break :subscript (try gc.copyString(
-                                &([_]u8{str.string[index]}),
-                            )).toValue();
+                            break :subscript Value.fromObj(
+                                .{
+                                    .index = (try gc.copyString(&([_]u8{str.string[index]}))).index,
+                                    .obj_type = .String,
+                                },
+                            );
                         },
                         else => unreachable,
                     }
@@ -1004,7 +1099,7 @@ pub const Node = struct {
     docblock: ?TokenIndex = null,
 
     /// If null, either its a statement or its a reference to something unknown that should ultimately raise a compile error
-    type_def: ?*obj.ObjTypeDef = null,
+    type_def: ?Pool(obj.ObjTypeDef).Idx = null,
     /// Wether optional jumps must be patch before generate this node bytecode
     patch_opt_jumps: bool = false,
     /// Does this node closes a scope
@@ -1150,7 +1245,7 @@ pub const Node = struct {
         ObjectDeclaration: ObjectDeclaration,
         ObjectInit: ObjectInit,
         Out: Node.Index,
-        Pattern: *obj.ObjPattern,
+        Pattern: Pool(obj.ObjPattern).Idx,
         ProtocolDeclaration: ProtocolDeclaration,
         Range: Range,
         Resolve: Node.Index,
@@ -1287,7 +1382,7 @@ pub const Call = struct {
     is_async: bool,
     callee: Node.Index,
     // We need this because in a dot.call, callee is dot and its type will be == to call return type
-    callee_type_def: *obj.ObjTypeDef,
+    callee_type_def: Pool(obj.ObjTypeDef).Idx,
     arguments: []const Argument,
     catch_default: ?Node.Index,
     tail_call: bool = false,
@@ -1321,7 +1416,7 @@ pub const Dot = struct {
     member_kind: MemberKind,
     value_or_call_or_enum: Member,
     generic_resolve: ?Node.Index,
-    member_type_def: *obj.ObjTypeDef,
+    member_type_def: Pool(obj.ObjTypeDef).Idx,
 };
 
 pub const Enum = struct {
@@ -1391,8 +1486,8 @@ pub const Function = struct {
 
     // Set when the function is first generated
     // The JIT compiler can then reference it when creating its closure
-    native: ?*obj.ObjNative = null,
-    function: ?*obj.ObjFunction = null,
+    native: ?Pool(obj.ObjNative).Idx = null,
+    function: ?Pool(obj.ObjFunction).Idx = null,
 
     import_root: bool = false,
 
@@ -1548,7 +1643,7 @@ pub const Return = struct {
 
 pub const StringLiteral = struct {
     delimiter: u8,
-    literal: *obj.ObjString,
+    literal: Pool(obj.ObjString).Idx,
 };
 
 pub const Subscript = struct {
@@ -1584,7 +1679,7 @@ pub const Unary = struct {
 
 pub const Unwrap = struct {
     unwrapped: Node.Index,
-    original_type: *obj.ObjTypeDef,
+    original_type: Pool(obj.ObjTypeDef).Idx,
     start_opt_jumps: bool,
 };
 
@@ -1617,7 +1712,7 @@ pub const Zdef = struct {
 
     pub const ZdefElement = struct {
         fn_ptr: ?*anyopaque = null,
-        obj_native: ?*obj.ObjNative = null,
+        obj_native: ?Pool(obj.ObjNative).Idx = null,
         // TODO: On the stack, do we free it at some point?
         zdef: *const FFI.Zdef,
         slot: Slot,

@@ -177,7 +177,7 @@ pub fn dumpStack(vm: *VM) void {
     var value: [*]Value = @ptrCast(vm.current_fiber.stack[0..]);
     var count: usize = 0;
     while (@intFromPtr(value) < @intFromPtr(vm.current_fiber.stack_top) and count < vm.current_fiber.stack.len) : (count += 1) {
-        var value_str = value[0].toStringAlloc(global_allocator) catch unreachable;
+        var value_str = value[0].toStringAlloc(vm.gc) catch unreachable;
         defer global_allocator.free(value_str);
 
         if (vm.currentFrame().?.slots == value) {
