@@ -11,25 +11,27 @@ const Reporter = @import("Reporter.zig");
 const is_wasm = builtin.cpu.arch.isWasm();
 const io = @import("io.zig");
 const GC = @import("GC.zig");
+const Pool = @import("pool.zig").Pool;
 
 const TypeRegistry = @This();
 
 pub const TypeDefHash = u64;
+pub const TypeDefIdx = Pool(o.ObjTypeDef).Idx;
 
 gc: *GC,
-registry: std.AutoHashMapUnmanaged(TypeDefHash, *o.ObjTypeDef) = .empty,
+registry: std.AutoHashMapUnmanaged(TypeDefHash, TypeDefIdx) = .empty,
 
 // Common types we reuse all the time
-void_type: *o.ObjTypeDef,
-str_type: *o.ObjTypeDef,
-int_type: *o.ObjTypeDef,
-float_type: *o.ObjTypeDef,
-bool_type: *o.ObjTypeDef,
-any_type: *o.ObjTypeDef,
-pat_type: *o.ObjTypeDef,
-ud_type: *o.ObjTypeDef,
-rg_type: *o.ObjTypeDef,
-type_type: *o.ObjTypeDef,
+void_type: TypeDefIdx,
+str_type: TypeDefIdx,
+int_type: TypeDefIdx,
+float_type: TypeDefIdx,
+bool_type: TypeDefIdx,
+any_type: TypeDefIdx,
+pat_type: TypeDefIdx,
+ud_type: TypeDefIdx,
+rg_type: TypeDefIdx,
+type_type: TypeDefIdx,
 
 pub fn init(gc: *GC) !TypeRegistry {
     var self = TypeRegistry{
@@ -87,7 +89,7 @@ pub fn dump(self: *TypeRegistry) void {
     io.print("===========================\n\n", .{});
 }
 
-pub fn getTypeDef(self: *TypeRegistry, type_def: o.ObjTypeDef) !*o.ObjTypeDef {
+pub fn getTypeDef(self: *TypeRegistry, type_def: o.ObjTypeDef) !TypeDefIdx {
     const hash = typeDefHash(type_def);
 
     // We don't return a cached version of a placeholder since they all maintain a particular state (link)
@@ -120,7 +122,8 @@ pub fn getTypeDef(self: *TypeRegistry, type_def: o.ObjTypeDef) !*o.ObjTypeDef {
     return type_def_ptr;
 }
 
-pub fn setTypeDef(self: *TypeRegistry, type_def: *o.ObjTypeDef) !void {
+pub fn setTypeDef(self: *TypeRegistry, type_def_idx: TypeDefIdx) !void {
+    const type_def = self.gc.get(o.ObjTypeDef, type_def_idx).?;
     const hash = typeDefHash(type_def.*);
 
     std.debug.assert(type_def.def_type != .Placeholder);
@@ -128,7 +131,7 @@ pub fn setTypeDef(self: *TypeRegistry, type_def: *o.ObjTypeDef) !void {
     try self.registry.put(
         self.gc.allocator,
         hash,
-        type_def,
+        type_def_idx,
     );
 
     if (BuildOptions.debug_placeholders or BuildOptions.debug_type_registry) {
@@ -143,14 +146,14 @@ pub fn setTypeDef(self: *TypeRegistry, type_def: *o.ObjTypeDef) !void {
     }
 }
 
-pub inline fn getTypeDefByName(self: *TypeRegistry, name: []const u8) ?*o.ObjTypeDef {
+pub inline fn getTypeDefByName(self: *TypeRegistry, name: []const u8) ?TypeDefIdx {
     return self.registry.get(name);
 }
 
 pub fn mark(self: *TypeRegistry) !void {
     var it = self.registry.iterator();
     while (it.next()) |kv| {
-        try self.gc.markObj(@constCast(kv.value_ptr.*).toObj());
+        try self.gc.markObj(o.ObjTypeDef, kv.value_ptr.*);
     }
 }
 

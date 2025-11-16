@@ -17,6 +17,7 @@ const JIT = if (!is_wasm) @import("Jit.zig") else void;
 const disassembler = @import("disassembler.zig");
 const io = @import("io.zig");
 const TypeChecker = @import("TypeChecker.zig");
+const Pool = @import("pool.zig").Pool;
 
 const Self = @This();
 
@@ -32,13 +33,13 @@ pub const Error = error{
 pub const Frame = struct {
     enclosing: ?*Frame = null,
     function_node: Ast.Node.Index,
-    function: ?*obj.ObjFunction = null,
+    function: ?Pool(obj.ObjFunction).Idx = null,
     return_counts: bool = false,
     return_emitted: bool = false,
     // Keep track of constants to avoid adding the same more than once to the chunk
     constants: std.AutoHashMapUnmanaged(Value, u24),
 
-    try_should_handle: ?std.AutoHashMapUnmanaged(*obj.ObjTypeDef, Ast.TokenIndex) = null,
+    try_should_handle: ?std.AutoHashMapUnmanaged(Pool(obj.ObjTypeDef).Idx, Ast.TokenIndex) = null,
 
     pub fn deinit(self: *Frame, allocator: std.mem.Allocator) void {
         self.constants.deinit(allocator);
@@ -167,7 +168,8 @@ pub fn deinit(self: *Self) void {
 }
 
 pub inline fn currentCode(self: *Self) usize {
-    return self.current.?.function.?.chunk.code.items.len;
+    return self.gc.get(obj.ObjFunction, self.current.?.function.?).?
+        .chunk.code.items.len;
 }
 
 pub fn generate(self: *Self, ast: Ast.Slice) Error!?*obj.ObjFunction {
@@ -181,7 +183,8 @@ pub fn generate(self: *Self, ast: Ast.Slice) Error!?*obj.ObjFunction {
 }
 
 pub fn emit(self: *Self, location: Ast.TokenIndex, code: u32) !void {
-    try self.current.?.function.?.chunk.write(code, location);
+    try self.gc.get(obj.ObjFunction, self.current.?.function.?).?
+        .chunk.write(code, location);
 }
 
 pub fn emitTwo(self: *Self, location: Ast.TokenIndex, a: u8, b: u24) !void {
@@ -224,7 +227,8 @@ pub fn emitJump(self: *Self, location: Ast.TokenIndex, instruction: Chunk.OpCode
 }
 
 pub fn patchJumpOrLoop(self: *Self, offset: usize, loop_start: ?usize) !void {
-    const original = self.current.?.function.?.chunk.code.items[offset];
+    const current_function = self.gc.get(obj.ObjFunction, self.current.?.function.?).?;
+    const original = current_function.chunk.code.items[offset];
     const instruction: u8 = @intCast(original >> 24);
     const code: Chunk.OpCode = @enumFromInt(instruction);
 
@@ -235,7 +239,7 @@ pub fn patchJumpOrLoop(self: *Self, offset: usize, loop_start: ?usize) !void {
             self.reportError(.loop_body_too_large, "Loop body too large.");
         }
 
-        self.current.?.function.?.chunk.code.items[offset] =
+        current_function.chunk.code.items[offset] =
             (@as(u32, @intCast(instruction)) << 24) | @as(u32, @intCast(loop_offset));
     } else { // Patching a break statement
         self.patchJump(offset);
@@ -263,10 +267,11 @@ pub fn patchJump(self: *Self, offset: usize) void {
         self.reportError(.jump_too_large, "Jump too large.");
     }
 
-    const original = self.current.?.function.?.chunk.code.items[offset];
+    const current_function = self.gc.get(obj.ObjFunction, self.current.?.function.?).?;
+    const original = current_function.chunk.code.items[offset];
     const instruction: u8 = @intCast(original >> 24);
 
-    self.current.?.function.?.chunk.code.items[offset] =
+    current_function.chunk.code.items[offset] =
         (@as(u32, @intCast(instruction)) << 24) | @as(u32, @intCast(jump));
 }
 
@@ -282,10 +287,11 @@ pub fn patchTryOrJit(self: *Self, offset: usize) void {
         );
     }
 
-    const original = self.current.?.function.?.chunk.code.items[offset];
+    const current_function = self.gc.get(obj.ObjFunction, self.current.?.function.?).?;
+    const original = current_function.chunk.code.items[offset];
     const instruction: u8 = @intCast(original >> 24);
 
-    self.current.?.function.?.chunk.code.items[offset] =
+    current_function.chunk.code.items[offset] =
         (@as(u32, @intCast(instruction)) << 24) | @as(u32, @intCast(jump));
 }
 
@@ -303,7 +309,8 @@ pub fn makeConstant(self: *Self, value: Value) !u24 {
         return idx;
     }
 
-    const constant = try self.current.?.function.?.chunk.addConstant(null, value);
+    const current_function = self.gc.get(obj.ObjFunction, self.current.?.function.?).?;
+    const constant = try current_function.chunk.addConstant(null, value);
     try self.current.?.constants.put(self.gc.allocator, value, constant);
     if (constant > Chunk.max_constants) {
         self.reportError("Too many constants in one chunk.");
@@ -315,7 +322,12 @@ pub fn makeConstant(self: *Self, value: Value) !u24 {
 
 pub fn identifierConstant(self: *Self, name: []const u8) !u24 {
     return try self.makeConstant(
-        (try self.gc.copyString(name)).toValue(),
+        Value.fromObj(
+            .{
+                .index = (try self.gc.copyString(name)).index,
+                .obj_type = .String,
+            },
+        ),
     );
 }
 
@@ -496,7 +508,12 @@ fn generateAsyncCall(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!
     // Should not interfere with local counts since OP_FIBER will consume it right away
     try self.emitConstant(
         node_location,
-        type_def.toValue(),
+        Value.fromObj(
+            .{
+                .index = type_def.index,
+                .obj_type = .Type,
+            },
+        ),
     );
 
     _ = try self.generateNode(call_node, breaks);
@@ -512,7 +529,7 @@ fn generateBinary(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*o
 
     const locations = self.ast.nodes.items(.location);
     const type_defs = self.ast.nodes.items(.type_def);
-    const left_type = type_defs[components.left].?;
+    const left_type = self.gc.get(obj.ObjTypeDef, type_defs[components.left].?).?;
 
     switch (components.operator) {
         .QuestionQuestion => {
@@ -780,7 +797,7 @@ fn generateCall(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj
 
     const components = node_components[node].Call;
 
-    const callee_type_def = type_defs[components.callee].?;
+    const callee_type_def = self.gc.get(obj.ObjTypeDef, type_defs[components.callee].?).?;
 
     // This is not a call but an Enum(value)
     if (callee_type_def.def_type == .Enum) {
@@ -802,7 +819,7 @@ fn generateCall(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj
 
     if (self.ast.nodes.items(.tag)[components.callee] == .Dot) {
         const dot = node_components[components.callee].Dot;
-        const field_accessed = type_defs[dot.callee].?;
+        const field_accessed = self.gc.get(obj.ObjTypeDef, type_defs[dot.callee].?).?;
 
         if (field_accessed.def_type == .Placeholder) {
             self.reporter.reportPlaceholder(self.ast, field_accessed.resolved_type.?.Placeholder);
@@ -816,19 +833,23 @@ fn generateCall(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj
         _ = try self.generateNode(components.callee, breaks);
     }
 
-    const callee_type = switch (self.ast.nodes.items(.tag)[components.callee]) {
+    const callee_type = if (switch (self.ast.nodes.items(.tag)[components.callee]) {
         .Dot => node_components[components.callee].Dot.member_type_def,
         else => type_defs[components.callee],
-    };
+    }) |td|
+        self.gc.get(obj.ObjTypeDef, td).?
+    else
+        null;
 
-    const yield_type = callee_type.?.resolved_type.?.Function.yield_type;
+    const yield_type = self.gc.get(obj.ObjTypeDef, callee_type.?.resolved_type.?.Function.yield_type).?;
 
     // Function being called and current function should have matching yield type unless the current function is an entrypoint
     // We do this type checking here because we need access to the current function node
     if (!components.is_async) {
-        const current_function_typedef = type_defs[self.current.?.function_node].?.resolved_type.?.Function;
+        const current_function_typedef = self.gc.get(obj.ObjTypeDef, type_defs[self.current.?.function_node].?).?
+            .resolved_type.?.Function;
         const current_function_type = current_function_typedef.function_type;
-        const current_function_yield_type = current_function_typedef.yield_type;
+        const current_function_yield_type = self.gc.get(obj.ObjTypeDef, current_function_typedef.yield_type).?;
         switch (current_function_type) {
             // Event though a function can call a yieldable function without wraping it in a fiber, the function itself could be called in a fiber
             .Function, .Method, .Anonymous => {
@@ -860,7 +881,7 @@ fn generateCall(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj
     for (arg_keys, 0..) |arg_name, pindex| {
         try missing_arguments.put(
             self.gc.allocator,
-            arg_name.string,
+            self.gc.get(obj.ObjString, arg_name).?.string,
             pindex,
         );
     }
@@ -886,7 +907,9 @@ fn generateCall(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj
             needs_reorder = true;
         }
 
-        _ = missing_arguments.orderedRemove(actual_arg_key.string);
+        _ = missing_arguments.orderedRemove(
+            self.gc.get(obj.ObjString, actual_arg_key).?.string,
+        );
         _ = try self.generateNode(argument.value, breaks);
     }
 
@@ -927,7 +950,7 @@ fn generateCall(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj
             var ordered = true;
             for (arguments_order_ref.items, 0..) |arg_key, index| {
                 const actual_arg_key = if (index == 0 and std.mem.eql(u8, arg_key, "$"))
-                    args.keys()[0].string
+                    self.gc.get(obj.ObjString, args.keys()[0]).?.string
                 else
                     arg_key;
                 const correct_index = args.getIndex(try self.gc.copyString(actual_arg_key)) orelse 0;
@@ -962,19 +985,29 @@ fn generateCall(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj
             _ = try self.generateNode(catch_default, breaks);
         }
     } else if (error_types) |errors| {
-        if (self.current.?.enclosing != null and self.current.?.function.?.type_def.resolved_type.?.Function.function_type != .Test) {
+        const current_function = self.gc.get(obj.ObjFunction, self.current.?.function.?).?;
+        if (self.current.?.enclosing != null and
+            self.gc.get(obj.ObjTypeDef, current_function.type_def).?
+                .resolved_type.?.Function.function_type != .Test)
+        {
             var handles_any = false;
             var not_handled = std.ArrayList(*obj.ObjTypeDef).empty;
             defer not_handled.deinit(self.gc.allocator);
-            for (errors) |error_type| {
+            for (errors) |error_type_idx| {
+                const error_type = self.gc.get(obj.ObjTypeDef, error_type_idx).?;
+
                 if (error_type.def_type == .Void) {
                     continue;
                 }
 
                 var handled = false;
 
-                if (self.current.?.function.?.type_def.resolved_type.?.Function.error_types) |handled_types| {
-                    for (handled_types) |handled_type| {
+                if (self.gc.get(obj.ObjTypeDef, current_function.type_def).?
+                    .resolved_type.?.Function.error_types) |handled_types|
+                {
+                    for (handled_types) |handled_type_idx| {
+                        const handled_type = self.gc.get(obj.ObjTypeDef, handled_type_idx).?;
+
                         if (error_type.eql(handled_type)) {
                             handled = true;
                             break;
@@ -991,7 +1024,7 @@ fn generateCall(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj
                     if (self.current.?.try_should_handle != null) {
                         try self.current.?.try_should_handle.?.put(
                             self.gc.allocator,
-                            error_type,
+                            error_type_idx,
                             locations[components.callee],
                         );
                     } else {
@@ -1031,12 +1064,18 @@ fn generateCall(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj
 
     // Normal call/invoke
     if (invoked) {
-        const callee_def_type = type_defs[node_components[components.callee].Dot.callee].?.def_type;
+        const callee_def_type = self.gc.get(
+            obj.ObjTypeDef,
+            type_defs[node_components[components.callee].Dot.callee].?,
+        ).?.def_type;
         const member_lexeme = lexemes[node_components[components.callee].Dot.identifier];
 
         if (callee_def_type == .ObjectInstance) {
-            const fields = type_defs[node_components[components.callee].Dot.callee].?
-                .resolved_type.?.ObjectInstance.of
+            const fields = self.gc.get(
+                obj.ObjTypeDef,
+                self.gc.get(obj.ObjTypeDef, type_defs[node_components[components.callee].Dot.callee].?).?
+                    .resolved_type.?.ObjectInstance.of,
+            ).?
                 .resolved_type.?.Object.fields;
 
             const field = fields.get(member_lexeme).?;
@@ -1130,7 +1169,10 @@ fn generateDot(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.
 
     _ = try self.generateNode(components.callee, breaks);
 
-    const callee_type = type_defs[components.callee] orelse self.gc.type_registry.any_type;
+    const callee_type = self.gc.get(
+        obj.ObjTypeDef,
+        type_defs[components.callee] orelse self.gc.type_registry.any_type,
+    ).?;
 
     const get_code: ?Chunk.OpCode = switch (callee_type.def_type) {
         .Object => .OP_GET_OBJECT_PROPERTY,
@@ -1168,7 +1210,7 @@ fn generateDot(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.
         .ForeignContainer, .ObjectInstance, .Object => {
             const field_name = self.ast.tokens.items(.lexeme)[components.identifier];
             const field = switch (callee_type.def_type) {
-                .ObjectInstance => callee_type.resolved_type.?.ObjectInstance.of
+                .ObjectInstance => self.gc.get(obj.ObjTypeDef, callee_type.resolved_type.?.ObjectInstance.of).?
                     .resolved_type.?.Object
                     .fields
                     .get(field_name),
@@ -1187,7 +1229,7 @@ fn generateDot(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.
                 .Value => {
                     const value = components.value_or_call_or_enum.Value.value;
                     const assign_token = components.value_or_call_or_enum.Value.assign_token;
-                    var value_type_def = type_defs[value].?;
+                    var value_type_def = self.gc.get(obj.ObjTypeDef, type_defs[value].?).?;
                     if (value_type_def.def_type == .Placeholder) {
                         self.reporter.reportPlaceholder(self.ast, value_type_def.resolved_type.?.Placeholder);
                     }
@@ -1223,7 +1265,7 @@ fn generateDot(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.
                     _ = try self.generateNode(value, breaks);
 
                     switch (tags[assign_token]) {
-                        .PlusEqual => switch (type_defs[value].?.def_type) {
+                        .PlusEqual => switch (value_type_def.def_type) {
                             .Integer => try self.OP_ADD_I(locations[value]),
                             .Double => try self.OP_ADD_F(locations[value]),
                             .List => try self.OP_ADD_LIST(locations[value]),
@@ -1231,17 +1273,17 @@ fn generateDot(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.
                             .String => try self.OP_ADD_STRING(locations[value]),
                             else => {},
                         },
-                        .MinusEqual => switch (type_defs[value].?.def_type) {
+                        .MinusEqual => switch (value_type_def.def_type) {
                             .Integer => try self.OP_SUBTRACT_I(locations[value]),
                             .Double => try self.OP_SUBTRACT_F(locations[value]),
                             else => {},
                         },
-                        .StarEqual => switch (type_defs[value].?.def_type) {
+                        .StarEqual => switch (value_type_def.def_type) {
                             .Integer => try self.OP_MULTIPLY_I(locations[value]),
                             .Double => try self.OP_MULTIPLY_F(locations[value]),
                             else => {},
                         },
-                        .SlashEqual => switch (type_defs[value].?.def_type) {
+                        .SlashEqual => switch (value_type_def.def_type) {
                             .Integer => try self.OP_DIVIDE_I(locations[value]),
                             .Double => try self.OP_DIVIDE_F(locations[value]),
                             else => {},
@@ -1251,7 +1293,7 @@ fn generateDot(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.
                         .XorEqual => try self.OP_XOR(locations[value]),
                         .BorEqual => try self.OP_BOR(locations[value]),
                         .AmpersandEqual => try self.OP_BAND(locations[value]),
-                        .PercentEqual => switch (type_defs[value].?.def_type) {
+                        .PercentEqual => switch (value_type_def.def_type) {
                             .Integer => try self.OP_MOD_I(locations[value]),
                             .Double => try self.OP_MOD_F(locations[value]),
                             else => {},
@@ -1396,7 +1438,10 @@ fn generateEnum(self: *Self, node: Ast.Node.Index, _: ?*Breaks) Error!?*obj.ObjF
     try self.OP_DEFINE_GLOBAL(
         locations[node],
         @intCast(components.slot),
-        (try self.gc.copyString(self.ast.tokens.items(.lexeme)[components.name])).toValue(),
+        Value.fromObj(.{
+            .index = (try self.gc.copyString(self.ast.tokens.items(.lexeme)[components.name])).index,
+            .obj_type = .String,
+        }),
     );
 
     try self.patchOptJumps(node);
@@ -1424,7 +1469,10 @@ fn generateExpression(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error
     const components = self.ast.nodes.items(.components);
     const expr = components[node].Expression;
     const expr_node_type = self.ast.nodes.items(.tag)[expr];
-    const expr_type_def = self.ast.nodes.items(.type_def)[expr];
+    const expr_type_def = if (self.ast.nodes.items(.type_def)[expr]) |td|
+        self.gc.get(obj.ObjTypeDef, td).?
+    else
+        null;
 
     _ = try self.generateNode(expr, breaks);
 
@@ -1480,7 +1528,7 @@ fn generateFor(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.
     const node_components = self.ast.nodes.items(.components);
 
     const components = node_components[node].For;
-    if (try self.ast.isConstant(self.gc.allocator, components.condition) and !(try self.ast.typeCheckAndToValue(
+    if (try self.ast.isConstant(self.gc, components.condition) and !(try self.ast.typeCheckAndToValue(
         components.condition,
         &self.reporter,
         self.gc,
@@ -1498,7 +1546,7 @@ fn generateFor(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.
     const jit_jump = if (!is_wasm) try self.OP_HOTSPOT(locations[node]) else {};
     if (!is_wasm) try self.emit(locations[node], node);
 
-    const condition_type_def = type_defs[components.condition].?;
+    const condition_type_def = self.gc.get(obj.ObjTypeDef, type_defs[components.condition].?).?;
     if (condition_type_def.def_type == .Placeholder) {
         self.reporter.reportPlaceholder(self.ast, condition_type_def.resolved_type.?.Placeholder);
     }
@@ -1522,7 +1570,7 @@ fn generateFor(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.
 
     const expr_loop: usize = self.currentCode();
     for (components.post_loop) |expr| {
-        const expr_type_def = type_defs[expr].?;
+        const expr_type_def = self.gc.get(obj.ObjTypeDef, type_defs[expr].?).?;
         if (expr_type_def.def_type == .Placeholder) {
             self.reporter.reportPlaceholder(self.ast, expr_type_def.resolved_type.?.Placeholder);
         }
@@ -1582,10 +1630,10 @@ fn generateForEach(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*
     const type_defs = self.ast.nodes.items(.type_def);
     const components = node_components[node].ForEach;
 
-    const iterable_type_def = type_defs[components.iterable].?;
+    const iterable_type_def = self.gc.get(obj.ObjTypeDef, type_defs[components.iterable].?).?;
 
     // If iterable constant and empty, skip the node
-    if (try self.ast.isConstant(self.gc.allocator, components.iterable)) {
+    if (try self.ast.isConstant(self.gc, components.iterable)) {
         const iterable_value = (try self.ast.typeCheckAndToValue(
             components.iterable,
             &self.reporter,
@@ -1599,11 +1647,11 @@ fn generateForEach(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*
 
         if (iterable_obj) |iterable| {
             if (switch (iterable.obj_type) {
-                .List => obj.ObjList.cast(iterable).?.items.items.len == 0,
-                .Map => obj.ObjMap.cast(iterable).?.map.count() == 0,
-                .String => obj.ObjString.cast(iterable).?.string.len == 0,
-                .Enum => obj.ObjEnum.cast(iterable).?.cases.len == 0,
-                .Range => obj.ObjRange.cast(iterable).?.high == obj.ObjRange.cast(iterable).?.low,
+                .List => self.gc.get(obj.ObjList, .idx(iterable.index)).?.items.items.len == 0,
+                .Map => self.gc.get(obj.ObjMap, .idx(iterable.index)).?.map.count() == 0,
+                .String => self.gc.get(obj.ObjString, .idx(iterable.index)).?.string.len == 0,
+                .Enum => self.gc.get(obj.ObjEnum, .idx(iterable.index)).?.cases.len == 0,
+                .Range => self.gc.get(obj.ObjRange, .idx(iterable.index)).?.high == self.gc.get(obj.ObjRange, .idx(iterable.index)).?.low,
                 else => self.reporter.last_error != null,
             }) {
                 try self.patchOptJumps(node);
@@ -1695,7 +1743,7 @@ fn generateFunction(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?
         node_components[fs].FunctionType
     else
         null;
-    const node_type_def = type_defs[node].?;
+    const node_type_def = self.gc.get(obj.ObjTypeDef, type_defs[node].?).?;
     const function_type = node_type_def.resolved_type.?.Function.function_type;
 
     // If function is a test block and we're not testing/checking/etc. don't waste time generating the node
@@ -1718,14 +1766,14 @@ fn generateFunction(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?
         node,
     );
 
-    function.type_def = node_type_def;
+    function.type_def = type_defs[node].?;
 
     // Check that default arguments are constant values
     switch (function_type) {
         .Function, .Method, .Anonymous, .Extern => {
             for (self.ast.nodes.items(.components)[components.function_signature.?].FunctionType.arguments) |argument| {
                 if (argument.default) |default| {
-                    if (!try self.ast.isConstant(self.gc.allocator, default)) {
+                    if (!try self.ast.isConstant(self.gc, default)) {
                         self.reporter.reportErrorAt(
                             .constant_default,
                             self.ast.tokens.get(locations[default]),
@@ -1750,30 +1798,43 @@ fn generateFunction(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?
     }
 
     // Check for any remaining placeholders in function signature
-    if (function.type_def.def_type == .Placeholder) {
-        self.reporter.reportPlaceholder(self.ast, function.type_def.resolved_type.?.Placeholder);
+    const function_type_def = self.gc.get(obj.ObjTypeDef, function.type_def).?;
+    if (function_type_def.def_type == .Placeholder) {
+        self.reporter.reportPlaceholder(self.ast, function_type_def.resolved_type.?.Placeholder);
     } else {
-        const function_def = function.type_def.resolved_type.?.Function;
+        const function_def = function_type_def.resolved_type.?.Function;
 
-        if (function_def.return_type.def_type == .Placeholder) {
-            self.reporter.reportPlaceholder(self.ast, function_def.return_type.resolved_type.?.Placeholder);
+        if (self.gc.get(obj.ObjTypeDef, function_def.return_type).?.def_type == .Placeholder) {
+            self.reporter.reportPlaceholder(
+                self.ast,
+                self.gc.get(obj.ObjTypeDef, function_def.return_type).?.resolved_type.?.Placeholder,
+            );
         }
 
-        if (function_def.yield_type.def_type == .Placeholder) {
-            self.reporter.reportPlaceholder(self.ast, function_def.yield_type.resolved_type.?.Placeholder);
+        if (self.gc.get(obj.ObjTypeDef, function_def.yield_type).?.def_type == .Placeholder) {
+            self.reporter.reportPlaceholder(
+                self.ast,
+                self.gc.get(obj.ObjTypeDef, function_def.yield_type).?.resolved_type.?.Placeholder,
+            );
         }
 
         var it = function_def.parameters.iterator();
         while (it.next()) |kv| {
-            if (kv.value_ptr.*.def_type == .Placeholder) {
-                self.reporter.reportPlaceholder(self.ast, kv.value_ptr.*.resolved_type.?.Placeholder);
+            if (self.gc.get(obj.ObjTypeDef, kv.value_ptr.*).?.def_type == .Placeholder) {
+                self.reporter.reportPlaceholder(
+                    self.ast,
+                    self.gc.get(obj.ObjTypeDef, kv.value_ptr.*).?.resolved_type.?.Placeholder,
+                );
             }
         }
 
         if (function_def.error_types) |error_types| {
             for (error_types) |error_type| {
-                if (error_type.def_type == .Placeholder) {
-                    self.reporter.reportPlaceholder(self.ast, error_type.resolved_type.?.Placeholder);
+                if (self.gc.get(obj.ObjTypeDef, error_type).?.def_type == .Placeholder) {
+                    self.reporter.reportPlaceholder(
+                        self.ast,
+                        self.gc.get(obj.ObjTypeDef, error_type).?.resolved_type.?.Placeholder,
+                    );
                 }
             }
         }
@@ -1782,7 +1843,7 @@ fn generateFunction(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?
     // First chunk constant is the empty string
     _ = try function.chunk.addConstant(
         null,
-        Value.fromObj((try self.gc.copyString("")).toObj()),
+        Value.fromObj(.{ .index = (try self.gc.copyString("")).index, .obj_type = .String }),
     );
 
     self.current.?.function = try self.gc.allocateObject(function);
@@ -1877,11 +1938,16 @@ fn generateFunction(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?
             self.ast.nodes.items(.tag)[node_components[components.body.?].Block[node_components[components.body.?].Block.len - 1]] == .Expression)
         {
             // Repl and last expression is a lone statement, remove OP_POP, add OP_RETURN
-            std.debug.assert(vm.VM.getCode(self.current.?.function.?.chunk.code.pop().?) == .OP_POP);
-            _ = self.current.?.function.?.chunk.locations.pop();
+            std.debug.assert(
+                vm.VM.getCode(self.gc.get(obj.ObjFunction, self.current.?.function.?).?.chunk.code.pop().?) == .OP_POP,
+            );
+            _ = self.gc.get(obj.ObjFunction, self.current.?.function.?).?.chunk.locations.pop();
 
             try self.emitReturn(locations[node]);
-        } else if (self.current.?.function.?.type_def.resolved_type.?.Function.return_type.def_type == .Void and !self.current.?.return_emitted) {
+        } else if (self.gc.get(obj.ObjTypeDef, self.gc.get(
+            obj.ObjTypeDef,
+            self.gc.get(obj.ObjFunction, self.current.?.function.?).?.type_def,
+        ).?.resolved_type.?.Function.return_type).?.def_type == .Void and !self.current.?.return_emitted) {
             // TODO: detect if some branches of the function body miss a return statement
             try self.emitReturn(locations[node]);
         } else if (!self.current.?.return_emitted) {
@@ -1895,7 +1961,7 @@ fn generateFunction(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?
     }
 
     var frame = self.current.?;
-    const current_function = frame.function.?;
+    const current_function = self.gc.get(obj.ObjFunction, frame.function.?).?;
     current_function.upvalue_count = @intCast(components.upvalue_binding.count());
 
     if (BuildOptions.debug) {
@@ -1914,12 +1980,12 @@ fn generateFunction(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?
         if (function_type == .Extern) {
             try self.OP_CONSTANT(
                 locations[node],
-                components.native.?.toValue(),
+                Value.fromObj(.{ .index = components.native.?.index, .obj_type = .Native }),
             );
         } else {
             try self.OP_CLOSURE(
                 locations[node],
-                current_function.toValue(),
+                Value.fromObj(.{ .index = frame.function.?.index, .obj_type = .Function }),
             );
 
             var it = components.upvalue_binding.iterator();
@@ -1933,7 +1999,7 @@ fn generateFunction(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?
     try self.patchOptJumps(node);
     try self.endScope(node);
 
-    node_components[node].Function.function = current_function;
+    node_components[node].Function.function = frame.function.?;
 
     return current_function;
 }
@@ -1948,7 +2014,13 @@ fn generateFunDeclaration(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) E
         try self.OP_DEFINE_GLOBAL(
             self.ast.nodes.items(.location)[node],
             @intCast(components.slot),
-            self.ast.nodes.items(.type_def)[node].?.resolved_type.?.Function.name.toValue(),
+            Value.fromObj(
+                .{
+                    .index = self.gc.get(obj.ObjTypeDef, self.ast.nodes.items(.type_def)[node].?).?
+                        .resolved_type.?.Function.name.index,
+                    .obj_type = .String,
+                },
+            ),
         );
     }
 
@@ -1990,7 +2062,7 @@ fn generateIf(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.O
     const location = locations[node];
 
     // If condition is a constant expression, no need to generate branches
-    if (try self.ast.isConstant(self.gc.allocator, components.condition) and
+    if (try self.ast.isConstant(self.gc, components.condition) and
         components.unwrapped_identifier == null and
         components.casted_type == null)
     {
@@ -2016,7 +2088,10 @@ fn generateIf(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.O
     const condition_location = locations[components.condition];
     if (components.casted_type) |casted_type| {
         try self.OP_COPY(condition_location);
-        try self.emitConstant(condition_location, type_defs[casted_type].?.toValue());
+        try self.emitConstant(
+            condition_location,
+            Value.fromObj(.{ .index = type_defs[casted_type].?.index, .obj_type = .Type }),
+        );
         try self.OP_IS(condition_location);
     } else if (components.unwrapped_identifier != null) {
         try self.OP_COPY(condition_location);
@@ -2056,7 +2131,10 @@ fn generateImport(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*o
     const location = self.ast.nodes.items(.location)[node];
 
     if (components.import) |import| {
-        try self.emitConstant(location, import.absolute_path.toValue());
+        try self.emitConstant(
+            location,
+            Value.fromObj(.{ .index = import.absolute_path.index, .obj_type = .String }),
+        );
 
         _ = try self.generateNode(import.function, breaks);
 
@@ -2098,8 +2176,9 @@ fn generateIs(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.O
     std.debug.assert(constant.isObj());
     std.debug.assert(constant.obj().obj_type == .Type);
 
-    if (obj.ObjTypeDef.cast(constant.obj()).?.def_type == .Placeholder) {
-        self.reporter.reportPlaceholder(self.ast, obj.ObjTypeDef.cast(constant.obj()).?.resolved_type.?.Placeholder);
+    const type_def = self.gc.get(obj.ObjTypeDef, .idx(constant.obj().index)).?;
+    if (type_def.def_type == .Placeholder) {
+        self.reporter.reportPlaceholder(self.ast, type_def.resolved_type.?.Placeholder);
     }
 
     _ = try self.generateNode(components.left, breaks);
@@ -2121,7 +2200,7 @@ fn generateList(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj
 
     try self.OP_LIST(
         locations[node],
-        type_defs[node].?.toValue(),
+        Value.fromObj(.{ .index = type_defs[node].?.index, .obj_type = .Type }),
     );
 
     for (components.items) |item| {
@@ -2148,7 +2227,7 @@ fn generateMap(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.
 
     try self.OP_MAP(
         locations[node],
-        type_defs[node].?.toValue(),
+        Value.fromObj(.{ .index = type_defs[node].?.index, .obj_type = .Type }),
     );
 
     for (components.entries) |entry| {
@@ -2216,8 +2295,9 @@ fn generateNamedVariable(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Er
 
         _ = try self.generateNode(value, breaks);
 
+        const value_type_def = self.gc.get(obj.ObjTypeDef, type_defs[value].?).?;
         switch (tags[components.assign_token.?]) {
-            .PlusEqual => switch (type_defs[value].?.def_type) {
+            .PlusEqual => switch (value_type_def.def_type) {
                 .Integer => try self.OP_ADD_I(locations[value]),
                 .Double => try self.OP_ADD_F(locations[value]),
                 .List => try self.OP_ADD_LIST(locations[value]),
@@ -2225,17 +2305,17 @@ fn generateNamedVariable(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Er
                 .String => try self.OP_ADD_STRING(locations[value]),
                 else => {},
             },
-            .MinusEqual => switch (type_defs[value].?.def_type) {
+            .MinusEqual => switch (value_type_def.def_type) {
                 .Integer => try self.OP_SUBTRACT_I(locations[value]),
                 .Double => try self.OP_SUBTRACT_F(locations[value]),
                 else => {},
             },
-            .StarEqual => switch (type_defs[value].?.def_type) {
+            .StarEqual => switch (value_type_def.def_type) {
                 .Integer => try self.OP_MULTIPLY_I(locations[value]),
                 .Double => try self.OP_MULTIPLY_F(locations[value]),
                 else => {},
             },
-            .SlashEqual => switch (type_defs[value].?.def_type) {
+            .SlashEqual => switch (value_type_def.def_type) {
                 .Integer => try self.OP_DIVIDE_I(locations[value]),
                 .Double => try self.OP_DIVIDE_F(locations[value]),
                 else => {},
@@ -2245,7 +2325,7 @@ fn generateNamedVariable(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Er
             .XorEqual => try self.OP_XOR(locations[value]),
             .BorEqual => try self.OP_BOR(locations[value]),
             .AmpersandEqual => try self.OP_BAND(locations[value]),
-            .PercentEqual => switch (type_defs[value].?.def_type) {
+            .PercentEqual => switch (value_type_def.def_type) {
                 .Integer => try self.OP_MOD_I(locations[value]),
                 .Double => try self.OP_MOD_F(locations[value]),
                 else => {},
@@ -2288,15 +2368,23 @@ fn generateObjectDeclaration(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks
     const components = self.ast.nodes.items(.components)[node].ObjectDeclaration;
     const location = locations[node];
 
-    const object_type = type_defs[node].?;
+    const object_type = self.gc.get(obj.ObjTypeDef, type_defs[node].?).?;
     const object_def = object_type.resolved_type.?.Object;
 
     // Put  object on the stack and define global with it
-    try self.OP_OBJECT(location, object_type.toValue());
+    try self.OP_OBJECT(
+        location,
+        Value.fromObj(.{ .index = type_defs[node].?.index, .obj_type = .Type }),
+    );
     try self.OP_DEFINE_GLOBAL(
         location,
         @intCast(components.slot),
-        (try self.gc.copyString(self.ast.tokens.items(.lexeme)[components.name])).toValue(),
+        Value.fromObj(
+            .{
+                .index = (try self.gc.copyString(self.ast.tokens.items(.lexeme)[components.name])).index,
+                .obj_type = .String,
+            },
+        ),
     );
 
     // Put the object on the stack to set its fields
@@ -2354,15 +2442,20 @@ fn generateObjectInit(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error
     const lexemes = self.ast.tokens.items(.lexeme);
     const components = self.ast.nodes.items(.components)[node].ObjectInit;
     const location = locations[node];
-    const node_type_def = type_defs[node].?;
+    const node_type_def = self.gc.get(obj.ObjTypeDef, type_defs[node].?).?;
 
-    if (components.object != null and type_defs[components.object.?].?.def_type == .Object) {
+    if (components.object != null and
+        self.gc.get(obj.ObjTypeDef, type_defs[components.object.?].?).?.def_type == .Object)
+    {
         _ = try self.generateNode(components.object.?, breaks);
     } else if (node_type_def.def_type == .ObjectInstance) {
         try self.OP_NULL(location);
     }
 
-    try self.OP_CONSTANT(location, node_type_def.toValue());
+    try self.OP_CONSTANT(
+        location,
+        Value.fromObj(.{ .index = type_defs[node].?.index, .obj_type = .Type }),
+    );
 
     try self.emitOpCode(
         location,
@@ -2375,7 +2468,7 @@ fn generateObjectInit(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error
     for (components.properties) |property| {
         const property_name = lexemes[property.name];
         const property_idx = if (node_type_def.def_type == .ObjectInstance)
-            if (node_type_def.resolved_type.?.ObjectInstance.of
+            if (self.gc.get(obj.ObjTypeDef, node_type_def.resolved_type.?.ObjectInstance.of).?
                 .resolved_type.?.Object
                 .fields.get(property_name)) |field|
                 field.index
@@ -2428,11 +2521,19 @@ fn generateProtocolDeclaration(self: *Self, node: Ast.Node.Index, _: ?*Breaks) E
     const components = self.ast.nodes.items(.components)[node].ProtocolDeclaration;
     const type_def = self.ast.nodes.items(.type_def)[node].?;
 
-    try self.emitConstant(location, type_def.toValue());
+    try self.emitConstant(
+        location,
+        Value.fromObj(.{ .index = type_def.index, .obj_type = .Type }),
+    );
     try self.OP_DEFINE_GLOBAL(
         location,
         @intCast(components.slot),
-        (try self.gc.copyString(self.ast.tokens.items(.lexeme)[components.name])).toValue(),
+        Value.fromObj(
+            .{
+                .index = (try self.gc.copyString(self.ast.tokens.items(.lexeme)[components.name])).index,
+                .obj_type = .String,
+            },
+        ),
     );
 
     try self.patchOptJumps(node);
@@ -2521,7 +2622,7 @@ fn generateString(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*o
     }
 
     for (elements, 0..) |element, index| {
-        const element_type_def = type_defs[element].?;
+        const element_type_def = self.gc.get(obj.ObjTypeDef, type_defs[element].?).?;
 
         _ = try self.generateNode(element, breaks);
         if (element_type_def.def_type != .String or element_type_def.optional) {
@@ -2542,7 +2643,12 @@ fn generateString(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*o
 fn generateStringLiteral(self: *Self, node: Ast.Node.Index, _: ?*Breaks) Error!?*obj.ObjFunction {
     try self.emitConstant(
         self.ast.nodes.items(.location)[node],
-        self.ast.nodes.items(.components)[node].StringLiteral.literal.toValue(),
+        Value.fromObj(
+            .{
+                .index = self.ast.nodes.items(.components)[node].StringLiteral.literal.index,
+                .obj_type = .String,
+            },
+        ),
     );
 
     try self.patchOptJumps(node);
@@ -2560,7 +2666,7 @@ fn generateSubscript(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!
 
     _ = try self.generateNode(components.subscripted, breaks);
 
-    const subscripted_type_def = type_defs[components.subscripted].?;
+    const subscripted_type_def = self.gc.get(obj.ObjTypeDef, type_defs[components.subscripted].?).?;
 
     var get_code: Chunk.OpCode = .OP_GET_LIST_SUBSCRIPT;
     var set_code: Chunk.OpCode = .OP_SET_LIST_SUBSCRIPT;
@@ -2593,8 +2699,9 @@ fn generateSubscript(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!
 
         _ = try self.generateNode(value, breaks);
 
+        const value_type_def = self.gc.get(obj.ObjTypeDef, type_defs[value].?).?;
         switch (tags[components.assign_token.?]) {
-            .PlusEqual => switch (type_defs[value].?.def_type) {
+            .PlusEqual => switch (value_type_def.def_type) {
                 .Integer => try self.OP_ADD_I(locations[value]),
                 .Double => try self.OP_ADD_F(locations[value]),
                 .List => try self.OP_ADD_LIST(locations[value]),
@@ -2602,17 +2709,17 @@ fn generateSubscript(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!
                 .String => try self.OP_ADD_STRING(locations[value]),
                 else => {},
             },
-            .MinusEqual => switch (type_defs[value].?.def_type) {
+            .MinusEqual => switch (value_type_def.def_type) {
                 .Integer => try self.OP_SUBTRACT_I(locations[value]),
                 .Double => try self.OP_SUBTRACT_F(locations[value]),
                 else => {},
             },
-            .StarEqual => switch (type_defs[value].?.def_type) {
+            .StarEqual => switch (value_type_def.def_type) {
                 .Integer => try self.OP_MULTIPLY_I(locations[value]),
                 .Double => try self.OP_MULTIPLY_F(locations[value]),
                 else => {},
             },
-            .SlashEqual => switch (type_defs[value].?.def_type) {
+            .SlashEqual => switch (value_type_def.def_type) {
                 .Integer => try self.OP_DIVIDE_I(locations[value]),
                 .Double => try self.OP_DIVIDE_F(locations[value]),
                 else => {},
@@ -2622,7 +2729,7 @@ fn generateSubscript(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!
             .XorEqual => try self.OP_XOR(locations[value]),
             .BorEqual => try self.OP_BOR(locations[value]),
             .AmpersandEqual => try self.OP_BAND(locations[value]),
-            .PercentEqual => switch (type_defs[value].?.def_type) {
+            .PercentEqual => switch (value_type_def.def_type) {
                 .Integer => try self.OP_MOD_I(locations[value]),
                 .Double => try self.OP_MOD_F(locations[value]),
                 else => {},
@@ -2672,7 +2779,7 @@ fn generateTry(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.
     self.patchTryOrJit(try_jump);
     var has_unconditional = components.unconditional_clause != null;
     for (components.clauses) |clause| {
-        const error_type = type_defs[clause.type_def].?;
+        const error_type = self.gc.get(obj.ObjTypeDef, type_defs[clause.type_def].?).?;
 
         if (error_type.def_type == .Any) {
             has_unconditional = true;
@@ -2680,7 +2787,10 @@ fn generateTry(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.
 
         // We assume the error is on top of the stack
         try self.OP_COPY(clause.identifier); // Copy error value since its argument to the catch clause
-        try self.emitConstant(clause.identifier, error_type.toValue());
+        try self.emitConstant(
+            clause.identifier,
+            Value.fromObj(.{ .index = type_defs[clause.type_def].?.index, .obj_type = .Type }),
+        );
         try self.OP_IS(clause.identifier);
         // If error type does not match, jump to next catch clause
         const next_clause_jump: usize = try self.OP_JUMP_IF_FALSE(location);
@@ -2741,14 +2851,15 @@ fn generateTry(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.
         while (it.next()) |kv| {
             var clause: ?Ast.Try.Clause = null;
             for (components.clauses) |cls| {
-                if (type_defs[cls.type_def] == kv.key_ptr.*) {
+                if (type_defs[cls.type_def].?.index == kv.key_ptr.*.index) {
                     clause = cls;
                     break;
                 }
             }
 
             if (clause == null) {
-                const err_str = try kv.key_ptr.*.toStringAlloc(self.gc.allocator, false);
+                const type_def = self.gc.get(obj.ObjTypeDef, kv.key_ptr.*).?;
+                const err_str = try type_def.toStringAlloc(self.gc.allocator, false);
                 defer self.gc.allocator.free(err_str);
 
                 self.reporter.reportWithOrigin(
@@ -2781,12 +2892,19 @@ fn generateThrow(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*ob
         self.current.?.return_emitted = true;
     }
 
-    const expression_type_def = type_defs[components.expression].?;
-    const current_error_types = self.current.?.function.?.type_def.resolved_type.?.Function.error_types;
+    const expression_type_def_idx = type_defs[components.expression].?;
+    const expression_type_def = self.gc.get(obj.ObjTypeDef, expression_type_def_idx).?;
+    const current_error_types = self.gc.get(
+        obj.ObjTypeDef,
+        self.gc.get(obj.ObjFunction, self.current.?.function.?).?
+            .type_def,
+    ).?
+        .resolved_type.?.Function.error_types;
 
     var found_match = false;
     if (current_error_types != null) {
-        for (current_error_types.?) |error_type| {
+        for (current_error_types.?) |error_type_idx| {
+            const error_type = self.gc.get(obj.ObjTypeDef, error_type_idx).?;
             if (error_type.eql(expression_type_def)) {
                 found_match = true;
                 break;
@@ -2799,12 +2917,12 @@ fn generateThrow(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*ob
             // In a try catch remember to check that we handle that error when finishing parsing the try-catch
             try self.current.?.try_should_handle.?.put(
                 self.gc.allocator,
-                expression_type_def,
+                expression_type_def_idx,
                 location,
             );
         } else {
             // Not in a try-catch and function signature does not expect this error type
-            const error_str = try type_defs[components.expression].?.toStringAlloc(self.gc.allocator, false);
+            const error_str = try expression_type_def.toStringAlloc(self.gc.allocator, false);
             defer self.gc.allocator.free(error_str);
 
             self.reporter.reportErrorFmt(
@@ -2833,7 +2951,12 @@ fn generateTypeExpression(self: *Self, node: Ast.Node.Index, _: ?*Breaks) Error!
 
     try self.emitConstant(
         self.ast.nodes.items(.location)[node],
-        type_defs[node_components[node].TypeExpression].?.toValue(),
+        Value.fromObj(
+            .{
+                .index = type_defs[node_components[node].TypeExpression].?.index,
+                .obj_type = .Type,
+            },
+        ),
     );
 
     try self.patchOptJumps(node);
@@ -2856,7 +2979,10 @@ fn generateTypeOfExpression(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks)
 fn generateUnary(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.ObjFunction {
     const components = self.ast.nodes.items(.components)[node].Unary;
     const location = self.ast.nodes.items(.location)[node];
-    const expression_type_def = self.ast.nodes.items(.type_def)[components.expression].?;
+    const expression_type_def = self.gc.get(
+        obj.ObjTypeDef,
+        self.ast.nodes.items(.type_def)[components.expression].?,
+    ).?;
 
     _ = try self.generateNode(components.expression, breaks);
 
@@ -2921,13 +3047,23 @@ fn generateVarDeclaration(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) E
         .Global => try self.OP_DEFINE_GLOBAL(
             location,
             @intCast(components.slot),
-            (try self.gc.copyString(self.ast.tokens.items(.lexeme)[components.name])).toValue(),
+            Value.fromObj(
+                .{
+                    .index = (try self.gc.copyString(self.ast.tokens.items(.lexeme)[components.name])).index,
+                    .obj_type = .String,
+                },
+            ),
         ),
         .Local => {
             try self.OP_DBG_LOCAL_ENTER(
                 location,
                 @intCast(components.slot),
-                (try self.gc.copyString(self.ast.tokens.items(.lexeme)[components.name])).toValue(),
+                Value.fromObj(
+                    .{
+                        .index = (try self.gc.copyString(self.ast.tokens.items(.lexeme)[components.name])).index,
+                        .obj_type = .String,
+                    },
+                ),
             );
         },
         .UpValue => {}, // TODO: ??
@@ -2954,11 +3090,13 @@ fn generateWhile(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*ob
     const location = locations[node];
 
     // If condition constant and false, skip the node
-    if (try self.ast.isConstant(self.gc.allocator, components.condition) and !(try self.ast.typeCheckAndToValue(
-        components.condition,
-        &self.reporter,
-        self.gc,
-    )).boolean()) {
+    if (try self.ast.isConstant(self.gc, components.condition) and
+        !(try self.ast.typeCheckAndToValue(
+            components.condition,
+            &self.reporter,
+            self.gc,
+        )).boolean())
+    {
         try self.patchOptJumps(node);
         try self.endScope(node);
 
@@ -3027,7 +3165,7 @@ fn generateZdef(self: *Self, node: Ast.Node.Index, _: ?*Breaks) Error!?*obj.ObjF
     if (self.flavor.resolveDynLib()) {
         for (components.elements) |*element| {
             // Generate ObjNative wrapper of actual zdef
-            switch (element.zdef.type_def.def_type) {
+            switch (self.gc.get(obj.ObjTypeDef, element.zdef.type_def).?.def_type) {
                 .Function => {
                     if (element.obj_native == null) {
                         var timer = if (!is_wasm) std.time.Timer.start() catch unreachable else {};
@@ -3038,7 +3176,10 @@ fn generateZdef(self: *Self, node: Ast.Node.Index, _: ?*Breaks) Error!?*obj.ObjF
                             self.jit.?.jit_time += timer.read();
                         }
 
-                        try self.emitConstant(location, element.obj_native.?.toValue());
+                        try self.emitConstant(
+                            location,
+                            Value.fromObj(.{ .index = element.obj_native.?.index, .obj_type = .Native }),
+                        );
                     }
                 },
                 .ForeignContainer => {
@@ -3050,14 +3191,22 @@ fn generateZdef(self: *Self, node: Ast.Node.Index, _: ?*Breaks) Error!?*obj.ObjF
                         self.jit.?.jit_time += timer.read();
                     }
 
-                    try self.emitConstant(location, element.zdef.type_def.toValue());
+                    try self.emitConstant(
+                        location,
+                        Value.fromObj(.{ .index = element.zdef.type_def.index, .obj_type = .Type }),
+                    );
                 },
                 else => {},
             }
             try self.OP_DEFINE_GLOBAL(
                 location,
                 @intCast(element.slot),
-                (try self.gc.copyString(self.ast.tokens.items(.lexeme)[components.lib_name])).toValue(),
+                Value.fromObj(
+                    .{
+                        .index = (try self.gc.copyString(self.ast.tokens.items(.lexeme)[components.lib_name])).index,
+                        .obj_type = .String,
+                    },
+                ),
             );
         }
     }
