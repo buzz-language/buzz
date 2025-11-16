@@ -16,11 +16,12 @@ const FFI = if (!is_wasm) @import("FFI.zig") else void;
 const dispatch_call_modifier: std.builtin.CallModifier = if (!is_wasm) .always_tail else .auto;
 const io = @import("io.zig");
 const Debugger = if (!is_wasm) @import("Debugger.zig") else void;
+const Pool = @import("pool.zig").Pool;
 
 const dumpStack = disassembler.dumpStack;
 const jmp = if (!is_wasm) @import("jmp.zig") else void;
 
-pub const ImportRegistry = std.AutoHashMapUnmanaged(*obj.ObjString, []const Value);
+pub const ImportRegistry = std.AutoHashMapUnmanaged(Pool(obj.ObjString).Idx, []const Value);
 
 pub const RunFlavor = enum {
     Run,
@@ -55,7 +56,7 @@ pub const RunFlavor = enum {
 pub const CallFrame = struct {
     const Self = @This();
 
-    closure: *obj.ObjClosure,
+    closure: Pool(obj.ObjClosure).Idx,
     /// Index into closure's chunk
     ip: usize,
     /// Frame
@@ -116,7 +117,7 @@ pub const Fiber = struct {
 
     stack: []Value,
     stack_top: [*]Value,
-    open_upvalues: ?*obj.ObjUpValue,
+    open_upvalues: ?Pool(obj.ObjUpValue).Idx = null,
     /// Debug info
     locals_dbg: std.ArrayList(Value) = .empty,
 
@@ -127,7 +128,7 @@ pub const Fiber = struct {
     /// When within a try catch in a JIT compiled function
     try_context: ?*TryCtx = null,
 
-    type_def: *obj.ObjTypeDef,
+    type_def: Pool(obj.ObjTypeDef).Idx,
 
     /// If true, this fiber was created in order to evaluate an expression while debugging
     /// This prevents the eval result to be lost
@@ -148,7 +149,6 @@ pub const Fiber = struct {
             .stack = try allocator.alloc(Value, BuildOptions.stack_size),
             .stack_top = undefined,
             .frames = .empty,
-            .open_upvalues = null,
             .instruction = instruction,
             .extra_instruction = extra_instruction,
         };
@@ -544,7 +544,7 @@ pub const VM = struct {
 
     pub fn cloneValue(self: *Self, value: Value) !Value {
         return if (value.isObj())
-            try obj.cloneObject(value.obj(), self)
+            try obj.cloneObject(self.gc.getObj(value.obj()).?, self)
         else
             value;
     }
@@ -847,12 +847,6 @@ pub const VM = struct {
             // As soon as we step into catch clauses, we're not in a try-catch block anymore
             current_frame.try_ip = null;
             current_frame.try_top = null;
-        }
-
-        if (BuildOptions.gc_debug_access) {
-            self.gc.where = self.current_ast.tokens.get(
-                current_frame.closure.function.chunk.lines.items[current_frame.ip - 1],
-            );
         }
 
         if (BuildOptions.cycle_limit) |limit| {
@@ -4807,7 +4801,8 @@ pub const VM = struct {
         self.reportRuntimeError(
             message,
             if (self.currentFrame()) |frame|
-                frame.closure.function.chunk.locations.items[frame.ip - 1]
+                self.gc.get(obj.ObjClosure, frame.closure).?
+                    .function.chunk.locations.items[frame.ip - 1]
             else
                 null,
             self.current_fiber.frames.items,
@@ -4828,7 +4823,8 @@ pub const VM = struct {
             var msg = std.Io.Writer.Allocating.init(self.gc.allocator);
 
             if (next) |unext| {
-                const function_name = unext.closure.function.type_def.resolved_type.?.Function.name.string;
+                const function_name = self.gc.get(obj.ObjClosure, unext.closure).?
+                    .function.type_def.resolved_type.?.Function.name.string;
                 msg.writer.print(
                     if (builtin.os.tag != .windows)
                         "\t{s} in \x1b[36m{s}\x1b[0m at {s}"
@@ -4845,7 +4841,8 @@ pub const VM = struct {
                         if (frame.call_site) |call_site|
                             self.current_ast.tokens.items(.script_name)[call_site]
                         else
-                            frame.closure.function.type_def.resolved_type.?.Function.script_name.string,
+                            self.gc.get(obj.ObjClosure, frame.closure).?
+                                .function.type_def.resolved_type.?.Function.script_name.string,
                     },
                 ) catch @panic("Could not report error");
             } else {

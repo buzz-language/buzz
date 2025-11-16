@@ -23,6 +23,7 @@ const buzz_builtin = @import("builtin.zig");
 const ZigType = @import("zigtypes.zig").Type;
 const Ast = @import("Ast.zig");
 const io = @import("io.zig");
+const Pool = @import("pool.zig").Pool;
 
 pub const pcre = if (!is_wasm) @import("pcre.zig") else void;
 
@@ -32,25 +33,172 @@ pub const SerializeError = error{
     OutOfMemory,
 };
 
-pub const ObjType = enum {
-    String,
-    Type,
-    UpValue,
-    Closure,
-    Function,
-    ObjectInstance,
-    Object,
-    List,
-    Map,
-    Enum,
-    EnumInstance,
-    Bound,
-    Native,
-    UserData,
-    Pattern,
-    Fiber,
-    ForeignContainer,
-    Range,
+pub const ObjType = enum(u5) {
+    String = 0,
+    Type = 1,
+    UpValue = 2,
+    Closure = 3,
+    Function = 4,
+    ObjectInstance = 5,
+    Object = 6,
+    List = 7,
+    Map = 8,
+    Enum = 9,
+    EnumInstance = 10,
+    Bound = 11,
+    Native = 12,
+    UserData = 13,
+    Pattern = 14,
+    Fiber = 15,
+    ForeignContainer = 16,
+    Range = 17,
+
+    pub fn @"type"(self: @This()) type {
+        return switch (self.obj_type) {
+            .Range => ObjRange,
+            .String => ObjString,
+            .Pattern => ObjPattern,
+            .Fiber => ObjFiber,
+            .Type => ObjType,
+            .Object => ObjObject,
+            .Enum => ObjEnum,
+            .ObjectInstance => ObjObjectInstance,
+            .EnumInstance => ObjEnumInstance,
+            .Function => ObjFunction,
+            .UpValue => ObjUpValue,
+            .Closure => ObjClosure,
+            .List => ObjList,
+            .Map => ObjMap,
+            .Bound => ObjBoundMethod,
+            .ForeignContainer => ObjForeignContainer,
+            .UserData => ObjUserData,
+            .Native => ObjNative,
+        };
+    }
+};
+
+pub const ObjIdx = struct {
+    obj_type: ObjType,
+    index: u43,
+
+    pub fn ptr(self: @This(), gc: *GC) *Obj {
+        return gc.getObj(self).?;
+    }
+
+    pub fn typeOf(self: @This(), gc: *GC) error{ OutOfMemory, NoSpaceLeft, ReachedMaximumMemoryUsage }!Pool(ObjTypeDef).Idx {
+        return switch (self.obj_type) {
+            .Range => gc.type_registry.rg_type,
+            .String => gc.type_registry.str_type,
+            .Pattern => gc.type_registry.pat_type,
+            .Fiber => gc.get(ObjFiber, .idx(self.index)).?.fiber.type_def,
+            .Type => try gc.type_registry.getTypeDef(.{ .def_type = .Type }),
+            .Object => gc.get(ObjObject, .idx(self.index)).?.type_def,
+            .Enum => gc.pools.get(ObjEnum, .idx(self.index)).?.type_def,
+            .ObjectInstance => gc.get(ObjObjectInstance, .idx(self.index)).?.type_def,
+            .EnumInstance => try gc.get(
+                ObjTypeDef,
+                gc.get(
+                    ObjEnum,
+                    gc.get(ObjEnumInstance, .idx(self.index)).?.enum_ref,
+                ).?.type_def,
+            ).?.toInstance(
+                &gc.type_registry,
+                false,
+            ),
+            .Function => gc.get(ObjFunction, .idx(self.index)).?.type_def,
+            .UpValue => upvalue: {
+                const upvalue = gc.get(ObjUpValue, .idx(self.index)).?;
+
+                break :upvalue (upvalue.closed orelse upvalue.location.*).typeOf(gc);
+            },
+            .Closure => gc.get(ObjClosure, .idx(self.index)).?.function.type_def,
+            .List => gc.get(ObjList, .idx(self.index)).?.type_def,
+            .Map => gc.get(ObjMap, .idx(self.index)).?.type_def,
+            .Bound => bound: {
+                const bound = ObjBoundMethod.cast(self).?;
+                break :bound try (if (bound.closure) |cls|
+                    cls.function.toValue()
+                else
+                    bound.native.?.toValue()).typeOf(gc);
+            },
+            .ForeignContainer => ObjForeignContainer.cast(self).?.type_def,
+            .UserData => gc.type_registry.ud_type,
+            // FIXME: apart from list/map types we actually can embark typedef of objnatives at runtime
+            // Or since native are ptr to unique function we can keep a map of ptr => typedef
+            .Native => try gc.type_registry.getTypeDef(
+                .{
+                    .def_type = .Function,
+                    .resolved_type = .{
+                        .Function = .{
+                            .id = 0,
+                            .name = try gc.copyString("native"),
+                            .script_name = try gc.copyString("native"),
+                            .return_type = gc.type_registry.any_type,
+                            .yield_type = gc.type_registry.any_type,
+                        },
+                    },
+                },
+            ),
+        };
+    }
+
+    pub fn clone(self: @This(), gc: *GC) !Value {
+        switch (self.obj_type) {
+            .String,
+            .Type,
+            .UpValue,
+            .Closure,
+            .Function,
+            .Object,
+            .Enum,
+            .EnumInstance,
+            .Bound,
+            .Native,
+            .UserData,
+            .Pattern,
+            .Fiber,
+            .ForeignContainer,
+            .Range,
+            => return Value.fromObj(self),
+
+            .List => {
+                const list = gc.get(ObjList, .idx(self.index)).?;
+
+                return Value.fromObj(
+                    .{
+                        .index = try gc.allocateObject(
+                            ObjList{
+                                .type_def = list.type_def,
+                                .items = try list.items.clone(gc.allocator),
+                                .methods = list.methods,
+                            },
+                        ),
+                        .obj_type = .List,
+                    },
+                );
+            },
+
+            .Map => {
+                const map = gc.get(ObjMap, .idx(self.index)).?;
+
+                return Value.fromObj(
+                    .{
+                        .index = try gc.allocateObject(
+                            ObjMap{
+                                .type_def = map.type_def,
+                                .map = try map.map.clone(gc.allocator),
+                                .methods = map.methods,
+                            },
+                        ),
+                        .obj_type = .Map,
+                    },
+                );
+            },
+
+            // TODO
+            .ObjectInstance => unreachable,
+        }
+    }
 };
 
 pub const Obj = struct {
@@ -60,7 +208,6 @@ pub const Obj = struct {
     marked: bool = false,
     // True when old obj and was modified
     dirty: bool = false,
-    node: std.DoublyLinkedList.Node = .{},
 
     pub fn cast(obj: *Obj, comptime T: type, obj_type: ObjType) ?*T {
         if (obj.obj_type != obj_type) {
@@ -70,16 +217,8 @@ pub const Obj = struct {
         return @alignCast(@fieldParentPtr("obj", obj));
     }
 
-    pub fn forceCast(obj: *Obj, comptime T: type) ?*T {
+    pub fn forceCast(obj: *Obj, comptime T: type) *T {
         return @alignCast(@fieldParentPtr("obj", obj));
-    }
-
-    pub fn access(obj: *Obj, comptime T: type, obj_type: ObjType, gc: *GC) ?*T {
-        if (BuildOptions.gc_debug_access) {
-            gc.debugger.?.accessed(obj, gc.where);
-        }
-
-        return obj.cast(T, obj_type);
     }
 
     pub fn serialize(self: *Self, vm: *VM, seen: *std.AutoHashMapUnmanaged(*Self, void)) SerializeError!Value {
@@ -329,55 +468,9 @@ pub const Obj = struct {
         }
     }
 
-    pub fn typeOf(self: *Self, gc: *GC) error{ OutOfMemory, NoSpaceLeft, ReachedMaximumMemoryUsage }!*ObjTypeDef {
-        return switch (self.obj_type) {
-            .Range => gc.type_registry.rg_type,
-            .String => gc.type_registry.str_type,
-            .Pattern => gc.type_registry.pat_type,
-            .Fiber => ObjFiber.cast(self).?.fiber.type_def,
-            .Type => try gc.type_registry.getTypeDef(.{ .def_type = .Type }),
-            .Object => ObjObject.cast(self).?.type_def,
-            .Enum => ObjEnum.cast(self).?.type_def,
-            .ObjectInstance => ObjObjectInstance.cast(self).?.type_def,
-            .EnumInstance => try ObjEnumInstance.cast(self).?.enum_ref.type_def.toInstance(
-                &gc.type_registry,
-                false,
-            ),
-            .Function => ObjFunction.cast(self).?.type_def,
-            .UpValue => upvalue: {
-                const upvalue: *ObjUpValue = ObjUpValue.cast(self).?;
+    pub fn is(self: *Self, type_def_idx: Pool(ObjTypeDef).Idx, gc: *GC) bool {
+        const type_def = gc.get(ObjTypeDef, type_def_idx).?;
 
-                break :upvalue (upvalue.closed orelse upvalue.location.*).typeOf(gc);
-            },
-            .Closure => ObjClosure.cast(self).?.function.type_def,
-            .List => ObjList.cast(self).?.type_def,
-            .Map => ObjMap.cast(self).?.type_def,
-            .Bound => bound: {
-                const bound: *ObjBoundMethod = ObjBoundMethod.cast(self).?;
-                break :bound try (if (bound.closure) |cls| cls.function.toValue() else bound.native.?.toValue()).typeOf(gc);
-            },
-            .ForeignContainer => ObjForeignContainer.cast(self).?.type_def,
-            .UserData => gc.type_registry.ud_type,
-            // FIXME: apart from list/map types we actually can embark typedef of objnatives at runtime
-            // Or since native are ptr to unique function we can keep a map of ptr => typedef
-            .Native => try gc.type_registry.getTypeDef(
-                .{
-                    .def_type = .Function,
-                    .resolved_type = .{
-                        .Function = .{
-                            .id = 0,
-                            .name = try gc.copyString("native"),
-                            .script_name = try gc.copyString("native"),
-                            .return_type = gc.type_registry.any_type,
-                            .yield_type = gc.type_registry.any_type,
-                        },
-                    },
-                },
-            ),
-        };
-    }
-
-    pub fn is(self: *Self, type_def: *ObjTypeDef) bool {
         if (type_def.def_type == .Any) {
             return true;
         }
@@ -386,35 +479,45 @@ pub const Obj = struct {
             .Range => type_def.def_type == .Range,
             .String => type_def.def_type == .String,
             .Pattern => type_def.def_type == .Pattern,
-            .Fiber => ObjFiber.cast(self).?.is(type_def),
+            .Fiber => self.forceCast(ObjFiber).is(type_def),
 
             .Type, .Object, .Enum => type_def.def_type == .Type,
 
             .ObjectInstance => (type_def.def_type == .ObjectInstance or type_def.def_type == .Object or type_def.def_type == .Protocol or type_def.def_type == .ProtocolInstance) and
-                ObjObjectInstance.cast(self).?.is(type_def),
-            .EnumInstance => (type_def.def_type == .Enum and ObjEnumInstance.cast(self).?.enum_ref.type_def == type_def) or
-                (type_def.def_type == .EnumInstance and ObjEnumInstance.cast(self).?.enum_ref.type_def == type_def.resolved_type.?.EnumInstance.of),
-            .Function => function: {
-                const function: *ObjFunction = ObjFunction.cast(self).?;
-                break :function function.type_def.eql(type_def);
-            },
+                self.forceCast(ObjObjectInstance).is(type_def),
+            .EnumInstance => (type_def.def_type == .Enum and
+                gc.get(ObjEnum, self.forceCast(ObjEnumInstance).enum_ref).?.type_def.index == type_def_idx.index) or
+                (type_def.def_type == .EnumInstance and
+                    gc.get(ObjEnum, self.forceCast(ObjEnumInstance).enum_ref).?.type_def.index == type_def.resolved_type.?.EnumInstance.of.index),
+            .Function => gc.get(ObjTypeDef, self.forceCast(ObjFunction).type_def).?.eql(type_def),
 
             .UpValue => upvalue: {
-                const upvalue: *ObjUpValue = ObjUpValue.cast(self).?;
-                break :upvalue Value.fromObj(type_def.toObj()).is(
+                const upvalue = self.forceCast(ObjUpValue);
+                break :upvalue Value.fromObj(.{ .index = type_def_idx.index, .obj_type = .Type }).is(
                     upvalue.closed orelse upvalue.location.*,
+                    gc,
                 );
             },
-            .Closure => ObjClosure.cast(self).?.function.toObj().is(type_def),
-            .List => ObjList.cast(self).?.type_def.eql(type_def),
-            .Map => ObjMap.cast(self).?.type_def.eql(type_def),
+            .Closure => gc.get(ObjFunction, self.forceCast(ObjClosure).function).?
+                .toObj().is(type_def_idx, gc),
+            .List => gc.get(ObjTypeDef, self.forceCast(ObjList).type_def).?.eql(type_def),
+            .Map => gc.get(ObjTypeDef, self.forceCast(ObjMap).type_def).?.eql(type_def),
             .Bound => bound: {
-                const bound: *ObjBoundMethod = ObjBoundMethod.cast(self).?;
-                break :bound Value.fromObj(type_def.toObj()).is(
-                    Value.fromObj(if (bound.closure) |cls| cls.function.toObj() else bound.native.?.toObj()),
+                const bound = self.forceCast(ObjBoundMethod);
+                break :bound Value.fromObj(.{ .index = type_def_idx.index, .obj_type = .Type }).is(
+                    Value.fromObj(
+                        .{
+                            .index = if (bound.closure) |cls|
+                                gc.get(ObjClosure, cls).?.function.index
+                            else
+                                bound.native.?.index,
+                            .obj_type = if (bound.closure != null) .Closure else .Native,
+                        },
+                    ),
+                    gc,
                 );
             },
-            .ForeignContainer => type_def.def_type == .ForeignContainer and ObjForeignContainer.cast(self).?.is(type_def),
+            .ForeignContainer => type_def.def_type == .ForeignContainer and self.forceCast(ObjForeignContainer).is(type_def),
             .UserData => type_def.def_type == .UserData,
             .Native => unreachable, // TODO: we don't know how to embark NativeFn type at runtime yet
         };
@@ -426,15 +529,15 @@ pub const Obj = struct {
             .String => type_def.def_type == .String,
             .Type => type_def.def_type == .Type,
             .UpValue => uv: {
-                var upvalue: *ObjUpValue = ObjUpValue.cast(self).?;
+                var upvalue = ObjUpValue.cast(self).?;
                 break :uv (upvalue.closed orelse upvalue.location.*).typeEql(type_def);
             },
             .EnumInstance => ei: {
-                var instance: *ObjEnumInstance = ObjEnumInstance.cast(self).?;
+                var instance = ObjEnumInstance.cast(self).?;
                 break :ei type_def.def_type == .EnumInstance and instance.enum_ref.type_def.eql(type_def.resolved_type.?.EnumInstance);
             },
             .ObjectInstance => oi: {
-                var instance: *ObjObjectInstance = ObjObjectInstance.cast(self).?;
+                var instance = ObjObjectInstance.cast(self).?;
                 break :oi type_def.def_type == .ObjectInstance and instance.is(type_def.resolved_type.?.ObjectInstance);
             },
             .Enum => ObjEnum.cast(self).?.type_def.eql(type_def),
@@ -452,51 +555,55 @@ pub const Obj = struct {
         };
     }
 
-    pub fn eql(self: *Self, other: *Self) bool {
+    pub fn eql(self: *Self, other: *Self, gc: *GC) bool {
         if (self.obj_type != other.obj_type) {
             return false;
         }
 
         switch (self.obj_type) {
             .Pattern => {
-                return mem.eql(u8, ObjPattern.cast(self).?.source, ObjPattern.cast(other).?.source);
+                return mem.eql(
+                    u8,
+                    self.forceCast(ObjPattern).source,
+                    other.forceCast(ObjPattern).source,
+                );
             },
             .String => {
                 if (BuildOptions.debug) {
-                    assert(self != other or mem.eql(u8, ObjString.cast(self).?.string, ObjString.cast(other).?.string));
-                    assert(self == other or !mem.eql(u8, ObjString.cast(self).?.string, ObjString.cast(other).?.string));
+                    assert(self != other or mem.eql(u8, self.forceCast(ObjString).string, other.forceCast(ObjString).string));
+                    assert(self == other or !mem.eql(u8, self.forceCast(ObjString).string, other.forceCast(ObjString).string));
                 }
 
                 // since string are interned this should be enough
                 return self == other;
             },
             .Type => {
-                const self_type: *ObjTypeDef = ObjTypeDef.cast(self).?;
-                const other_type: *ObjTypeDef = ObjTypeDef.cast(other).?;
+                const self_type = self.forceCast(ObjTypeDef);
+                const other_type = other.forceCast(ObjTypeDef);
 
                 return self_type.optional == other_type.optional and self_type.eql(other_type);
             },
             .UpValue => {
-                const self_upvalue: *ObjUpValue = ObjUpValue.cast(self).?;
-                const other_upvalue: *ObjUpValue = ObjUpValue.cast(other).?;
+                const self_upvalue = self.forceCast(ObjUpValue);
+                const other_upvalue = other.forceCast(ObjUpValue);
 
                 return (self_upvalue.closed orelse self_upvalue.location.*).eql(other_upvalue.closed orelse other_upvalue.location.*);
             },
             .EnumInstance => {
-                const self_enum_instance: *ObjEnumInstance = ObjEnumInstance.cast(self).?;
-                const other_enum_instance: *ObjEnumInstance = ObjEnumInstance.cast(other).?;
+                const self_enum_instance = ObjEnumInstance.cast(self).?;
+                const other_enum_instance = ObjEnumInstance.cast(other).?;
 
                 return self_enum_instance.enum_ref == other_enum_instance.enum_ref and self_enum_instance.case == other_enum_instance.case;
             },
             .UserData => {
-                const self_userdata: *ObjUserData = ObjUserData.cast(self).?;
-                const other_userdata: *ObjUserData = ObjUserData.cast(other).?;
+                const self_userdata = ObjUserData.cast(self).?;
+                const other_userdata = ObjUserData.cast(other).?;
 
                 return self_userdata.userdata == other_userdata.userdata;
             },
             .Fiber => {
-                const self_fiber: *ObjFiber = ObjFiber.cast(self).?;
-                const other_fiber: *ObjFiber = ObjFiber.cast(other).?;
+                const self_fiber = ObjFiber.cast(self).?;
+                const other_fiber = ObjFiber.cast(other).?;
 
                 return self_fiber.fiber == other_fiber.fiber;
             },
@@ -544,7 +651,7 @@ pub const Obj = struct {
                 try writer.print("fiber: 0x{x}", .{@intFromPtr(fiber)});
             },
             .Type => {
-                const type_def: *ObjTypeDef = ObjTypeDef.cast(obj).?;
+                const type_def = ObjTypeDef.cast(obj).?;
 
                 try writer.print("type: 0x{x} `", .{
                     @intFromPtr(type_def),
@@ -555,7 +662,7 @@ pub const Obj = struct {
                 try writer.writeAll("`");
             },
             .UpValue => {
-                const upvalue: *ObjUpValue = ObjUpValue.cast(obj).?;
+                const upvalue = ObjUpValue.cast(obj).?;
 
                 try (upvalue.closed orelse upvalue.location.*).toString(writer);
             },
@@ -635,7 +742,7 @@ pub const Obj = struct {
                 );
             },
             .List => {
-                const list: *ObjList = ObjList.cast(obj).?;
+                const list = ObjList.cast(obj).?;
 
                 try writer.print(
                     "list: 0x{x} {s}[",
@@ -653,7 +760,7 @@ pub const Obj = struct {
                 try writer.writeAll("]");
             },
             .Map => {
-                const map: *ObjMap = ObjMap.cast(obj).?;
+                const map = ObjMap.cast(obj).?;
 
                 try writer.print(
                     "map: 0x{x} {s}{{",
@@ -679,8 +786,8 @@ pub const Obj = struct {
                 ObjEnum.cast(obj).?.type_def.resolved_type.?.Enum.name.string,
             }),
             .EnumInstance => enum_instance: {
-                const instance: *ObjEnumInstance = ObjEnumInstance.cast(obj).?;
-                const enum_: *ObjEnum = instance.enum_ref;
+                const instance = ObjEnumInstance.cast(obj).?;
+                const enum_ = instance.enum_ref;
 
                 break :enum_instance try writer.print("{s}.{s}", .{
                     enum_.type_def.resolved_type.?.Enum.name.string,
@@ -688,7 +795,7 @@ pub const Obj = struct {
                 });
             },
             .Bound => {
-                const bound: *ObjBoundMethod = ObjBoundMethod.cast(obj).?;
+                const bound = ObjBoundMethod.cast(obj).?;
 
                 if (bound.closure) |closure| {
                     const closure_name: []const u8 = closure.function.type_def.resolved_type.?.Function.name.string;
@@ -711,12 +818,12 @@ pub const Obj = struct {
                 }
             },
             .Native => {
-                const native: *ObjNative = ObjNative.cast(obj).?;
+                const native = ObjNative.cast(obj).?;
 
                 try writer.print("native: 0x{x}", .{@intFromPtr(native)});
             },
             .UserData => {
-                const userdata: *ObjUserData = ObjUserData.cast(obj).?;
+                const userdata = ObjUserData.cast(obj).?;
 
                 try writer.print("userdata: 0x{x}", .{userdata.userdata});
             },
@@ -743,16 +850,8 @@ pub const ObjFiber = struct {
         try gc.markFiber(self.fiber);
     }
 
-    pub inline fn toObj(self: *Self) *Obj {
+    pub fn toObj(self: *Self) *Obj {
         return &self.obj;
-    }
-
-    pub inline fn toValue(self: *Self) Value {
-        return Value.fromObj(self.toObj());
-    }
-
-    pub inline fn cast(obj: *Obj) ?*Self {
-        return obj.cast(Self, .Fiber);
     }
 
     pub const members = [_]NativeFn{
@@ -784,7 +883,7 @@ pub const ObjFiber = struct {
 
     pub fn member(vm: *VM, method_idx: usize) !Value {
         if (vm.gc.objfiber_members[method_idx]) |umethod| {
-            return umethod.toValue();
+            return Value.fromObj(.{ .index = umethod.index, .obj_type = .Native });
         }
 
         var native = try vm.gc.allocateObject(
@@ -797,19 +896,19 @@ pub const ObjFiber = struct {
         vm.gc.objfiber_members[method_idx] = native;
 
         // We need to mark it otherwise it could be collected by a Young gc and then badly accessed by a Full gc
-        vm.gc.markObj(native.toObj()) catch @panic("Could not mark obj");
+        vm.gc.markObj(ObjNative, native) catch @panic("Could not mark obj");
 
-        return native.toValue();
+        return Value.fromObj(.{ .index = native.index, .obj_type = .Native });
     }
 
-    pub fn memberDefByName(parser: *Parser, name: []const u8) !?*ObjTypeDef {
+    pub fn memberDefByName(parser: *Parser, name: []const u8) !?Pool(ObjTypeDef).Idx {
         return if (members_name.get(name)) |idx|
             try memberDef(parser, idx)
         else
             null;
     }
 
-    pub fn memberDef(parser: *Parser, method_idx: usize) !*ObjTypeDef {
+    pub fn memberDef(parser: *Parser, method_idx: usize) !Pool(ObjTypeDef).Idx {
         if (parser.gc.objfiber_memberDefs[method_idx]) |umethod| {
             return umethod;
         }
@@ -828,12 +927,12 @@ pub const ObjFiber = struct {
     pub const FiberDef = struct {
         const SelfFiberDef = @This();
 
-        return_type: *ObjTypeDef,
-        yield_type: *ObjTypeDef,
+        return_type: Pool(ObjTypeDef).Idx,
+        yield_type: Pool(ObjTypeDef).Idx,
 
         pub fn mark(self: *SelfFiberDef, gc: *GC) !void {
-            try gc.markObj(@constCast(self.return_type.toObj()));
-            try gc.markObj(@constCast(self.yield_type.toObj()));
+            try gc.markObj(ObjTypeDef, self.return_type);
+            try gc.markObj(ObjTypeDef, self.yield_type);
         }
     };
 };
@@ -854,16 +953,8 @@ pub const ObjPattern = struct {
 
     pub fn mark(_: *Self, _: *GC) !void {}
 
-    pub inline fn toObj(self: *Self) *Obj {
+    pub fn toObj(self: *Self) *Obj {
         return &self.obj;
-    }
-
-    pub inline fn toValue(self: *Self) Value {
-        return Value.fromObj(self.toObj());
-    }
-
-    pub inline fn cast(obj: *Obj) ?*Self {
-        return obj.cast(Self, .Pattern);
     }
 
     pub const members = if (!is_wasm)
@@ -909,7 +1000,7 @@ pub const ObjPattern = struct {
 
     pub fn member(vm: *VM, method_idx: usize) !Value {
         if (vm.gc.objpattern_members[method_idx]) |umethod| {
-            return umethod.toValue();
+            return Value.fromObj(.{ .index = umethod.index, .obj_type = .Native });
         }
 
         var native = try vm.gc.allocateObject(
@@ -922,9 +1013,9 @@ pub const ObjPattern = struct {
         vm.gc.objpattern_members[method_idx] = native;
 
         // We need to mark it otherwise it could be collected by a Young gc and then badly accessed by a Full gc
-        vm.gc.markObj(native.toObj()) catch @panic("Could not mark obj");
+        vm.gc.markObj(ObjNative, native) catch @panic("Could not mark obj");
 
-        return native.toValue();
+        return Value.fromObj(.{ .index = native.index, .obj_type = .Native });
     }
 
     pub fn memberByName(vm: *VM, name: []const u8) !?Value {
@@ -934,7 +1025,7 @@ pub const ObjPattern = struct {
             null;
     }
 
-    pub fn memberDef(parser: *Parser, method_idx: usize) !*ObjTypeDef {
+    pub fn memberDef(parser: *Parser, method_idx: usize) !Pool(ObjTypeDef).Idx {
         if (parser.gc.objpattern_memberDefs[method_idx]) |umethod| {
             return umethod;
         }
@@ -946,7 +1037,7 @@ pub const ObjPattern = struct {
         return native_type;
     }
 
-    pub fn memberDefByName(parser: *Parser, name: []const u8) !?*ObjTypeDef {
+    pub fn memberDefByName(parser: *Parser, name: []const u8) !?Pool(ObjTypeDef).Idx {
         return if (members_name.get(name)) |idx|
             try memberDef(parser, idx)
         else
@@ -964,16 +1055,8 @@ pub const ObjUserData = struct {
 
     pub fn mark(_: *Self, _: *GC) void {}
 
-    pub inline fn toObj(self: *Self) *Obj {
+    pub fn toObj(self: *Self) *Obj {
         return &self.obj;
-    }
-
-    pub inline fn toValue(self: *Self) Value {
-        return Value.fromObj(self.toObj());
-    }
-
-    pub inline fn cast(obj: *Obj) ?*Self {
-        return obj.cast(Self, .UserData);
     }
 };
 
@@ -988,16 +1071,8 @@ pub const ObjString = struct {
 
     pub fn mark(_: *Self, _: *GC) !void {}
 
-    pub inline fn toObj(self: *Self) *Obj {
+    pub fn toObj(self: *Self) *Obj {
         return &self.obj;
-    }
-
-    pub inline fn toValue(self: *Self) Value {
-        return Value.fromObj(self.toObj());
-    }
-
-    pub inline fn cast(obj: *Obj) ?*Self {
-        return obj.cast(Self, .String);
     }
 
     pub fn concat(self: *Self, vm: *VM, other: *Self) !*Self {
@@ -1105,10 +1180,10 @@ pub const ObjString = struct {
 
     pub fn member(vm: *VM, method_idx: usize) !Value {
         if (vm.gc.objstring_members[method_idx]) |umethod| {
-            return umethod.toValue();
+            return Value.fromObj(.{ .index = umethod.index, .obj_type = .Native });
         }
 
-        var native = try vm.gc.allocateObject(
+        const native = try vm.gc.allocateObject(
             ObjNative{
                 // Complains about const qualifier discard otherwise
                 .native = @as(*anyopaque, @ptrFromInt(@intFromPtr(members[method_idx]))),
@@ -1118,19 +1193,19 @@ pub const ObjString = struct {
         vm.gc.objstring_members[method_idx] = native;
 
         // We need to mark it otherwise it could be collected by a Young gc and then badly accessed by a Full gc
-        vm.gc.markObj(native.toObj()) catch @panic("Could not mark obj");
+        vm.gc.markObj(ObjNative, native) catch @panic("Could not mark obj");
 
-        return native.toValue();
+        return Value.fromObj(.{ .index = native.index, .obj_type = .Native });
     }
 
-    pub fn memberDefByName(parser: *Parser, name: []const u8) !?*ObjTypeDef {
+    pub fn memberDefByName(parser: *Parser, name: []const u8) !?Pool(ObjTypeDef).Idx {
         return if (members_name.get(name)) |idx|
             try memberDef(parser, idx)
         else
             null;
     }
 
-    pub fn memberDef(parser: *Parser, method_idx: usize) !*ObjTypeDef {
+    pub fn memberDef(parser: *Parser, method_idx: usize) !Pool(ObjTypeDef).Idx {
         if (parser.gc.objstring_memberDefs[method_idx]) |umethod| {
             return umethod;
         }
@@ -1152,7 +1227,7 @@ pub const ObjUpValue = struct {
     /// Slot on the stack
     location: *Value,
     closed: ?Value,
-    next: ?*ObjUpValue = null,
+    next: ?Pool(ObjUpValue).Idx = null,
 
     pub fn init(slot: *Value) Self {
         return Self{
@@ -1169,16 +1244,8 @@ pub const ObjUpValue = struct {
         }
     }
 
-    pub inline fn toObj(self: *Self) *Obj {
+    pub fn toObj(self: *Self) *Obj {
         return &self.obj;
-    }
-
-    pub inline fn toValue(self: *Self) Value {
-        return Value.fromObj(self.toObj());
-    }
-
-    pub inline fn cast(obj: *Obj) ?*Self {
-        return obj.cast(Self, .UpValue);
     }
 };
 
@@ -1189,24 +1256,24 @@ pub const ObjClosure = struct {
     obj: Obj = .{ .obj_type = .Closure },
 
     // Buzz function
-    function: *ObjFunction,
+    function: Pool(ObjFunction).Idx,
 
-    upvalues: []*ObjUpValue,
+    upvalues: []Pool(ObjUpValue).Idx,
     // Pointer to the global with which the function was declared
     globals: *std.ArrayList(Value),
 
-    pub fn init(allocator: Allocator, vm: *VM, function: *ObjFunction) !Self {
+    pub fn init(allocator: Allocator, vm: *VM, function: Pool(ObjFunction).Idx) !Self {
         return Self{
             .globals = &vm.globals,
             .function = function,
-            .upvalues = try allocator.alloc(*ObjUpValue, function.upvalue_count),
+            .upvalues = try allocator.alloc(Pool(ObjUpValue).Idx, function.upvalue_count),
         };
     }
 
     pub fn mark(self: *Self, gc: *GC) !void {
-        try gc.markObj(self.function.toObj());
+        try gc.markObj(ObjFunction, self.function);
         for (self.upvalues) |upvalue| {
-            try gc.markObj(upvalue.toObj());
+            try gc.markObj(ObjUpValue, upvalue);
         }
         for (self.globals.items) |global| {
             try gc.markValue(global);
@@ -1217,23 +1284,15 @@ pub const ObjClosure = struct {
         allocator.free(self.upvalues);
     }
 
-    pub inline fn toObj(self: *Self) *Obj {
+    pub fn toObj(self: *Self) *Obj {
         return &self.obj;
-    }
-
-    pub inline fn toValue(self: *Self) Value {
-        return Value.fromObj(self.toObj());
-    }
-
-    pub inline fn cast(obj: *Obj) ?*Self {
-        return obj.cast(Self, .Closure);
     }
 };
 
 pub const NativeCtx = extern struct {
     vm: *VM,
     globals: [*]Value,
-    upvalues: [*]*ObjUpValue,
+    upvalues: [*]Pool(ObjUpValue).Idx,
     // Where to reset the stack when we exit the function
     base: [*]Value,
     // Pointer to the stack_top field of the current fiber
@@ -1260,16 +1319,8 @@ pub const ObjNative = struct {
 
     pub fn mark(_: *Self, _: *GC) void {}
 
-    pub inline fn toObj(self: *Self) *Obj {
+    pub fn toObj(self: *Self) *Obj {
         return &self.obj;
-    }
-
-    pub inline fn toValue(self: *Self) Value {
-        return Value.fromObj(self.toObj());
-    }
-
-    pub inline fn cast(obj: *Obj) ?*Self {
-        return obj.cast(Self, .Native);
     }
 };
 
@@ -1308,7 +1359,7 @@ pub const ObjFunction = struct {
 
     obj: Obj = .{ .obj_type = .Function },
 
-    type_def: *ObjTypeDef = undefined, // Undefined because function initialization is in several steps
+    type_def: Pool(ObjTypeDef).Idx = undefined, // Undefined because function initialization is in several steps
 
     chunk: Chunk,
     upvalue_count: u8 = 0,
@@ -1336,7 +1387,7 @@ pub const ObjFunction = struct {
     }
 
     pub fn mark(self: *Self, gc: *GC) !void {
-        try gc.markObj(@constCast(self.type_def.toObj()));
+        try gc.markObj(ObjTypeDef, self.type_def);
         if (BuildOptions.gc_debug) {
             io.print(
                 "MARKING CONSTANTS OF FUNCTION @{} {s}\n",
@@ -1360,16 +1411,8 @@ pub const ObjFunction = struct {
         }
     }
 
-    pub inline fn toObj(self: *Self) *Obj {
+    pub fn toObj(self: *Self) *Obj {
         return &self.obj;
-    }
-
-    pub inline fn toValue(self: *Self) Value {
-        return Value.fromObj(self.toObj());
-    }
-
-    pub inline fn cast(obj: *Obj) ?*Self {
-        return obj.cast(Self, .Function);
     }
 
     pub const FunctionDef = struct {
@@ -1378,20 +1421,20 @@ pub const ObjFunction = struct {
         var next_id: usize = 0;
 
         id: usize,
-        name: *ObjString,
-        script_name: *ObjString,
-        return_type: *ObjTypeDef,
-        yield_type: *ObjTypeDef,
-        error_types: ?[]const *ObjTypeDef = null,
+        name: Pool(ObjString).Idx,
+        script_name: Pool(ObjString).Idx,
+        return_type: Pool(ObjTypeDef).Idx,
+        yield_type: Pool(ObjTypeDef).Idx,
+        error_types: ?[]const Pool(ObjTypeDef).Idx = null,
         // TODO: rename 'arguments'
-        parameters: std.AutoArrayHashMapUnmanaged(*ObjString, *ObjTypeDef) = .empty,
+        parameters: std.AutoArrayHashMapUnmanaged(Pool(ObjString).Idx, Pool(ObjTypeDef).Idx) = .empty,
         // Storing here the defaults means they can only be non-Obj values
-        defaults: std.AutoArrayHashMapUnmanaged(*ObjString, Value) = .empty,
+        defaults: std.AutoArrayHashMapUnmanaged(Pool(ObjString).Idx, Value) = .empty,
         function_type: FunctionType = .Function,
         lambda: bool = false,
 
-        generic_types: std.AutoArrayHashMapUnmanaged(*ObjString, *ObjTypeDef) = .empty,
-        resolved_generics: ?[]*ObjTypeDef = null,
+        generic_types: std.AutoArrayHashMapUnmanaged(Pool(ObjString).Idx, Pool(ObjTypeDef).Idx) = .empty,
+        resolved_generics: ?[]Pool(ObjTypeDef).Idx = null,
 
         pub fn nextId() usize {
             FunctionDefSelf.next_id += 1;
@@ -1400,33 +1443,33 @@ pub const ObjFunction = struct {
         }
 
         pub fn mark(self: *FunctionDefSelf, gc: *GC) !void {
-            try gc.markObj(self.name.toObj());
-            try gc.markObj(self.script_name.toObj());
-            try gc.markObj(@constCast(self.return_type.toObj()));
-            try gc.markObj(@constCast(self.yield_type.toObj()));
+            try gc.markObj(ObjString, self.name);
+            try gc.markObj(ObjString, self.script_name);
+            try gc.markObj(ObjTypeDef, self.return_type);
+            try gc.markObj(ObjTypeDef, self.yield_type);
 
             var it = self.parameters.iterator();
             while (it.next()) |parameter| {
-                try gc.markObj(parameter.key_ptr.*.toObj());
-                try gc.markObj(@constCast(parameter.value_ptr.*.toObj()));
+                try gc.markObj(ObjString, parameter.key_ptr.*);
+                try gc.markObj(ObjTypeDef, parameter.value_ptr.*);
             }
 
             var it2 = self.defaults.iterator();
             while (it2.next()) |default| {
-                try gc.markObj(default.key_ptr.*.toObj());
+                try gc.markObj(ObjString, default.key_ptr.*);
                 try gc.markValue(default.value_ptr.*);
             }
 
             if (self.error_types) |error_types| {
                 for (error_types) |error_item| {
-                    try gc.markObj(@constCast(error_item.toObj()));
+                    try gc.markObj(ObjTypeDef, error_item);
                 }
             }
 
             var it3 = self.generic_types.iterator();
             while (it3.next()) |kv| {
-                try gc.markObj(kv.key_ptr.*.toObj());
-                try gc.markObj(@constCast(kv.value_ptr.*.toObj()));
+                try gc.markObj(ObjString, kv.key_ptr.*);
+                try gc.markObj(ObjTypeDef, kv.value_ptr.*);
             }
         }
     };
@@ -1439,9 +1482,9 @@ pub const ObjObjectInstance = struct {
     obj: Obj = .{ .obj_type = .ObjectInstance },
 
     /// Object (null when anonymous)
-    object: ?*ObjObject,
+    object: ?Pool(ObjObject).Idx,
     /// Populated object type
-    type_def: *ObjTypeDef,
+    type_def: Pool(ObjTypeDef).Idx,
     /// Fields value
     fields: []Value,
     /// VM in which the instance was created, we need this so the instance destructor can be called in the appropriate vm
@@ -1453,7 +1496,7 @@ pub const ObjObjectInstance = struct {
     }
 
     /// Should not be called by runtime when possible
-    pub fn setFieldByName(self: *Self, gc: *GC, key: *ObjString, value: Value) !void {
+    pub fn setFieldByName(self: *Self, gc: *GC, key: Pool(ObjString).Idx, value: Value) !void {
         const object_def = self.type_def.resolved_type.?.ObjectInstance.resolved_type.?.Object;
         const index = std.mem.indexOf(
             *ObjString,
@@ -1470,8 +1513,8 @@ pub const ObjObjectInstance = struct {
 
     pub fn init(
         vm: *VM,
-        object: ?*ObjObject,
-        type_def: *ObjTypeDef,
+        object: ?Pool(ObjObject).Idx,
+        type_def: Pool(ObjTypeDef).Idx,
         gc: *GC,
     ) !Self {
         return .{
@@ -1489,9 +1532,9 @@ pub const ObjObjectInstance = struct {
 
     pub fn mark(self: *Self, gc: *GC) !void {
         if (self.object) |object| {
-            try gc.markObj(object.toObj());
+            try gc.markObj(ObjObject, object);
         }
-        try gc.markObj(@constCast(self.type_def.toObj()));
+        try gc.markObj(ObjTypeDef, self.type_def);
         for (self.fields) |field| {
             try gc.markValue(field);
         }
@@ -1501,16 +1544,8 @@ pub const ObjObjectInstance = struct {
         allocator.free(self.fields);
     }
 
-    pub inline fn toObj(self: *Self) *Obj {
+    pub fn toObj(self: *Self) *Obj {
         return &self.obj;
-    }
-
-    pub inline fn toValue(self: *Self) Value {
-        return Value.fromObj(self.toObj());
-    }
-
-    pub inline fn cast(obj: *Obj) ?*Self {
-        return obj.cast(Self, .ObjectInstance);
     }
 
     fn is(self: *Self, type_def: *ObjTypeDef) bool {
@@ -1534,10 +1569,10 @@ pub const ObjForeignContainer = struct {
 
     obj: Obj = .{ .obj_type = .ForeignContainer },
 
-    type_def: *ObjTypeDef,
+    type_def: Pool(ObjTypeDef).Idx,
     data: []u8,
 
-    pub fn init(vm: *VM, type_def: *ObjTypeDef) !Self {
+    pub fn init(vm: *VM, type_def: Pool(ObjTypeDef).Idx) !Self {
         const zig_type = type_def.resolved_type.?.ForeignContainer.zig_type;
 
         return .{
@@ -1577,39 +1612,31 @@ pub const ObjForeignContainer = struct {
         };
 
         location: Ast.TokenIndex,
-        name: *ObjString,
-        qualified_name: *ObjString,
+        name: Pool(ObjString).Idx,
+        qualified_name: Pool(ObjString).Idx,
 
         zig_type: ZigType,
-        buzz_type: std.StringArrayHashMapUnmanaged(*ObjTypeDef),
+        buzz_type: std.StringArrayHashMapUnmanaged(Pool(ObjTypeDef).Idx),
 
         // Filled by codegen
         fields: std.StringArrayHashMapUnmanaged(Field),
 
         pub fn mark(def: *ContainerDef, gc: *GC) !void {
-            try gc.markObj(def.name.toObj());
-            try gc.markObj(def.qualified_name.toObj());
+            try gc.markObj(ObjString, def.name);
+            try gc.markObj(ObjString, def.qualified_name);
             var it = def.buzz_type.iterator();
             while (it.next()) |kv| {
-                try gc.markObj(@constCast(kv.value_ptr.*.toObj()));
+                try gc.markObj(ObjTypeDef, kv.value_ptr.*);
             }
         }
     };
 
     pub fn mark(self: *Self, gc: *GC) !void {
-        try gc.markObj(@constCast(self.type_def.toObj()));
+        try gc.markObj(ObjTypeDef, self.type_def);
     }
 
-    pub inline fn toObj(self: *Self) *Obj {
+    pub fn toObj(self: *Self) *Obj {
         return &self.obj;
-    }
-
-    pub inline fn toValue(self: *Self) Value {
-        return Value.fromObj(self.toObj());
-    }
-
-    pub inline fn cast(obj: *Obj) ?*Self {
-        return obj.cast(Self, .ForeignContainer);
     }
 };
 
@@ -1619,7 +1646,7 @@ pub const ObjObject = struct {
 
     obj: Obj = .{ .obj_type = .Object },
 
-    type_def: *ObjTypeDef,
+    type_def: Pool(ObjTypeDef).Idx,
 
     /// Static fields and methods
     fields: []Value,
@@ -1629,7 +1656,7 @@ pub const ObjObject = struct {
     /// To avoid counting object fields that are instance properties
     property_count: ?usize = 0,
 
-    pub fn init(allocator: Allocator, type_def: *ObjTypeDef) !Self {
+    pub fn init(allocator: Allocator, type_def: Pool(ObjTypeDef).Idx) !Self {
         const self = Self{
             .fields = try allocator.alloc(
                 Value,
@@ -1680,7 +1707,7 @@ pub const ObjObject = struct {
     }
 
     pub fn mark(self: *Self, gc: *GC) !void {
-        try gc.markObj(@constCast(self.type_def.toObj()));
+        try gc.markObj(ObjTypeDef, self.type_def);
 
         for (self.fields) |field| {
             try gc.markValue(field);
@@ -1698,16 +1725,8 @@ pub const ObjObject = struct {
         allocator.free(self.defaults);
     }
 
-    pub inline fn toObj(self: *Self) *Obj {
+    pub fn toObj(self: *Self) *Obj {
         return &self.obj;
-    }
-
-    pub inline fn toValue(self: *Self) Value {
-        return Value.fromObj(self.toObj());
-    }
-
-    pub inline fn cast(obj: *Obj) ?*Self {
-        return obj.cast(Self, .Object);
     }
 
     pub const ProtocolDef = struct {
@@ -1715,16 +1734,16 @@ pub const ObjObject = struct {
 
         pub const Method = struct {
             mutable: bool,
-            type_def: *ObjTypeDef,
+            type_def: Pool(ObjTypeDef).Idx,
         };
 
         location: Ast.TokenIndex,
-        name: *ObjString,
-        qualified_name: *ObjString,
+        name: Pool(ObjString).Idx,
+        qualified_name: Pool(ObjString).Idx,
         methods: std.StringArrayHashMapUnmanaged(Method),
         methods_locations: std.StringArrayHashMapUnmanaged(Ast.TokenIndex),
 
-        pub fn init(location: Ast.TokenIndex, name: *ObjString, qualified_name: *ObjString) ProtocolDefSelf {
+        pub fn init(location: Ast.TokenIndex, name: Pool(ObjString).Idx, qualified_name: Pool(ObjString).Idx) ProtocolDefSelf {
             return ProtocolDefSelf{
                 .name = name,
                 .location = location,
@@ -1740,12 +1759,12 @@ pub const ObjObject = struct {
         }
 
         pub fn mark(self: *ProtocolDefSelf, gc: *GC) !void {
-            try gc.markObj(self.name.toObj());
-            try gc.markObj(self.qualified_name.toObj());
+            try gc.markObj(ObjString, self.name);
+            try gc.markObj(ObjString, self.qualified_name);
 
             var it = self.methods.iterator();
             while (it.next()) |kv| {
-                try gc.markObj(@constCast(kv.value_ptr.*.type_def.toObj()));
+                try gc.markObj(ObjTypeDef, kv.value_ptr.*.type_def);
             }
         }
     };
@@ -1756,7 +1775,7 @@ pub const ObjObject = struct {
         pub const Field = struct {
             name: []const u8,
             location: Ast.TokenIndex,
-            type_def: *ObjTypeDef,
+            type_def: Pool(ObjTypeDef).Idx,
             final: bool,
             method: bool,
             static: bool,
@@ -1777,24 +1796,24 @@ pub const ObjObject = struct {
         };
 
         pub const Placeholder = struct {
-            placeholder: *ObjTypeDef,
+            placeholder: Pool(ObjTypeDef).Idx,
             referrers: std.ArrayList(Ast.Node.Index) = .{},
         };
 
         id: usize,
         location: Ast.TokenIndex,
-        name: *ObjString,
-        qualified_name: *ObjString,
-        fields: std.StringArrayHashMapUnmanaged(Field),
+        name: Pool(ObjString).Idx,
+        qualified_name: Pool(ObjString).Idx,
+        fields: std.StringArrayHashMapUnmanaged(Field) = .empty,
         // When we have placeholders we don't know if they are properties or methods
         // That information is available only when the placeholder is resolved
-        placeholders: std.StringHashMapUnmanaged(Placeholder),
-        static_placeholders: std.StringHashMapUnmanaged(Placeholder),
+        placeholders: std.StringHashMapUnmanaged(Placeholder) = .empty,
+        static_placeholders: std.StringHashMapUnmanaged(Placeholder) = .empty,
         anonymous: bool,
-        conforms_to: std.AutoHashMapUnmanaged(*ObjTypeDef, void),
+        conforms_to: std.AutoHashMapUnmanaged(Pool(ObjTypeDef).Idx, void) = .empty,
 
-        generic_types: std.AutoArrayHashMapUnmanaged(*ObjString, *ObjTypeDef),
-        resolved_generics: ?[]*ObjTypeDef = null,
+        generic_types: std.AutoArrayHashMapUnmanaged(Pool(ObjString).Idx, Pool(ObjTypeDef).Idx) = .empty,
+        resolved_generics: ?[]Pool(ObjTypeDef).Idx = null,
 
         pub fn nextId() usize {
             ObjectDef.next_id += 1;
@@ -1804,8 +1823,8 @@ pub const ObjObject = struct {
 
         pub fn init(
             location: Ast.TokenIndex,
-            name: *ObjString,
-            qualified_name: *ObjString,
+            name: Pool(ObjString).Idx,
+            qualified_name: Pool(ObjString).Idx,
             anonymous: bool,
         ) ObjectDef {
             return ObjectDef{
@@ -1813,12 +1832,7 @@ pub const ObjObject = struct {
                 .name = name,
                 .location = location,
                 .qualified_name = qualified_name,
-                .fields = .{},
-                .placeholders = .{},
-                .static_placeholders = .{},
                 .anonymous = anonymous,
-                .conforms_to = .{},
-                .generic_types = .{},
             };
         }
 
@@ -1895,7 +1909,7 @@ pub const ObjObject = struct {
         }
 
         // Do they both conform to a common protocol?
-        pub fn bothConforms(self: ObjectDef, other: ObjectDef) ?*ObjTypeDef {
+        pub fn bothConforms(self: ObjectDef, other: ObjectDef) ?Pool(ObjTypeDef).Idx {
             var it = self.conforms_to.iterator();
             while (it.next()) |kv| {
                 if (other.conforms_to.get(kv.key_ptr.*) != null) {
@@ -1907,33 +1921,33 @@ pub const ObjObject = struct {
         }
 
         pub fn mark(self: *ObjectDef, gc: *GC) !void {
-            try gc.markObj(self.name.toObj());
-            try gc.markObj(self.qualified_name.toObj());
+            try gc.markObj(ObjString, self.name);
+            try gc.markObj(ObjString, self.qualified_name);
 
             var it = self.fields.iterator();
             while (it.next()) |kv| {
-                try gc.markObj(@constCast(kv.value_ptr.*.type_def.toObj()));
+                try gc.markObj(ObjTypeDef, kv.value_ptr.*.type_def);
             }
 
             var it5 = self.placeholders.iterator();
             while (it5.next()) |kv| {
-                try gc.markObj(@constCast(kv.value_ptr.*.placeholder.toObj()));
+                try gc.markObj(ObjTypeDef, kv.value_ptr.*.placeholder);
             }
 
             var it6 = self.static_placeholders.iterator();
             while (it6.next()) |kv| {
-                try gc.markObj(@constCast(kv.value_ptr.*.placeholder.toObj()));
+                try gc.markObj(ObjTypeDef, kv.value_ptr.*.placeholder);
             }
 
             var it7 = self.conforms_to.iterator();
             while (it7.next()) |kv| {
-                try gc.markObj(@constCast(kv.key_ptr.*.toObj()));
+                try gc.markObj(ObjTypeDef, kv.key_ptr.*);
             }
 
             var it8 = self.generic_types.iterator();
             while (it8.next()) |kv| {
-                try gc.markObj(kv.key_ptr.*.toObj());
-                try gc.markObj(@constCast(kv.value_ptr.*.toObj()));
+                try gc.markObj(ObjString, kv.key_ptr.*);
+                try gc.markObj(ObjTypeDef, kv.value_ptr.*);
             }
         }
     };
@@ -1945,19 +1959,19 @@ pub const ObjList = struct {
 
     obj: Obj = .{ .obj_type = .List },
 
-    type_def: *ObjTypeDef,
+    type_def: Pool(ObjTypeDef).Idx,
 
     /// List items
     items: std.ArrayList(Value),
 
-    methods: []?*ObjNative,
+    methods: []?Pool(ObjNative).Idx,
 
-    pub fn init(allocator: Allocator, type_def: *ObjTypeDef) !Self {
+    pub fn init(allocator: Allocator, type_def: Pool(ObjTypeDef).Idx) !Self {
         const self = Self{
             .items = std.ArrayList(Value){},
             .type_def = type_def,
             .methods = try allocator.alloc(
-                ?*ObjNative,
+                ?Pool(ObjNative).Idx,
                 Self.members.len,
             ),
         };
@@ -1973,11 +1987,11 @@ pub const ObjList = struct {
         for (self.items.items) |value| {
             try gc.markValue(value);
         }
-        try gc.markObj(@constCast(self.type_def.toObj()));
+        try gc.markObj(ObjTypeDef, self.type_def);
 
         for (self.methods) |method_opt| {
             if (method_opt) |method| {
-                try gc.markObj(method.toObj());
+                try gc.markObj(ObjNative, method);
             }
         }
     }
@@ -1987,16 +2001,8 @@ pub const ObjList = struct {
         allocator.free(self.methods);
     }
 
-    pub inline fn toObj(self: *Self) *Obj {
+    pub fn toObj(self: *Self) *Obj {
         return &self.obj;
-    }
-
-    pub inline fn toValue(self: *Self) Value {
-        return Value.fromObj(self.toObj());
-    }
-
-    pub inline fn cast(obj: *Obj) ?*Self {
-        return obj.cast(Self, .List);
     }
 
     pub const members = [_]NativeFn{
@@ -2115,14 +2121,14 @@ pub const ObjList = struct {
 
         pub const Method = struct {
             mutable: bool,
-            type_def: *ObjTypeDef,
+            type_def: Pool(ObjTypeDef).Idx,
         };
 
-        item_type: *ObjTypeDef,
+        item_type: Pool(ObjTypeDef).Idx,
         methods: std.StringHashMapUnmanaged(Method),
         mutable: bool,
 
-        pub fn init(item_type: *ObjTypeDef, mutable: bool) SelfListDef {
+        pub fn init(item_type: Pool(ObjTypeDef).Idx, mutable: bool) SelfListDef {
             return .{
                 .item_type = item_type,
                 .mutable = mutable,
@@ -2135,10 +2141,10 @@ pub const ObjList = struct {
         }
 
         pub fn mark(self: *SelfListDef, gc: *GC) !void {
-            try gc.markObj(@constCast(self.item_type.toObj()));
+            try gc.markObj(ObjTypeDef, self.item_type);
             var it = self.methods.iterator();
             while (it.next()) |method| {
-                try gc.markObj(@constCast(method.value_ptr.*.type_def.toObj()));
+                try gc.markObj(ObjTypeDef, method.value_ptr.*.type_def);
             }
         }
 
@@ -2150,7 +2156,7 @@ pub const ObjList = struct {
             }
 
             if (mem.eql(u8, method, "append")) {
-                var parameters = std.AutoArrayHashMapUnmanaged(*ObjString, *ObjTypeDef){};
+                var parameters = std.AutoArrayHashMapUnmanaged(Pool(ObjString).Idx, Pool(ObjTypeDef).Idx).empty;
 
                 // We omit first arg: it'll be OP_SWAPed in and we already parsed it
                 // It's always the list.
@@ -2191,7 +2197,7 @@ pub const ObjList = struct {
 
                 return member_def;
             } else if (mem.eql(u8, method, "remove")) {
-                var parameters = std.AutoArrayHashMapUnmanaged(*ObjString, *ObjTypeDef){};
+                var parameters = std.AutoArrayHashMapUnmanaged(Pool(ObjString).Idx, Pool(ObjTypeDef).Idx).empty;
 
                 // We omit first arg: it'll be OP_SWAPed in and we already parsed it
                 // It's always the list.
@@ -2263,7 +2269,7 @@ pub const ObjList = struct {
 
                 return member_def;
             } else if (mem.eql(u8, method, "next")) {
-                var parameters = std.AutoArrayHashMapUnmanaged(*ObjString, *ObjTypeDef){};
+                var parameters = std.AutoArrayHashMapUnmanaged(Pool(ObjString).Idx, Pool(ObjTypeDef).Idx).empty;
 
                 // We omit first arg: it'll be OP_SWAPed in and we already parsed it
                 // It's always the list.
@@ -2314,7 +2320,7 @@ pub const ObjList = struct {
 
                 return member_def;
             } else if (mem.eql(u8, method, "sub")) {
-                var parameters = std.AutoArrayHashMapUnmanaged(*ObjString, *ObjTypeDef){};
+                var parameters = std.AutoArrayHashMapUnmanaged(Pool(ObjString).Idx, Pool(ObjTypeDef).Idx).empty;
 
                 // We omit first arg: it'll be OP_SWAPed in and we already parsed it
                 // It's always the string.
@@ -2337,7 +2343,7 @@ pub const ObjList = struct {
                     ),
                 );
 
-                var defaults = std.AutoArrayHashMapUnmanaged(*ObjString, Value){};
+                var defaults = std.AutoArrayHashMapUnmanaged(Pool(ObjString).Idx, Value).empty;
                 try defaults.put(parser.gc.allocator, len_str, Value.Null);
 
                 const native_type = try parser.gc.type_registry.getTypeDef(
@@ -2370,7 +2376,7 @@ pub const ObjList = struct {
 
                 return member_def;
             } else if (mem.eql(u8, method, "fill")) {
-                var parameters = std.AutoArrayHashMapUnmanaged(*ObjString, *ObjTypeDef){};
+                var parameters = std.AutoArrayHashMapUnmanaged(Pool(ObjString).Idx, Pool(ObjTypeDef).Idx).empty;
 
                 // We omit first arg: it'll be OP_SWAPed in and we already parsed it
                 // It's always the string.
@@ -2405,7 +2411,7 @@ pub const ObjList = struct {
                     ),
                 );
 
-                var defaults = std.AutoArrayHashMapUnmanaged(*ObjString, Value){};
+                var defaults = std.AutoArrayHashMapUnmanaged(Pool(ObjString).Idx, Value).empty;
                 try defaults.put(parser.gc.allocator, len_str, Value.Null);
                 try defaults.put(parser.gc.allocator, start_str, Value.Null);
 
@@ -2439,7 +2445,7 @@ pub const ObjList = struct {
 
                 return member_def;
             } else if (mem.eql(u8, method, "indexOf")) {
-                var parameters = std.AutoArrayHashMapUnmanaged(*ObjString, *ObjTypeDef){};
+                var parameters = std.AutoArrayHashMapUnmanaged(Pool(ObjString).Idx, Pool(ObjTypeDef).Idx).empty;
 
                 // We omit first arg: it'll be OP_SWAPed in and we already parsed it
                 // It's always the string.
@@ -2484,7 +2490,7 @@ pub const ObjList = struct {
 
                 return member_def;
             } else if (mem.eql(u8, method, "join")) {
-                var parameters = std.AutoArrayHashMapUnmanaged(*ObjString, *ObjTypeDef){};
+                var parameters = std.AutoArrayHashMapUnmanaged(Pool(ObjString).Idx, Pool(ObjTypeDef).Idx).empty;
 
                 // We omit first arg: it'll be OP_SWAPed in and we already parsed it
                 // It's always the string.
@@ -2524,7 +2530,7 @@ pub const ObjList = struct {
 
                 return member_def;
             } else if (mem.eql(u8, method, "insert")) {
-                var parameters = std.AutoArrayHashMapUnmanaged(*ObjString, *ObjTypeDef){};
+                var parameters = std.AutoArrayHashMapUnmanaged(Pool(ObjString).Idx, Pool(ObjTypeDef).Idx).empty;
 
                 // We omit first arg: it'll be OP_SWAPed in and we already parsed it
                 // It's always the list.
@@ -2602,7 +2608,7 @@ pub const ObjList = struct {
                 // We omit first arg: it'll be OP_SWAPed in and we already parsed it
                 // It's always the list.
 
-                var callback_parameters = std.AutoArrayHashMapUnmanaged(*ObjString, *ObjTypeDef){};
+                var callback_parameters = std.AutoArrayHashMapUnmanaged(Pool(ObjString).Idx, Pool(ObjTypeDef).Idx).empty;
 
                 try callback_parameters.put(
                     parser.gc.allocator,
@@ -2632,7 +2638,7 @@ pub const ObjList = struct {
                     },
                 );
 
-                var parameters = std.AutoArrayHashMapUnmanaged(*ObjString, *ObjTypeDef){};
+                var parameters = std.AutoArrayHashMapUnmanaged(Pool(ObjString).Idx, Pool(ObjTypeDef).Idx).empty;
 
                 try parameters.put(
                     parser.gc.allocator,
@@ -2685,7 +2691,7 @@ pub const ObjList = struct {
                     },
                 );
 
-                var callback_parameters = std.AutoArrayHashMapUnmanaged(*ObjString, *ObjTypeDef){};
+                var callback_parameters = std.AutoArrayHashMapUnmanaged(Pool(ObjString).Idx, Pool(ObjTypeDef).Idx).empty;
 
                 try callback_parameters.put(
                     parser.gc.allocator,
@@ -2716,7 +2722,7 @@ pub const ObjList = struct {
                     },
                 );
 
-                var parameters = std.AutoArrayHashMapUnmanaged(*ObjString, *ObjTypeDef){};
+                var parameters = std.AutoArrayHashMapUnmanaged(Pool(ObjString).Idx, Pool(ObjTypeDef).Idx).empty;
 
                 try parameters.put(
                     parser.gc.allocator,
@@ -2774,7 +2780,7 @@ pub const ObjList = struct {
                 // We omit first arg: it'll be OP_SWAPed in and we already parsed it
                 // It's always the list.
 
-                var callback_parameters = std.AutoArrayHashMapUnmanaged(*ObjString, *ObjTypeDef){};
+                var callback_parameters = std.AutoArrayHashMapUnmanaged(Pool(ObjString).Idx, Pool(ObjTypeDef).Idx).empty;
 
                 try callback_parameters.put(
                     parser.gc.allocator,
@@ -2805,7 +2811,7 @@ pub const ObjList = struct {
                     },
                 );
 
-                var parameters = std.AutoArrayHashMapUnmanaged(*ObjString, *ObjTypeDef){};
+                var parameters = std.AutoArrayHashMapUnmanaged(Pool(ObjString).Idx, Pool(ObjTypeDef).Idx).empty;
 
                 try parameters.put(
                     parser.gc.allocator,
@@ -2857,7 +2863,7 @@ pub const ObjList = struct {
                     },
                 );
 
-                var callback_parameters = std.AutoArrayHashMapUnmanaged(*ObjString, *ObjTypeDef){};
+                var callback_parameters = std.AutoArrayHashMapUnmanaged(Pool(ObjString).Idx, Pool(ObjTypeDef).Idx).empty;
 
                 try callback_parameters.put(
                     parser.gc.allocator,
@@ -2892,7 +2898,7 @@ pub const ObjList = struct {
                     },
                 );
 
-                var parameters = std.AutoArrayHashMapUnmanaged(*ObjString, *ObjTypeDef){};
+                var parameters = std.AutoArrayHashMapUnmanaged(Pool(ObjString).Idx, Pool(ObjTypeDef).Idx).empty;
 
                 try parameters.put(
                     parser.gc.allocator,
@@ -2905,7 +2911,7 @@ pub const ObjList = struct {
                     generic_type,
                 );
 
-                var generic_types = std.AutoArrayHashMapUnmanaged(*ObjString, *ObjTypeDef){};
+                var generic_types = std.AutoArrayHashMapUnmanaged(Pool(ObjString).Idx, Pool(ObjTypeDef).Idx).empty;
                 try generic_types.put(
                     parser.gc.allocator,
                     try parser.gc.copyString("T"),
@@ -2945,7 +2951,7 @@ pub const ObjList = struct {
                 // We omit first arg: it'll be OP_SWAPed in and we already parsed it
                 // It's always the list.
 
-                var callback_parameters = std.AutoArrayHashMapUnmanaged(*ObjString, *ObjTypeDef){};
+                var callback_parameters = std.AutoArrayHashMapUnmanaged(Pool(ObjString).Idx, Pool(ObjTypeDef).Idx).empty;
 
                 try callback_parameters.put(
                     parser.gc.allocator,
@@ -2975,7 +2981,7 @@ pub const ObjList = struct {
                     },
                 );
 
-                var parameters = std.AutoArrayHashMapUnmanaged(*ObjString, *ObjTypeDef){};
+                var parameters = std.AutoArrayHashMapUnmanaged(Pool(ObjString).Idx, Pool(ObjTypeDef).Idx).empty;
 
                 try parameters.put(
                     parser.gc.allocator,
@@ -3096,16 +3102,8 @@ pub const ObjRange = struct {
 
     pub fn mark(_: *Self, _: *GC) void {}
 
-    pub inline fn toObj(self: *Self) *Obj {
+    pub fn toObj(self: *Self) *Obj {
         return &self.obj;
-    }
-
-    pub inline fn toValue(self: *Self) Value {
-        return Value.fromObj(self.toObj());
-    }
-
-    pub inline fn cast(obj: *Obj) ?*Self {
-        return obj.cast(Self, .Range);
     }
 
     pub const members = [_]NativeFn{
@@ -3155,7 +3153,7 @@ pub const ObjRange = struct {
 
     pub fn member(vm: *VM, method_idx: usize) !Value {
         if (vm.gc.objrange_members[method_idx]) |native| {
-            return native.toValue();
+            return Value.fromObj(.{ .index = native.index, .obj_type = .Native });
         }
 
         var native = try vm.gc.allocateObject(
@@ -3168,19 +3166,19 @@ pub const ObjRange = struct {
         vm.gc.objrange_members[method_idx] = native;
 
         // We need to mark it otherwise it could be collected by a Young gc and then badly accessed by a Full gc
-        vm.gc.markObj(native.toObj()) catch @panic("Could not mark obj");
+        vm.gc.markObj(ObjNative, native) catch @panic("Could not mark obj");
 
-        return native.toValue();
+        return Value.fromObj(.{ .index = native.index, .obj_type = .Native });
     }
 
-    pub fn memberDefByName(parser: *Parser, name: []const u8) !?*ObjTypeDef {
+    pub fn memberDefByName(parser: *Parser, name: []const u8) !?Pool(ObjTypeDef).Idx {
         return if (members_name.get(name)) |idx|
             try memberDef(parser, idx)
         else
             null;
     }
 
-    pub fn memberDef(parser: *Parser, method_idx: usize) !*ObjTypeDef {
+    pub fn memberDef(parser: *Parser, method_idx: usize) !Pool(ObjTypeDef).Idx {
         if (parser.gc.objrange_memberDefs[method_idx]) |umethod| {
             return umethod;
         }
@@ -3201,18 +3199,18 @@ pub const ObjMap = struct {
 
     obj: Obj = .{ .obj_type = .Map },
 
-    type_def: *ObjTypeDef,
+    type_def: Pool(ObjTypeDef).Idx,
 
     // We need an ArrayHashMap for `next`
     map: Map = .empty,
 
-    methods: []?*ObjNative,
+    methods: []?Pool(ObjNative).Idx,
 
-    pub fn init(allocator: Allocator, type_def: *ObjTypeDef) !Self {
+    pub fn init(allocator: Allocator, type_def: Pool(ObjTypeDef).Idx) !Self {
         const self = Self{
             .type_def = type_def,
             .methods = try allocator.alloc(
-                ?*ObjNative,
+                ?Pool(ObjNative).Idx,
                 Self.members.len,
             ),
         };
@@ -3300,11 +3298,11 @@ pub const ObjMap = struct {
 
         for (self.methods) |method_opt| {
             if (method_opt) |method| {
-                try gc.markObj(method.toObj());
+                try gc.markObj(ObjNative, method);
             }
         }
 
-        try gc.markObj(@constCast(self.type_def.toObj()));
+        try gc.markObj(ObjTypeDef, self.type_def);
     }
 
     pub fn rawNext(self: *Self, key: ?Value) ?Value {
@@ -3328,16 +3326,8 @@ pub const ObjMap = struct {
         allocator.free(self.methods);
     }
 
-    pub inline fn toObj(self: *Self) *Obj {
+    pub fn toObj(self: *Self) *Obj {
         return &self.obj;
-    }
-
-    pub inline fn toValue(self: *Self) Value {
-        return Value.fromObj(self.toObj());
-    }
-
-    pub inline fn cast(obj: *Obj) ?*Self {
-        return obj.cast(Self, .Map);
     }
 
     pub const MapDef = struct {
@@ -3345,16 +3335,16 @@ pub const ObjMap = struct {
 
         pub const Method = struct {
             mutable: bool,
-            type_def: *ObjTypeDef,
+            type_def: Pool(ObjTypeDef).Idx,
         };
 
-        key_type: *ObjTypeDef,
-        value_type: *ObjTypeDef,
+        key_type: Pool(ObjTypeDef).Idx,
+        value_type: Pool(ObjTypeDef).Idx,
         mutable: bool,
 
         methods: std.StringHashMapUnmanaged(Method),
 
-        pub fn init(key_type: *ObjTypeDef, value_type: *ObjTypeDef, mutable: bool) SelfMapDef {
+        pub fn init(key_type: Pool(ObjTypeDef).Idx, value_type: Pool(ObjTypeDef).Idx, mutable: bool) SelfMapDef {
             return .{
                 .key_type = key_type,
                 .value_type = value_type,
@@ -3368,11 +3358,11 @@ pub const ObjMap = struct {
         }
 
         pub fn mark(self: *SelfMapDef, gc: *GC) !void {
-            try gc.markObj(@constCast(self.key_type.toObj()));
-            try gc.markObj(@constCast(self.value_type.toObj()));
+            try gc.markObj(ObjTypeDef, self.key_type);
+            try gc.markObj(ObjTypeDef, self.value_type);
             var it = self.methods.iterator();
             while (it.next()) |method| {
-                try gc.markObj(@constCast(method.value_ptr.*.type_def.toObj()));
+                try gc.markObj(ObjTypeDef, method.value_ptr.*.type_def);
             }
         }
 
@@ -3412,7 +3402,7 @@ pub const ObjMap = struct {
 
                 return method_def;
             } else if (mem.eql(u8, method, "remove")) {
-                var parameters = std.AutoArrayHashMapUnmanaged(*ObjString, *ObjTypeDef){};
+                var parameters = std.AutoArrayHashMapUnmanaged(Pool(ObjString).Idx, Pool(ObjTypeDef).Idx).empty;
 
                 // We omit first arg: it'll be OP_SWAPed in and we already parsed it
                 // It's always the list.
@@ -3537,7 +3527,7 @@ pub const ObjMap = struct {
                 // We omit first arg: it'll be OP_SWAPed in and we already parsed it
                 // It's always the list.
 
-                var callback_parameters = std.AutoArrayHashMapUnmanaged(*ObjString, *ObjTypeDef){};
+                var callback_parameters = std.AutoArrayHashMapUnmanaged(Pool(ObjString).Idx, Pool(ObjTypeDef).Idx).empty;
 
                 try callback_parameters.put(
                     parser.gc.allocator,
@@ -3567,7 +3557,7 @@ pub const ObjMap = struct {
                     },
                 );
 
-                var parameters = std.AutoArrayHashMapUnmanaged(*ObjString, *ObjTypeDef){};
+                var parameters = std.AutoArrayHashMapUnmanaged(Pool(ObjString).Idx, Pool(ObjTypeDef).Idx).empty;
 
                 try parameters.put(
                     parser.gc.allocator,
@@ -3607,7 +3597,7 @@ pub const ObjMap = struct {
                 // We omit first arg: it'll be OP_SWAPed in and we already parsed it
                 // It's always the list.
 
-                var parameters = std.AutoArrayHashMapUnmanaged(*ObjString, *ObjTypeDef){};
+                var parameters = std.AutoArrayHashMapUnmanaged(Pool(ObjString).Idx, Pool(ObjTypeDef).Idx).empty;
 
                 try parameters.put(
                     parser.gc.allocator,
@@ -3647,7 +3637,7 @@ pub const ObjMap = struct {
                 // We omit first arg: it'll be OP_SWAPed in and we already parsed it
                 // It's always the list.
 
-                var parameters = std.AutoArrayHashMapUnmanaged(*ObjString, *ObjTypeDef){};
+                var parameters = std.AutoArrayHashMapUnmanaged(Pool(ObjString).Idx, Pool(ObjTypeDef).Idx).empty;
 
                 try parameters.put(
                     parser.gc.allocator,
@@ -3687,7 +3677,7 @@ pub const ObjMap = struct {
                 // We omit first arg: it'll be OP_SWAPed in and we already parsed it
                 // It's always the list.
 
-                var callback_parameters = std.AutoArrayHashMapUnmanaged(*ObjString, *ObjTypeDef){};
+                var callback_parameters = std.AutoArrayHashMapUnmanaged(Pool(ObjString).Idx, Pool(ObjTypeDef).Idx).empty;
 
                 try callback_parameters.put(
                     parser.gc.allocator,
@@ -3717,7 +3707,7 @@ pub const ObjMap = struct {
                     },
                 );
 
-                var parameters = std.AutoArrayHashMapUnmanaged(*ObjString, *ObjTypeDef){};
+                var parameters = std.AutoArrayHashMapUnmanaged(Pool(ObjString).Idx, Pool(ObjTypeDef).Idx).empty;
 
                 try parameters.put(
                     parser.gc.allocator,
@@ -3754,7 +3744,7 @@ pub const ObjMap = struct {
 
                 return method_def;
             } else if (mem.eql(u8, method, "map")) {
-                var callback_parameters = std.AutoArrayHashMapUnmanaged(*ObjString, *ObjTypeDef){};
+                var callback_parameters = std.AutoArrayHashMapUnmanaged(Pool(ObjString).Idx, Pool(ObjTypeDef).Idx).empty;
 
                 try callback_parameters.put(
                     parser.gc.allocator,
@@ -3863,7 +3853,7 @@ pub const ObjMap = struct {
                     },
                 );
 
-                var parameters = std.AutoArrayHashMapUnmanaged(*ObjString, *ObjTypeDef){};
+                var parameters = std.AutoArrayHashMapUnmanaged(Pool(ObjString).Idx, Pool(ObjTypeDef).Idx).empty;
 
                 try parameters.put(
                     parser.gc.allocator,
@@ -3924,7 +3914,7 @@ pub const ObjMap = struct {
                 // We omit first arg: it'll be OP_SWAPed in and we already parsed it
                 // It's always the list.
 
-                var callback_parameters = std.AutoArrayHashMapUnmanaged(*ObjString, *ObjTypeDef){};
+                var callback_parameters = std.AutoArrayHashMapUnmanaged(Pool(ObjString).Idx, Pool(ObjTypeDef).Idx).empty;
 
                 try callback_parameters.put(
                     parser.gc.allocator,
@@ -3954,7 +3944,7 @@ pub const ObjMap = struct {
                     },
                 );
 
-                var parameters = std.AutoArrayHashMapUnmanaged(*ObjString, *ObjTypeDef){};
+                var parameters = std.AutoArrayHashMapUnmanaged(Pool(ObjString).Idx, Pool(ObjTypeDef).Idx).empty;
 
                 try parameters.put(
                     parser.gc.allocator,
@@ -4006,7 +3996,7 @@ pub const ObjMap = struct {
                     },
                 );
 
-                var callback_parameters = std.AutoArrayHashMapUnmanaged(*ObjString, *ObjTypeDef){};
+                var callback_parameters = std.AutoArrayHashMapUnmanaged(Pool(ObjString).Idx, Pool(ObjTypeDef).Idx).empty;
 
                 try callback_parameters.put(
                     parser.gc.allocator,
@@ -4041,7 +4031,7 @@ pub const ObjMap = struct {
                     },
                 );
 
-                var parameters = std.AutoArrayHashMapUnmanaged(*ObjString, *ObjTypeDef){};
+                var parameters = std.AutoArrayHashMapUnmanaged(Pool(ObjString).Idx, Pool(ObjTypeDef).Idx).empty;
 
                 try parameters.put(
                     parser.gc.allocator,
@@ -4054,7 +4044,7 @@ pub const ObjMap = struct {
                     generic_type,
                 );
 
-                var generic_types = std.AutoArrayHashMapUnmanaged(*ObjString, *ObjTypeDef){};
+                var generic_types = std.AutoArrayHashMapUnmanaged(Pool(ObjString).Idx, Pool(ObjTypeDef).Idx).empty;
                 try generic_types.put(
                     parser.gc.allocator,
                     try parser.gc.copyString("T"),
@@ -4141,11 +4131,11 @@ pub const ObjEnum = struct {
     obj: Obj = .{ .obj_type = .Enum },
 
     /// Used to allow type checking at runtime
-    type_def: *ObjTypeDef,
+    type_def: Pool(ObjTypeDef).Idx,
 
     cases: []Value,
 
-    pub fn init(def: *ObjTypeDef) Self {
+    pub fn init(def: Pool(ObjTypeDef).Idx) Self {
         return Self{
             .type_def = def,
             .cases = undefined,
@@ -4153,13 +4143,13 @@ pub const ObjEnum = struct {
     }
 
     pub fn mark(self: *Self, gc: *GC) !void {
-        try gc.markObj(@constCast(self.type_def.toObj()));
+        try gc.markObj(ObjTypeDef, self.type_def);
         for (self.cases) |case| {
             try gc.markValue(case);
         }
     }
 
-    pub fn rawNext(self: *Self, vm: *VM, enum_case: ?*ObjEnumInstance) !?*ObjEnumInstance {
+    pub fn rawNext(self: *Self, vm: *VM, enum_case: ?Pool(ObjEnumInstance).Idx) !?Pool(ObjEnumInstance).Idx {
         if (enum_case) |case| {
             assert(case.enum_ref == self);
 
@@ -4183,34 +4173,26 @@ pub const ObjEnum = struct {
         }
     }
 
-    pub inline fn toObj(self: *Self) *Obj {
+    pub fn toObj(self: *Self) *Obj {
         return &self.obj;
-    }
-
-    pub inline fn toValue(self: *Self) Value {
-        return Value.fromObj(&self.obj);
-    }
-
-    pub inline fn cast(obj: *Obj) ?*Self {
-        return obj.cast(Self, .Enum);
     }
 
     pub const EnumDef = struct {
         const EnumDefSelf = @This();
 
-        name: *ObjString,
-        qualified_name: *ObjString,
+        name: Pool(ObjString).Idx,
+        qualified_name: Pool(ObjString).Idx,
         location: Ast.TokenIndex,
-        enum_type: *ObjTypeDef,
+        enum_type: Pool(ObjTypeDef).Idx,
         cases: [][]const u8,
         cases_locations: []Ast.TokenIndex,
         // Circular reference but needed so that we can generate enum case at compile time
-        value: ?*ObjEnum = null,
+        value: ?Pool(ObjEnum).Idx = null,
 
         pub fn mark(self: *EnumDefSelf, gc: *GC) !void {
-            try gc.markObj(self.name.toObj());
-            try gc.markObj(self.qualified_name.toObj());
-            try gc.markObj(@constCast(self.enum_type.toObj()));
+            try gc.markObj(ObjString, self.name);
+            try gc.markObj(ObjString, self.qualified_name);
+            try gc.markObj(ObjTypeDef, self.enum_type);
         }
     };
 };
@@ -4220,23 +4202,15 @@ pub const ObjEnumInstance = struct {
 
     obj: Obj = .{ .obj_type = .EnumInstance },
 
-    enum_ref: *ObjEnum,
+    enum_ref: Pool(ObjEnum).Idx,
     case: u24,
 
     pub fn mark(self: *Self, gc: *GC) !void {
-        try gc.markObj(self.enum_ref.toObj());
+        try gc.markObj(ObjEnum, self.enum_ref);
     }
 
-    pub inline fn toObj(self: *Self) *Obj {
+    pub fn toObj(self: *Self) *Obj {
         return &self.obj;
-    }
-
-    pub inline fn toValue(self: *Self) Value {
-        return Value.fromObj(self.toObj());
-    }
-
-    pub inline fn cast(obj: *Obj) ?*Self {
-        return obj.cast(Self, .EnumInstance);
     }
 
     pub fn value(self: *Self) Value {
@@ -4251,29 +4225,21 @@ pub const ObjBoundMethod = struct {
     obj: Obj = .{ .obj_type = .Bound },
 
     receiver: Value,
-    closure: ?*ObjClosure = null,
-    native: ?*ObjNative = null,
+    closure: ?Pool(ObjClosure).Idx = null,
+    native: ?Pool(ObjNative).Idx = null,
 
     pub fn mark(self: *Self, gc: *GC) !void {
         try gc.markValue(self.receiver);
         if (self.closure) |closure| {
-            try gc.markObj(closure.toObj());
+            try gc.markObj(ObjClosure, closure);
         }
         if (self.native) |native| {
-            try gc.markObj(native.toObj());
+            try gc.markObj(ObjNative, native);
         }
     }
 
-    pub inline fn toObj(self: *Self) *Obj {
+    pub fn toObj(self: *Self) *Obj {
         return &self.obj;
-    }
-
-    pub inline fn toValue(self: *Self) Value {
-        return Value.fromObj(self.toObj());
-    }
-
-    pub inline fn cast(obj: *Obj) ?*Self {
-        return obj.cast(Self, .Bound);
     }
 };
 
@@ -4344,7 +4310,7 @@ pub const ObjTypeDef = struct {
     };
 
     pub const Instance = struct {
-        of: *ObjTypeDef,
+        of: Pool(ObjTypeDef).Idx,
         mutable: bool,
     };
 
@@ -4371,8 +4337,8 @@ pub const ObjTypeDef = struct {
     pub fn mark(self: *Self, gc: *GC) !void {
         if (self.resolved_type) |*resolved| {
             switch (self.def_type) {
-                .ObjectInstance => try gc.markObj(@constCast(resolved.ObjectInstance.of.toObj())),
-                .EnumInstance => try gc.markObj(@constCast(resolved.EnumInstance.of.toObj())),
+                .ObjectInstance => try gc.markObj(ObjTypeDef, resolved.ObjectInstance.of),
+                .EnumInstance => try gc.markObj(ObjTypeDef, resolved.EnumInstance.of),
                 .Object => try resolved.Object.mark(gc),
                 .Protocol => try resolved.Protocol.mark(gc),
                 .Enum => try resolved.Enum.mark(gc),
@@ -4390,7 +4356,7 @@ pub const ObjTypeDef = struct {
         self: *Self,
         where: Ast.TokenIndex,
         origin: ?usize,
-        generics: []*Self,
+        generics: []Pool(Self).Idx,
         type_registry: *TypeRegistry,
         allocator: std.mem.Allocator,
         visited: ?*std.AutoHashMapUnmanaged(*Self, void),
@@ -4669,9 +4635,9 @@ pub const ObjTypeDef = struct {
             .Function => function: {
                 const old_fun_def = self.resolved_type.?.Function;
 
-                var error_types: ?std.ArrayList(*ObjTypeDef) = null;
+                var error_types: ?std.ArrayList(Pool(ObjTypeDef).Idx) = null;
                 if (old_fun_def.error_types) |old_error_types| {
-                    error_types = .{};
+                    error_types = .empty;
                     for (old_error_types) |error_type| {
                         try error_types.?.append(
                             type_registry.gc.allocator,
@@ -4687,7 +4653,7 @@ pub const ObjTypeDef = struct {
                     }
                 }
 
-                var parameters = std.AutoArrayHashMapUnmanaged(*ObjString, *ObjTypeDef){};
+                var parameters = std.AutoArrayHashMapUnmanaged(Pool(ObjString).Idx, Pool(ObjTypeDef).Idx).empty;
                 {
                     var it = old_fun_def.parameters.iterator();
                     while (it.next()) |kv| {
@@ -4782,19 +4748,20 @@ pub const ObjTypeDef = struct {
         };
     }
 
-    pub fn cloneOptional(self: *Self, type_registry: *TypeRegistry) !*ObjTypeDef {
+    pub fn cloneOptional(self: *Self, type_registry: *TypeRegistry) !Pool(ObjTypeDef).Idx {
         // If already optional return itself
         if ((self.optional or self.def_type == .Any) and self.def_type != .Placeholder) {
-            return self;
+            return try type_registry.getTypeDef(self.*);
         }
 
-        const optional = try type_registry.getTypeDef(self.rawCloneOptional());
+        const optional_idx = try type_registry.getTypeDef(self.rawCloneOptional());
+        const optional = type_registry.gc.get(Self, optional_idx).?;
 
         if (self.def_type == .Placeholder) {
             // Destroyed copied placeholder link
             optional.resolved_type.?.Placeholder.parent = null;
             optional.resolved_type.?.Placeholder.parent_relation = null;
-            optional.resolved_type.?.Placeholder.children = std.ArrayList(*ObjTypeDef){};
+            optional.resolved_type.?.Placeholder.children = .empty;
 
             // Make actual link
             try PlaceholderDef.link(
@@ -4805,13 +4772,13 @@ pub const ObjTypeDef = struct {
             );
         }
 
-        return optional;
+        return optional_idx;
     }
 
-    pub fn cloneNonOptional(self: *Self, type_registry: *TypeRegistry) !*ObjTypeDef {
+    pub fn cloneNonOptional(self: *Self, type_registry: *TypeRegistry) !Pool(ObjTypeDef).Idx {
         // If already non optional return itself
         if (!self.optional and self.def_type != .Placeholder) {
-            return self;
+            return try type_registry.getTypeDef(self.*);
         }
 
         const non_optional = try type_registry.getTypeDef(self.rawCloneNonOptional());
@@ -4820,7 +4787,7 @@ pub const ObjTypeDef = struct {
             // Destroyed copied placeholder link
             non_optional.resolved_type.?.Placeholder.parent = null;
             non_optional.resolved_type.?.Placeholder.parent_relation = null;
-            non_optional.resolved_type.?.Placeholder.children = std.ArrayList(*ObjTypeDef){};
+            non_optional.resolved_type.?.Placeholder.children = .empty;
 
             // Make actual link
             try PlaceholderDef.link(
@@ -5257,12 +5224,8 @@ pub const ObjTypeDef = struct {
         }
     }
 
-    pub inline fn toObj(self: *Self) *Obj {
+    pub fn toObj(self: *Self) *Obj {
         return @constCast(&self.obj);
-    }
-
-    pub inline fn toValue(self: *Self) Value {
-        return Value.fromObj(self.toObj());
     }
 
     pub fn toParentType(self: *Self, type_registry: *TypeRegistry) !*Self {
@@ -5369,10 +5332,6 @@ pub const ObjTypeDef = struct {
         return instance_type;
     }
 
-    pub inline fn cast(obj: *Obj) ?*Self {
-        return obj.cast(Self, .Type);
-    }
-
     // Compare two type definitions
     pub fn eqlTypeUnion(expected: TypeUnion, actual: TypeUnion) bool {
         if (@as(Type, expected) != @as(Type, actual) and (expected != .ProtocolInstance or actual != .ObjectInstance)) {
@@ -5454,8 +5413,8 @@ pub const ObjTypeDef = struct {
                 }
 
                 // Compare parameters (we ignore argument names and only compare types)
-                const a_keys: []*ObjString = expected.Function.parameters.keys();
-                const b_keys: []*ObjString = actual.Function.parameters.keys();
+                const a_keys = expected.Function.parameters.keys();
+                const b_keys = actual.Function.parameters.keys();
 
                 if (a_keys.len != b_keys.len) {
                     return false;
@@ -5550,54 +5509,6 @@ pub const ObjTypeDef = struct {
     }
 };
 
-pub fn cloneObject(obj: *Obj, vm: *VM) !Value {
-    switch (obj.obj_type) {
-        .String,
-        .Type,
-        .UpValue,
-        .Closure,
-        .Function,
-        .Object,
-        .Enum,
-        .EnumInstance,
-        .Bound,
-        .Native,
-        .UserData,
-        .Pattern,
-        .Fiber,
-        .ForeignContainer,
-        .Range,
-        => return Value.fromObj(obj),
-
-        .List => {
-            const list = ObjList.cast(obj).?;
-
-            return (try vm.gc.allocateObject(
-                ObjList{
-                    .type_def = list.type_def,
-                    .items = try list.items.clone(vm.gc.allocator),
-                    .methods = list.methods,
-                },
-            )).toValue();
-        },
-
-        .Map => {
-            const map = ObjMap.cast(obj).?;
-
-            return (try vm.gc.allocateObject(
-                ObjMap{
-                    .type_def = map.type_def,
-                    .map = try map.map.clone(vm.gc.allocator),
-                    .methods = map.methods,
-                },
-            )).toValue();
-        },
-
-        // TODO
-        .ObjectInstance => unreachable,
-    }
-}
-
 pub const PlaceholderDef = struct {
     const Self = @This();
 
@@ -5621,21 +5532,20 @@ pub const PlaceholderDef = struct {
     where_end: Ast.TokenIndex,
     /// When accessing/calling/subscrit/assign a placeholder we produce another. We keep them linked so we
     /// can trace back the root of the unknown type.
-    parent: ?*ObjTypeDef = null,
+    parent: ?Pool(ObjTypeDef).Idx = null,
     /// What's the relation with the parent?
     parent_relation: ?PlaceholderRelation = null,
     /// Children adds themselves here
-    children: std.ArrayList(*ObjTypeDef),
+    children: std.ArrayList(Pool(ObjTypeDef).Idx) = .empty,
     mutable: ?bool,
 
     /// If the placeholder is a function return, we need to remember eventual generic types defined in that call
-    resolved_generics: ?[]*ObjTypeDef = null,
+    resolved_generics: ?[]Pool(ObjTypeDef).Idx = null,
 
     pub fn init(where: Ast.TokenIndex, where_end: Ast.TokenIndex, mutable: ?bool) Self {
         return Self{
             .where = where,
             .where_end = where_end,
-            .children = std.ArrayList(*ObjTypeDef){},
             .mutable = mutable,
         };
     }
@@ -5644,7 +5554,7 @@ pub const PlaceholderDef = struct {
         self.children.deinit(allocator);
     }
 
-    pub fn link(allocator: Allocator, parent: *ObjTypeDef, child: *ObjTypeDef, relation: PlaceholderRelation) !void {
+    pub fn link(allocator: Allocator, parent: Pool(ObjTypeDef).Idx, child: Pool(ObjTypeDef).Idx, relation: PlaceholderRelation) !void {
         assert(parent.def_type == .Placeholder);
         assert(child.def_type == .Placeholder);
 

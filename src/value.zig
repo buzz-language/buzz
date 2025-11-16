@@ -4,6 +4,7 @@ const StringHashMap = std.StringHashMap;
 const o = @import("obj.zig");
 const VM = @import("vm.zig").VM;
 const GC = @import("GC.zig");
+const Pool = @import("pool.zig").Pool;
 
 pub const Double = f64;
 pub const Integer = i48;
@@ -16,6 +17,13 @@ pub const Value = packed struct {
     pub const TagVoid: Tag = 3;
     pub const TagObj: Tag = 4;
     pub const TagError: Tag = 5;
+
+    const ObjTypeBits = 5;
+    const ObjIndexBits = 43;
+    const ObjTypeTag = u5;
+    const ObjIndexType = u43;
+    const ObjIndexMask: u64 = (1 << ObjIndexBits) - 1;
+    const ObjTypeMask: u64 = ((1 << ObjTypeBits) - 1) << ObjIndexBits;
 
     /// Most significant bit.
     pub const SignMask: u64 = 1 << 63;
@@ -59,8 +67,12 @@ pub const Value = packed struct {
         return .{ .val = @as(u64, @bitCast(val)) };
     }
 
-    pub fn fromObj(val: *o.Obj) Value {
-        return .{ .val = PointerMask | @intFromPtr(val) };
+    pub fn fromObj(val: o.ObjIdx) Value {
+        const type_bits: u64 = @intCast(@intFromEnum(val.obj_type));
+        const index_bits: u64 = @intCast(val.index);
+        const payload = (type_bits << ObjIndexBits) | (index_bits & ObjIndexMask);
+
+        return .{ .val = PointerMask | payload };
     }
 
     pub fn getTag(self: Value) Tag {
@@ -111,8 +123,15 @@ pub const Value = packed struct {
         return @bitCast(self.val);
     }
 
-    pub fn obj(self: Value) *o.Obj {
-        return @ptrFromInt(@as(usize, @truncate(self.val & ~PointerMask)));
+    pub fn obj(self: Value) o.ObjIdx {
+        const payload = self.val & ~PointerMask;
+        const type_bits = (payload >> ObjIndexBits) & ((@as(u64, 1) << ObjTypeBits) - 1);
+        const index_bits = payload & ObjIndexMask;
+
+        return .{
+            .obj_type = @enumFromInt(@as(ObjTypeTag, @intCast(type_bits))),
+            .index = @as(ObjIndexType, @intCast(index_bits)),
+        };
     }
 
     pub fn booleanOrNull(self: Value) ?bool {
@@ -127,11 +146,11 @@ pub const Value = packed struct {
         return if (self.isDouble()) self.double() else null;
     }
 
-    pub fn objOrNull(self: Value) ?*o.Obj {
+    pub fn objOrNull(self: Value) ?o.ObjIdx {
         return if (self.isObj()) self.obj() else null;
     }
 
-    pub fn typeOf(self: Value, gc: *GC) !*o.ObjTypeDef {
+    pub fn typeOf(self: Value, gc: *GC) !Pool(o.ObjTypeDef).Idx {
         if (self.isObj()) {
             return try self.obj().typeOf(gc);
         }
@@ -151,9 +170,9 @@ pub const Value = packed struct {
         };
     }
 
-    pub fn serialize(self: Value, vm: *VM, seen: *std.AutoHashMapUnmanaged(*o.Obj, void)) !Value {
+    pub fn serialize(self: Value, vm: *GC, seen: *std.AutoHashMapUnmanaged(*o.Obj, void)) !Value {
         if (self.isObj()) {
-            return try self.obj().serialize(vm, seen);
+            return try self.obj().ptr(vm.gc).serialize(vm, seen);
         }
 
         return self;
@@ -163,18 +182,18 @@ pub const Value = packed struct {
         value.toString(w) catch return error.WriteFailed;
     }
 
-    pub fn toStringAlloc(value: Value, allocator: Allocator) (Allocator.Error || std.fmt.BufPrintError || error{WriteFailed})![]const u8 {
-        var str = std.Io.Writer.Allocating.init(allocator);
+    pub fn toStringAlloc(value: Value, gc: *GC) (Allocator.Error || std.fmt.BufPrintError || error{WriteFailed})![]const u8 {
+        var str = std.Io.Writer.Allocating.init(gc.allocator);
 
-        try value.toString(&str.writer);
+        try value.toString(&str.writer, gc);
 
         return try str.toOwnedSlice();
     }
 
     // FIXME: should be a std.io.Writer once it exists for ArrayLists
-    pub fn toString(self: Value, writer: *std.Io.Writer) (Allocator.Error || std.fmt.BufPrintError || error{WriteFailed})!void {
+    pub fn toString(self: Value, gc: *GC, writer: *std.Io.Writer) (Allocator.Error || std.fmt.BufPrintError || error{WriteFailed})!void {
         if (self.isObj()) {
-            try self.obj().toString(writer);
+            try self.obj().ptr(gc).toString(writer);
 
             return;
         }
@@ -197,7 +216,7 @@ pub const Value = packed struct {
         }
     }
 
-    pub fn eql(a: Value, b: Value) bool {
+    pub fn eql(a: Value, b: Value, gc: *GC) bool {
         if (a.isObj() != b.isObj() or
             a.isNumber() != b.isNumber() or
             (!a.isNumber() and !b.isNumber() and a.getTag() != b.getTag()))
@@ -206,7 +225,10 @@ pub const Value = packed struct {
         }
 
         if (a.isObj()) {
-            return a.obj().eql(b.obj());
+            return a.obj().ptr(gc).eql(
+                b.obj().ptr(gc),
+                gc,
+            );
         }
 
         if (a.isInteger() or a.isDouble()) {
@@ -238,15 +260,18 @@ pub const Value = packed struct {
         };
     }
 
-    pub fn is(type_def_val: Value, value: Value) bool {
-        const type_def: *o.ObjTypeDef = o.ObjTypeDef.cast(type_def_val.obj()).?;
+    pub fn is(type_def_val: Value, value: Value, gc: *GC) bool {
+        const type_def = gc.get(o.ObjTypeDef, .idx(type_def_val.obj().index)).?;
 
         if (type_def.def_type == .Any) {
             return true;
         }
 
         if (value.isObj()) {
-            return value.obj().is(type_def);
+            return value.obj().ptr(gc).is(
+                .idx(type_def_val.obj().index),
+                gc,
+            );
         }
 
         if (value.isDouble()) {
@@ -266,9 +291,9 @@ pub const Value = packed struct {
         };
     }
 
-    pub fn typeEql(value: Value, type_def: *o.ObjTypeDef) bool {
+    pub fn typeEql(value: Value, type_def: Pool(o.ObjTypeDef).Idx, gc: *GC) bool {
         if (value.isObj()) {
-            return value.obj().typeEql(type_def);
+            return value.obj().ptr(gc).typeEql(gc.get(o.ObjTypeDef, type_def));
         }
 
         if (value.isDouble()) {
