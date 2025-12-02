@@ -43,8 +43,6 @@ fn testFmt(prefix: []const u8, entry: std.fs.Dir.Entry) !void {
         return;
     }
 
-    std.debug.print("\n{s}\n", .{file_name});
-
     var file = (if (std.fs.path.isAbsolute(
         file_name,
     ))

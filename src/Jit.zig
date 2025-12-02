@@ -2791,24 +2791,86 @@ fn buildBinary(
                 else => unreachable,
             }
         },
-        .Percent, .PercentEqual => {
-            switch (def_type) {
-                .Integer => {
-                    self.MOD(dest, left, right);
-                    try self.wrap(.Integer, dest, dest);
+        .Percent, .PercentEqual => switch (def_type) {
+            .Integer => {
+                const zero_check_label = m.MIR_new_label(self.ctx);
+                const done_label = m.MIR_new_label(self.ctx);
+                const rhs_negative_label = m.MIR_new_label(self.ctx);
+                const adjust_label = m.MIR_new_label(self.ctx);
+
+                self.BNE(zero_check_label, right, m.MIR_new_int_op(self.ctx, 0));
+
+                try self.buildExternApiCall(
+                    .exit,
+                    null,
+                    &[_]m.MIR_op_t{m.MIR_new_uint_op(self.ctx, 1)},
+                );
+
+                self.append(zero_check_label);
+
+                const quotient = m.MIR_new_reg_op(
+                    self.ctx,
+                    try self.REG("quotient", m.MIR_T_I64),
+                );
+
+                self.DIV(quotient, left, right);
+
+                const product = m.MIR_new_reg_op(
+                    self.ctx,
+                    try self.REG("product", m.MIR_T_I64),
+                );
+
+                self.MUL(product, quotient, right);
+
+                self.SUB(dest, left, product);
+
+                self.BEQ(
+                    m.MIR_new_label_op(self.ctx, done_label),
+                    dest,
+                    m.MIR_new_int_op(self.ctx, 0),
+                );
+
+                self.BLT(
+                    m.MIR_new_label_op(self.ctx, rhs_negative_label),
+                    right,
+                    m.MIR_new_int_op(self.ctx, 0),
+                );
+
+                self.BLT(
+                    m.MIR_new_label_op(self.ctx, adjust_label),
+                    dest,
+                    m.MIR_new_int_op(self.ctx, 0),
+                );
+
+                self.JMP(done_label);
+
+                self.append(rhs_negative_label);
+
+                self.BGT(
+                    m.MIR_new_label_op(self.ctx, adjust_label),
+                    dest,
+                    m.MIR_new_int_op(self.ctx, 0),
+                );
+
+                self.JMP(done_label);
+
+                self.append(adjust_label);
+
+                self.ADD(dest, dest, right);
+
+                self.append(done_label);
+
+                try self.wrap(.Integer, dest, dest);
+            },
+            .Double => try self.buildExternApiCall(
+                .fmod,
+                dest,
+                &[_]m.MIR_op_t{
+                    left,
+                    right,
                 },
-                .Double => {
-                    try self.buildExternApiCall(
-                        .fmod,
-                        dest,
-                        &[_]m.MIR_op_t{
-                            left,
-                            right,
-                        },
-                    );
-                },
-                else => unreachable,
-            }
+            ),
+            else => unreachable,
         },
         .Ampersand, .AmpersandEqual => {
             self.AND(dest, left, right);
