@@ -4644,7 +4644,7 @@ fn generateUnary(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
             const out_label = m.MIR_new_label(self.ctx);
 
             self.BEQ(
-                m.MIR_new_label_op(self.ctx, out_label),
+                m.MIR_new_label_op(self.ctx, true_label),
                 result,
                 m.MIR_new_uint_op(self.ctx, 1),
             );
