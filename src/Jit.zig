@@ -4924,7 +4924,9 @@ fn generateFunction(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
         defer self.vm.gc.allocator.free(nativefn_qualified_name);
 
         // Remember that we need to compile this function later
-        try self.functions_queue.put(self.vm.gc.allocator, node, null);
+        if (self.compiled_nodes.get(node) == null) {
+            try self.functions_queue.put(self.vm.gc.allocator, node, null);
+        }
 
         // For now declare it
         const native_raw = m.MIR_new_import(self.ctx, @ptrCast(qualified_name));
