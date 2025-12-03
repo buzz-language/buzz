@@ -356,6 +356,16 @@ fn buildCollateralFunctions(self: *Self, ast: Ast.Slice) Error!void {
                     break;
                 }
             }
+
+            if (BuildOptions.jit_debug) {
+                io.print(
+                    "Building collateral function node #{}\n",
+                    .{
+                        node,
+                    },
+                );
+            }
+
             try self.buildFunction(ast, sub_closure, node);
 
             // Building a new function might have added functions in the queue, so we reset the iterator
@@ -398,7 +408,7 @@ fn buildFunction(self: *Self, ast: Ast.Slice, closure: ?*o.ObjClosure, ast_node:
             io.print(
                 "Compiling function `{s}` because it was called {}/{} times\n",
                 .{
-                    qualified_name.items,
+                    qualified_name,
                     uclosure.function.call_count,
                     self.call_count,
                 },
@@ -420,7 +430,7 @@ fn buildFunction(self: *Self, ast: Ast.Slice, closure: ?*o.ObjClosure, ast_node:
                 io.print(
                     "Compiling closure `{s}`\n",
                     .{
-                        qualified_name.items,
+                        qualified_name,
                     },
                 );
             }
@@ -433,7 +443,7 @@ fn buildFunction(self: *Self, ast: Ast.Slice, closure: ?*o.ObjClosure, ast_node:
         self.generateNode(ast_node)) catch |err| {
         if (err == Error.CantCompile) {
             if (BuildOptions.jit_debug) {
-                io.print("Not compiling `{s}`, likely because it uses a fiber\n", .{qualified_name.items});
+                io.print("Not compiling `{s}`, likely because it uses a fiber\n", .{qualified_name});
             }
 
             m.MIR_finish_func(self.ctx);
@@ -455,13 +465,13 @@ fn buildFunction(self: *Self, ast: Ast.Slice, closure: ?*o.ObjClosure, ast_node:
     if (BuildOptions.jit_debug) {
         _ = std.mem.replace(
             u8,
-            qualified_name.items,
+            qualified_name,
             "/",
             ".",
-            qualified_name.items,
+            @constCast(qualified_name),
         );
 
-        self.outputModule(qualified_name.items, module);
+        self.outputModule(qualified_name, module);
     }
 }
 
@@ -5356,7 +5366,7 @@ pub fn compileZdefContainer(self: *Self, ast: Ast.Slice, zdef_element: Ast.Zdef.
             "Compiling zdef struct getters/setters for `{s}` of type `{s}`\n",
             .{
                 zdef_element.zdef.name,
-                zdef_element.zdef.type_def.toStringAlloc(self.vm.gc.allocator) catch unreachable,
+                zdef_element.zdef.type_def.toStringAlloc(self.vm.gc.allocator, true) catch unreachable,
             },
         );
     }
@@ -5440,7 +5450,7 @@ pub fn compileZdefContainer(self: *Self, ast: Ast.Slice, zdef_element: Ast.Zdef.
     }
 
     if (BuildOptions.jit_debug) {
-        self.outputModule(wrapper_name.items, module);
+        self.outputModule(wrapper_name.written(), module);
     }
 
     m.MIR_load_module(self.ctx, module);
@@ -5641,7 +5651,7 @@ pub fn compileZdef(self: *Self, buzz_ast: Ast.Slice, zdef: Ast.Zdef.ZdefElement)
             "Compiling zdef wrapper for `{s}` of type `{s}`\n",
             .{
                 zdef.zdef.name,
-                zdef.zdef.type_def.toStringAlloc(self.vm.gc.allocator) catch unreachable,
+                zdef.zdef.type_def.toStringAlloc(self.vm.gc.allocator, true) catch unreachable,
             },
         );
     }

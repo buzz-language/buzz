@@ -4947,16 +4947,16 @@ pub const VM = struct {
 
         // Is there a compiled version of it?
         if (native != null) {
-            if (BuildOptions.jit_debug) {
-                io.print(
-                    "Calling compiled version of function `{s}.{}.n{}`\n",
-                    .{
-                        closure.function.type_def.resolved_type.?.Function.name.string,
-                        self.current_ast.nodes.items(.components)[closure.function.node].Function.id,
-                        closure.function.node,
-                    },
-                );
-            }
+            // if (BuildOptions.jit_debug) {
+            //     io.print(
+            //         "Calling compiled version of function `{s}.{}.n{}`\n",
+            //         .{
+            //             closure.function.type_def.resolved_type.?.Function.name.string,
+            //             self.current_ast.nodes.items(.components)[closure.function.node].Function.id,
+            //             closure.function.node,
+            //         },
+            //     );
+            // }
 
             try self.callCompiled(
                 closure,
@@ -5043,16 +5043,16 @@ pub const VM = struct {
             }
         }
 
-        if (BuildOptions.jit_debug) {
-            io.print(
-                "Calling uncompiled version of function `{s}.{}.n{}`\n",
-                .{
-                    closure.function.type_def.resolved_type.?.Function.name.string,
-                    self.current_ast.nodes.items(.components)[closure.function.node].Function.id,
-                    closure.function.node,
-                },
-            );
-        }
+        // if (BuildOptions.jit_debug) {
+        //     io.print(
+        //         "Calling uncompiled version of function `{s}.{}.n{}`\n",
+        //         .{
+        //             closure.function.type_def.resolved_type.?.Function.name.string,
+        //             self.current_ast.nodes.items(.components)[closure.function.node].Function.id,
+        //             closure.function.node,
+        //         },
+        //     );
+        // }
     }
 
     fn getSite(self: *Self) ?Ast.TokenIndex {
@@ -5066,9 +5066,9 @@ pub const VM = struct {
     }
 
     fn callHotspot(self: *Self, native: obj.NativeFn) bool {
-        if (BuildOptions.jit_debug) {
-            io.print("Calling hotspot {*}\n", .{native});
-        }
+        // if (BuildOptions.jit_debug) {
+        //     io.print("Calling hotspot {*}\n", .{native});
+        // }
 
         const was_in_native_call = self.currentFrame().?.in_native_call;
         self.currentFrame().?.in_native_call = true;
