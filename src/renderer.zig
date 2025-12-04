@@ -1566,7 +1566,7 @@ pub const Renderer = struct {
 
             // >
             try self.renderExpectedToken(
-                locations[item_type] + 1,
+                end_locations[item_type] + 1,
                 .Greater,
                 if (has_trailing_comma)
                     .Comma
