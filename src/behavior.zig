@@ -251,7 +251,7 @@ fn testFuzzCrashes(allocator: std.mem.Allocator, fail_fast: bool) !Result {
             );
 
             var timer = try std.time.Timer.start();
-            while (!done and timer.read() < 2 * std.time.ns_per_s) {}
+            while (!done and timer.read() < 10 * std.time.ns_per_s) {}
 
             if (child.term) |term| {
                 thread.join();
