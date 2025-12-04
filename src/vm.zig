@@ -2568,9 +2568,7 @@ pub const VM = struct {
             };
         }
 
-        const list_index: usize = @intCast(index);
-
-        if (checked_or_leave != 1 and list_index >= list.items.items.len) {
+        if (checked_or_leave != 1 and index >= list.items.items.len) {
             self.throw(
                 Error.OutOfBound,
                 (self.gc.copyString("Out of bound list access.") catch {
@@ -2592,10 +2590,10 @@ pub const VM = struct {
             return;
         }
 
-        const list_item = if (list_index >= list.items.items.len or list_index < 0)
+        const list_item = if (index >= list.items.items.len or index < 0)
             Value.Null
         else
-            list.items.items[list_index];
+            list.items.items[@intCast(index)];
 
         // Pop list and index
         if (checked_or_leave != 2) {
