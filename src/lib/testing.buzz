@@ -62,8 +62,8 @@ export fun oncyan(text: str) => color(text, color: Color.oncyan);
 export fun onwhite(text: str) => color(text, color: Color.onwhite);
 
 export object Tester {
-    tests: mut [bool] = mut [],
-    asserts: mut [bool] = mut [],
+    tests: mut [bool],
+    asserts: mut [bool],
     elapsed: double = 0.0,
     beforeAll: fun (t: Tester) > void?,
     beforeEach: fun (t: Tester) > void?,
@@ -77,6 +77,8 @@ export object Tester {
         afterEach: fun (t: Tester) > void?
     ) > mut Tester {
         final t = mut Tester{
+            tests = mut [],
+            asserts = mut [],
             beforeAll = beforeAll,
             beforeEach = beforeEach,
             afterAll = afterAll,

@@ -421,6 +421,11 @@ pub const Slice = struct {
                     const components = ast.nodes.items(.components)[node].List;
                     const node_types = ast.nodes.items(.tag);
 
+                    if (ast.nodes.items(.type_def)[node].?.resolved_type.?.List.mutable) {
+                        self.result = false;
+                        return true;
+                    }
+
                     if (components.items.len == 0) {
                         self.result = self.result == null or self.result.?;
                     }
@@ -435,6 +440,11 @@ pub const Slice = struct {
                 .Map => {
                     const components = ast.nodes.items(.components)[node].Map;
                     const node_types = ast.nodes.items(.tag);
+
+                    if (ast.nodes.items(.type_def)[node].?.resolved_type.?.Map.mutable) {
+                        self.result = false;
+                        return true;
+                    }
 
                     if (components.entries.len == 0) {
                         self.result = self.result == null or self.result.?;

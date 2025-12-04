@@ -6315,6 +6315,16 @@ fn function(
                 .Function, .Method, .Anonymous, .Extern => value: {
                     if (try self.match(.Equal)) {
                         const expr = try self.expression(false);
+
+                        if (!try self.ast.slice().isConstant(self.gc.allocator, expr)) {
+                            self.reporter.reportErrorAt(
+                                .constant_default,
+                                self.ast.tokens.get(self.ast.nodes.items(.location)[expr]),
+                                self.ast.tokens.get(self.ast.nodes.items(.end_location)[expr]),
+                                "Default parameters must be constant values.",
+                            );
+                        }
+
                         const expr_type_def = self.ast.nodes.items(.type_def)[expr];
 
                         if (expr_type_def != null and expr_type_def.?.def_type == .Placeholder and argument_type.def_type == .Placeholder) {

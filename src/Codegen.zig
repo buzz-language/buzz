@@ -1725,24 +1725,15 @@ fn generateFunction(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?
         .Function, .Method, .Anonymous, .Extern => {
             for (self.ast.nodes.items(.components)[components.function_signature.?].FunctionType.arguments) |argument| {
                 if (argument.default) |default| {
-                    if (!try self.ast.isConstant(self.gc.allocator, default)) {
-                        self.reporter.reportErrorAt(
-                            .constant_default,
-                            self.ast.tokens.get(locations[default]),
-                            self.ast.tokens.get(end_locations[default]),
-                            "Default parameters must be constant values.",
-                        );
-                    } else {
-                        try node_type_def.resolved_type.?.Function.defaults.put(
-                            self.gc.allocator,
-                            try self.gc.copyString(self.ast.tokens.items(.lexeme)[argument.name]),
-                            try self.ast.typeCheckAndToValue(
-                                default,
-                                &self.reporter,
-                                self.gc,
-                            ),
-                        );
-                    }
+                    try node_type_def.resolved_type.?.Function.defaults.put(
+                        self.gc.allocator,
+                        try self.gc.copyString(self.ast.tokens.items(.lexeme)[argument.name]),
+                        try self.ast.typeCheckAndToValue(
+                            default,
+                            &self.reporter,
+                            self.gc,
+                        ),
+                    );
                 }
             }
         },
