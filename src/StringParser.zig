@@ -17,11 +17,11 @@ current: ?u8 = null,
 //       and since not all of its keys come from here, we don't know which we can
 //       free when we deinit strings.
 delimiter: u8,
-current_chunk: std.ArrayList(u8) = .{},
+current_chunk: std.ArrayList(u8) = .empty,
 offset: usize = 0,
 previous_interp: ?usize = null,
 chunk_count: usize = 0,
-elements: std.ArrayList(Ast.Node.Index) = .{},
+elements: std.ArrayList(Ast.Node.Index) = .empty,
 line_offset: usize,
 column_offset: usize,
 host_offset: usize,
@@ -59,7 +59,7 @@ pub fn parse(self: *Self) !Ast.Node.Index {
                     if (self.current_chunk.items.len > 0) {
                         try self.push(self.current_chunk.items);
                         // The previous `current_chunk` memory is owned by the parser
-                        self.current_chunk = .{};
+                        self.current_chunk = .empty;
 
                         try self.inc();
                     }
@@ -78,7 +78,7 @@ pub fn parse(self: *Self) !Ast.Node.Index {
         try self.push(self.current_chunk.items);
 
         // The previous `current_chunk` memory is owned by the parser
-        self.current_chunk = .{};
+        self.current_chunk = .empty;
     }
 
     return try self.parser.ast.appendNode(

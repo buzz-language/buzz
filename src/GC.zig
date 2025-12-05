@@ -9,7 +9,6 @@ const Token = @import("Token.zig");
 const buzz_api = @import("buzz_api.zig");
 const Reporter = @import("Reporter.zig");
 const is_wasm = builtin.cpu.arch.isWasm();
-const io = @import("io.zig");
 const TypeRegistry = @import("TypeRegistry.zig");
 
 // Sticky Mark Bits Generational GC basic idea:
@@ -63,8 +62,6 @@ objrange_members: []?*o.ObjNative,
 full_collection_count: usize = 0,
 light_collection_count: usize = 0,
 max_allocated: usize = 0,
-
-gc_time: usize = 0,
 
 pub fn init(allocator: std.mem.Allocator) !GC {
     const self = GC{
@@ -136,8 +133,6 @@ pub fn deinit(self: *GC) void {
 }
 
 pub fn allocate(self: *GC, comptime T: type) !*T {
-    var timer = if (!is_wasm) std.time.Timer.start() catch unreachable else {};
-
     self.bytes_allocated += @sizeOf(T);
 
     if (self.bytes_allocated > self.max_allocated) {
@@ -167,17 +162,10 @@ pub fn allocate(self: *GC, comptime T: type) !*T {
         );
     }
 
-    if (!is_wasm) {
-        self.gc_time += timer.read();
-    }
     return allocated;
 }
 
 pub fn allocateMany(self: *GC, comptime T: type, count: usize) ![]T {
-    var timer = if (!is_wasm)
-        std.time.Timer.start() catch unreachable
-    else {};
-
     self.bytes_allocated += (@sizeOf(T) * count);
 
     if (self.bytes_allocated > self.max_allocated) {
@@ -188,9 +176,6 @@ pub fn allocateMany(self: *GC, comptime T: type, count: usize) ![]T {
         try self.collectGarbage();
     }
 
-    if (!is_wasm) {
-        self.gc_time += timer.read();
-    }
     return try self.allocator.alloc(T, count);
 }
 
@@ -271,8 +256,6 @@ pub fn copyString(self: *GC, chars: []const u8) !*o.ObjString {
 }
 
 fn free(self: *GC, comptime T: type, pointer: *T) void {
-    var timer = if (!is_wasm) std.time.Timer.start() catch unreachable else {};
-
     if (BuildOptions.gc_debug) {
         std.log.info("Going to free {*}", .{pointer});
     }
@@ -290,15 +273,9 @@ fn free(self: *GC, comptime T: type, pointer: *T) void {
             },
         );
     }
-
-    if (!is_wasm) {
-        self.gc_time += timer.read();
-    }
 }
 
 fn freeMany(self: *GC, comptime T: type, pointer: []const T) void {
-    var timer = if (!is_wasm) std.time.Timer.start() catch unreachable else {};
-
     if (BuildOptions.gc_debug) {
         std.log.info("Going to free slice {*} `{s}`", .{ pointer, pointer });
     }
@@ -316,10 +293,6 @@ fn freeMany(self: *GC, comptime T: type, pointer: []const T) void {
                 self.bytes_allocated,
             },
         );
-    }
-
-    if (!is_wasm) {
-        self.gc_time += timer.read();
     }
 }
 
@@ -791,8 +764,6 @@ fn sweep(self: *GC, mode: Mode) !void {
 }
 
 pub fn collectGarbage(self: *GC) !void {
-    var timer = if (!is_wasm) std.time.Timer.start() catch unreachable else {};
-
     // Don't collect until a VM is actually running
     var vm_it = self.active_vms.iterator();
     const first_vm = vm_it.next();
@@ -864,10 +835,6 @@ pub fn collectGarbage(self: *GC) !void {
                 self.next_full_gc,
             },
         );
-    }
-
-    if (!is_wasm) {
-        self.gc_time += timer.read();
     }
 }
 

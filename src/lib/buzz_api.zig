@@ -3,6 +3,7 @@ const builtin = @import("builtin");
 const is_wasm = builtin.cpu.arch.isWasm();
 const BuildOptions = @import("build_options");
 const jmp = if (!is_wasm) @import("jmp.zig") else void;
+const Io = @import("io.zig").Io;
 
 pub const os = if (is_wasm)
     @import("wasm.zig")
@@ -46,7 +47,7 @@ const ErrorMask: u64 = TaggedValueMask | (@as(u64, TagError) << 32);
 const TagMask: u32 = (1 << 3) - 1;
 const TaggedPrimitiveMask = TaggedValueMask | (@as(u64, TagMask) << 32) | IntegerMask;
 
-pub const Value = packed struct {
+pub const Value = extern struct {
     val: u64,
 
     pub const Null = Value{ .val = NullMask };
@@ -166,14 +167,41 @@ pub const Value = packed struct {
     pub extern fn bz_foreignContainerSlice(container_value: Value, len: *usize) callconv(.c) [*]u8;
 };
 
+const Threaded = if (is_wasm) struct {} else std.Io.Threaded;
+
+/// Because error set are not stable accross targets, we can't use std.Io instance from host
+/// So we use this lazily initialized singleton instead
+var api_single_thread: ?Threaded = null;
+
+/// std.process.Init
+pub const Init = opaque {};
+
 pub const NativeCtx = extern struct {
     vm: *VM,
+    process: *Init,
     globals: [*]Value,
     upvalues: [*]*anyopaque,
     base: [*]Value,
     // Pointer to the stack_top field of the current fiber
     // !! Needs to change when current fiber changes !!
     stack_top: *[*]Value,
+
+    pub fn getIo(self: *@This()) Io {
+        if (is_wasm) return {};
+
+        api_single_thread = api_single_thread orelse .init(
+            VM.allocator,
+            .{
+                .environ = @as(*std.process.Init, @ptrCast(@alignCast(self.process))).minimal.environ,
+            },
+        );
+
+        return api_single_thread.?.io();
+    }
+
+    pub fn getEnv(self: *@This()) *std.process.Environ.Map {
+        return @as(*std.process.Init, @ptrCast(@alignCast(self.process))).environ_map;
+    }
 };
 
 pub const TryCtx = extern struct {
@@ -188,7 +216,7 @@ pub const ZigType = opaque {
 };
 
 pub const VM = opaque {
-    var gpa = std.heap.GeneralPurposeAllocator(.{
+    var gpa = std.heap.DebugAllocator(.{
         .safety = builtin.mode == .Debug,
     }){};
 
@@ -199,7 +227,7 @@ pub const VM = opaque {
     else
         std.heap.c_allocator;
 
-    pub extern fn bz_newVM() *VM;
+    pub extern fn bz_newVM(host: *VM) callconv(.c) *VM;
     pub extern fn bz_deinitVM(self: *VM) callconv(.c) void;
     pub extern fn bz_panic(vm: *VM, msg: [*]const u8, len: usize) callconv(.c) void;
     pub extern fn bz_run(self: *VM, source: ?[*]const u8, source_len: usize, file_name: ?[*]const u8, file_name_len: usize) callconv(.c) bool;

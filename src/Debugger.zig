@@ -8,7 +8,7 @@ const Response = dap.Response;
 const Server = dap.Server;
 const Adapter = dap.Adapter;
 const clap = @import("clap");
-const io = @import("io.zig");
+const bz_io = @import("io.zig");
 const v = @import("vm.zig");
 const printBanner = @import("repl.zig").printBanner;
 const VM = v.VM;
@@ -19,10 +19,8 @@ const assert = std.debug.assert;
 
 const Debugger = @This();
 
-const OutputStream = enum { stdout, stderr };
-
-var log_file: std.fs.File = undefined;
-var log_mutex = std.Thread.Mutex{};
+var log_file: std.Io.File = undefined;
+var log_mutex = std.Io.Mutex.init;
 
 pub const std_options: std.Options = .{
     .log_level = if (builtin.mode == .Debug) .debug else .info,
@@ -32,17 +30,14 @@ pub const std_options: std.Options = .{
 /// We log to file to avoid polluting the program output forwarded to the client since
 pub fn logFn(
     comptime level: std.log.Level,
-    comptime scope: @Type(.enum_literal),
+    comptime scope: @EnumLiteral(),
     comptime format: []const u8,
     args: anytype,
 ) void {
-    log_mutex.lock();
-    defer log_mutex.unlock();
+    log_mutex.lock(std.Options.debug_io) catch return;
+    defer log_mutex.unlock(std.Options.debug_io);
 
-    // Ensure we append to the file
-    log_file.seekFromEnd(0) catch {};
-
-    var writer = log_file.writerStreaming(&.{});
+    var writer = log_file.writerStreaming(std.Options.debug_io, &.{});
     writer.interface.print(
         "[{s}] {s} " ++ format ++ "\n",
         .{
@@ -52,6 +47,9 @@ pub fn logFn(
     ) catch {};
 }
 
+const log = std.log.scoped(.buzz_debugger);
+
+process: std.process.Init,
 allocator: std.mem.Allocator,
 /// Queues to/from debugger/debuggee
 transport: Server.Transport,
@@ -66,7 +64,8 @@ stdout_pipe: [2]std.posix.fd_t,
 /// Stderr pipe so we can relay the output to the client
 stderr_pipe: [2]std.posix.fd_t,
 /// Output poller
-out_poller: std.Io.Poller(OutputStream),
+out_poller: std.Io.File.MultiReader,
+out_poller_buffer: std.Io.File.MultiReader.Buffer(2) = undefined,
 
 const Error = error{
     InvalidArguments,
@@ -179,8 +178,14 @@ const BreakpointKey = struct {
     };
 };
 
-pub fn start(self: *Debugger, allocator: std.mem.Allocator, address: std.net.Address) (std.Thread.SpawnError || error{OutOfMemory} || Error)!void {
+pub fn start(
+    self: *Debugger,
+    process: std.process.Init,
+    allocator: std.mem.Allocator,
+    address: std.Io.net.IpAddress,
+) (std.Thread.SpawnError || error{OutOfMemory} || Error)!void {
     self.* = Debugger{
+        .process = process,
         .allocator = allocator,
         .transport = .{
             .from = try .initCapacity(allocator, 256),
@@ -188,27 +193,30 @@ pub fn start(self: *Debugger, allocator: std.mem.Allocator, address: std.net.Add
         },
         .server_thread = undefined,
         .adapter = undefined,
-        .stdout_pipe = std.posix.pipe() catch return error.CantCaptureOutput,
-        .stderr_pipe = std.posix.pipe() catch return error.CantCaptureOutput,
+        .stdout_pipe = std.Io.Threaded.pipe2(.{}) catch return error.CantCaptureOutput,
+        .stderr_pipe = std.Io.Threaded.pipe2(.{}) catch return error.CantCaptureOutput,
         .out_poller = undefined,
     };
 
     // FIXME: do this for windows with CreatePipe (https://github.com/ziglang/zig/blob/master/lib/std/os/windows.zig#L187)
 
     // Duplicate output pipe's ends to stdout/stderr
-    std.posix.dup2(self.stdout_pipe[1], std.posix.STDOUT_FILENO) catch return error.CantCaptureOutput;
-    std.posix.dup2(self.stderr_pipe[1], std.posix.STDERR_FILENO) catch return error.CantCaptureOutput;
+    std.Io.Threaded.dup2(self.stdout_pipe[1], std.posix.STDOUT_FILENO) catch return error.CantCaptureOutput;
+    std.Io.Threaded.dup2(self.stderr_pipe[1], std.posix.STDERR_FILENO) catch return error.CantCaptureOutput;
 
     // Create poller on the read ends of the pipes
-    self.out_poller = std.Io.poll(
+    self.out_poller.init(
         self.allocator,
-        OutputStream,
-        .{
-            .stdout = std.fs.File{
+        std.Options.debug_io,
+        self.out_poller_buffer.toStreams(),
+        &.{
+            .{
                 .handle = self.stdout_pipe[0],
+                .flags = .{ .nonblocking = false },
             },
-            .stderr = std.fs.File{
+            .{
                 .handle = self.stderr_pipe[0],
+                .flags = .{ .nonblocking = false },
             },
         },
     );
@@ -219,6 +227,7 @@ pub fn start(self: *Debugger, allocator: std.mem.Allocator, address: std.net.Add
     };
 
     self.server_thread = try Server.spawn(
+        self.process.io,
         allocator,
         address,
         &self.transport,
@@ -364,41 +373,50 @@ pub fn onDispatch(self: *Debugger) Error!bool {
         },
     }
 
-    // Do we have output to relay to the client
-    if (self.out_poller.pollTimeout(500_000) catch false) {
-        const stdout = try self.out_poller.toOwnedSlice(.stdout);
-        if (stdout.len > 0) {
-            self.adapter.emitEvent(
-                .{
-                    .event = .output,
-                    .body = .{
-                        .output = .{
-                            .category = .stdout,
-                            .output = stdout,
-                        },
-                    },
-                },
-            );
-        }
+    // Do we have output to relay to the client.
+    try self.drainOutput(.stdout);
+    try self.drainOutput(.stderr);
 
-        // FIXME: stderr doesn't seem to be relayed here?
-        const stderr = try self.out_poller.toOwnedSlice(.stderr);
-        if (stderr.len > 0) {
-            self.adapter.emitEvent(
-                .{
-                    .event = .output,
-                    .body = .{
-                        .output = .{
-                            .category = .stderr,
-                            .output = stderr,
-                        },
-                    },
-                },
-            );
-        }
-    }
+    self.out_poller.fill(
+        4096,
+        .{
+            .duration = .{
+                .clock = .awake,
+                .raw = .fromMilliseconds(0),
+            },
+        },
+    ) catch {};
+
+    try self.drainOutput(.stdout);
+    try self.drainOutput(.stderr);
 
     return false;
+}
+
+fn drainOutput(self: *Debugger, category: ProtocolMessage.OutputCategory) Error!void {
+    const index: usize = switch (category) {
+        .stdout => 0,
+        .stderr => 1,
+        else => return,
+    };
+    const reader = self.out_poller.reader(index);
+    const output = reader.buffered();
+    if (output.len == 0) return;
+
+    const owned_output = self.allocator.dupe(u8, output) catch return error.OutOfMemory;
+    reader.tossBuffered();
+
+    self.adapter.emitEvent(
+        .{
+            .event = .output,
+            .body = .{
+                .output = .{
+                    .category = category,
+                    .output = owned_output,
+                },
+            },
+        },
+    );
 }
 
 //
@@ -428,6 +446,7 @@ pub fn launch(self: *Debugger, arguments: Arguments(.launch)) Error!Response(.la
     };
 
     self.session.?.runner.init(
+        self.process,
         self.allocator,
         .Run,
         self,
@@ -1160,10 +1179,9 @@ fn valueChildren(self: *Debugger, value: Value, result: *std.ArrayList(ProtocolM
     }
 }
 
-pub fn main() !u8 {
-    var gpa = std.heap.GeneralPurposeAllocator(.{ .safety = builtin.mode == .Debug }){};
+pub fn main(init: std.process.Init) !u8 {
     const allocator: std.mem.Allocator = if (builtin.mode == .Debug)
-        gpa.allocator()
+        init.gpa
     else if (BuildOptions.mimalloc)
         @import("mimalloc.zig").mim_allocator
     else
@@ -1183,36 +1201,41 @@ pub fn main() !u8 {
         clap.Help,
         &params,
         clap.parsers.default,
+        init.minimal.args,
         .{
             .allocator = allocator,
             .diagnostic = &diag,
         },
     ) catch |err| {
         // Report useful error and exit
-        diag.report(io.stderrWriter, err) catch {};
+        var stderr_writer = bz_io.stderrWriter(init.io);
+        diag.report(&stderr_writer.interface, err) catch {};
         return 1;
     };
     defer res.deinit();
 
     if (res.args.version == 1) {
-        printBanner(io.stdoutWriter, true);
+        var stdout_writer = bz_io.stdoutWriter(init.io);
+        printBanner(&stdout_writer.interface, true);
 
         return 0;
     }
 
     if (res.args.help == 1) {
-        io.print("👨‍🚀 Debugger for the buzz programming language\n\nUsage: buzz_debugger ", .{});
+        var stderr_writer = bz_io.stderrWriter(init.io);
+
+        bz_io.print(init.io, "👨‍🚀 Debugger for the buzz programming language\n\nUsage: buzz_debugger ", .{});
 
         clap.usage(
-            io.stderrWriter,
+            &stderr_writer.interface,
             clap.Help,
             &params,
         ) catch return 1;
 
-        io.print("\n\n", .{});
+        bz_io.print(init.io, "\n\n", .{});
 
         clap.help(
-            io.stderrWriter,
+            &stderr_writer.interface,
             clap.Help,
             &params,
             .{
@@ -1228,7 +1251,8 @@ pub fn main() !u8 {
     // Open log file
     const output_file = res.args.output orelse "./log.txt";
     log_file = if (std.fs.path.isAbsolute(output_file))
-        try std.fs.createFileAbsolute(
+        try std.Io.Dir.createFileAbsolute(
+            init.io,
             output_file,
             .{
                 .truncate = false,
@@ -1236,7 +1260,8 @@ pub fn main() !u8 {
             },
         )
     else
-        try std.fs.cwd().createFile(
+        try std.Io.Dir.cwd().createFile(
+            init.io,
             output_file,
             .{
                 .truncate = false,
@@ -1247,11 +1272,9 @@ pub fn main() !u8 {
     // Start the debugger
     var debugger: Debugger = undefined;
     try debugger.start(
+        init,
         allocator,
-        .initIp4(
-            .{ 127, 0, 0, 1 },
-            res.args.port orelse 9000,
-        ),
+        .{ .ip4 = .loopback(res.args.port orelse 9000) },
     );
     errdefer debugger.server_thread.join();
 
@@ -1270,8 +1293,9 @@ pub fn main() !u8 {
                 ),
                 .configurationDone => {
                     // Now the configuration phase is done, we start the program and it's up to the VM to call handlRequest at safepoints
-                    debugger.session.?.runner.vm.run() catch {
+                    debugger.session.?.runner.vm.run() catch |err| {
                         // TODO
+                        log.err("Runtime error while: {s}", .{@errorName(err)});
                     };
 
                     // Program is over, send terminated and stop event
@@ -1305,7 +1329,7 @@ pub fn main() !u8 {
             }
         }
 
-        std.Thread.sleep(10_000_000);
+        init.io.sleep(.fromMilliseconds(10), .awake) catch {};
     }
 
     // Await for the server to end

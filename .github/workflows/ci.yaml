@@ -12,7 +12,7 @@ jobs:
         fail-fast: false
         matrix:
           zig-version:
-              - "0.16.0-dev.747+493ad58ff"
+              - "0.16.0"
           operating-system: [ ubuntu-latest, macos-latest ]
           optimize:
             - "Debug"

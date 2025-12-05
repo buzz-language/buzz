@@ -65,29 +65,27 @@ pub fn printBanner(out: *std.Io.Writer, full: bool) void {
     }
 }
 
-pub fn repl(allocator: std.mem.Allocator) !void {
-    var envMap = try std.process.getEnvMap(allocator);
-    defer envMap.deinit();
-    const colorterm = envMap.get("COLORTERM");
+pub fn repl(process: std.process.Init, allocator: std.mem.Allocator) !void {
+    const colorterm = process.environ_map.get("COLORTERM");
     const true_color = if (colorterm) |ct|
         std.mem.eql(u8, ct, "24bit") or std.mem.eql(u8, ct, "truecolor")
     else
         false;
 
     var runner: Runner = undefined;
-    try runner.init(allocator, .Repl, null);
+    try runner.init(process, allocator, .Repl, null);
     defer runner.deinit();
 
-    var stdout = io.stdoutWriter;
-    var stderr = io.stderrWriter;
-    printBanner(stdout, false);
+    var stdout = io.stdoutWriter(process.io);
+    var stderr = io.stderrWriter(process.io);
+    printBanner(&stdout.interface, false);
 
     var buzz_history_path = std.Io.Writer.Allocating.init(allocator);
     defer buzz_history_path.deinit();
 
     try buzz_history_path.writer.print(
         "{s}/.buzz_history\x00",
-        .{envMap.get("HOME") orelse "."},
+        .{process.environ_map.get("HOME") orelse "."},
     );
 
     // Setup linenoise
@@ -106,7 +104,7 @@ pub fn repl(allocator: std.mem.Allocator) !void {
     var previous_input: ?[]u8 = null;
 
     var reader_buffer = [_]u8{0};
-    var stdin_reader = std.fs.File.stdin().reader(reader_buffer[0..]);
+    var stdin_reader = std.Io.File.stdin().reader(process.io, reader_buffer[0..]);
     var reader = io.AllocatedReader.init(
         allocator,
         &stdin_reader.interface,
@@ -148,7 +146,7 @@ pub fn repl(allocator: std.mem.Allocator) !void {
                 original_source,
             );
             // Go up one line, erase it
-            stdout.print(
+            stdout.interface.print(
                 if (builtin.os.tag == .windows)
                     "{s}"
                 else
@@ -161,8 +159,8 @@ pub fn repl(allocator: std.mem.Allocator) !void {
                 },
             ) catch unreachable;
             // Output highlighted user input
-            source_scanner.highlight(stdout, true_color);
-            stdout.writeAll("\n") catch unreachable;
+            source_scanner.highlight(&stdout.interface, true_color);
+            stdout.interface.writeAll("\n") catch unreachable;
 
             if (previous_input) |previous| {
                 source = std.mem.concatWithSentinel(
@@ -223,9 +221,9 @@ pub fn repl(allocator: std.mem.Allocator) !void {
                         "REPL",
                         value_str.written(),
                     );
-                    scanner.highlight(stdout, true_color);
+                    scanner.highlight(&stdout.interface, true_color);
 
-                    stdout.writeAll("\n") catch unreachable;
+                    stdout.interface.writeAll("\n") catch unreachable;
                 }
             } else {
                 // We might have declared new globals, types, etc. and encounter an error

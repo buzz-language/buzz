@@ -8,11 +8,13 @@ const Scanner = @import("Scanner.zig");
 const Ast = @import("Ast.zig");
 const builtin = @import("builtin");
 const is_wasm = builtin.cpu.arch.isWasm();
-const io = @import("io.zig");
+const bz_io = @import("io.zig");
 const BuildOptions = @import("build_options");
+const Init = @import("vm.zig").Init;
 
 const Self = @This();
 
+process: Init,
 allocator: std.mem.Allocator,
 panic_mode: bool = false,
 last_error: ?Error = null,
@@ -20,7 +22,7 @@ error_prefix: ?[]const u8 = null,
 
 // When running LSP, we want to keep all emitted Reports to forward them to LSP client
 collect: bool = false,
-reports: std.ArrayList(Report) = .{},
+reports: std.ArrayList(Report) = .empty,
 
 // Make sense only in LSP
 pub fn deinit(self: *Self) void {
@@ -231,17 +233,15 @@ pub const Report = struct {
             return reporter.reports.append(reporter.allocator, self);
         }
 
-        try self.report(reporter, io.stderrWriter);
+        var writer = bz_io.stderrWriter(if (is_wasm) {} else reporter.process.io);
+        try self.report(reporter, &writer.interface);
     }
 
     pub fn report(self: Report, reporter: *Self, out: *std.Io.Writer) !void {
         @branchHint(.cold);
 
         assert(self.items.len > 0);
-        var env_map = try std.process.getEnvMap(reporter.allocator);
-        defer env_map.deinit();
-
-        const colorterm = env_map.get("COLORTERM");
+        const colorterm = if (!is_wasm) reporter.process.environ_map.get("COLORTERM") else null;
         const true_color = if (colorterm) |ct|
             std.mem.eql(u8, ct, "24bit") or std.mem.eql(u8, ct, "truecolor")
         else
