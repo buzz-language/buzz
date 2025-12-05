@@ -48,7 +48,7 @@ const Buffer = struct {
 
     pub const Error = error{WriteWhileReading};
 
-    buffer: std.ArrayList(u8) = .{},
+    buffer: std.ArrayList(u8) = .empty,
     cursor: usize = 0,
 
     pub fn fromUserData(userdata: u64) *Self {

@@ -4,6 +4,7 @@ zig-cache/
 zig-out/
 zig-test/
 dist/
+zig-pkg/
 
 .vscode/
 *.bc

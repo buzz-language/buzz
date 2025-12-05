@@ -1,13 +1,11 @@
 const std = @import("std");
 const api = @import("buzz_api.zig");
 
-fn handleMakeDirectoryError(ctx: *api.NativeCtx, err: anytype) void {
+fn handleMakeDirectoryError(ctx: *api.NativeCtx, err: std.Io.Dir.CreateDirError) void {
     switch (err) {
-        error.InvalidWtf8,
         error.AccessDenied,
         error.BadPathName,
         error.DiskQuota,
-        error.InvalidUtf8,
         error.LinkQuotaExceeded,
         error.NameTooLong,
         error.NoDevice,
@@ -23,6 +21,8 @@ fn handleMakeDirectoryError(ctx: *api.NativeCtx, err: anytype) void {
 
         error.PermissionDenied,
         => ctx.vm.pushErrorEnum("errors.ExecError", @errorName(err)),
+
+        error.Canceled => ctx.vm.pushErrorEnum("errors.SocketError", @errorName(err)),
 
         error.Unexpected => ctx.vm.pushError("errors.UnexpectedError", null),
     }
@@ -33,14 +33,22 @@ pub export fn makeDirectory(ctx: *api.NativeCtx) callconv(.c) c_int {
     const filename = ctx.vm.bz_peek(0).bz_valueToString(&len);
 
     const filename_slice = filename.?[0..len];
-    if (std.fs.path.isAbsolute(filename_slice)) {
-        std.fs.makeDirAbsolute(filename_slice) catch |err| {
+    if (std.Io.Dir.path.isAbsolute(filename_slice)) {
+        std.Io.Dir.createDirAbsolute(
+            ctx.getIo(),
+            filename_slice,
+            .default_dir,
+        ) catch |err| {
             handleMakeDirectoryError(ctx, err);
 
             return -1;
         };
     } else {
-        std.fs.cwd().makeDir(filename_slice) catch |err| {
+        std.Io.Dir.cwd().createDir(
+            ctx.getIo(),
+            filename_slice,
+            .default_dir,
+        ) catch |err| {
             handleMakeDirectoryError(ctx, err);
 
             return -1;
@@ -50,43 +58,100 @@ pub export fn makeDirectory(ctx: *api.NativeCtx) callconv(.c) c_int {
     return 0;
 }
 
-fn handleDeleteDirectoryError(ctx: *api.NativeCtx, err: anytype) void {
+fn handleDeleteDirectoryError(ctx: *api.NativeCtx, err: std.Io.Dir.DeleteDirError) void {
     switch (err) {
         error.AccessDenied,
         error.BadPathName,
-        error.InvalidUtf8,
         error.NameTooLong,
-        error.NoDevice,
         error.NotDir,
         error.ReadOnlyFileSystem,
         error.SymLinkLoop,
         error.SystemResources,
+        error.PermissionDenied,
+        error.FileNotFound,
+        error.FileBusy,
+        error.Canceled,
+        error.NetworkNotFound,
+        error.FileSystem,
+        error.DirNotEmpty,
         => ctx.vm.pushErrorEnum("errors.FileSystemError", @errorName(err)),
 
         error.Unexpected => ctx.vm.pushError("errors.UnexpectedError", null),
-        // Zig doesn't let me use those even though it lists them as being raised
-        // error.FileNotFound => ctx.vm.pushError("errors.FileNotFoundError"),
-        // error.CannotDeleteRootDirectory => ctx.vm.pushError("errors.CannotDeleteRootDirectoryError"),
-        else => unreachable,
     }
 }
 
-pub export fn delete(ctx: *api.NativeCtx) callconv(.c) c_int {
+fn handleDeleteFileError(ctx: *api.NativeCtx, err: std.Io.Dir.DeleteFileError) void {
+    switch (err) {
+        error.AccessDenied,
+        error.BadPathName,
+        error.NameTooLong,
+        error.ReadOnlyFileSystem,
+        error.SymLinkLoop,
+        error.SystemResources,
+        error.PermissionDenied,
+        error.FileNotFound,
+        error.FileBusy,
+        error.Canceled,
+        error.NetworkNotFound,
+        error.FileSystem,
+        error.NotDir,
+        => ctx.vm.pushErrorEnum("errors.FileSystemError", @errorName(err)),
+
+        error.Unexpected => ctx.vm.pushError("errors.UnexpectedError", null),
+
+        // Should have been handled before
+        error.IsDir => unreachable,
+    }
+}
+
+fn absolutePathExists(io: std.Io, path: []const u8) bool {
+    std.Io.Dir.accessAbsolute(io, path, .{}) catch |err| {
+        return err != error.FileNotFound;
+    };
+    return true;
+}
+
+fn relativePathExists(io: std.Io, path: []const u8) bool {
+    std.Io.Dir.cwd().access(io, path, .{}) catch |err| {
+        return err != error.FileNotFound;
+    };
+    return true;
+}
+
+pub export fn deleteFile(ctx: *api.NativeCtx) callconv(.c) c_int {
+    var len: usize = 0;
+    const filename = ctx.vm.bz_peek(0).bz_valueToString(&len);
+
+    const filename_slice = filename.?[0..len];
+    if (std.Io.Dir.path.isAbsolute(filename_slice)) {
+        std.Io.Dir.deleteFileAbsolute(ctx.getIo(), filename_slice) catch |err| {
+            handleDeleteFileError(ctx, err);
+            return -1;
+        };
+    } else {
+        std.Io.Dir.cwd().deleteFile(ctx.getIo(), filename_slice) catch |err| {
+            handleDeleteFileError(ctx, err);
+            return -1;
+        };
+    }
+
+    return 0;
+}
+
+pub export fn deleteDirectory(ctx: *api.NativeCtx) callconv(.c) c_int {
     var len: usize = 0;
     const filename = ctx.vm.bz_peek(0).bz_valueToString(&len);
 
     const filename_slice = filename.?[0..len];
 
-    if (std.fs.path.isAbsolute(filename_slice)) {
-        std.fs.deleteTreeAbsolute(filename_slice) catch |err| {
+    if (std.Io.Dir.path.isAbsolute(filename_slice)) {
+        std.Io.Dir.deleteDirAbsolute(ctx.getIo(), filename_slice) catch |err| {
             handleDeleteDirectoryError(ctx, err);
-
             return -1;
         };
     } else {
-        std.fs.cwd().deleteTree(filename_slice) catch |err| {
+        std.Io.Dir.cwd().deleteDir(ctx.getIo(), filename_slice) catch |err| {
             handleDeleteDirectoryError(ctx, err);
-
             return -1;
         };
     }
@@ -94,42 +159,42 @@ pub export fn delete(ctx: *api.NativeCtx) callconv(.c) c_int {
     return 0;
 }
 
-fn handleMoveError(ctx: *api.NativeCtx, err: anytype) void {
+fn handleMoveError(ctx: *api.NativeCtx, err: std.Io.Dir.RenameError) void {
     switch (err) {
-        error.InvalidWtf8,
         error.AccessDenied,
         error.AntivirusInterference,
         error.BadPathName,
         error.DiskQuota,
         error.FileBusy,
-        error.InvalidUtf8,
         error.IsDir,
         error.LinkQuotaExceeded,
         error.NameTooLong,
         error.NoDevice,
         error.NoSpaceLeft,
         error.NotDir,
-        error.PathAlreadyExists,
         error.PipeBusy,
         error.ReadOnlyFileSystem,
-        error.RenameAcrossMountPoints,
-        error.SharingViolation,
         error.SymLinkLoop,
         error.SystemResources,
         error.FileNotFound,
         error.NetworkNotFound,
+        error.CrossDevice,
+        error.DirNotEmpty,
+        error.HardwareFailure,
         => ctx.vm.pushErrorEnum("errors.FileSystemError", @errorName(err)),
 
         error.PermissionDenied,
         => ctx.vm.pushErrorEnum("errors.ExecError", @errorName(err)),
 
+        error.Canceled,
+        => ctx.vm.pushErrorEnum("errors.SocketError", @errorName(err)),
+
         error.Unexpected => ctx.vm.pushError("errors.UnexpectedError", null),
     }
 }
 
-fn handleRealpathError(ctx: *api.NativeCtx, err: anytype) void {
+fn handleRealPathFileAllocError(ctx: *api.NativeCtx, err: std.Io.Dir.RealPathFileAllocError) void {
     switch (err) {
-        error.InvalidWtf8,
         error.AccessDenied,
         error.UnrecognizedVolume,
         error.AntivirusInterference,
@@ -137,17 +202,16 @@ fn handleRealpathError(ctx: *api.NativeCtx, err: anytype) void {
         error.DeviceBusy,
         error.FileSystem,
         error.FileTooBig,
+        error.FileBusy,
         error.InputOutput,
         error.IsDir,
         error.NameTooLong,
         error.NoDevice,
         error.NoSpaceLeft,
         error.NotDir,
-        error.NotSupported,
         error.PathAlreadyExists,
         error.PipeBusy,
         error.ProcessFdQuotaExceeded,
-        error.SharingViolation,
         error.SymLinkLoop,
         error.SystemFdQuotaExceeded,
         error.SystemResources,
@@ -156,14 +220,53 @@ fn handleRealpathError(ctx: *api.NativeCtx, err: anytype) void {
         => ctx.vm.pushErrorEnum("errors.FileSystemError", @errorName(err)),
 
         error.PermissionDenied,
-        error.ProcessNotFound,
         => ctx.vm.pushErrorEnum("errors.ExecError", @errorName(err)),
+
+        error.Canceled,
+        error.OperationUnsupported,
+        => ctx.vm.pushErrorEnum("errors.SocketError", @errorName(err)),
 
         error.Unexpected => ctx.vm.pushError("errors.UnexpectedError", null),
         error.OutOfMemory => {
             ctx.vm.bz_panic("Out of memory", "Out of memory".len);
             unreachable;
         },
+    }
+}
+
+fn handleRealPathError(ctx: *api.NativeCtx, err: std.Io.Dir.RealPathError) void {
+    switch (err) {
+        error.AccessDenied,
+        error.UnrecognizedVolume,
+        error.AntivirusInterference,
+        error.DeviceBusy,
+        error.FileSystem,
+        error.FileTooBig,
+        error.FileBusy,
+        error.InputOutput,
+        error.IsDir,
+        error.NameTooLong,
+        error.NoDevice,
+        error.NoSpaceLeft,
+        error.NotDir,
+        error.PathAlreadyExists,
+        error.PipeBusy,
+        error.ProcessFdQuotaExceeded,
+        error.SymLinkLoop,
+        error.SystemFdQuotaExceeded,
+        error.SystemResources,
+        error.FileNotFound,
+        error.NetworkNotFound,
+        => ctx.vm.pushErrorEnum("errors.FileSystemError", @errorName(err)),
+
+        error.PermissionDenied,
+        => ctx.vm.pushErrorEnum("errors.ExecError", @errorName(err)),
+
+        error.Canceled,
+        error.OperationUnsupported,
+        => ctx.vm.pushErrorEnum("errors.SocketError", @errorName(err)),
+
+        error.Unexpected => ctx.vm.pushError("errors.UnexpectedError", null),
     }
 }
 
@@ -179,13 +282,22 @@ pub export fn move(ctx: *api.NativeCtx) callconv(.c) c_int {
     const destination_is_absolute = std.fs.path.isAbsolute(destination_slice);
 
     if (source_is_absolute and destination_is_absolute) {
-        std.fs.renameAbsolute(source_slice, destination_slice) catch |err| {
+        std.Io.Dir.renameAbsolute(
+            source_slice,
+            destination_slice,
+            ctx.getIo(),
+        ) catch |err| {
             handleMoveError(ctx, err);
 
             return -1;
         };
     } else if (!source_is_absolute and !destination_is_absolute) {
-        std.fs.cwd().rename(source_slice, destination_slice) catch |err| {
+        std.Io.Dir.cwd().rename(
+            source_slice,
+            std.Io.Dir.cwd(),
+            destination_slice,
+            ctx.getIo(),
+        ) catch |err| {
             handleMoveError(ctx, err);
 
             return -1;
@@ -194,30 +306,42 @@ pub export fn move(ctx: *api.NativeCtx) callconv(.c) c_int {
         const source_absolute = if (source_is_absolute)
             source_slice
         else
-            std.fs.cwd().realpathAlloc(api.VM.allocator, source_slice) catch |err| {
-                handleRealpathError(ctx, err);
+            std.Io.Dir.cwd().realPathFileAlloc(
+                ctx.getIo(),
+                source_slice,
+                api.VM.allocator,
+            ) catch |err| {
+                handleRealPathFileAllocError(ctx, err);
 
                 return -1;
             };
         const destination_absolute = if (destination_is_absolute)
             destination_slice
         else
-            std.fs.cwd().realpathAlloc(api.VM.allocator, destination_slice) catch |err| {
-                handleRealpathError(ctx, err);
+            std.Io.Dir.cwd().realPathFileAlloc(
+                ctx.getIo(),
+                destination_slice,
+                api.VM.allocator,
+            ) catch |err| {
+                handleRealPathFileAllocError(ctx, err);
 
                 return -1;
             };
         defer {
-            if (source_is_absolute) {
+            if (!source_is_absolute) {
                 api.VM.allocator.free(source_absolute);
             }
 
-            if (destination_is_absolute) {
+            if (!destination_is_absolute) {
                 api.VM.allocator.free(destination_absolute);
             }
         }
 
-        std.fs.renameAbsolute(source_absolute, destination_absolute) catch |err| {
+        std.Io.Dir.renameAbsolute(
+            source_absolute,
+            destination_absolute,
+            ctx.getIo(),
+        ) catch |err| {
             handleMoveError(ctx, err);
 
             return -1;
@@ -227,49 +351,10 @@ pub export fn move(ctx: *api.NativeCtx) callconv(.c) c_int {
     return 0;
 }
 
-fn handleOpenDirAbsoluteError(ctx: *api.NativeCtx, err: anytype) void {
+fn handleOpenDirError(ctx: *api.NativeCtx, err: std.Io.Dir.OpenError) void {
     switch (err) {
-        error.InvalidWtf8,
-        error.AccessDenied,
-        error.AntivirusInterference,
-        error.BadPathName,
-        error.DeviceBusy,
-        error.FileBusy,
-        error.FileLocksNotSupported,
-        error.FileNotFound,
-        error.FileTooBig,
-        error.InvalidUtf8,
-        error.IsDir,
-        error.NameTooLong,
-        error.NoDevice,
-        error.NoSpaceLeft,
-        error.NotDir,
-        error.PathAlreadyExists,
-        error.PipeBusy,
-        error.ProcessFdQuotaExceeded,
-        error.SharingViolation,
-        error.SymLinkLoop,
-        error.SystemFdQuotaExceeded,
-        error.SystemResources,
-        error.WouldBlock,
-        error.NetworkNotFound,
-        => ctx.vm.pushErrorEnum("errors.FileSystemError", @errorName(err)),
-
-        error.PermissionDenied,
-        error.ProcessNotFound,
-        => ctx.vm.pushErrorEnum("errors.ExecError", @errorName(err)),
-
-        error.Unexpected => ctx.vm.pushError("errors.UnexpectedError", null),
-    }
-}
-
-fn handleOpenDirError(ctx: *api.NativeCtx, err: anytype) void {
-    switch (err) {
-        error.InvalidWtf8,
         error.AccessDenied,
         error.BadPathName,
-        error.DeviceBusy,
-        error.InvalidUtf8,
         error.NameTooLong,
         error.NoDevice,
         error.NotDir,
@@ -282,22 +367,26 @@ fn handleOpenDirError(ctx: *api.NativeCtx, err: anytype) void {
         => ctx.vm.pushErrorEnum("errors.FileSystemError", @errorName(err)),
 
         error.PermissionDenied,
-        error.ProcessNotFound,
         => ctx.vm.pushErrorEnum("errors.ExecError", @errorName(err)),
+
+        error.Canceled,
+        => ctx.vm.pushErrorEnum("errors.SocketError", @errorName(err)),
 
         error.Unexpected => ctx.vm.pushError("errors.UnexpectedError", null),
     }
 }
 
-fn handleDirIterateError(ctx: *api.NativeCtx, err: anytype) void {
+fn handleDirIterateError(ctx: *api.NativeCtx, err: std.Io.Dir.Iterator.Error) void {
     switch (err) {
         error.AccessDenied,
         error.SystemResources,
-        error.InvalidUtf8,
         => ctx.vm.pushErrorEnum("errors.FileSystemError", @errorName(err)),
 
         error.PermissionDenied,
         => ctx.vm.pushErrorEnum("errors.ExecError", @errorName(err)),
+
+        error.Canceled,
+        => ctx.vm.pushErrorEnum("errors.SocketError", @errorName(err)),
 
         error.Unexpected => ctx.vm.pushError("errors.UnexpectedError", null),
     }
@@ -307,27 +396,27 @@ pub export fn list(ctx: *api.NativeCtx) callconv(.c) c_int {
     var len: usize = 0;
     const filename = ctx.vm.bz_peek(0).bz_valueToString(&len);
     const filename_slice = filename.?[0..len];
+    const io = ctx.getIo();
 
-    const dir = if (std.fs.path.isAbsolute(filename_slice))
-        std.fs.openDirAbsolute(
+    const dir = (if (std.fs.path.isAbsolute(filename_slice))
+        std.Io.Dir.openDirAbsolute(
+            io,
             filename_slice,
             .{
                 .iterate = true,
             },
-        ) catch |err| {
-            handleOpenDirAbsoluteError(ctx, err);
-            return -1;
-        }
+        )
     else
-        std.fs.cwd().openDir(
+        std.Io.Dir.cwd().openDir(
+            io,
             filename_slice,
             .{
                 .iterate = true,
             },
-        ) catch |err| {
-            handleOpenDirError(ctx, err);
-            return -1;
-        };
+        )) catch |err| {
+        handleOpenDirError(ctx, err);
+        return -1;
+    };
 
     const file_list = ctx.vm.bz_newList(
         ctx.vm.bz_listType(ctx.vm.bz_stringType(), false),
@@ -336,7 +425,7 @@ pub export fn list(ctx: *api.NativeCtx) callconv(.c) c_int {
     ctx.vm.bz_push(file_list);
 
     var it = dir.iterate();
-    while (it.next() catch |err| {
+    while (it.next(io) catch |err| {
         _ = ctx.vm.bz_pop(); // Pop list
         handleDirIterateError(ctx, err);
 
@@ -364,11 +453,19 @@ pub export fn exists(ctx: *api.NativeCtx) callconv(.c) c_int {
     var accessed = true;
 
     if (std.fs.path.isAbsolute(filename_slice)) {
-        std.fs.accessAbsolute(filename_slice, .{ .mode = .read_only }) catch {
+        std.Io.Dir.accessAbsolute(
+            ctx.getIo(),
+            filename_slice,
+            .{ .read = true },
+        ) catch {
             accessed = false;
         };
     } else {
-        std.fs.cwd().access(filename_slice, .{ .mode = .read_only }) catch {
+        std.Io.Dir.cwd().access(
+            ctx.getIo(),
+            filename_slice,
+            .{ .read = true },
+        ) catch {
             accessed = false;
         };
     }

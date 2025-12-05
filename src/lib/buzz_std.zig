@@ -22,10 +22,11 @@ pub export fn random(ctx: *api.NativeCtx) callconv(.c) c_int {
 
     const min = ctx.vm.bz_peek(1);
     const max = ctx.vm.bz_peek(0);
+    const rnd = std.Random.IoSource{ .io = ctx.getIo() };
 
     ctx.vm.bz_push(
         api.Value.fromInteger(
-            std.crypto.random.intRangeAtMost(
+            rnd.interface().intRangeAtMost(
                 api.Integer,
                 if (min.isInteger())
                     min.integer()
@@ -50,7 +51,8 @@ pub export fn print(ctx: *api.NativeCtx) callconv(.c) c_int {
         return 0;
     }
 
-    io.stdoutWriter.print(
+    var writer = io.stdoutWriter(ctx.getIo());
+    writer.interface.print(
         "{s}\n",
         .{
             string.?[0..len],
@@ -198,19 +200,20 @@ pub export fn char(ctx: *api.NativeCtx) callconv(.c) c_int {
 pub export fn assert(ctx: *api.NativeCtx) callconv(.c) c_int {
     const condition_value = ctx.vm.bz_peek(1);
     const message_value = ctx.vm.bz_peek(0);
+    var writer = io.stdoutWriter(ctx.getIo());
 
     if (!condition_value.boolean()) {
         if (message_value.isObj()) {
             var len: usize = 0;
             const message = api.Value.bz_valueToString(message_value, &len).?;
-            io.stdoutWriter.print(
+            writer.interface.print(
                 "Assert failed: {s}\n",
                 .{
                     message[0..len],
                 },
             ) catch unreachable;
         } else {
-            io.stdoutWriter.print("Assert failed\n", .{}) catch unreachable;
+            writer.interface.print("Assert failed\n", .{}) catch unreachable;
         }
 
         if (!is_wasm) {

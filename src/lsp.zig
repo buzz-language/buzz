@@ -42,21 +42,23 @@ const Document = struct {
     /// Cache for inlay hints
     inlay_hints: std.ArrayList(lsp.types.InlayHint) = .empty, // I tried to make this a simple slice but the data was lost I don't know why
 
-    pub fn init(parent_allocator: std.mem.Allocator, src: [*:0]const u8, uri: []const u8) !Document {
+    pub fn init(process: std.process.Init, parent_allocator: std.mem.Allocator, src: [*:0]const u8, uri: []const u8) !Document {
         var arena = std.heap.ArenaAllocator.init(parent_allocator);
         const allocator = arena.allocator();
 
         var gc = try GC.init(allocator);
         gc.type_registry = TypeRegistry.init(&gc) catch return error.OutOfMemory;
-        var imports = std.StringHashMapUnmanaged(Parser.ScriptImport){};
+        var imports = std.StringHashMapUnmanaged(Parser.ScriptImport).empty;
 
         var parser = Parser.init(
+            process,
             &gc,
             &imports,
             false,
             .Ast,
         );
         var codegen = CodeGen.init(
+            process,
             &gc,
             &parser,
             .Ast,
@@ -379,14 +381,9 @@ const Document = struct {
 
 extern fn getpid() std.os.linux.pid_t;
 
-pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(
-        .{
-            .safety = builtin.mode == .Debug,
-        },
-    ){};
+pub fn main(init: std.process.Init) !void {
     const allocator: std.mem.Allocator = if (builtin.mode == .Debug or is_wasm)
-        gpa.allocator()
+        init.gpa
     else if (BuildOptions.mimalloc)
         @import("mimalloc.zig").mim_allocator
     else
@@ -397,16 +394,18 @@ pub fn main() !void {
     var read_buffer = [_]u8{0} ** 256;
     var stdio_transport = lsp.Transport.Stdio.init(
         read_buffer[0..],
-        std.fs.File.stdin(),
-        std.fs.File.stdout(),
+        std.Io.File.stdin(),
+        std.Io.File.stdout(),
     );
 
     var handler = Handler{
+        .process = init,
         .allocator = allocator,
         .transport = &stdio_transport.transport,
     };
 
     try lsp.basic_server.run(
+        init.io,
         allocator,
         &stdio_transport.transport,
         &handler,
@@ -415,16 +414,17 @@ pub fn main() !void {
 }
 
 const Handler = struct {
+    process: std.process.Init,
     allocator: std.mem.Allocator,
     transport: *lsp.Transport,
-    documents: std.StringHashMapUnmanaged(Document) = .{},
+    documents: std.StringHashMapUnmanaged(Document) = .empty,
     offset_encoding: lsp.offsets.Encoding = .@"utf-16",
 
     pub fn initialize(
         self: *Handler,
         allocator: std.mem.Allocator,
-        params: lsp.types.getRequestMetadata("initialize").?.Params.?,
-    ) !lsp.types.getRequestMetadata("initialize").?.Result {
+        params: lsp.types.requests.get("initialize").?.Params.?,
+    ) !lsp.types.requests.get("initialize").?.Result {
         log.info(
             "client (PID {}) {s}-{s} sent initialize request",
             .{
@@ -456,7 +456,7 @@ const Handler = struct {
                     .@"utf-32" => .@"utf-32",
                 },
                 .textDocumentSync = .{
-                    .TextDocumentSyncOptions = .{
+                    .text_document_sync_options = .{
                         .openClose = true,
                         .change = .Full,
                         .save = .{ .bool = true },
@@ -464,32 +464,32 @@ const Handler = struct {
                 },
 
                 .hoverProvider = .{
-                    .HoverOptions = .{
+                    .hover_options = .{
                         .workDoneProgress = false,
                     },
                 },
                 .definitionProvider = .{
-                    .DefinitionOptions = .{
+                    .definition_options = .{
                         .workDoneProgress = false,
                     },
                 },
                 .declarationProvider = .{
-                    .DeclarationOptions = .{
+                    .declaration_options = .{
                         .workDoneProgress = false,
                     },
                 },
                 .typeDefinitionProvider = .{
-                    .TypeDefinitionOptions = .{
+                    .type_definition_options = .{
                         .workDoneProgress = false,
                     },
                 },
                 .implementationProvider = .{
-                    .ImplementationOptions = .{
+                    .implementation_options = .{
                         .workDoneProgress = false,
                     },
                 },
                 .documentSymbolProvider = .{
-                    .DocumentSymbolOptions = .{},
+                    .document_symbol_options = .{},
                 },
                 .inlayHintProvider = .{
                     .bool = true,
@@ -528,12 +528,13 @@ const Handler = struct {
 
     // Load file and replaces previous entry in cache
     fn loadFile(self: *Handler, _: std.mem.Allocator, src: [*:0]const u8, uri: []const u8) !void {
-        var res: lsp.types.PublishDiagnosticsParams = .{
+        var res: lsp.types.publish_diagnostics.Params = .{
             .uri = uri,
             .diagnostics = &.{},
         };
 
         const doc = try Document.init(
+            self.process,
             self.allocator,
             src,
             uri,
@@ -553,7 +554,7 @@ const Handler = struct {
         gop.value_ptr.* = doc;
 
         if (doc.errors.len > 0) {
-            var diags = std.ArrayList(lsp.types.Diagnostic){};
+            var diags = std.ArrayList(lsp.types.Diagnostic).empty;
             for (doc.errors) |report| {
                 for (report.items) |item| {
                     if (std.mem.eql(u8, item.location.script_name, doc.uri)) {
@@ -586,9 +587,10 @@ const Handler = struct {
         }
 
         try self.transport.writeNotification(
+            self.process.io,
             self.allocator,
             "textDocument/publishDiagnostics",
-            lsp.types.PublishDiagnosticsParams,
+            lsp.types.publish_diagnostics.Params,
             res,
             .{},
         );
@@ -615,7 +617,7 @@ const Handler = struct {
     pub fn @"textDocument/didOpen"(
         self: *Handler,
         _: std.mem.Allocator,
-        notification: lsp.types.getNotificationMetadata("textDocument/didOpen").?.Params.?,
+        notification: lsp.types.notifications.get("textDocument/didOpen").?.Params.?,
     ) !void {
         const new_text = try self.allocator.dupeZ(
             u8,
@@ -633,7 +635,7 @@ const Handler = struct {
     pub fn @"textDocument/didChange"(
         self: *Handler,
         allocator: std.mem.Allocator,
-        notification: lsp.types.getNotificationMetadata("textDocument/didChange").?.Params.?,
+        notification: lsp.types.notifications.get("textDocument/didChange").?.Params.?,
     ) !void {
         errdefer |e| log.err("changeDocument failed: {any}", .{e});
 
@@ -654,8 +656,8 @@ const Handler = struct {
 
         for (notification.contentChanges) |change_| {
             const new_text = switch (change_) {
-                .literal_1 => |change| try self.allocator.dupeZ(u8, change.text),
-                .literal_0 => |change| blk: {
+                .text_document_content_change_whole_document => |change| try self.allocator.dupeZ(u8, change.text),
+                .text_document_content_change_partial => |change| blk: {
                     const old_text = std.mem.span(file.src);
                     const range = change.range;
 
@@ -695,13 +697,13 @@ const Handler = struct {
     pub fn @"textDocument/didSave"(
         _: Handler,
         _: std.mem.Allocator,
-        _: lsp.types.getNotificationMetadata("textDocument/didSave").?.Params.?,
+        _: lsp.types.notifications.get("textDocument/didSave").?.Params.?,
     ) !void {}
 
     pub fn @"textDocument/didClose"(
         self: *Handler,
         _: std.mem.Allocator,
-        notification: lsp.types.getNotificationMetadata("textDocument/didClose").?.Params.?,
+        notification: lsp.types.notifications.get("textDocument/didClose").?.Params.?,
     ) !void {
         var kv = self.documents.fetchRemove(notification.textDocument.uri) orelse return;
         self.allocator.free(kv.key);
@@ -744,7 +746,7 @@ const Handler = struct {
                     );
                 },
                 .Enum => {
-                    var children = std.ArrayList(lsp.types.DocumentSymbol){};
+                    var children = std.ArrayList(lsp.types.DocumentSymbol).empty;
 
                     for (components.Enum.cases) |case| {
                         const range = tokenToRange(
@@ -783,7 +785,7 @@ const Handler = struct {
                     );
                 },
                 .ObjectDeclaration => {
-                    var children = std.ArrayList(lsp.types.DocumentSymbol){};
+                    var children = std.ArrayList(lsp.types.DocumentSymbol).empty;
 
                     if (type_def) |td| {
                         var it = td.resolved_type.?.Object.fields.iterator();
@@ -822,7 +824,7 @@ const Handler = struct {
                     );
                 },
                 .ProtocolDeclaration => {
-                    var children = std.ArrayList(lsp.types.DocumentSymbol){};
+                    var children = std.ArrayList(lsp.types.DocumentSymbol).empty;
 
                     if (type_def) |td| {
                         var it = td.resolved_type.?.Protocol.methods.iterator();
@@ -904,8 +906,8 @@ const Handler = struct {
     pub fn @"textDocument/documentSymbol"(
         self: Handler,
         _: std.mem.Allocator,
-        notification: lsp.types.getRequestMetadata("textDocument/documentSymbol").?.Params.?,
-    ) !lsp.types.getRequestMetadata("textDocument/documentSymbol").?.Result {
+        notification: lsp.types.requests.get("textDocument/documentSymbol").?.Params.?,
+    ) !lsp.types.requests.get("textDocument/documentSymbol").?.Result {
         if (self.documents.getEntry(notification.textDocument.uri)) |kv| {
             if (kv.value_ptr.ast.root) |root| {
                 if (kv.value_ptr.symbols.items.len == 0) {
@@ -918,14 +920,14 @@ const Handler = struct {
                     document.ast.slice().walk(self.allocator, ctx, root) catch |err| {
                         log.err("textDocument/documentSymbol: {any}", .{err});
 
-                        document.symbols = .{};
+                        document.symbols = .empty;
                     };
 
                     kv.value_ptr.* = document;
                 }
 
                 return .{
-                    .array_of_DocumentSymbol = kv.value_ptr.symbols.items,
+                    .document_symbols = kv.value_ptr.symbols.items,
                 };
             }
         }
@@ -935,10 +937,10 @@ const Handler = struct {
     pub fn @"textDocument/completion"(
         _: Handler,
         _: std.mem.Allocator,
-        _: lsp.types.getRequestMetadata("textDocument/completion").?.Params.?,
-    ) !lsp.types.getRequestMetadata("textDocument/completion").?.Result {
+        _: lsp.types.requests.get("textDocument/completion").?.Params.?,
+    ) !lsp.types.requests.get("textDocument/completion").?.Result {
         return .{
-            .CompletionList = .{
+            .completion_list = .{
                 .isIncomplete = false,
                 .items = &.{},
             },
@@ -948,8 +950,8 @@ const Handler = struct {
     pub fn @"textDocument/hover"(
         self: Handler,
         _: std.mem.Allocator,
-        notification: lsp.types.getRequestMetadata("textDocument/hover").?.Params.?,
-    ) !lsp.types.getRequestMetadata("textDocument/hover").?.Result {
+        notification: lsp.types.requests.get("textDocument/hover").?.Params.?,
+    ) !lsp.types.requests.get("textDocument/hover").?.Result {
         if (self.documents.getEntry(notification.textDocument.uri)) |kv| {
             var document = kv.value_ptr.*;
             const allocator = document.arena.allocator();
@@ -986,7 +988,7 @@ const Handler = struct {
 
                     return .{
                         .contents = .{
-                            .MarkupContent = .{
+                            .markup_content = .{
                                 .kind = .markdown,
                                 .value = markupEntry.value_ptr.*,
                             },
@@ -1001,8 +1003,8 @@ const Handler = struct {
     pub fn @"textDocument/definition"(
         self: Handler,
         _: std.mem.Allocator,
-        notification: lsp.types.getRequestMetadata("textDocument/definition").?.Params.?,
-    ) !lsp.types.getRequestMetadata("textDocument/definition").?.Result {
+        notification: lsp.types.requests.get("textDocument/definition").?.Params.?,
+    ) !lsp.types.requests.get("textDocument/definition").?.Result {
         if (self.documents.getEntry(notification.textDocument.uri)) |kv| {
             var document = kv.value_ptr.*;
 
@@ -1010,8 +1012,8 @@ const Handler = struct {
                 if (kv.value_ptr.definitions.get(origin)) |result| {
                     if (result) |res| {
                         return .{
-                            .Definition = .{
-                                .Location = res.location,
+                            .definition = .{
+                                .location = res.location,
                             },
                         };
                     }
@@ -1019,8 +1021,8 @@ const Handler = struct {
 
                 return if (try document.definition(origin)) |def|
                     .{
-                        .Definition = .{
-                            .Location = def.location,
+                        .definition = .{
+                            .location = def.location,
                         },
                     }
                 else
@@ -1034,16 +1036,16 @@ const Handler = struct {
     pub fn @"textDocument/references"(
         _: Handler,
         _: std.mem.Allocator,
-        _: lsp.types.getRequestMetadata("textDocument/references").?.Params.?,
-    ) !lsp.types.getRequestMetadata("textDocument/references").?.Result {
+        _: lsp.types.requests.get("textDocument/references").?.Params.?,
+    ) !lsp.types.requests.get("textDocument/references").?.Result {
         return null;
     }
 
     pub fn @"textDocument/formatting"(
         self: Handler,
         _: std.mem.Allocator,
-        notification: lsp.types.getRequestMetadata("textDocument/formatting").?.Params.?,
-    ) !lsp.types.getRequestMetadata("textDocument/formatting").?.Result {
+        notification: lsp.types.requests.get("textDocument/formatting").?.Params.?,
+    ) !lsp.types.requests.get("textDocument/formatting").?.Result {
         if (self.documents.get(notification.textDocument.uri)) |document| {
             var result = std.Io.Writer.Allocating.init(self.allocator);
 
@@ -1080,21 +1082,21 @@ const Handler = struct {
     pub fn @"textDocument/semanticTokens/full"(
         _: Handler,
         _: std.mem.Allocator,
-        _: lsp.types.getRequestMetadata("textDocument/semanticTokens/full").?.Params.?,
-    ) !lsp.types.getRequestMetadata("textDocument/semanticTokens/full").?.Result {
+        _: lsp.types.requests.get("textDocument/semanticTokens/full").?.Params.?,
+    ) !lsp.types.requests.get("textDocument/semanticTokens/full").?.Result {
         return null;
     }
 
     pub fn @"textDocument/inlayHint"(
         self: Handler,
         _: std.mem.Allocator,
-        notification: lsp.types.getRequestMetadata("textDocument/inlayHint").?.Params.?,
-    ) !lsp.types.getRequestMetadata("textDocument/inlayHint").?.Result {
+        notification: lsp.types.requests.get("textDocument/inlayHint").?.Params.?,
+    ) !lsp.types.requests.get("textDocument/inlayHint").?.Result {
         if (self.documents.getEntry(notification.textDocument.uri)) |kv| {
             var document = kv.value_ptr.*;
             const allocator = document.arena.allocator();
 
-            var result = std.ArrayList(lsp.types.InlayHint){};
+            var result = std.ArrayList(lsp.types.InlayHint).empty;
 
             for (document.inlay_hints.items) |hint| {
                 // If inlay position under the requested range

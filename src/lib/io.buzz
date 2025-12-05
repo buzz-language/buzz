@@ -23,11 +23,11 @@ extern fun getStdErr() > ud;
 /// @private
 extern fun FileIsTTY(file: ud) > bool;
 /// @private
-extern fun FileGetPoller(file: ud) > ud !> errors\FileSystemError, errors\ReadWriteError, errors\SocketError, errors\ExecError, error\UnexpectedError;
+// extern fun FileGetPoller(file: ud) > ud !> errors\FileSystemError, errors\ReadWriteError, errors\SocketError, errors\ExecError, error\UnexpectedError;
 /// @private
-extern fun PollerPoll(poller: ud, timeout: int?) > str? !> errors\ReadWriteError;
+// extern fun PollerPoll(poller: ud, timeout: int?) > str? !> errors\ReadWriteError;
 /// @private
-extern fun PollerDeinit(poller: ud) > void;
+// extern fun PollerDeinit(poller: ud) > void;
 
 /// File mode with which you can open a file
 export enum FileMode {
@@ -96,33 +96,33 @@ export object File {
         return FileIsTTY(this.file);
     }
 
-    /// @return FilePoller that can be used to poll incoming data on that file
-    fun getPoller() > FilePoller !> errors\FileSystemError, errors\ReadWriteError, errors\SocketError, errors\ExecError, error\UnexpectedError {
-        return FilePoller{
-            poller = FileGetPoller(this.file),
-        };
-    }
+    // @return FilePoller that can be used to poll incoming data on that file
+    // fun getPoller() > FilePoller !> errors\FileSystemError, errors\ReadWriteError, errors\SocketError, errors\ExecError, error\UnexpectedError {
+    //     return FilePoller{
+    //         poller = FileGetPoller(this.file),
+    //     };
+    // }
 }
 
-export object FilePoller {
-    /// Underlying zig poller
-    poller: ud,
-
-    // Poll file, blocking for at most `timeout` before returning
-    // @returns The string read if any, `null` otherwise
-    fun poll(timeout: int?) > str? !> errors\ReadWriteError {
-        return PollerPoll(this.poller, timeout);
-    }
-
-    fun collect() > void {
-        this.deinit();
-    }
-
-    fun deinit() > void {
-        PollerDeinit(this.poller);
-    }
-    
-}
+// export object FilePoller {
+//     /// Underlying zig poller
+//     poller: ud,
+//
+//     // Poll file, blocking for at most `timeout` before returning
+//     // @returns The string read if any, `null` otherwise
+//     fun poll(timeout: int?) > str? !> errors\ReadWriteError {
+//         return PollerPoll(this.poller, timeout);
+//     }
+//
+//     fun collect() > void {
+//         this.deinit();
+//     }
+//
+//     fun deinit() > void {
+//         PollerDeinit(this.poller);
+//     }
+// 
+// }
 
 /// stdin
 export final stdin = mut File{ file = getStdIn() };

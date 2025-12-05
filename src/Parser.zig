@@ -2,6 +2,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const is_wasm = builtin.cpu.arch.isWasm();
 const BuildOptions = @import("build_options");
+const Init = @import("vm.zig").Init;
 const obj = @import("obj.zig");
 const Token = @import("Token.zig");
 const Chunk = @import("Chunk.zig");
@@ -17,7 +18,7 @@ const Reporter = @import("Reporter.zig");
 const StringParser = @import("StringParser.zig");
 const pcre = if (!is_wasm) @import("pcre.zig") else void;
 const buzz_api = @import("lib/buzz_api.zig");
-const io = @import("io.zig");
+const print = @import("io.zig").print;
 
 // In the wasm build, libraries are statically linked
 const std_lib = if (is_wasm) @import("lib/buzz_std.zig") else void;
@@ -141,6 +142,7 @@ else
 
 const Self = @This();
 
+process: Init,
 ast: Ast,
 gc: *GC,
 scanner: ?Scanner = null,
@@ -168,25 +170,28 @@ reporter: Reporter,
 opt_jumps: ?std.ArrayList(Precedence) = null,
 
 pub fn init(
+    process: Init,
     gc: *GC,
     imports: *std.StringHashMapUnmanaged(ScriptImport),
     imported: bool,
     flavor: RunFlavor,
 ) Self {
     return .{
+        .process = process,
         .gc = gc,
         .imports = imports,
-        .script_imports = .{},
+        .script_imports = .empty,
         .imported = imported,
-        .globals = .{},
+        .globals = .empty,
         .flavor = flavor,
-        .reporter = Reporter{
+        .reporter = .{
+            .process = process,
             .allocator = gc.allocator,
             .error_prefix = "Syntax",
             .collect = flavor == .Ast,
         },
-        .ffi = FFI.init(gc),
-        .ast = Ast.init(gc.allocator),
+        .ffi = .init(gc, process),
+        .ast = .init(gc.allocator),
     };
 }
 
@@ -210,31 +215,26 @@ pub fn defaultBuzzPrefix() []const u8 {
 }
 
 var _buzz_path_buffer: [4096]u8 = undefined;
-pub fn buzzPrefix(allocator: std.mem.Allocator) error{OutOfMemory}![]const u8 {
+pub fn buzzPrefix(io: std.Io, env: *std.process.Environ.Map) []const u8 {
     // FIXME: don't use std.posix directly
-    if (std.process.getEnvVarOwned(allocator, "BUZZ_PATH") catch |err| env: {
-        switch (err) {
-            error.EnvironmentVariableNotFound, error.InvalidWtf8 => break :env null,
-            else => return error.OutOfMemory,
-        }
-    }) |buzz_path| {
+    if (env.get("BUZZ_PATH")) |buzz_path| {
         return buzz_path;
     }
 
-    const path = if (!is_wasm)
-        std.fs.selfExePath(&_buzz_path_buffer) catch return defaultBuzzPrefix()
-    else
-        defaultBuzzPrefix();
+    const path = if (!is_wasm) p: {
+        _ = std.process.executablePath(io, &_buzz_path_buffer) catch return defaultBuzzPrefix();
+        break :p _buzz_path_buffer[0..];
+    } else defaultBuzzPrefix();
 
-    const path1 = std.fs.path.dirname(path) orelse defaultBuzzPrefix();
-    const path2 = std.fs.path.dirname(path1) orelse defaultBuzzPrefix();
+    const path1 = std.Io.Dir.path.dirname(path) orelse defaultBuzzPrefix();
+    const path2 = std.Io.Dir.path.dirname(path1) orelse defaultBuzzPrefix();
     return path2;
 }
 
 var _buzz_path_buffer2: [4096]u8 = undefined;
 /// the returned string can be used only until next call to this function
-pub fn buzzLibPath(allocator: std.mem.Allocator) ![]const u8 {
-    const path2 = try buzzPrefix(allocator);
+pub fn buzzLibPath(io: std.Io, env: *std.process.Environ.Map) []const u8 {
+    const path2 = buzzPrefix(io, env);
     const sep = std.fs.path.sep_str;
     return std.fmt.bufPrint(
         &_buzz_path_buffer2,
@@ -286,7 +286,7 @@ pub const Global = struct {
     type_def: *obj.ObjTypeDef,
     export_alias: ?Ast.TokenIndex = null,
     imported_from: ?[]const u8 = null,
-    placeholder_referrers: std.ArrayList(Ast.Node.Index) = .{},
+    placeholder_referrers: std.ArrayList(Ast.Node.Index) = .empty,
 
     initialized: bool = false,
     exported: bool = false,
@@ -352,7 +352,7 @@ pub const Frame = struct {
     upvalue_count: u8 = 0,
     scope_depth: u32 = 0,
     /// Keep track of the node that introduced the scope (useful for labeled break/continue statements)
-    scopes: std.ArrayList(?Ast.Node.Index) = .{},
+    scopes: std.ArrayList(?Ast.Node.Index) = .empty,
     /// If false, `return` was omitted or within a conditionned block (if, loop, etc.)
     /// We only count `return` emitted within the scope_depth 0 of the current function or unconditionned else statement
     function_node: Ast.Node.Index,
@@ -389,7 +389,7 @@ pub const ObjectFrame = struct {
 
 pub const ScriptImport = struct {
     function: Ast.Node.Index,
-    globals: std.ArrayList(Global) = .{},
+    globals: std.ArrayList(Global) = .empty,
     absolute_path: *obj.ObjString,
     imported_by: std.AutoHashMapUnmanaged(*Frame, void) = .{},
 };
@@ -1022,7 +1022,15 @@ pub fn parse(self: *Self, source: []const u8, file_name: ?[]const u8, name: []co
             }
 
             if (BuildOptions.debug) {
-                io.print("Parsing of `{s}` failed with error {} (collected {} errors)\n", .{ function_name, err, self.reporter.reports.items.len });
+                print(
+                    self.process.io,
+                    "Parsing of `{s}` failed with error {} (collected {} errors)\n",
+                    .{
+                        function_name,
+                        err,
+                        self.reporter.reports.items.len,
+                    },
+                );
             }
             return null;
         }) |decl| {
@@ -1926,13 +1934,14 @@ fn resolvePlaceholderWithRelation(
     child: *obj.ObjTypeDef,
     resolved_type: *obj.ObjTypeDef,
     final: bool,
-    relation: obj.PlaceholderDef.PlaceholderRelation,
+    relation: obj.PlaceholderDef.Relation,
 ) Error!void {
     const child_placeholder = child.resolved_type.?.Placeholder;
     const child_placeholder_name = self.ast.tokens.items(.lexeme)[child_placeholder.where];
 
     if (BuildOptions.debug_placeholders) {
-        io.print(
+        print(
+            self.process.io,
             "Attempts to resolve @{} child placeholder @{} ({s}) with relation {s}\n",
             .{
                 @intFromPtr(resolved_type),
@@ -2347,7 +2356,7 @@ pub fn resolvePlaceholder(self: *Self, placeholder: *obj.ObjTypeDef, resolved_ty
     std.debug.assert(placeholder.def_type == .Placeholder);
 
     if (BuildOptions.debug_placeholders) {
-        io.print("Attempts to resolve @{} ({s}) with @{} a {s}({})\n", .{
+        print(self.process.io, "Attempts to resolve @{} ({s}) with @{} a {s}({})\n", .{
             @intFromPtr(placeholder),
             self.ast.tokens.items(.lexeme)[placeholder.resolved_type.?.Placeholder.where],
             @intFromPtr(resolved_type),
@@ -2359,7 +2368,8 @@ pub fn resolvePlaceholder(self: *Self, placeholder: *obj.ObjTypeDef, resolved_ty
     // Both placeholders, we have to connect the child placeholder to a root placeholder so its not orphan
     if (resolved_type.def_type == .Placeholder) {
         if (BuildOptions.debug_placeholders) {
-            io.print(
+            print(
+                self.process.io,
                 "Replaced linked placeholder @{} ({s}) with rooted placeholder @{} ({s})\n",
                 .{
                     @intFromPtr(placeholder),
@@ -2398,7 +2408,8 @@ pub fn resolvePlaceholder(self: *Self, placeholder: *obj.ObjTypeDef, resolved_ty
     var placeholder_def = placeholder.resolved_type.?.Placeholder;
 
     if (BuildOptions.debug_placeholders) {
-        io.print(
+        print(
+            self.process.io,
             "Resolved placeholder @{} {s}({}) with @{} {s}({})\n",
             .{
                 @intFromPtr(placeholder),
@@ -2570,7 +2581,8 @@ fn declareVariable(
                         // The placeholder resolution occurs after we parsed the functions body in `funDeclaration`
                         if (variable_type.resolved_type != null or @intFromEnum(variable_type.def_type) < @intFromEnum(obj.ObjTypeDef.Type.ObjectInstance)) {
                             if (BuildOptions.debug_placeholders) {
-                                io.print(
+                                print(
+                                    self.process.io,
                                     "Global placeholder @{} resolve with @{} {s} (opt {})\n",
                                     .{
                                         @intFromPtr(global.type_def),
@@ -2693,7 +2705,8 @@ fn declarePlaceholder(self: *Self, name: Ast.TokenIndex, placeholder: ?*obj.ObjT
     self.globals.items[global].initialized = true;
 
     if (BuildOptions.debug_placeholders) {
-        io.print(
+        print(
+            self.process.io,
             "global placeholder @{} for `{s}` at {}\n",
             .{
                 @intFromPtr(placeholder_type),
@@ -3270,7 +3283,7 @@ fn parseFunctionType(self: *Self, parent_generic_types: ?std.AutoArrayHashMapUnm
         }
     }
 
-    var generic_types_list = std.ArrayList(Ast.Node.Index){};
+    var generic_types_list = std.ArrayList(Ast.Node.Index).empty;
     // To avoid duplicates
     var generic_types = std.AutoArrayHashMapUnmanaged(*obj.ObjString, *obj.ObjTypeDef){};
     if (try self.match(.DoubleColon)) {
@@ -4205,7 +4218,7 @@ fn literal(self: *Self, _: bool) Error!Ast.Node.Index {
             node.components = .{
                 .Double = self.ast.tokens.items(.literal)[node.location].Double,
             };
-            node.type_def = self.gc.type_registry.float_type;
+            node.type_def = self.gc.type_registry.double_type;
         },
         else => unreachable,
     }
@@ -5130,7 +5143,8 @@ fn dot(self: *Self, can_assign: bool, callee: Ast.Node.Index) Error!Ast.Node.Ind
                     );
 
                     if (BuildOptions.debug_placeholders) {
-                        io.print(
+                        print(
+                            self.process.io,
                             "static placeholder @{} for `{s}`\n",
                             .{
                                 @intFromPtr(placeholder),
@@ -5275,7 +5289,8 @@ fn dot(self: *Self, can_assign: bool, callee: Ast.Node.Index) Error!Ast.Node.Ind
                     );
 
                     if (BuildOptions.debug_placeholders) {
-                        io.print(
+                        print(
+                            self.process.io,
                             "property placeholder @{} for `{s}.{s}`\n",
                             .{
                                 @intFromPtr(placeholder),
@@ -5678,7 +5693,7 @@ fn unwrap(self: *Self, force: bool, unwrapped: Ast.Node.Index) Error!Ast.Node.In
     );
 
     if (!force) {
-        self.opt_jumps = self.opt_jumps orelse .{};
+        self.opt_jumps = self.opt_jumps orelse .empty;
 
         try self.opt_jumps.?.append(
             self.gc.allocator,
@@ -7082,7 +7097,12 @@ fn binary(self: *Self, _: bool, left: Ast.Node.Index) Error!Ast.Node.Index {
                 .EqualEqual,
                 => self.gc.type_registry.bool_type,
 
-                .Plus => left_type_def orelse right_type_def,
+                .Minus,
+                .Star,
+                .Percent,
+                .Slash,
+                .Plus,
+                => left_type_def orelse right_type_def,
 
                 .ShiftLeft,
                 .ShiftRight,
@@ -7090,15 +7110,6 @@ fn binary(self: *Self, _: bool, left: Ast.Node.Index) Error!Ast.Node.Index {
                 .Bor,
                 .Xor,
                 => self.gc.type_registry.int_type,
-
-                .Minus,
-                .Star,
-                .Percent,
-                .Slash,
-                => if ((left_type_def != null and left_type_def.?.def_type == .Double) or (right_type_def != null and right_type_def.?.def_type == .Double))
-                    self.gc.type_registry.float_type
-                else
-                    self.gc.type_registry.int_type,
 
                 else => unreachable,
             },
@@ -7618,7 +7629,8 @@ fn objectDeclaration(self: *Self) Error!Ast.Node.Index {
 
                     // Now we know the placeholder was a method
                     if (BuildOptions.debug_placeholders) {
-                        io.print(
+                        print(
+                            self.process.io,
                             "resolved static method for `{s}`\n",
                             .{
                                 method_name,
@@ -7642,7 +7654,8 @@ fn objectDeclaration(self: *Self) Error!Ast.Node.Index {
 
                     // Now we know the placeholder was a method
                     if (BuildOptions.debug_placeholders) {
-                        io.print(
+                        print(
+                            self.process.io,
                             "resolved method placeholder for `{s}`\n",
                             .{
                                 method_name,
@@ -7723,7 +7736,8 @@ fn objectDeclaration(self: *Self) Error!Ast.Node.Index {
 
                     // Now we know the placeholder was a field
                     if (BuildOptions.debug_placeholders) {
-                        io.print(
+                        print(
+                            self.process.io,
                             "resolved static property placeholder for `{s}`\n",
                             .{
                                 property_lexeme,
@@ -7751,7 +7765,8 @@ fn objectDeclaration(self: *Self) Error!Ast.Node.Index {
 
                     // Now we know the placeholder was a field
                     if (BuildOptions.debug_placeholders) {
-                        io.print(
+                        print(
+                            self.process.io,
                             "resolved property placeholder for `{s}`\n",
                             .{
                                 property_lexeme,
@@ -8583,7 +8598,7 @@ fn searchPaths(self: *Self, file_name: []const u8) ![][]const u8 {
             self.gc.allocator,
             suffixed,
             "$",
-            try buzzLibPath(self.gc.allocator),
+            buzzLibPath(self.process.io, self.process.environ_map),
         );
 
         if (builtin.os.tag == .windows) {
@@ -8633,7 +8648,7 @@ fn searchLibPaths(self: *Self, file_name: []const u8) ![][]const u8 {
             self.gc.allocator,
             suffixed,
             "$",
-            try buzzLibPath(self.gc.allocator),
+            buzzLibPath(self.process.io, self.process.environ_map),
         );
 
         if (builtin.os.tag == .windows) {
@@ -8873,20 +8888,20 @@ fn readScript(self: *Self, file_name: []const u8) !?[2][]const u8 {
     }
 
     // Find and read file
-    var file: ?std.fs.File = null;
+    var file: ?std.Io.File = null;
     var absolute_path: ?[]const u8 = null;
     for (paths, 0..) |path, index| {
         if (std.fs.path.isAbsolute(path)) {
-            file = std.fs.openFileAbsolute(path, .{}) catch null;
+            file = std.Io.Dir.openFileAbsolute(self.process.io, path, .{}) catch null;
             if (file != null) {
                 selected_absolute_path_index = index;
                 absolute_path = path;
                 break;
             }
         } else {
-            file = std.fs.cwd().openFile(path, .{}) catch null;
+            file = std.Io.Dir.cwd().openFile(self.process.io, path, .{}) catch null;
             if (file != null) {
-                absolute_path = std.fs.cwd().realpathAlloc(self.gc.allocator, path) catch {
+                absolute_path = std.Io.Dir.cwd().realPathFileAlloc(self.process.io, path, self.gc.allocator) catch {
                     return Error.ImportError;
                 };
                 break;
@@ -8916,16 +8931,16 @@ fn readScript(self: *Self, file_name: []const u8) !?[2][]const u8 {
         return null;
     }
 
-    defer file.?.close();
+    defer file.?.close(self.process.io);
 
     const source = try self.gc.allocator.alloc(
         u8,
-        (file.?.stat() catch {
+        (file.?.stat(self.process.io) catch {
             return Error.ImportError;
         }).size,
     );
 
-    _ = file.?.readAll(source) catch {
+    _ = file.?.readPositionalAll(self.process.io, source, 0) catch {
         return Error.ImportError;
     };
 
@@ -8974,6 +8989,7 @@ fn importScript(
         }
 
         var parser = Self.init(
+            self.process,
             self.gc,
             self.imports,
             true,

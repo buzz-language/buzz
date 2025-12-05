@@ -50,10 +50,10 @@ pub const WasmStdoutWriter = struct {
 pub const WasmStdinReader = struct {
     pub fn stream(_: *std.Io.Reader, w: *std.Io.Writer, _: std.Io.Limit) std.Io.Reader.StreamError!usize {
         const dest = try w.writableSliceGreedy(1);
-
-        return @intCast(
-            readFromStdin(dest.ptr, dest.len),
-        );
+        const n = readFromStdin(dest.ptr, dest.len);
+        if (n < 0) return error.ReadFailed;
+        if (n == 0) return error.EndOfStream;
+        return @intCast(n);
     }
 };
 

@@ -8,6 +8,7 @@ const Parser = @import("Parser.zig");
 const ZigType = @import("zigtypes.zig").Type;
 const Reporter = @import("Reporter.zig");
 const GC = @import("GC.zig");
+const Init = @import("vm.zig").Init;
 
 const Self = @This();
 
@@ -200,10 +201,11 @@ reporter: Reporter,
 state: ?State = null,
 type_expr_cache: std.StringHashMapUnmanaged(?*Zdef) = .empty,
 
-pub fn init(gc: *GC) Self {
+pub fn init(gc: *GC, process: Init) Self {
     return .{
         .gc = gc,
         .reporter = .{
+            .process = process,
             .allocator = gc.allocator,
             .error_prefix = "FFI",
         },

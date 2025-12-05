@@ -9,7 +9,7 @@ pub const Double = f64;
 pub const Integer = i48;
 const Tag = u3;
 
-pub const Value = packed struct {
+pub const Value = extern struct {
     pub const TagBoolean: Tag = 0;
     pub const TagInteger: Tag = 1;
     pub const TagNull: Tag = 2;
@@ -137,7 +137,7 @@ pub const Value = packed struct {
         }
 
         if (self.isDouble()) {
-            return gc.type_registry.float_type;
+            return gc.type_registry.double_type;
         }
 
         if (self.isInteger()) {
@@ -147,7 +147,7 @@ pub const Value = packed struct {
         return switch (self.getTag()) {
             TagBoolean => gc.type_registry.bool_type,
             TagNull, TagVoid => gc.type_registry.void_type,
-            else => gc.type_registry.float_type,
+            else => gc.type_registry.double_type,
         };
     }
 

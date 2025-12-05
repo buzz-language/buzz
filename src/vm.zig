@@ -14,8 +14,11 @@ const Token = @import("Token.zig");
 const Reporter = @import("Reporter.zig");
 const FFI = if (!is_wasm) @import("FFI.zig") else void;
 const dispatch_call_modifier: std.builtin.CallModifier = if (!is_wasm) .always_tail else .auto;
-const io = @import("io.zig");
+const print = @import("io.zig").print;
 const Debugger = if (!is_wasm) @import("Debugger.zig") else void;
+const TypeRegistry = @import("TypeRegistry.zig");
+
+pub const Init = if (is_wasm) std.process.Init.Minimal else std.process.Init;
 
 const dumpStack = disassembler.dumpStack;
 const jmp = if (!is_wasm) @import("jmp.zig") else void;
@@ -439,6 +442,7 @@ pub const VM = struct {
         Custom, // TODO: remove when user can use this set directly in buzz code
     } || std.mem.Allocator.Error || std.fmt.BufPrintError;
 
+    process: Init,
     gc: *GC,
     current_fiber: *Fiber,
     current_ast: Ast.Slice,
@@ -455,17 +459,25 @@ pub const VM = struct {
     reporter: Reporter,
     ffi: FFI,
 
-    pub fn init(gc: *GC, import_registry: *ImportRegistry, flavor: RunFlavor, debugger: ?*Debugger) !Self {
+    pub fn init(
+        process: Init,
+        gc: *GC,
+        import_registry: *ImportRegistry,
+        flavor: RunFlavor,
+        debugger: ?*Debugger,
+    ) !Self {
         return .{
+            .process = process,
             .gc = gc,
             .import_registry = import_registry,
             .current_ast = undefined,
             .current_fiber = undefined,
             .flavor = flavor,
-            .reporter = Reporter{
+            .reporter = .{
+                .process = process,
                 .allocator = gc.allocator,
             },
-            .ffi = if (!is_wasm) FFI.init(gc) else {},
+            .ffi = if (!is_wasm) FFI.init(gc, process) else {},
             .debugger = debugger,
         };
     }
@@ -477,6 +489,26 @@ pub const VM = struct {
             self.ffi.deinit();
         }
         self.gc.unregisterVM(self);
+    }
+
+    pub fn initFrom(other: *Self) !*Self {
+        const vm = try other.gc.allocator.create(Self);
+        var gc = try other.gc.allocator.create(GC);
+        // FIXME: should share strings between gc
+        gc.* = try GC.init(other.gc.allocator);
+        gc.type_registry = try TypeRegistry.init(gc);
+        const import_registry = try other.gc.allocator.create(ImportRegistry);
+        import_registry.* = .{};
+
+        vm.* = try VM.init(
+            other.process,
+            gc,
+            import_registry,
+            .Run,
+            null,
+        );
+
+        return vm;
     }
 
     pub fn cliArgs(self: *Self, args: ?[]const []const u8) !*obj.ObjList {
@@ -552,11 +584,10 @@ pub const VM = struct {
     pub fn currentFrame(self: *Self) ?*CallFrame {
         std.debug.assert(self.current_fiber.frame_count <= self.current_fiber.frames.items.len);
 
-        if (self.current_fiber.frame_count == 0) {
-            return null;
-        }
-
-        return &self.current_fiber.frames.items[self.current_fiber.frame_count - 1];
+        return if (self.current_fiber.frame_count == 0)
+            null
+        else
+            &self.current_fiber.frames.items[self.current_fiber.frame_count - 1];
     }
 
     pub fn currentGlobals(self: *Self) *std.ArrayList(Value) {
@@ -907,7 +938,7 @@ pub const VM = struct {
     /// Called instead of regular op_code when program is paused by the debugger
     fn OP_NOOP(self: *Self, current_frame: *CallFrame, next_full_instruction: u32, code: Chunk.OpCode, args: u24) void {
         // Wait a little for the user to resume the program
-        std.Thread.sleep(10_000_000);
+        std.Io.sleep(self.process.io, .fromMilliseconds(10), .awake) catch {};
 
         @call(
             dispatch_call_modifier,
@@ -2223,6 +2254,7 @@ pub const VM = struct {
             };
             // FIXME: give reference to JIT?
             vm.* = VM.init(
+                self.process,
                 self.gc,
                 self.import_registry,
                 self.flavor,
@@ -3638,7 +3670,7 @@ pub const VM = struct {
         const right = self.pop().obj().access(obj.ObjList, .List, self.gc).?;
         const left = self.pop().obj().access(obj.ObjList, .List, self.gc).?;
 
-        var new_list = std.ArrayList(Value){};
+        var new_list = std.ArrayList(Value).empty;
         new_list.appendSlice(self.gc.allocator, left.items.items) catch {
             self.panic("Out of memory");
             unreachable;
@@ -4449,8 +4481,6 @@ pub const VM = struct {
         self.current_ast.nodes.items(.count)[node] += 1;
 
         if (self.shouldCompileHotspot(node)) {
-            var timer = std.time.Timer.start() catch unreachable;
-
             if (self.jit.?.compileHotSpot(
                 self.current_ast,
                 self.currentFrame().?.closure,
@@ -4473,12 +4503,12 @@ pub const VM = struct {
                 obj_native.mark(self.gc);
 
                 if (BuildOptions.jit_debug) {
-                    io.print(
-                        "Compiled hotspot {s} in function `{s}` in {d} ms\n",
+                    print(
+                        self.io,
+                        "Compiled hotspot {s} in function `{s}`\n",
                         .{
                             @tagName(self.current_ast.nodes.items(.tag)[node]),
                             self.currentFrame().?.closure.function.type_def.resolved_type.?.Function.name.string,
-                            @as(v.Double, @floatFromInt(timer.read())) / 1000000,
                         },
                     );
                 }
@@ -4508,8 +4538,6 @@ pub const VM = struct {
                     unreachable;
                 };
             }
-
-            self.jit.?.jit_time += timer.read();
         }
 
         const next_full_instruction = self.readInstruction();
@@ -4661,7 +4689,8 @@ pub const VM = struct {
         const next_arg: u24 = getArg(next_full_instruction);
 
         if (BuildOptions.debug_current_instruction) {
-            io.print(
+            print(
+                self.io,
                 "{}: {}\n",
                 .{
                     next_current_frame.ip,
@@ -4692,7 +4721,7 @@ pub const VM = struct {
 
     pub fn throw(self: *Self, code: Error, payload: Value, previous_stack: ?*std.ArrayList(CallFrame), previous_error_site: ?Ast.TokenIndex) Error!void {
         var initial_stack = if (previous_stack == null)
-            std.ArrayList(CallFrame){}
+            std.ArrayList(CallFrame).empty
         else
             null;
 
@@ -4914,8 +4943,6 @@ pub const VM = struct {
             // Do we need to jit the function?
             // TODO: figure out threshold strategy
             if (self.shouldCompileFunction(closure)) {
-                var timer = if (!is_wasm) std.time.Timer.start() catch unreachable else {};
-
                 var success = true;
                 jit.compileFunction(self.current_ast, closure) catch |err| {
                     if (err == Error.CantCompile) {
@@ -4926,16 +4953,14 @@ pub const VM = struct {
                 };
 
                 if (BuildOptions.jit_debug and success) {
-                    io.print(
-                        "Compiled function `{s}` in {d} ms\n",
+                    print(
+                        self.io,
+                        "Compiled function `{s}`\n",
                         .{
                             closure.function.type_def.resolved_type.?.Function.name.string,
-                            @as(v.Double, @floatFromInt(timer.read())) / 1000000,
                         },
                     );
                 }
-
-                jit.jit_time += timer.read();
 
                 if (success) {
                     native = closure.function.native;
@@ -5004,13 +5029,18 @@ pub const VM = struct {
         }
 
         if (self.flavor == .Test and closure.function.type_def.resolved_type.?.Function.function_type == .Test) {
-            io.print(
+            print(
+                if (is_wasm) {} else self.process.io,
                 if (builtin.os.tag != .windows)
                     "\x1b[33m▶ Test: {s}\x1b[0m\n"
                 else
                     "▶ Test: {s}\n",
                 .{
-                    self.current_ast.tokens.items(.lexeme)[self.current_ast.nodes.items(.components)[closure.function.node].Function.test_message.?],
+                    self.current_ast.tokens
+                        .items(.lexeme)[
+                        self.current_ast.nodes.items(.components)[closure.function.node]
+                            .Function.test_message.?
+                    ],
                 },
             );
         }
@@ -5073,6 +5103,7 @@ pub const VM = struct {
         defer self.currentFrame().?.in_native_call = was_in_native_call;
 
         var ctx = obj.NativeCtx{
+            .process = &self.process,
             .vm = self,
             .globals = self.currentFrame().?.closure.globals.items.ptr,
             .upvalues = self.currentFrame().?.closure.upvalues.ptr,
@@ -5089,8 +5120,9 @@ pub const VM = struct {
         self.currentFrame().?.in_native_call = true;
         self.currentFrame().?.native_call_error_value = catch_value;
 
-        var result: Value = Value.Null;
+        var result = Value.Null;
         var ctx = obj.NativeCtx{
+            .process = &self.process,
             .vm = self,
             .globals = &[_]Value{},
             .upvalues = &[_]*obj.ObjUpValue{},
@@ -5149,6 +5181,7 @@ pub const VM = struct {
         }
 
         var ctx = obj.NativeCtx{
+            .process = &self.process,
             .vm = self,
             .globals = closure.globals.items.ptr,
             .upvalues = closure.upvalues.ptr,

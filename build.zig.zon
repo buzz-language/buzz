@@ -2,19 +2,19 @@
     .name = .buzz,
     .fingerprint = 0x87514371589e863a,
     .version = "0.6.0",
-    .minimum_zig_version = "0.16.0-dev.747+493ad58ff",
+    .minimum_zig_version = "0.16.0",
     .dependencies = .{
         .clap = .{
-            .url = "git+https://github.com/Hejsil/zig-clap.git#5289e0753cd274d65344bef1c114284c633536ea",
-            .hash = "clap-0.11.0-oBajB-HnAQDPCKYzwF7rO3qDFwRcD39Q0DALlTSz5H7e",
+            .url = "git+https://github.com/Hejsil/zig-clap.git#fc1e5cc3f6d9d3001112385ee6256d694e959d2f",
+            .hash = "clap-0.11.0-oBajB7foAQC3Iyn4IVCkUdYaOVVng5IZkSncySTjNig1",
         },
         .lsp_kit = .{
-            .url = "git+https://github.com/zigtools/lsp-kit.git#6274eebace9a6a82ce182e24468fef88e0b95f37",
-            .hash = "lsp_kit-0.1.0-bi_PLzAyCgClDh8_M0U9Q50ysdsQBuRuBTZfwg6rZPd6",
+            .url = "git+https://github.com/zigtools/lsp-kit.git#b886a2b0d5cee85ecbcc3089b863f7517cc9ff7f",
+            .hash = "lsp_kit-0.1.0-bi_PL3IyDACfp1xdTnkiOHEok2YpPCCCJHuuOcNzjl1D",
         },
         .dap_kit = .{
-            .url = "git+https://github.com/buzz-language/dap-kit.git#0b82af2837f4ded84ae55a41d1591b3a9b75365d",
-            .hash = "dap_kit-0.0.0-OvEgyGFeAgATdO-Up0sxHeCpfQ6aOs6ekOwJ_nX4yOOX",
+            .url = "git+https://github.com/buzz-language/dap-kit.git#4d62e6c14c099d3ac493cfc38173518ea2cb1daf",
+            .hash = "dap_kit-0.0.0-OvEgyJ9eAgAN2cfyn32dCuFLvJdLmMGgNkQBlhSwp26l",
         },
     },
     .paths = .{""},
