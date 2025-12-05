@@ -5601,7 +5601,7 @@ pub fn cloneObject(obj: *Obj, vm: *VM) !Value {
 pub const PlaceholderDef = struct {
     const Self = @This();
 
-    pub const PlaceholderRelation = enum {
+    pub const Relation = enum {
         Call,
         Yield,
         Subscript,
@@ -5623,7 +5623,7 @@ pub const PlaceholderDef = struct {
     /// can trace back the root of the unknown type.
     parent: ?*ObjTypeDef = null,
     /// What's the relation with the parent?
-    parent_relation: ?PlaceholderRelation = null,
+    parent_relation: ?Relation = null,
     /// Children adds themselves here
     children: std.ArrayList(*ObjTypeDef),
     mutable: ?bool,
@@ -5644,7 +5644,7 @@ pub const PlaceholderDef = struct {
         self.children.deinit(allocator);
     }
 
-    pub fn link(allocator: Allocator, parent: *ObjTypeDef, child: *ObjTypeDef, relation: PlaceholderRelation) !void {
+    pub fn link(allocator: Allocator, parent: *ObjTypeDef, child: *ObjTypeDef, relation: Relation) !void {
         assert(parent.def_type == .Placeholder);
         assert(child.def_type == .Placeholder);
 

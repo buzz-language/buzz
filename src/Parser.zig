@@ -1926,7 +1926,7 @@ fn resolvePlaceholderWithRelation(
     child: *obj.ObjTypeDef,
     resolved_type: *obj.ObjTypeDef,
     final: bool,
-    relation: obj.PlaceholderDef.PlaceholderRelation,
+    relation: obj.PlaceholderDef.Relation,
 ) Error!void {
     const child_placeholder = child.resolved_type.?.Placeholder;
     const child_placeholder_name = self.ast.tokens.items(.lexeme)[child_placeholder.where];
@@ -4205,7 +4205,7 @@ fn literal(self: *Self, _: bool) Error!Ast.Node.Index {
             node.components = .{
                 .Double = self.ast.tokens.items(.literal)[node.location].Double,
             };
-            node.type_def = self.gc.type_registry.float_type;
+            node.type_def = self.gc.type_registry.double_type;
         },
         else => unreachable,
     }
@@ -7082,7 +7082,12 @@ fn binary(self: *Self, _: bool, left: Ast.Node.Index) Error!Ast.Node.Index {
                 .EqualEqual,
                 => self.gc.type_registry.bool_type,
 
-                .Plus => left_type_def orelse right_type_def,
+                .Minus,
+                .Star,
+                .Percent,
+                .Slash,
+                .Plus,
+                => left_type_def orelse right_type_def,
 
                 .ShiftLeft,
                 .ShiftRight,
@@ -7090,15 +7095,6 @@ fn binary(self: *Self, _: bool, left: Ast.Node.Index) Error!Ast.Node.Index {
                 .Bor,
                 .Xor,
                 => self.gc.type_registry.int_type,
-
-                .Minus,
-                .Star,
-                .Percent,
-                .Slash,
-                => if ((left_type_def != null and left_type_def.?.def_type == .Double) or (right_type_def != null and right_type_def.?.def_type == .Double))
-                    self.gc.type_registry.float_type
-                else
-                    self.gc.type_registry.int_type,
 
                 else => unreachable,
             },

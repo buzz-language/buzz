@@ -137,7 +137,7 @@ pub const Value = packed struct {
         }
 
         if (self.isDouble()) {
-            return gc.type_registry.float_type;
+            return gc.type_registry.double_type;
         }
 
         if (self.isInteger()) {
@@ -147,7 +147,7 @@ pub const Value = packed struct {
         return switch (self.getTag()) {
             TagBoolean => gc.type_registry.bool_type,
             TagNull, TagVoid => gc.type_registry.void_type,
-            else => gc.type_registry.float_type,
+            else => gc.type_registry.double_type,
         };
     }
 

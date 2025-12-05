@@ -23,7 +23,7 @@ registry: std.AutoHashMapUnmanaged(TypeDefHash, *o.ObjTypeDef) = .empty,
 void_type: *o.ObjTypeDef,
 str_type: *o.ObjTypeDef,
 int_type: *o.ObjTypeDef,
-float_type: *o.ObjTypeDef,
+double_type: *o.ObjTypeDef,
 bool_type: *o.ObjTypeDef,
 any_type: *o.ObjTypeDef,
 pat_type: *o.ObjTypeDef,
@@ -37,7 +37,7 @@ pub fn init(gc: *GC) !TypeRegistry {
         .void_type = undefined,
         .str_type = undefined,
         .int_type = undefined,
-        .float_type = undefined,
+        .double_type = undefined,
         .bool_type = undefined,
         .any_type = undefined,
         .pat_type = undefined,
@@ -49,7 +49,7 @@ pub fn init(gc: *GC) !TypeRegistry {
     self.void_type = try self.getTypeDef(.{ .def_type = .Void });
     self.str_type = try self.getTypeDef(.{ .def_type = .String });
     self.int_type = try self.getTypeDef(.{ .def_type = .Integer });
-    self.float_type = try self.getTypeDef(.{ .def_type = .Double });
+    self.double_type = try self.getTypeDef(.{ .def_type = .Double });
     self.bool_type = try self.getTypeDef(.{ .def_type = .Bool });
     self.any_type = try self.getTypeDef(
         .{
