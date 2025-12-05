@@ -7,6 +7,7 @@ const StringHashMap = std.StringHashMap;
 const Chunk = @import("Chunk.zig");
 const _vm = @import("vm.zig");
 const VM = _vm.VM;
+const Init = _vm.Init;
 const Fiber = _vm.Fiber;
 const Parser = @import("Parser.zig");
 const GC = @import("GC.zig");
@@ -1222,7 +1223,7 @@ pub const ObjClosure = struct {
     }
 
     pub inline fn toValue(self: *Self) Value {
-        return Value.fromObj(self.toObj());
+        return .fromObj(self.toObj());
     }
 
     pub inline fn cast(obj: *Obj) ?*Self {
@@ -1232,6 +1233,7 @@ pub const ObjClosure = struct {
 
 pub const NativeCtx = extern struct {
     vm: *VM,
+    process: *Init,
     globals: [*]Value,
     upvalues: [*]*ObjUpValue,
     // Where to reset the stack when we exit the function
@@ -1778,7 +1780,7 @@ pub const ObjObject = struct {
 
         pub const Placeholder = struct {
             placeholder: *ObjTypeDef,
-            referrers: std.ArrayList(Ast.Node.Index) = .{},
+            referrers: std.ArrayList(Ast.Node.Index) = .empty,
         };
 
         id: usize,
@@ -1954,7 +1956,7 @@ pub const ObjList = struct {
 
     pub fn init(allocator: Allocator, type_def: *ObjTypeDef) !Self {
         const self = Self{
-            .items = std.ArrayList(Value){},
+            .items = std.ArrayList(Value).empty,
             .type_def = type_def,
             .methods = try allocator.alloc(
                 ?*ObjNative,
@@ -4671,7 +4673,7 @@ pub const ObjTypeDef = struct {
 
                 var error_types: ?std.ArrayList(*ObjTypeDef) = null;
                 if (old_fun_def.error_types) |old_error_types| {
-                    error_types = .{};
+                    error_types = .empty;
                     for (old_error_types) |error_type| {
                         try error_types.?.append(
                             type_registry.gc.allocator,
@@ -4794,7 +4796,7 @@ pub const ObjTypeDef = struct {
             // Destroyed copied placeholder link
             optional.resolved_type.?.Placeholder.parent = null;
             optional.resolved_type.?.Placeholder.parent_relation = null;
-            optional.resolved_type.?.Placeholder.children = std.ArrayList(*ObjTypeDef){};
+            optional.resolved_type.?.Placeholder.children = std.ArrayList(*ObjTypeDef).empty;
 
             // Make actual link
             try PlaceholderDef.link(
@@ -4820,7 +4822,7 @@ pub const ObjTypeDef = struct {
             // Destroyed copied placeholder link
             non_optional.resolved_type.?.Placeholder.parent = null;
             non_optional.resolved_type.?.Placeholder.parent_relation = null;
-            non_optional.resolved_type.?.Placeholder.children = std.ArrayList(*ObjTypeDef){};
+            non_optional.resolved_type.?.Placeholder.children = std.ArrayList(*ObjTypeDef).empty;
 
             // Make actual link
             try PlaceholderDef.link(
@@ -5601,7 +5603,7 @@ pub fn cloneObject(obj: *Obj, vm: *VM) !Value {
 pub const PlaceholderDef = struct {
     const Self = @This();
 
-    pub const PlaceholderRelation = enum {
+    pub const Relation = enum {
         Call,
         Yield,
         Subscript,
@@ -5623,7 +5625,7 @@ pub const PlaceholderDef = struct {
     /// can trace back the root of the unknown type.
     parent: ?*ObjTypeDef = null,
     /// What's the relation with the parent?
-    parent_relation: ?PlaceholderRelation = null,
+    parent_relation: ?Relation = null,
     /// Children adds themselves here
     children: std.ArrayList(*ObjTypeDef),
     mutable: ?bool,
@@ -5635,7 +5637,7 @@ pub const PlaceholderDef = struct {
         return Self{
             .where = where,
             .where_end = where_end,
-            .children = std.ArrayList(*ObjTypeDef){},
+            .children = std.ArrayList(*ObjTypeDef).empty,
             .mutable = mutable,
         };
     }
@@ -5644,7 +5646,7 @@ pub const PlaceholderDef = struct {
         self.children.deinit(allocator);
     }
 
-    pub fn link(allocator: Allocator, parent: *ObjTypeDef, child: *ObjTypeDef, relation: PlaceholderRelation) !void {
+    pub fn link(allocator: Allocator, parent: *ObjTypeDef, child: *ObjTypeDef, relation: Relation) !void {
         assert(parent.def_type == .Placeholder);
         assert(child.def_type == .Placeholder);
 

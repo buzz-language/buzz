@@ -4,13 +4,23 @@ const builtin = @import("builtin");
 const io = @import("io.zig");
 
 pub export fn sleep(ctx: *api.NativeCtx) callconv(.c) c_int {
-    std.Thread.sleep(@as(u64, @intFromFloat(ctx.vm.bz_peek(0).double())) * 1_000_000);
+    std.Io.sleep(
+        ctx.getIo(),
+        .fromMilliseconds(@intFromFloat(ctx.vm.bz_peek(0).double())),
+        .awake,
+    ) catch {}; // Do we care for this error?
 
     return 0;
 }
 
 pub export fn time(ctx: *api.NativeCtx) callconv(.c) c_int {
-    ctx.vm.bz_push(api.Value.fromDouble(@as(api.Double, @floatFromInt(std.time.milliTimestamp()))));
+    ctx.vm.bz_push(
+        .fromDouble(
+            @as(api.Double, @floatFromInt(
+                std.Io.Clock.real.now(ctx.getIo()).toMilliseconds(),
+            )),
+        ),
+    );
 
     return 1;
 }
@@ -32,12 +42,7 @@ pub export fn env(ctx: *api.NativeCtx) callconv(.c) c_int {
     defer api.VM.allocator.free(key_slice);
 
     // FIXME: don't use std.posix directly
-    if (std.process.getEnvVarOwned(api.VM.allocator, key_slice) catch |err| env: {
-        switch (err) {
-            error.EnvironmentVariableNotFound, error.InvalidWtf8 => break :env null,
-            else => @panic("Out of memory"),
-        }
-    }) |value| {
+    if (ctx.getEnv().get(key_slice)) |value| {
         ctx.vm.bz_push(
             api.VM.bz_stringToValue(
                 ctx.vm,
@@ -45,8 +50,6 @@ pub export fn env(ctx: *api.NativeCtx) callconv(.c) c_int {
                 value.len,
             ),
         );
-
-        api.VM.allocator.free(value);
 
         return 1;
     }
@@ -56,19 +59,19 @@ pub export fn env(ctx: *api.NativeCtx) callconv(.c) c_int {
     return 1;
 }
 
-fn sysTempDir() []const u8 {
+fn sysTempDir(process_env: *std.process.Environ.Map) []const u8 {
     return switch (builtin.os.tag) {
         .windows => unreachable, // TODO: GetTempPath
-        else => std.posix.getenv("TMPDIR") orelse
-            std.posix.getenv("TMP") orelse
-            std.posix.getenv("TEMP") orelse
-            std.posix.getenv("TEMPDIR") orelse
+        else => process_env.get("TMPDIR") orelse
+            process_env.get("TMP") orelse
+            process_env.get("TEMP") orelse
+            process_env.get("TEMPDIR") orelse
             "/tmp",
     };
 }
 
 pub export fn tmpDir(ctx: *api.NativeCtx) callconv(.c) c_int {
-    const tmp_dir: []const u8 = sysTempDir();
+    const tmp_dir: []const u8 = sysTempDir(ctx.getEnv());
 
     ctx.vm.bz_push(
         api.VM.bz_stringToValue(
@@ -91,7 +94,13 @@ pub export fn tmpFilename(ctx: *api.NativeCtx) callconv(.c) c_int {
     var random_part = std.Io.Writer.Allocating.init(api.VM.allocator);
     defer random_part.deinit();
 
-    random_part.writer.print("{x}", .{std.crypto.random.int(api.Integer)}) catch {
+    var rnd = std.Random.IoSource{ .io = ctx.getIo() };
+    random_part.writer.print(
+        "{x}",
+        .{
+            rnd.interface().int(api.Integer),
+        },
+    ) catch {
         ctx.vm.bz_panic("Out of memory", "Out of memory".len);
         unreachable;
     };
@@ -113,7 +122,7 @@ pub export fn tmpFilename(ctx: *api.NativeCtx) callconv(.c) c_int {
     final.writer.print(
         "{s}{s}-{s}",
         .{
-            sysTempDir(),
+            sysTempDir(ctx.getEnv()),
             prefix_slice,
             random_part_b64.items,
         },
@@ -145,14 +154,12 @@ pub export fn buzzExit(ctx: *api.NativeCtx) callconv(.c) c_int {
     return 0;
 }
 
-fn handleSpawnError(ctx: *api.NativeCtx, err: anytype) void {
+fn handleSpawnError(ctx: *api.NativeCtx, err: std.process.SpawnError) void {
     switch (err) {
         error.AccessDenied,
         error.BadPathName,
         error.FileBusy,
         error.FileSystem,
-        error.InvalidHandle,
-        error.InvalidUtf8,
         error.InvalidWtf8,
         error.IsDir,
         error.NameTooLong,
@@ -164,25 +171,44 @@ fn handleSpawnError(ctx: *api.NativeCtx, err: anytype) void {
         error.SystemFdQuotaExceeded,
         error.SystemResources,
         error.FileNotFound,
+        error.Canceled,
+        error.WouldBlock,
+        error.FileTooBig,
+        error.NoSpaceLeft,
+        error.DeviceBusy,
+        error.PathAlreadyExists,
+        error.ReadOnlyFileSystem,
+        error.NetworkNotFound,
+        error.PipeBusy,
+        error.AntivirusInterference,
+        error.FileLocksUnsupported,
+        error.OperationUnsupported,
+        error.UnrecognizedVolume,
         => ctx.vm.pushErrorEnum("errors.FileSystemError", @errorName(err)),
 
-        error.CurrentWorkingDirectoryUnlinked,
         error.InvalidExe,
         error.InvalidName,
         error.InvalidUserId,
         error.PermissionDenied,
         error.ResourceLimitReached,
-        error.WaitAbandoned,
-        error.WaitTimeOut,
         error.ProcessAlreadyExec,
         error.InvalidProcessGroupId,
-        error.ProcessNotFound,
         => ctx.vm.pushErrorEnum("errors.ExecError", @errorName(err)),
 
         error.OutOfMemory => {
             ctx.vm.bz_panic("Out of memory", "Out of memory".len);
             unreachable;
         },
+        error.Unexpected => ctx.vm.pushError("errors.UnexpectedError", null),
+    }
+}
+
+fn handleWaitError(ctx: *api.NativeCtx, err: std.process.Child.WaitError) void {
+    switch (err) {
+        error.AccessDenied,
+        error.Canceled,
+        => ctx.vm.pushErrorEnum("errors.FileSystemError", @errorName(err)),
+
         error.Unexpected => ctx.vm.pushError("errors.UnexpectedError", null),
     }
 }
@@ -210,130 +236,81 @@ pub export fn execute(ctx: *api.NativeCtx) callconv(.c) c_int {
         };
     }
 
-    var child_process = std.process.Child.init(command.items, api.VM.allocator);
-    child_process.disable_aslr = builtin.target.os.tag.isDarwin();
-
-    const term = child_process.spawnAndWait() catch |err| {
+    var child_process = std.process.spawn(
+        ctx.getIo(),
+        .{
+            .argv = command.items,
+            .disable_aslr = builtin.target.os.tag.isDarwin(),
+        },
+    ) catch |err| {
         handleSpawnError(ctx, err);
 
         return -1;
     };
 
-    switch (term) {
-        .Exited => ctx.vm.bz_push(api.Value.fromInteger(@intCast(term.Exited))),
-        .Signal => ctx.vm.bz_push(api.Value.fromInteger(@intCast(term.Signal))),
-        .Stopped => ctx.vm.bz_push(api.Value.fromInteger(@intCast(term.Stopped))),
-        .Unknown => ctx.vm.bz_push(api.Value.fromInteger(@intCast(term.Unknown))),
-    }
+    const term = child_process.wait(ctx.getIo()) catch |err| {
+        handleWaitError(ctx, err);
+
+        return -1;
+    };
+
+    ctx.vm.bz_push(.fromInteger(@intFromEnum(term)));
 
     return 1;
 }
 
-fn handleConnectError(ctx: *api.NativeCtx, err: anytype) void {
+fn handleConnectError(ctx: *api.NativeCtx, err: std.Io.net.HostName.ConnectError) void {
     switch (err) {
         error.AccessDenied,
-        error.AntivirusInterference,
-        error.AddressFamilyNotSupported,
         error.AddressInUse,
-        error.AddressNotAvailable,
-        error.AlreadyBound,
-        error.AlreadyConnected,
         error.ConnectionPending,
         error.ConnectionRefused,
         error.ConnectionResetByPeer,
-        error.ConnectionTimedOut,
-        error.FileDescriptorNotASocket,
-        error.HostLacksNetworkAddresses,
-        error.Incomplete,
-        error.InterfaceNotFound,
-        error.InvalidCharacter,
-        error.InvalidEnd,
-        error.InvalidIPAddressFormat,
-        error.InvalidIpv4Mapping,
-        error.InvalidProtocolOption,
         error.NameServerFailure,
-        error.NetworkSubsystemFailed,
         error.NetworkUnreachable,
-        error.PermissionDenied,
         error.ProcessFdQuotaExceeded,
-        error.ProtocolFamilyNotAvailable,
-        error.ProtocolNotSupported,
-        error.ServiceUnavailable,
-        error.SocketNotBound,
-        error.SocketTypeNotSupported,
         error.SystemFdQuotaExceeded,
         error.SystemResources,
-        error.TemporaryNameServerFailure,
-        error.TimeoutTooBig,
         error.UnknownHostName,
         error.WouldBlock,
         error.Canceled,
-        error.OperationNotSupported,
-        error.ResolveConfParseFailed,
+        error.Timeout,
+        error.NetworkDown,
+        error.AddressUnavailable,
+        error.AddressFamilyUnsupported,
+        error.ProtocolUnsupportedBySystem,
+        error.ProtocolUnsupportedByAddressFamily,
+        error.SocketModeUnsupported,
+        error.OptionUnsupported,
+        error.HostUnreachable,
+        error.ResolvConfParseFailed,
+        error.InvalidDnsARecord,
+        error.InvalidDnsAAAARecord,
+        error.InvalidDnsCnameRecord,
+        error.NoAddressReturned,
+        error.DetectingNetworkConfigurationFailed,
         => ctx.vm.pushErrorEnum("errors.SocketError", @errorName(err)),
 
-        error.BadPathName,
-        error.DeviceBusy,
-        error.FileBusy,
-        error.FileLocksNotSupported,
-        error.FileNotFound,
-        error.FileSystem,
-        error.FileTooBig,
-        error.InputOutput,
-        error.InvalidUtf8,
-        error.IsDir,
-        error.NameTooLong,
-        error.NoDevice,
-        error.NonCanonical,
-        error.NoSpaceLeft,
-        error.NotDir,
-        error.PathAlreadyExists,
-        error.PipeBusy,
-        error.ReadOnlyFileSystem,
-        error.SharingViolation,
-        error.SymLinkLoop,
-        error.InvalidWtf8,
-        error.NetworkNotFound,
-        error.SocketNotConnected,
-        => ctx.vm.pushErrorEnum("errors.FileSystemError", @errorName(err)),
-
-        error.BrokenPipe,
-        error.NotOpenForReading,
-        error.OperationAborted,
-        error.LockViolation,
-        => ctx.vm.pushErrorEnum("errors.ReadWriteError", @errorName(err)),
-
-        error.OutOfMemory => {
-            ctx.vm.bz_panic("Out of memory", "Out of memory".len);
-            unreachable;
-        },
-        error.ProcessNotFound => ctx.vm.pushErrorEnum("errors.ExecError", @errorName(err)),
         error.Unexpected => ctx.vm.pushError("errors.UnexpectedError", null),
-        error.Overflow => ctx.vm.pushError("errors.OverflowError", null),
     }
 }
 
-fn handleConnectUnixError(ctx: *api.NativeCtx, err: anytype) void {
+fn handleConnectUnixError(ctx: *api.NativeCtx, err: std.Io.net.UnixAddress.ConnectError) void {
     switch (err) {
-        error.AddressFamilyNotSupported,
-        error.AddressInUse,
-        error.AddressNotAvailable,
-        error.AlreadyConnected,
-        error.ConnectionPending,
-        error.ConnectionRefused,
-        error.ConnectionResetByPeer,
-        error.ConnectionTimedOut,
+        error.AddressFamilyUnsupported,
         error.PermissionDenied,
         error.ProcessFdQuotaExceeded,
-        error.ProtocolFamilyNotAvailable,
-        error.ProtocolNotSupported,
         error.SystemFdQuotaExceeded,
         error.SystemResources,
-        error.SocketTypeNotSupported,
         error.FileNotFound,
         error.WouldBlock,
-        error.NetworkUnreachable,
-        error.NameTooLong,
+        error.NetworkDown,
+        error.ProtocolUnsupportedBySystem,
+        error.SocketModeUnsupported,
+        error.Canceled,
+        error.SymLinkLoop,
+        error.NotDir,
+        error.ReadOnlyFileSystem,
         => ctx.vm.pushErrorEnum("errors.SocketError", @errorName(err)),
 
         error.AccessDenied,
@@ -358,10 +335,18 @@ pub export fn SocketConnect(ctx: *api.NativeCtx) callconv(.c) c_int {
 
     switch (protocol) {
         0 => {
-            const stream = std.net.tcpConnectToHost(
-                api.VM.allocator,
-                address,
+            const host = std.Io.net.HostName.init(address) catch {
+                ctx.vm.pushError("errors.InvalidArgumentError", null);
+
+                return -1;
+            };
+            const stream = host.connect(
+                ctx.getIo(),
                 @as(u16, @intCast(port.?)),
+                .{
+                    .mode = .stream,
+                    .protocol = .tcp,
+                },
             ) catch |err| {
                 handleConnectError(ctx, err);
 
@@ -371,9 +356,9 @@ pub export fn SocketConnect(ctx: *api.NativeCtx) callconv(.c) c_int {
             ctx.vm.bz_push(
                 api.Value.fromInteger(
                     if (builtin.os.tag == .windows)
-                        @intCast(@intFromPtr(stream.handle))
+                        @intCast(@intFromPtr(stream.socket.handle))
                     else
-                        @intCast(stream.handle),
+                        @intCast(stream.socket.handle),
                 ),
             );
 
@@ -393,13 +378,18 @@ pub export fn SocketConnect(ctx: *api.NativeCtx) callconv(.c) c_int {
                 return -1;
             }
 
-            const stream = std.net.connectUnixSocket(address) catch |err| {
+            const unix_address = std.Io.net.UnixAddress.init(address) catch {
+                ctx.vm.pushError("errors.InvalidArgumentError", null);
+
+                return -1;
+            };
+            const stream = unix_address.connect(ctx.getIo()) catch |err| {
                 handleConnectUnixError(ctx, err);
 
                 return -1;
             };
 
-            ctx.vm.bz_push(api.Value.fromInteger(@intCast(stream.handle)));
+            ctx.vm.bz_push(api.Value.fromInteger(@intCast(stream.socket.handle)));
 
             return 1;
         },
@@ -412,14 +402,36 @@ pub export fn SocketConnect(ctx: *api.NativeCtx) callconv(.c) c_int {
 }
 
 pub export fn SocketClose(ctx: *api.NativeCtx) callconv(.c) c_int {
-    const socket: std.posix.socket_t = if (builtin.os.tag == .windows)
+    const handle: std.Io.net.Socket.Handle = if (builtin.os.tag == .windows)
         @ptrFromInt(@as(usize, @intCast(ctx.vm.bz_peek(0).integer())))
     else
         @intCast(
             ctx.vm.bz_peek(0).integer(),
         );
 
-    std.posix.shutdown(socket, .both) catch @panic("Could not stop socket");
+    const stream = std.Io.net.Stream{
+        .socket = .{
+            .address = .{ .ip4 = .unspecified(0) },
+            .handle = handle,
+        },
+    };
+
+    stream.shutdown(ctx.getIo(), .both) catch |err| {
+        switch (err) {
+            error.Canceled,
+            error.ConnectionAborted,
+            error.ConnectionResetByPeer,
+            error.NetworkDown,
+            error.SocketUnconnected,
+            error.SystemResources,
+            => ctx.vm.pushErrorEnum("errors.SocketError", @errorName(err)),
+
+            error.Unexpected,
+            => ctx.vm.pushError("errors.UnexpectedError", null),
+        }
+
+        return -1;
+    };
 
     return 0;
 }
@@ -439,10 +451,15 @@ pub export fn SocketRead(ctx: *api.NativeCtx) callconv(.c) c_int {
             ctx.vm.bz_peek(1).integer(),
         );
 
-    const stream: std.net.Stream = .{ .handle = handle };
+    const stream = std.Io.net.Stream{
+        .socket = .{
+            .address = .{ .ip4 = .unspecified(0) },
+            .handle = handle,
+        },
+    };
     var reader_buffer: [1024]u8 = undefined;
-    var stream_reader = stream.reader(reader_buffer[0..]);
-    var reader = stream_reader.interface();
+    const stream_reader = stream.reader(ctx.getIo(), reader_buffer[0..]);
+    var reader = stream_reader.interface;
 
     var content = std.Io.Writer.Allocating.init(api.VM.allocator);
     defer content.deinit();
@@ -478,42 +495,6 @@ pub export fn SocketRead(ctx: *api.NativeCtx) callconv(.c) c_int {
     return 1;
 }
 
-fn handleReadLineError(ctx: *api.NativeCtx, err: anytype) void {
-    switch (err) {
-        error.AccessDenied,
-        error.InputOutput,
-        error.IsDir,
-        error.SystemResources,
-        error.WouldBlock,
-        error.SocketNotConnected,
-        => ctx.vm.pushErrorEnum("errors.FileSystemError", @errorName(err)),
-
-        error.Canceled,
-        => ctx.vm.pushErrorEnum("errors.SocketError", @errorName(err)),
-
-        error.BrokenPipe,
-        error.ConnectionResetByPeer,
-        error.ConnectionTimedOut,
-        error.NotOpenForReading,
-        error.OperationAborted,
-        error.StreamTooLong,
-        error.LockViolation,
-        => ctx.vm.pushErrorEnum("errors.ReadWriteError", @errorName(err)),
-
-        error.ProcessNotFound,
-        => ctx.vm.pushErrorEnum("errors.ExecError", @errorName(err)),
-
-        error.Unexpected => ctx.vm.pushError("errors.UnexpectedError", null),
-
-        error.OutOfMemory => {
-            ctx.vm.bz_panic("Out of memory", "Out of memory".len);
-            unreachable;
-        },
-
-        error.EndOfStream => {},
-    }
-}
-
 pub export fn SocketReadLine(ctx: *api.NativeCtx) callconv(.c) c_int {
     const handle: std.posix.socket_t = if (builtin.os.tag == .windows)
         @ptrFromInt(@as(usize, @intCast(ctx.vm.bz_peek(1).integer())))
@@ -523,12 +504,17 @@ pub export fn SocketReadLine(ctx: *api.NativeCtx) callconv(.c) c_int {
         );
     const max_size = ctx.vm.bz_peek(0);
 
-    const stream: std.net.Stream = .{ .handle = handle };
+    const stream = std.Io.net.Stream{
+        .socket = .{
+            .address = .{ .ip4 = .unspecified(0) },
+            .handle = handle,
+        },
+    };
     var reader_buffer = [_]u8{0};
-    var stream_reader = stream.reader(reader_buffer[0..]);
+    var stream_reader = stream.reader(ctx.getIo(), reader_buffer[0..]);
     var reader = io.AllocatedReader.init(
         api.VM.allocator,
-        stream_reader.interface(),
+        &stream_reader.interface,
         if (max_size.isInteger()) @intCast(max_size.integer()) else null,
     );
 
@@ -567,12 +553,17 @@ pub export fn SocketReadAll(ctx: *api.NativeCtx) callconv(.c) c_int {
         );
     const max_size = ctx.vm.bz_peek(0);
 
-    const stream = std.net.Stream{ .handle = handle };
+    const stream = std.Io.net.Stream{
+        .socket = .{
+            .address = .{ .ip4 = .unspecified(0) },
+            .handle = handle,
+        },
+    };
     var reader_buffer = [_]u8{0};
-    var stream_reader = stream.reader(reader_buffer[0..]);
+    var stream_reader = stream.reader(ctx.getIo(), reader_buffer[0..]);
     var reader = io.AllocatedReader.init(
         api.VM.allocator,
-        stream_reader.interface(),
+        &stream_reader.interface,
         if (max_size.isInteger()) @intCast(max_size.integer()) else null,
     );
 
@@ -608,7 +599,12 @@ pub export fn SocketWrite(ctx: *api.NativeCtx) callconv(.c) c_int {
             ctx.vm.bz_peek(1).integer(),
         );
 
-    const stream: std.net.Stream = .{ .handle = handle };
+    const stream = std.Io.net.Stream{
+        .socket = .{
+            .address = .{ .ip4 = .unspecified(0) },
+            .handle = handle,
+        },
+    };
 
     var len: usize = 0;
     var value = ctx.vm.bz_peek(0).bz_valueToString(&len);
@@ -617,32 +613,12 @@ pub export fn SocketWrite(ctx: *api.NativeCtx) callconv(.c) c_int {
         return 0;
     }
 
-    _ = stream.write(value.?[0..len]) catch |err| {
+    var writer = stream.writer(ctx.getIo(), &.{});
+
+    _ = writer.interface.write(value.?[0..len]) catch |err| {
         switch (err) {
-            error.SocketNotConnected,
-            error.FileNotFound,
-            error.NameTooLong,
-            error.SymLinkLoop,
-            error.NotDir,
-            error.NetworkSubsystemFailed,
-            error.FileDescriptorNotASocket,
-            error.FastOpenAlreadyInProgress,
-            error.AccessDenied,
-            error.SystemResources,
-            error.WouldBlock,
-            => ctx.vm.pushErrorEnum("errors.FileSystemError", @errorName(err)),
-            error.BrokenPipe,
-            error.ConnectionResetByPeer,
+            error.WriteFailed,
             => ctx.vm.pushErrorEnum("errors.ReadWriteError", @errorName(err)),
-            error.Unexpected,
-            => ctx.vm.pushError("errors.UnexpectedError", null),
-            error.AddressNotAvailable,
-            error.AddressFamilyNotSupported,
-            error.MessageTooBig,
-            error.SocketNotBound,
-            error.ConnectionRefused,
-            error.NetworkUnreachable,
-            => ctx.vm.pushErrorEnum("errors.SocketError", @errorName(err)),
         }
 
         return -1;
@@ -664,7 +640,7 @@ pub export fn SocketServerStart(ctx: *api.NativeCtx) callconv(.c) c_int {
 
     const reuse_address: bool = ctx.vm.bz_peek(0).boolean();
 
-    const resolved_address = std.net.Address.parseIp(
+    const resolved_address = std.Io.net.IpAddress.parse(
         address,
         @intCast(port.?),
     ) catch {
@@ -674,37 +650,24 @@ pub export fn SocketServerStart(ctx: *api.NativeCtx) callconv(.c) c_int {
     };
 
     const server = resolved_address.listen(
+        ctx.getIo(),
         .{
             .reuse_address = reuse_address,
         },
     ) catch |err| {
         switch (err) {
-            error.NoDevice,
-            error.SymLinkLoop,
-            error.NameTooLong,
-            error.FileNotFound,
-            error.NotDir,
-            error.ReadOnlyFileSystem,
-            error.AccessDenied,
+            error.Canceled,
             error.SystemResources,
-            => ctx.vm.pushErrorEnum("errors.FileSystemError", @errorName(err)),
-            error.AlreadyConnected,
-            error.SocketNotBound,
-            error.AddressNotAvailable,
-            error.AlreadyBound,
-            error.InvalidProtocolOption,
-            error.TimeoutTooBig,
-            error.PermissionDenied,
-            error.ProtocolFamilyNotAvailable,
             error.ProcessFdQuotaExceeded,
             error.SystemFdQuotaExceeded,
-            error.ProtocolNotSupported,
-            error.SocketTypeNotSupported,
+            error.NetworkDown,
             error.AddressInUse,
-            error.FileDescriptorNotASocket,
-            error.OperationNotSupported,
-            error.NetworkSubsystemFailed,
-            error.AddressFamilyNotSupported,
+            error.AddressUnavailable,
+            error.ProtocolUnsupportedBySystem,
+            error.ProtocolUnsupportedByAddressFamily,
+            error.SocketModeUnsupported,
+            error.OptionUnsupported,
+            error.AddressFamilyUnsupported,
             => ctx.vm.pushErrorEnum("errors.SocketError", @errorName(err)),
             error.Unexpected => ctx.vm.pushError("errors.UnexpectedError", null),
         }
@@ -715,9 +678,9 @@ pub export fn SocketServerStart(ctx: *api.NativeCtx) callconv(.c) c_int {
     ctx.vm.bz_push(
         api.Value.fromInteger(
             if (builtin.os.tag == .windows)
-                @intCast(@intFromPtr(server.stream.handle))
+                @intCast(@intFromPtr(server.socket.handle))
             else
-                @intCast(server.stream.handle),
+                @intCast(server.socket.handle),
         ),
     );
 
@@ -725,9 +688,13 @@ pub export fn SocketServerStart(ctx: *api.NativeCtx) callconv(.c) c_int {
 }
 
 pub export fn SocketServerAccept(ctx: *api.NativeCtx) callconv(.c) c_int {
-    var server = std.net.Server{
-        .listen_address = undefined, // FIXME: we lose this
-        .stream = std.net.Stream{
+    var server = std.Io.net.Server{
+        .options = if (builtin.os.tag == .windows) .{
+            .mode = .stream,
+            .protocol = .tcp,
+        } else {},
+        .socket = .{
+            .address = .{ .ip4 = .unspecified(0) }, // FIXME: we lose this
             .handle = if (builtin.os.tag == .windows)
                 @ptrFromInt(@as(usize, @intCast(ctx.vm.bz_peek(0).integer())))
             else
@@ -737,7 +704,7 @@ pub export fn SocketServerAccept(ctx: *api.NativeCtx) callconv(.c) c_int {
         },
     };
 
-    const connection = server.accept() catch |err| {
+    const connection = server.accept(ctx.getIo()) catch |err| {
         switch (err) {
             error.ConnectionAborted,
             error.ProcessFdQuotaExceeded,
@@ -746,10 +713,8 @@ pub export fn SocketServerAccept(ctx: *api.NativeCtx) callconv(.c) c_int {
             error.SocketNotListening,
             error.ProtocolFailure,
             error.BlockedByFirewall,
-            error.FileDescriptorNotASocket,
-            error.ConnectionResetByPeer,
-            error.NetworkSubsystemFailed,
-            error.OperationNotSupported,
+            error.Canceled,
+            error.NetworkDown,
             => ctx.vm.pushErrorEnum("errors.SocketError", @errorName(err)),
             error.WouldBlock => ctx.vm.pushErrorEnum("errors.FileSystemError", @errorName(err)),
             error.Unexpected => ctx.vm.pushError("errors.UnexpectedError", null),
@@ -761,9 +726,9 @@ pub export fn SocketServerAccept(ctx: *api.NativeCtx) callconv(.c) c_int {
     ctx.vm.bz_push(
         api.Value.fromInteger(
             if (builtin.os.tag == .windows)
-                @intCast(@intFromPtr(connection.stream.handle))
+                @intCast(@intFromPtr(connection.socket.handle))
             else
-                @intCast(connection.stream.handle),
+                @intCast(connection.socket.handle),
         ),
     );
 

@@ -81,7 +81,6 @@ pub const ExternApi = enum {
 
     bz_valueDump,
     fmod,
-    dumpInt,
     memcpy,
 
     pub fn declare(self: ExternApi, jit: *JIT) !m.MIR_item_t {
@@ -1064,20 +1063,6 @@ pub const ExternApi = enum {
                     },
                 },
             ),
-            .dumpInt => m.MIR_new_proto_arr(
-                ctx,
-                self.pname(),
-                0,
-                &[_]m.MIR_type_t{},
-                1,
-                &[_]m.MIR_var_t{
-                    .{
-                        .type = m.MIR_T_U64,
-                        .name = "value",
-                        .size = undefined,
-                    },
-                },
-            ),
             .memcpy => m.MIR_new_proto_arr(
                 ctx,
                 self.pname(),
@@ -1185,12 +1170,8 @@ pub const ExternApi = enum {
 
             .bz_valueDump => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.Value.bz_valueDump))),
             .fmod => @as(*anyopaque, @ptrFromInt(@intFromPtr(&JIT.fmod))),
-            .dumpInt => @as(*anyopaque, @ptrFromInt(@intFromPtr(&JIT.dumpInt))),
             .memcpy => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.bz_memcpy))),
-            else => {
-                io.print("{s}\n", .{self.name()});
-                unreachable;
-            },
+            else => unreachable,
         };
     }
 

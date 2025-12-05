@@ -6,6 +6,8 @@ const Value = @import("value.zig").Value;
 const obj = @import("obj.zig");
 const _vm = @import("vm.zig");
 const global_allocator = @import("buzz_api.zig").allocator;
+const builtin = @import("builtin");
+const is_wasm = builtin.cpu.arch.isWasm();
 
 const VM = _vm.VM;
 const OpCode = Chunk.OpCode;
@@ -171,8 +173,9 @@ fn tryInstruction(code: OpCode, chunk: *Chunk, offset: usize) usize {
 }
 
 pub fn dumpStack(vm: *VM) void {
-    print("\u{001b}[2m", .{}); // Dimmed
-    print(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>\n", .{});
+    const vm_io = if (is_wasm) {} else vm.process.io;
+    print(vm_io, "\u{001b}[2m", .{}); // Dimmed
+    print(vm_io, ">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>\n", .{});
 
     var value: [*]Value = @ptrCast(vm.current_fiber.stack[0..]);
     var count: usize = 0;
@@ -182,6 +185,7 @@ pub fn dumpStack(vm: *VM) void {
 
         if (vm.currentFrame().?.slots == value) {
             print(
+                vm_io,
                 "{} {} {s} frame\n ",
                 .{
                     @intFromPtr(value),
@@ -191,6 +195,7 @@ pub fn dumpStack(vm: *VM) void {
             );
         } else {
             print(
+                vm_io,
                 "{} {} {s}\n ",
                 .{
                     @intFromPtr(value),
@@ -202,20 +207,21 @@ pub fn dumpStack(vm: *VM) void {
 
         value += 1;
     }
-    print("{} top\n", .{@intFromPtr(vm.current_fiber.stack_top)});
+    print(vm_io, "{} top\n", .{@intFromPtr(vm.current_fiber.stack_top)});
 
-    print("<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<\n\n\n", .{});
-    print("\u{001b}[0m", .{});
+    print(vm_io, "<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<\n\n\n", .{});
+    print(vm_io, "\u{001b}[0m", .{});
 }
 
 pub fn disassembleInstruction(chunk: *Chunk, offset: usize) usize {
-    print("\n{:0>3} ", .{offset});
+    const vm_io = if (is_wasm) {} else std.Options.debug_io;
+    print(vm_io, "\n{:0>3} ", .{offset});
     const lines = chunk.ast.tokens.items(.line);
 
     if (offset > 0 and lines[chunk.locations.items[offset]] == lines[chunk.locations.items[offset - 1]]) {
-        print("|   ", .{});
+        print(vm_io, "|   ", .{});
     } else {
-        print("{:0>3} ", .{lines[chunk.locations.items[offset]]});
+        print(vm_io, "{:0>3} ", .{lines[chunk.locations.items[offset]]});
     }
 
     const full_instruction: u32 = chunk.code.items[offset];
@@ -360,6 +366,7 @@ pub fn disassembleInstruction(chunk: *Chunk, offset: usize) usize {
             defer global_allocator.free(value_str);
 
             print(
+                vm_io,
                 "OP_DBG_GLOBAL_DEFINE\t{} {} {s}",
                 .{
                     slot,
@@ -379,6 +386,7 @@ pub fn disassembleInstruction(chunk: *Chunk, offset: usize) usize {
             defer global_allocator.free(value_str);
 
             print(
+                vm_io,
                 "OP_DBG_LOCAL_ENTER\t{} {} {s}",
                 .{
                     slot,
@@ -398,6 +406,7 @@ pub fn disassembleInstruction(chunk: *Chunk, offset: usize) usize {
             defer global_allocator.free(value_str);
 
             print(
+                vm_io,
                 "{s}\t{} {s}",
                 .{
                     @tagName(instruction),
@@ -414,6 +423,7 @@ pub fn disassembleInstruction(chunk: *Chunk, offset: usize) usize {
                 const index: u8 = @intCast(chunk.code.items[off_offset]);
                 off_offset += 1;
                 print(
+                    vm_io,
                     "\n{:0>3} |                         \t{s} {}\n",
                     .{
                         off_offset - 2,

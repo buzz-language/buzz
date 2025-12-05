@@ -15,8 +15,8 @@ const Reporter = @import("Reporter.zig");
 const BuildOptions = @import("build_options");
 const JIT = if (!is_wasm) @import("Jit.zig") else void;
 const disassembler = @import("disassembler.zig");
-const io = @import("io.zig");
 const TypeChecker = @import("TypeChecker.zig");
+const Init = @import("vm.zig").Init;
 
 const Self = @This();
 
@@ -66,7 +66,7 @@ ast: Ast.Slice = undefined,
 gc: *GC,
 flavor: RunFlavor,
 /// Jump to patch at end of current expression with a optional unwrapping in the middle of it
-opt_jumps: std.ArrayList(std.ArrayList(usize)) = .{},
+opt_jumps: std.ArrayList(std.ArrayList(usize)) = .empty,
 /// Used to generate error messages
 parser: *Parser,
 jit: ?*JIT,
@@ -142,6 +142,7 @@ const generators = [_]?NodeGen{
 };
 
 pub fn init(
+    process: Init,
     gc: *GC,
     parser: *Parser,
     flavor: RunFlavor,
@@ -152,7 +153,8 @@ pub fn init(
         .gc = gc,
         .parser = parser,
         .flavor = flavor,
-        .reporter = Reporter{
+        .reporter = .{
+            .process = process,
             .allocator = gc.allocator,
             .error_prefix = "Compile",
             .collect = flavor == .Ast,
@@ -1187,7 +1189,7 @@ fn generateDot(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.
                 .Value => {
                     const value = components.value_or_call_or_enum.Value.value;
                     const assign_token = components.value_or_call_or_enum.Value.assign_token;
-                    var value_type_def = type_defs[value].?;
+                    const value_type_def = type_defs[value].?;
                     if (value_type_def.def_type == .Placeholder) {
                         self.reporter.reportPlaceholder(self.ast, value_type_def.resolved_type.?.Placeholder);
                     }
@@ -1351,7 +1353,7 @@ fn generateDoUntil(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*
 
     const loop_start = self.currentCode();
 
-    var lbreaks = Breaks{};
+    var lbreaks = Breaks.empty;
     defer lbreaks.deinit(self.gc.allocator);
 
     _ = try self.generateNode(components.body, &lbreaks);
@@ -1535,7 +1537,7 @@ fn generateFor(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.
 
     self.patchJump(body_jump);
 
-    var lbreaks = Breaks{};
+    var lbreaks = Breaks.empty;
     defer lbreaks.deinit(self.gc.allocator);
 
     _ = try self.generateNode(components.body, &lbreaks);
@@ -1653,7 +1655,7 @@ fn generateForEach(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*
     const exit_jump: usize = try self.OP_JUMP_IF_FALSE(locations[node]);
     try self.OP_POP(locations[node]); // Pop condition result
 
-    var lbreaks = Breaks{};
+    var lbreaks = Breaks.empty;
     defer lbreaks.deinit(self.gc.allocator);
 
     _ = try self.generateNode(components.body, &lbreaks);
@@ -1891,7 +1893,6 @@ fn generateFunction(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?
 
     if (BuildOptions.debug) {
         disassembler.disassembleChunk(&current_function.chunk, current_function.type_def.resolved_type.?.Function.name.string);
-        io.print("\n\n", .{});
     }
 
     self.current = frame.enclosing;
@@ -2882,7 +2883,7 @@ fn generateUnwrap(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*o
     const jump = try self.OP_JUMP_IF_FALSE(location);
 
     if (self.opt_jumps.items.len == 0 or components.start_opt_jumps) {
-        try self.opt_jumps.append(self.gc.allocator, .{});
+        try self.opt_jumps.append(self.gc.allocator, .empty);
     } else if (self.opt_jumps.items.len == 0) {
         @panic("Unwrap node not marked as starting opt_jumps but not ongoing opt_jumps");
     }
@@ -2966,7 +2967,7 @@ fn generateWhile(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*ob
     const exit_jump = try self.OP_JUMP_IF_FALSE(location);
     try self.OP_POP(location);
 
-    var while_breaks = Breaks{};
+    var while_breaks = Breaks.empty;
     defer while_breaks.deinit(self.gc.allocator);
 
     _ = try self.generateNode(components.body, &while_breaks);
@@ -3021,25 +3022,13 @@ fn generateZdef(self: *Self, node: Ast.Node.Index, _: ?*Breaks) Error!?*obj.ObjF
             switch (element.zdef.type_def.def_type) {
                 .Function => {
                     if (element.obj_native == null) {
-                        var timer = if (!is_wasm) std.time.Timer.start() catch unreachable else {};
-
                         element.obj_native = try self.jit.?.compileZdef(self.ast, element.*);
-
-                        if (!is_wasm) {
-                            self.jit.?.jit_time += timer.read();
-                        }
 
                         try self.emitConstant(location, element.obj_native.?.toValue());
                     }
                 },
                 .ForeignContainer => {
-                    var timer = if (!is_wasm) std.time.Timer.start() catch unreachable else {};
-
                     try self.jit.?.compileZdefContainer(self.ast, element.*);
-
-                    if (!is_wasm) {
-                        self.jit.?.jit_time += timer.read();
-                    }
 
                     try self.emitConstant(location, element.zdef.type_def.toValue());
                 },

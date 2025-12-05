@@ -40,7 +40,7 @@ pub const Slice = struct {
         const components = self.nodes.items(.components);
 
         // Hold previous node's leaves
-        var node_queue = std.ArrayList(Node.Index){};
+        var node_queue = std.ArrayList(Node.Index).empty;
         try node_queue.append(allocator, root);
         defer node_queue.deinit(allocator);
 
@@ -647,7 +647,7 @@ pub const Slice = struct {
                 } else if (right_integer) |ri| {
                     return Value.fromInteger(ri +% left_integer.?);
                 } else if (right_list) |rl| {
-                    var new_list = std.ArrayList(Value){};
+                    var new_list = std.ArrayList(Value).empty;
                     try new_list.appendSlice(gc.allocator, left_list.?.items.items);
                     try new_list.appendSlice(gc.allocator, rl.items.items);
 

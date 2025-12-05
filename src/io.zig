@@ -6,54 +6,65 @@ const builtin = @import("builtin");
 const is_wasm = builtin.cpu.arch.isWasm();
 const wasm = @import("wasm.zig");
 
-var fs_stderr_writer = std.fs.File.stderr().writer(&.{});
-var wasm_stderr_writer: std.Io.Writer = .{
-    .buffer = &.{},
-    .vtable = &.{
-        .drain = wasm.WasmStderrWriter.drain,
-    },
-};
-
-pub var stderrWriter = if (!is_wasm)
-    &fs_stderr_writer.interface
+pub const Io = if (is_wasm)
+    void
 else
-    &wasm_stderr_writer;
+    std.Io;
 
-var fs_stdout_writer = std.fs.File.stdout().writer(&.{});
-var wasm_stdout_writer: std.Io.Writer = .{
-    .buffer = &.{},
-    .vtable = &.{
-        .drain = wasm.WasmStdoutWriter.drain,
-    },
-};
-
-pub var stdoutWriter = if (!is_wasm)
-    &fs_stdout_writer.interface
-else
-    &wasm_stdout_writer;
-
-pub fn stdinReader(buffer: []u8) std.Io.Reader {
+pub fn stdoutWriter(io: Io) std.Io.File.Writer {
     return if (!is_wasm)
-        std.fs.File.stdin().reader(buffer).interface
+        std.Io.File.stdout().writer(io, &.{})
     else
         .{
-            .end = 0,
-            .seek = 0,
-            .buffer = buffer,
-            .vtable = &.{
-                .stream = wasm.WasmStdinReader.stream,
+            .io = undefined,
+            .file = undefined,
+            .interface = .{
+                .buffer = &.{},
+                .vtable = &.{
+                    .drain = wasm.WasmStdoutWriter.drain,
+                },
             },
         };
 }
 
-var stderr_mutex = std.Thread.Mutex{};
+pub fn stderrWriter(io: Io) std.Io.File.Writer {
+    return if (!is_wasm)
+        std.Io.File.stderr().writer(io, &.{})
+    else
+        .{
+            .io = undefined,
+            .file = undefined,
+            .interface = .{
+                .buffer = &.{},
+                .vtable = &.{
+                    .drain = wasm.WasmStderrWriter.drain,
+                },
+            },
+        };
+}
 
-pub fn print(comptime fmt: []const u8, args: anytype) void {
+pub fn stdinReader(io: Io, buffer: []u8) std.Io.File.Reader {
+    return if (!is_wasm)
+        std.Io.File.stdin().reader(io, buffer)
+    else
+        .{
+            .io = undefined,
+            .file = undefined,
+            .interface = .{
+                .end = 0,
+                .seek = 0,
+                .buffer = buffer,
+                .vtable = &.{
+                    .stream = wasm.WasmStdinReader.stream,
+                },
+            },
+        };
+}
+
+pub fn print(io: Io, comptime fmt: []const u8, args: anytype) void {
     if (is_wasm) {
-        stderr_mutex.lock();
-        defer stderr_mutex.unlock();
-
-        stderrWriter.print(fmt, args) catch return;
+        var writer = stderrWriter(io);
+        writer.interface.print(fmt, args) catch return;
     } else {
         std.debug.print(fmt, args);
     }

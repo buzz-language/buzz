@@ -18,14 +18,14 @@ const dumpStack = @import("disassembler.zig").dumpStack;
 const ZigType = @import("zigtypes.zig").Type;
 const Token = @import("Token.zig");
 const Ast = @import("Ast.zig");
-const io = @import("io.zig");
+const print = @import("io.zig").print;
 
 pub const os = if (is_wasm)
     @import("wasm.zig")
 else
     std.os;
 
-var gpa = std.heap.GeneralPurposeAllocator(.{
+var gpa = std.heap.DebugAllocator(.{
     .safety = builtin.mode == .Debug,
 }){};
 
@@ -84,18 +84,19 @@ export fn bz_valueToCString(value: v.Value) callconv(.c) ?[*:0]const u8 {
 }
 
 fn valueDump(value: v.Value, vm: *VM, seen: *std.AutoHashMapUnmanaged(*o.Obj, void), depth: usize) void {
+    const io = if (is_wasm) {} else vm.process.io;
     if (depth > 50) {
-        io.print("...", .{});
+        print(io, "...", .{});
         return;
     }
 
     if (value.isNull()) {
-        io.print("null", .{});
+        print(io, "null", .{});
     } else if (!value.isObj() or seen.get(value.obj()) != null) {
         const string = value.toStringAlloc(vm.gc.allocator) catch @panic("Out of memory");
         defer vm.gc.allocator.free(string);
 
-        io.print("{s}", .{string});
+        print(io, "{s}", .{string});
     } else {
         seen.put(vm.gc.allocator, value.obj(), {}) catch unreachable;
 
@@ -112,7 +113,7 @@ fn valueDump(value: v.Value, vm: *VM, seen: *std.AutoHashMapUnmanaged(*o.Obj, vo
                 const string = value.toStringAlloc(vm.gc.allocator) catch @panic("Out of memory");
                 defer vm.gc.allocator.free(string);
 
-                io.print("{s}", .{string});
+                print(io, "{s}", .{string});
             },
 
             .UpValue => {
@@ -124,19 +125,20 @@ fn valueDump(value: v.Value, vm: *VM, seen: *std.AutoHashMapUnmanaged(*o.Obj, vo
             .String => {
                 const string = o.ObjString.cast(value.obj()).?;
 
-                io.print("\"{s}\"", .{string.string});
+                print(io, "\"{s}\"", .{string.string});
             },
 
             .Pattern => {
                 const pattern = o.ObjPattern.cast(value.obj()).?;
 
-                io.print("$\"{s}\"", .{pattern.source});
+                print(io, "$\"{s}\"", .{pattern.source});
             },
 
             .List => {
                 const list = o.ObjList.cast(value.obj()).?;
 
-                io.print(
+                print(
+                    io,
                     "{s}[ ",
                     .{
                         if (list.type_def.resolved_type.?.List.mutable)
@@ -147,21 +149,22 @@ fn valueDump(value: v.Value, vm: *VM, seen: *std.AutoHashMapUnmanaged(*o.Obj, vo
                 );
                 for (list.items.items) |item| {
                     valueDump(item, vm, seen, depth + 1);
-                    io.print(", ", .{});
+                    print(io, ", ", .{});
                 }
-                io.print("]", .{});
+                print(io, "]", .{});
             },
 
             .Range => {
                 const range = o.ObjRange.cast(value.obj()).?;
 
-                io.print("{}..{}", .{ range.low, range.high });
+                print(io, "{}..{}", .{ range.low, range.high });
             },
 
             .Map => {
                 const map = o.ObjMap.cast(value.obj()).?;
 
-                io.print(
+                print(
+                    io,
                     "{s}{{ ",
                     .{
                         if (map.type_def.resolved_type.?.Map.mutable)
@@ -175,18 +178,19 @@ fn valueDump(value: v.Value, vm: *VM, seen: *std.AutoHashMapUnmanaged(*o.Obj, vo
                     const key = kv.key_ptr.*;
 
                     valueDump(key, vm, seen, depth + 1);
-                    io.print(": ", .{});
+                    print(io, ": ", .{});
                     valueDump(kv.value_ptr.*, vm, seen, depth + 1);
-                    io.print(", ", .{});
+                    print(io, ", ", .{});
                 }
-                io.print("}}", .{});
+                print(io, "}}", .{});
             },
 
             .Enum => {
                 const enumeration = o.ObjEnum.cast(value.obj()).?;
                 const enum_type_def = enumeration.type_def.resolved_type.?.Enum;
 
-                io.print(
+                print(
+                    io,
                     "enum({s}) {s} {{ ",
                     .{
                         enum_type_def.name.string,
@@ -194,28 +198,28 @@ fn valueDump(value: v.Value, vm: *VM, seen: *std.AutoHashMapUnmanaged(*o.Obj, vo
                     },
                 );
                 for (enum_type_def.cases, 0..) |case, i| {
-                    io.print("{s} -> ", .{case});
+                    print(io, "{s} -> ", .{case});
                     valueDump(enumeration.cases[i], vm, seen, depth);
-                    io.print(", ", .{});
+                    print(io, ", ", .{});
                 }
-                io.print("}}", .{});
+                print(io, "}}", .{});
             },
 
             .Object => {
                 const object = o.ObjObject.cast(value.obj()).?;
                 const object_def = object.type_def.resolved_type.?.Object;
 
-                io.print("object", .{});
+                print(io, "object", .{});
                 if (object_def.conforms_to.count() > 0) {
-                    io.print("(", .{});
+                    print(io, "(", .{});
                     var it = object_def.conforms_to.iterator();
                     while (it.next()) |kv| {
-                        io.print("{s}, ", .{kv.key_ptr.*.resolved_type.?.Protocol.name.string});
+                        print(io, "{s}, ", .{kv.key_ptr.*.resolved_type.?.Protocol.name.string});
                     }
-                    io.print(")", .{});
+                    print(io, ")", .{});
                 }
 
-                io.print(" {s} {{ ", .{object_def.name.string});
+                print(io, " {s} {{ ", .{object_def.name.string});
 
                 {
                     var it = object_def.fields.iterator();
@@ -227,7 +231,8 @@ fn valueDump(value: v.Value, vm: *VM, seen: *std.AutoHashMapUnmanaged(*o.Obj, vo
                         defer vm.gc.allocator.free(field_type_str);
 
                         if (!field.method) {
-                            io.print(
+                            print(
+                                io,
                                 "{s}{s}{s}: {s}",
                                 .{
                                     if (field.static) "static" else "",
@@ -244,13 +249,14 @@ fn valueDump(value: v.Value, vm: *VM, seen: *std.AutoHashMapUnmanaged(*o.Obj, vo
                             else
                                 null) |val|
                             {
-                                io.print(" = ", .{});
+                                print(io, " = ", .{});
                                 valueDump(val, vm, seen, depth + 1);
                             }
 
-                            io.print(", ", .{});
+                            print(io, ", ", .{});
                         } else {
-                            io.print(
+                            print(
+                                io,
                                 "{s}{s}, ",
                                 .{
                                     if (field.mutable) "mut " else "",
@@ -261,7 +267,7 @@ fn valueDump(value: v.Value, vm: *VM, seen: *std.AutoHashMapUnmanaged(*o.Obj, vo
                     }
                 }
 
-                io.print("}}", .{});
+                print(io, "}}", .{});
             },
 
             .ObjectInstance => {
@@ -269,7 +275,8 @@ fn valueDump(value: v.Value, vm: *VM, seen: *std.AutoHashMapUnmanaged(*o.Obj, vo
                 const object_def = object_instance.type_def.resolved_type.?.ObjectInstance.of
                     .resolved_type.?.Object;
 
-                io.print(
+                print(
+                    io,
                     "{s}{s}{{ ",
                     .{
                         if (object_instance.type_def.resolved_type.?.ObjectInstance.mutable)
@@ -285,31 +292,32 @@ fn valueDump(value: v.Value, vm: *VM, seen: *std.AutoHashMapUnmanaged(*o.Obj, vo
 
                 var it = object_def.fields.iterator();
                 while (it.next()) |field| {
-                    io.print("{s} = ", .{field.value_ptr.name});
+                    print(io, "{s} = ", .{field.value_ptr.name});
                     valueDump(
                         object_instance.fields[field.value_ptr.index],
                         vm,
                         seen,
                         depth + 1,
                     );
-                    io.print(", ", .{});
+                    print(io, ", ", .{});
                 }
 
-                io.print("}}", .{});
+                print(io, "}}", .{});
             },
 
             .ForeignContainer => {
                 const foreign = o.ObjForeignContainer.cast(value.obj()).?;
                 const foreign_def = foreign.type_def.resolved_type.?.ForeignContainer;
 
-                io.print(
+                print(
+                    io,
                     "{s}{{ ",
                     .{foreign_def.name.string},
                 );
 
                 var it = foreign_def.fields.iterator();
                 while (it.next()) |kv| {
-                    io.print("{s} = ", .{kv.key_ptr.*});
+                    print(io, "{s} = ", .{kv.key_ptr.*});
                     valueDump(
                         kv.value_ptr.*.getter(
                             vm,
@@ -319,9 +327,9 @@ fn valueDump(value: v.Value, vm: *VM, seen: *std.AutoHashMapUnmanaged(*o.Obj, vo
                         seen,
                         depth + 1,
                     );
-                    io.print(", ", .{});
+                    print(io, ", ", .{});
                 }
-                io.print("}}", .{});
+                print(io, "}}", .{});
             },
         }
 
@@ -534,7 +542,7 @@ export fn bz_listConcat(list: v.Value, other_list: v.Value, vm: *VM) callconv(.c
     const left: *o.ObjList = o.ObjList.cast(list.obj()).?;
     const right: *o.ObjList = o.ObjList.cast(other_list.obj()).?;
 
-    var new_list = std.ArrayList(v.Value){};
+    var new_list = std.ArrayList(v.Value).empty;
     new_list.appendSlice(vm.gc.allocator, left.items.items) catch @panic("Could not concatenate lists");
     new_list.appendSlice(vm.gc.allocator, right.items.items) catch @panic("Could not concatenate lists");
 
@@ -583,24 +591,8 @@ export fn bz_getUserDataPtr(userdata: v.Value) callconv(.c) u64 {
     return o.ObjUserData.cast(userdata.obj()).?.userdata;
 }
 
-export fn bz_newVM() *VM {
-    const vm = allocator.create(VM) catch @panic("Out of memory");
-    var gc = allocator.create(GC) catch @panic("Out of memory");
-    // FIXME: should share strings between gc
-    gc.* = GC.init(allocator) catch @panic("Out of memory");
-    gc.type_registry = TypeRegistry.init(gc) catch @panic("Out of memory");
-    const import_registry = allocator.create(ImportRegistry) catch @panic("Out of memory");
-    import_registry.* = .{};
-
-    // FIXME: give reference to JIT?
-    vm.* = VM.init(
-        gc,
-        import_registry,
-        .Run,
-        null,
-    ) catch @panic("Out of memory");
-
-    return vm;
+export fn bz_newVM(host: *VM) callconv(.c) *VM {
+    return host.initFrom() catch @panic("Out of memory");
 }
 
 export fn bz_deinitVM(self: *VM) callconv(.c) void {
@@ -627,12 +619,14 @@ export fn bz_run(
     var imports = std.StringHashMapUnmanaged(Parser.ScriptImport){};
     var strings = std.StringHashMapUnmanaged(*o.ObjString).empty;
     var parser = Parser.init(
+        self.process,
         self.gc,
         &imports,
         false,
         self.flavor,
     );
     var codegen = CodeGen.init(
+        self.process,
         self.gc,
         &parser,
         self.flavor,
@@ -1176,6 +1170,7 @@ export fn bz_context(ctx: *o.NativeCtx, closure_value: v.Value, new_ctx: *o.Nati
     }
 
     new_ctx.* = o.NativeCtx{
+        .process = ctx.process,
         .vm = ctx.vm,
         .globals = if (closure) |cls| cls.globals.items.ptr else ctx.globals,
         .upvalues = if (closure) |cls| cls.upvalues.ptr else ctx.upvalues,
@@ -1241,8 +1236,16 @@ export fn bz_closure(
 }
 
 export fn bz_dumpStack(ctx: *o.NativeCtx, off: usize) callconv(.c) void {
-    io.print("base is {}, top is {}\n", .{ @intFromPtr(ctx.base), @intFromPtr(ctx.vm.current_fiber.stack_top) });
-    io.print("#{}:\n", .{off});
+    const io = if (is_wasm) {} else ctx.vm.process.io;
+    print(
+        io,
+        "base is {}, top is {}\n",
+        .{
+            @intFromPtr(ctx.base),
+            @intFromPtr(ctx.vm.current_fiber.stack_top),
+        },
+    );
+    print(io, "#{}:\n", .{off});
     dumpStack(ctx.vm);
 }
 

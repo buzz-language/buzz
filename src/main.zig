@@ -3,6 +3,7 @@ const builtin = @import("builtin");
 const Allocator = std.mem.Allocator;
 const _vm = @import("vm.zig");
 const VM = _vm.VM;
+const Init = _vm.Init;
 const RunFlavor = _vm.RunFlavor;
 const ImportRegistry = _vm.ImportRegistry;
 const Parser = @import("Parser.zig");
@@ -32,10 +33,8 @@ pub const os = if (is_wasm)
 else
     std.os;
 
-pub fn main() u8 {
-    if (is_wasm) {
-        return 1;
-    }
+pub fn main(init: Init) u8 {
+    if (is_wasm) unreachable;
 
     // DebugAllocator recently got super slow, will put this back on once its fixed
     // var gpa = std.heap.DebugAllocator(.{ .safety = builtin.mode == .Debug }){};
@@ -45,7 +44,7 @@ pub fn main() u8 {
     const allocator = if (BuildOptions.mimalloc)
         @import("mimalloc.zig").mim_allocator
     else
-        std.heap.c_allocator;
+        init.gpa;
 
     const params = comptime clap.parseParamsComptime(
         \\-h, --help             Show help and exit
@@ -58,41 +57,45 @@ pub fn main() u8 {
         \\
     );
 
+    var stderr = io.stderrWriter(init.io);
+    var stdout = io.stdoutWriter(init.io);
+
     var diag = clap.Diagnostic{};
     var res = clap.parse(
         clap.Help,
         &params,
         clap.parsers.default,
+        init.minimal.args,
         .{
             .allocator = allocator,
             .diagnostic = &diag,
         },
     ) catch |err| {
         // Report useful error and exit
-        diag.report(io.stderrWriter, err) catch {};
+        diag.report(&stderr.interface, err) catch {};
         return 1;
     };
     defer res.deinit();
 
     if (res.args.version == 1) {
-        _repl.printBanner(io.stdoutWriter, true);
+        _repl.printBanner(&stdout.interface, true);
 
         return 0;
     }
 
     if (res.args.help == 1) {
-        io.print("👨‍🚀 buzz A small/lightweight typed scripting language\n\nUsage: buzz ", .{});
+        io.print(init.io, "👨‍🚀 buzz A small/lightweight typed scripting language\n\nUsage: buzz ", .{});
 
         clap.usage(
-            io.stderrWriter,
+            &stderr.interface,
             clap.Help,
             &params,
         ) catch return 1;
 
-        io.print("\n\n", .{});
+        io.print(init.io, "\n\n", .{});
 
         clap.help(
-            io.stderrWriter,
+            &stderr.interface,
             clap.Help,
             &params,
             .{
@@ -127,12 +130,17 @@ pub fn main() u8 {
         .Run;
 
     if (!is_wasm and flavor == .Repl) {
-        repl(allocator) catch {
+        repl(init, allocator) catch {
             return 1;
         };
     } else if (!is_wasm and res.positionals[0].len > 0) {
         var runner: Runner = undefined;
-        runner.init(allocator, flavor, null) catch {
+        runner.init(
+            init,
+            allocator,
+            flavor,
+            null,
+        ) catch {
             return 1;
         };
 
@@ -143,9 +151,9 @@ pub fn main() u8 {
             return 1;
         };
     } else if (is_wasm) {
-        io.print("NYI wasm repl", .{});
+        io.print(init.io, "NYI wasm repl", .{});
     } else {
-        io.print("Nothing to run", .{});
+        io.print(init.io, "Nothing to run", .{});
     }
 
     return 0;

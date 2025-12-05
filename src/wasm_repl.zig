@@ -1,7 +1,9 @@
 const std = @import("std");
+const is_wasm = builtin.cpu.arch.isWasm();
 const builtin = @import("builtin");
 const _vm = @import("vm.zig");
 const VM = _vm.VM;
+const Init = _vm.Init;
 const ImportRegistry = _vm.ImportRegistry;
 const wasm = @import("wasm.zig");
 const BuildOptions = @import("build_options");
@@ -25,13 +27,24 @@ pub const ReplCtx = extern struct {
     codegen: *CodeGen,
 };
 
-// TODO: use std.heap.WasmAllocataor?
-var gpa = std.heap.GeneralPurposeAllocator(.{
-    .safety = builtin.mode == .Debug,
-}){};
-const allocator = gpa.allocator();
+const allocator = if (builtin.single_threaded)
+    std.heap.wasm_allocator
+else
+    std.heap.smp_allocator;
 
 pub export fn initRepl() *ReplCtx {
+    if (!is_wasm) unreachable;
+
+    const arena = allocator.create(std.heap.ArenaAllocator) catch unreachable;
+    arena.* = std.heap.ArenaAllocator.init(allocator);
+    const environ_map = allocator.create(std.process.Environ.Map) catch unreachable;
+    environ_map.* = .init(allocator);
+
+    const process: Init = .{
+        .environ = .empty,
+        .args = undefined,
+    };
+
     const import_registry = allocator.create(ImportRegistry) catch unreachable;
     import_registry.* = .{};
 
@@ -44,6 +57,7 @@ pub export fn initRepl() *ReplCtx {
 
     const vm = allocator.create(VM) catch unreachable;
     vm.* = try VM.init(
+        process,
         gc,
         import_registry,
         .Repl,
@@ -52,6 +66,7 @@ pub export fn initRepl() *ReplCtx {
 
     const parser = vm.gc.allocator.create(Parser) catch unreachable;
     parser.* = Parser.init(
+        process,
         gc,
         imports,
         false,
@@ -60,6 +75,7 @@ pub export fn initRepl() *ReplCtx {
 
     const codegen = vm.gc.allocator.create(CodeGen) catch unreachable;
     codegen.* = CodeGen.init(
+        process,
         gc,
         parser,
         .Repl,
@@ -67,7 +83,8 @@ pub export fn initRepl() *ReplCtx {
         false,
     );
 
-    printBanner(io.stdoutWriter, true);
+    var stdout = io.stdoutWriter({});
+    printBanner(&stdout.interface, true);
 
     // Import std and debug as commodity
     _ = runSource(
@@ -77,7 +94,7 @@ pub export fn initRepl() *ReplCtx {
         codegen,
         parser,
     ) catch |err| {
-        io.print("Failed with error: {}\n", .{err});
+        io.print({}, "Failed with error: {}\n", .{err});
 
         unreachable;
     };
@@ -93,14 +110,16 @@ pub export fn initRepl() *ReplCtx {
 }
 
 pub export fn runLine(ctx: *ReplCtx) void {
-    var stdout = io.stdoutWriter;
-    var stderr = io.stderrWriter;
+    if (!is_wasm) unreachable;
+
+    var stdout = io.stdoutWriter({});
+    var stderr = io.stderrWriter({});
 
     var reader_buffer = [_]u8{0};
-    var stdin_reader = io.stdinReader(reader_buffer[0..]);
+    var stdin_reader = io.stdinReader({}, reader_buffer[0..]);
     var stdin = io.AllocatedReader.init(
         ctx.vm.gc.allocator,
-        &stdin_reader,
+        &stdin_reader.interface,
         null,
     );
 
@@ -163,9 +182,9 @@ pub export fn runLine(ctx: *ReplCtx) void {
                 "REPL",
                 value_str.written(),
             );
-            scanner.highlight(stdout, false);
+            scanner.highlight(&stdout.interface, false);
 
-            stdout.writeAll("\n") catch unreachable;
+            stdout.interface.writeAll("\n") catch unreachable;
         }
     } else {
         // We might have declared new globals, types, etc. and encounter an error

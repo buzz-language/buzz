@@ -16,7 +16,7 @@ test "Write & read a file" {
 
     fileB.close();
 
-    fs\delete("./hello.txt");
+    fs\deleteFile("./hello.txt");
 }
 
 test "Write on stdout" {

@@ -11,7 +11,7 @@ const VM = r.VM;
 const ZigType = @import("zigtypes.zig").Type;
 const ExternApi = @import("jit_extern_api.zig").ExternApi;
 const api = @import("lib/buzz_api.zig");
-const io = @import("io.zig");
+const bz_io = @import("io.zig");
 const Chunk = @import("Chunk.zig");
 const Token = @import("Token.zig");
 
@@ -114,8 +114,6 @@ required_ext_api: std.AutoHashMapUnmanaged(ExternApi, void) = .empty,
 modules: std.ArrayList(m.MIR_module_t) = .empty,
 /// Call count of all functions
 call_count: u128 = 0,
-/// Keeps track of time spent in the JIT
-jit_time: usize = 0,
 /// Closures already compiled (hash is bytecode list), useful to compile once a function
 compiled_functions_bodies: Chunk.HashMap(CompiledFunction) = .empty,
 
@@ -161,7 +159,7 @@ pub fn compileFunction(self: *Self, ast: Ast.Slice, closure: *o.ObjClosure) Erro
         function.native_raw = compiled.native_raw;
 
         if (BuildOptions.jit_debug) {
-            io.print("Reusing previous compilation\n", .{});
+            bz_io.print(self.vm.io, "Reusing previous compilation\n", .{});
         }
 
         return;
@@ -174,7 +172,8 @@ pub fn compileFunction(self: *Self, ast: Ast.Slice, closure: *o.ObjClosure) Erro
         ast_node,
     )) {
         if (BuildOptions.jit_debug) {
-            io.print(
+            bz_io.print(
+                self.vm.io,
                 "Not compiling node {s}#{}, likely because it uses a fiber\n",
                 .{
                     @tagName(ast.nodes.items(.tag)[ast_node]),
@@ -261,7 +260,8 @@ pub fn compileHotSpot(self: *Self, ast: Ast.Slice, closure: *o.ObjClosure, hotsp
         hotspot_node,
     )) {
         if (BuildOptions.jit_debug) {
-            io.print(
+            bz_io.print(
+                self.vm.io,
                 "Not compiling node {s}#{}, likely because it uses a fiber\n",
                 .{
                     @tagName(ast.nodes.items(.tag)[hotspot_node]),
@@ -358,7 +358,8 @@ fn buildCollateralFunctions(self: *Self, ast: Ast.Slice) Error!void {
             }
 
             if (BuildOptions.jit_debug) {
-                io.print(
+                bz_io.print(
+                    self.vm.io,
                     "Building collateral function node #{}\n",
                     .{
                         node,
@@ -405,7 +406,8 @@ fn buildFunction(self: *Self, ast: Ast.Slice, closure: ?*o.ObjClosure, ast_node:
         try self.compiled_nodes.put(self.vm.gc.allocator, uclosure.function.node, {});
 
         if (BuildOptions.jit_debug) {
-            io.print(
+            bz_io.print(
+                self.vm.io,
                 "Compiling function `{s}` because it was called {}/{} times\n",
                 .{
                     qualified_name,
@@ -419,7 +421,8 @@ fn buildFunction(self: *Self, ast: Ast.Slice, closure: ?*o.ObjClosure, ast_node:
 
         if (BuildOptions.jit_debug) {
             if (tag.isHotspot()) {
-                io.print(
+                bz_io.print(
+                    self.vm.io,
                     "Compiling hotspot for node {s} {}\n",
                     .{
                         @tagName(self.state.?.ast.nodes.items(.tag)[ast_node]),
@@ -427,7 +430,8 @@ fn buildFunction(self: *Self, ast: Ast.Slice, closure: ?*o.ObjClosure, ast_node:
                     },
                 );
             } else {
-                io.print(
+                bz_io.print(
+                    self.vm.io,
                     "Compiling closure `{s}`\n",
                     .{
                         qualified_name,
@@ -443,7 +447,7 @@ fn buildFunction(self: *Self, ast: Ast.Slice, closure: ?*o.ObjClosure, ast_node:
         self.generateNode(ast_node)) catch |err| {
         if (err == Error.CantCompile) {
             if (BuildOptions.jit_debug) {
-                io.print("Not compiling `{s}`, likely because it uses a fiber\n", .{qualified_name});
+                bz_io.print(self.vm.io, "Not compiling `{s}`, likely because it uses a fiber\n", .{qualified_name});
             }
 
             m.MIR_finish_func(self.ctx);
@@ -554,7 +558,7 @@ fn generateNode(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
         => return Error.CantCompile,
 
         else => {
-            io.print("{} NYI\n", .{tag});
+            bz_io.print(self.vm.process.io, "{} NYI\n", .{tag});
             unreachable;
         },
     };
@@ -1705,7 +1709,7 @@ fn wrap(self: *Self, def_type: o.ObjTypeDef.Type, value: m.MIR_op_t, dest: m.MIR
 }
 
 fn buildExternApiCall(self: *Self, method: ExternApi, dest: ?m.MIR_op_t, args: []const m.MIR_op_t) !void {
-    var full_args = std.ArrayList(m.MIR_op_t){};
+    var full_args = std.ArrayList(m.MIR_op_t).empty;
     defer full_args.deinit(self.vm.gc.allocator);
 
     try full_args.append(self.vm.gc.allocator, m.MIR_new_ref_op(self.ctx, try method.declare(self)));
@@ -4206,7 +4210,7 @@ fn generateTry(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
     const raise_label = m.MIR_new_label(self.ctx);
     const out_label = m.MIR_new_label(self.ctx);
     const catch_label = m.MIR_new_label(self.ctx);
-    var clause_labels = std.ArrayList(m.MIR_insn_t){};
+    var clause_labels = std.ArrayList(m.MIR_insn_t).empty;
     defer clause_labels.deinit(self.vm.gc.allocator);
 
     for (components.clauses) |_| {
@@ -4470,7 +4474,7 @@ fn generateUnwrap(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
             .{
                 // Store the value on the stack, that spot will be overwritten with the final value of the optional chain
                 .alloca = try self.REG("opt", m.MIR_T_I64),
-                .current_insn = .{},
+                .current_insn = .empty,
             },
         );
     } else if (self.state.?.opt_jumps.items.len == 0) {
@@ -5333,7 +5337,8 @@ fn getQualifiedName(self: *Self, node: Ast.Node.Index, raw: bool) ![]const u8 {
 
         else => {
             if (BuildOptions.debug) {
-                io.print(
+                bz_io.print(
+                    self.vm.io,
                     "Ast {s} node are not valid hotspots",
                     .{
                         @tagName(tag),
@@ -5364,7 +5369,8 @@ pub fn compileZdefContainer(self: *Self, ast: Ast.Slice, zdef_element: Ast.Zdef.
     defer m.MIR_finish_module(self.ctx);
 
     if (BuildOptions.jit_debug) {
-        io.print(
+        bz_io.print(
+            self.vm.io,
             "Compiling zdef struct getters/setters for `{s}` of type `{s}`\n",
             .{
                 zdef_element.zdef.name,
@@ -5377,11 +5383,8 @@ pub fn compileZdefContainer(self: *Self, ast: Ast.Slice, zdef_element: Ast.Zdef.
     self.state = .{
         .ast = ast,
         .module = module,
-        .prototypes = .{},
         .ast_node = undefined,
-        .registers = .{},
         .closure = undefined,
-        .breaks_label = .{},
     };
     defer self.reset(self.vm.gc.allocator);
 
@@ -5649,7 +5652,8 @@ pub fn compileZdef(self: *Self, buzz_ast: Ast.Slice, zdef: Ast.Zdef.ZdefElement)
     defer m.MIR_finish_module(self.ctx);
 
     if (BuildOptions.jit_debug) {
-        io.print(
+        bz_io.print(
+            self.vm.io,
             "Compiling zdef wrapper for `{s}` of type `{s}`\n",
             .{
                 zdef.zdef.name,
@@ -5662,11 +5666,8 @@ pub fn compileZdef(self: *Self, buzz_ast: Ast.Slice, zdef: Ast.Zdef.ZdefElement)
     self.state = .{
         .ast = buzz_ast,
         .module = module,
-        .prototypes = .{},
         .ast_node = undefined,
-        .registers = .{},
         .closure = undefined,
-        .breaks_label = .{},
     };
     defer self.reset(self.vm.gc.allocator);
 
@@ -5756,10 +5757,7 @@ fn zigToMIRRegType(zig_type: ZigType) m.MIR_type_t {
         .Struct => unreachable, //m.MIR_T_BLK,
         // Optional are only allowed on pointers
         .Optional => m.MIR_T_I64,
-        else => {
-            io.print("{}\n", .{zig_type});
-            unreachable;
-        },
+        else => unreachable,
     };
 }
 
@@ -5828,10 +5826,10 @@ fn buildZdefWrapper(self: *Self, zdef_element: Ast.Zdef.ZdefElement) Error!m.MIR
     const zig_function_def = zdef_element.zdef.zig_type;
 
     // Get arguments from stack
-    var full_args = std.ArrayList(m.MIR_op_t){};
+    var full_args = std.ArrayList(m.MIR_op_t).empty;
     defer full_args.deinit(self.vm.gc.allocator);
 
-    var arg_types = std.ArrayList(m.MIR_var_t){};
+    var arg_types = std.ArrayList(m.MIR_var_t).empty;
     defer arg_types.deinit(self.vm.gc.allocator);
 
     for (zig_function_def.Fn.params) |param| {
@@ -7324,10 +7322,6 @@ fn outputModule(self: *Self, name: []const u8, module: m.MIR_module_t) void {
     );
 }
 
-pub fn fmod(lhs: v.Double, rhs: v.Double) Value {
-    return Value.fromDouble(@mod(lhs, rhs));
-}
-
-pub fn dumpInt(value: u64) void {
-    io.print("\nvalue: {} {b}\n", .{ value, value });
+pub fn fmod(lhs: v.Double, rhs: v.Double) callconv(.c) Value {
+    return .fromDouble(@mod(lhs, rhs));
 }

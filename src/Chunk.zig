@@ -194,8 +194,21 @@ const RegistryContext = struct {
     }
 
     pub fn eql(_: RegistryContext, a: Self, b: Self) bool {
-        return std.mem.eql(u32, a.code.items, b.code.items) and
-            std.mem.eql(Value, a.constants.items, b.constants.items);
+        if (!std.mem.eql(u32, a.code.items, b.code.items)) {
+            return false;
+        }
+
+        if (a.constants.items.len != b.constants.items.len) {
+            return false;
+        }
+
+        for (a.constants.items, b.constants.items) |ca, cb| {
+            if (ca.val != cb.val) {
+                return false;
+            }
+        }
+
+        return true;
     }
 };
 

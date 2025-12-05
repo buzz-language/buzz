@@ -3,9 +3,6 @@ const builtin = @import("builtin");
 const Build = std.Build;
 
 pub fn build(b: *Build) !void {
-    var envMap = try std.process.getEnvMap(b.allocator);
-    defer envMap.deinit();
-
     const build_mode = b.standardOptimizeOption(.{});
     const target = b.standardTargetOptions(.{});
     const is_wasm = target.result.cpu.arch.isWasm();
@@ -15,7 +12,6 @@ pub fn build(b: *Build) !void {
         b,
         is_wasm,
         target,
-        envMap,
     );
     const build_option_module = build_options.step(b);
 
@@ -259,7 +255,7 @@ pub fn build(b: *Build) !void {
     const test_step = b.step("test", "Run all the tests");
     const run_tests = b.addRunArtifact(tests);
     run_tests.cwd = b.path(".");
-    run_tests.setEnvironmentVariable("BUZZ_PATH", envMap.get("BUZZ_PATH") orelse std.fs.path.dirname(b.exe_dir).?);
+    run_tests.setEnvironmentVariable("BUZZ_PATH", b.graph.environ_map.get("BUZZ_PATH") orelse std.fs.path.dirname(b.exe_dir).?);
     run_tests.step.dependOn(install_step); // wait for libraries to be installed
     test_step.dependOn(&run_tests.step);
 
@@ -270,14 +266,14 @@ pub fn build(b: *Build) !void {
 
             // Link non-zig deps to executables and library
             for (ext_deps) |dep| {
-                c.linkLibrary(dep);
+                c.root_module.linkLibrary(dep);
 
                 if (target.result.os.tag == .windows) {
-                    c.linkSystemLibrary("bcrypt");
+                    c.root_module.linkSystemLibrary("bcrypt", .{});
                 }
 
                 if (build_options.needLibC()) {
-                    c.linkLibC();
+                    c.root_module.link_libc = true;
                 }
             }
         }
@@ -286,7 +282,7 @@ pub fn build(b: *Build) !void {
     // So that JIT compiled function can reference buzz_api
     for ([_]?*std.Build.Step.Compile{ exe, behavior_exe, debugger_exe, lsp_exe, check_exe, fuzz }) |comp| {
         if (comp) |c| {
-            c.linkLibrary(static_lib);
+            c.root_module.linkLibrary(static_lib);
         }
     }
 
@@ -385,17 +381,18 @@ pub fn build(b: *Build) !void {
 
         // No need to link anything when building for wasm since everything is static
         if (build_options.needLibC()) {
-            std_lib.linkLibC();
+            std_lib.root_module.link_libc = true;
         }
 
         for (ext_deps) |dep| {
-            std_lib.linkLibrary(dep);
+            std_lib.root_module.linkLibrary(dep);
         }
 
-        std_lib.linkLibrary(static_lib);
+        std_lib.root_module.linkLibrary(static_lib);
         std_lib.root_module.addImport("build_options", build_option_module);
 
         b.default_step.dependOn(&std_lib.step);
+        check_exe.step.dependOn(&std_lib.step);
     }
 }
 
@@ -429,13 +426,14 @@ pub fn buildPcre2(b: *Build, target: Build.ResolvedTarget, optimize: std.builtin
                     .target = target,
                     .optimize = optimize,
                     .sanitize_c = .off,
+                    .link_libc = true,
                 },
             ),
         },
     );
-    lib.addIncludePath(b.path("vendors/pcre2/src"));
-    lib.addIncludePath(copyFiles.getDirectory().path(b, "vendors/pcre2/src"));
-    lib.addCSourceFiles(
+    lib.root_module.addIncludePath(b.path("vendors/pcre2/src"));
+    lib.root_module.addIncludePath(copyFiles.getDirectory().path(b, "vendors/pcre2/src"));
+    lib.root_module.addCSourceFiles(
         .{
             .files = &.{
                 "vendors/pcre2/src/pcre2_auto_possess.c",
@@ -467,14 +465,13 @@ pub fn buildPcre2(b: *Build, target: Build.ResolvedTarget, optimize: std.builtin
             .flags = flags,
         },
     );
-    lib.addCSourceFile(
+    lib.root_module.addCSourceFile(
         .{
             .file = copyFiles.getDirectory().path(b, "vendors/pcre2/src/pcre2_chartables.c"),
             .flags = flags,
         },
     );
     lib.step.dependOn(&copyFiles.step);
-    lib.linkLibC();
     b.installArtifact(lib);
 
     return lib;
@@ -490,15 +487,15 @@ pub fn buildMimalloc(b: *Build, target: Build.ResolvedTarget, optimize: std.buil
                 .{
                     .target = target,
                     .optimize = optimize,
+                    .link_libc = true,
                 },
             ),
         },
     );
 
-    lib.addIncludePath(b.path("./vendors/mimalloc/include"));
-    lib.linkLibC();
+    lib.root_module.addIncludePath(b.path("./vendors/mimalloc/include"));
 
-    lib.addCSourceFiles(
+    lib.root_module.addCSourceFiles(
         .{
             .files = &.{
                 "./vendors/mimalloc/src/alloc.c",
@@ -553,13 +550,14 @@ pub fn buildLinenoise(b: *Build, target: Build.ResolvedTarget, optimize: std.bui
                     .target = target,
                     .optimize = optimize,
                     .sanitize_c = .off,
+                    .link_libc = true,
                 },
             ),
         },
     );
 
-    lib.addIncludePath(b.path("vendors/linenoise"));
-    lib.addCSourceFiles(
+    lib.root_module.addIncludePath(b.path("vendors/linenoise"));
+    lib.root_module.addCSourceFiles(
         .{
             .files = &.{
                 "vendors/linenoise/linenoise.c",
@@ -569,7 +567,6 @@ pub fn buildLinenoise(b: *Build, target: Build.ResolvedTarget, optimize: std.bui
             },
         },
     );
-    lib.linkLibC();
     b.installArtifact(lib);
 
     return lib;
@@ -622,16 +619,15 @@ pub fn buildMir(b: *Build, target: Build.ResolvedTarget, optimize: std.builtin.O
                 .{
                     .target = target,
                     .optimize = optimize,
+                    .link_libc = true,
                 },
             ),
         },
     );
 
-    lib.addIncludePath(b.path("./vendors/mir"));
+    lib.root_module.addIncludePath(b.path("./vendors/mir"));
 
-    lib.linkLibC();
-
-    lib.addCSourceFiles(
+    lib.root_module.addCSourceFiles(
         .{
             .files = &.{
                 "./vendors/mir/mir.c",
@@ -649,8 +645,8 @@ pub fn buildMir(b: *Build, target: Build.ResolvedTarget, optimize: std.builtin.O
     );
 
     if (target.result.os.tag == .windows) {
-        lib.linkSystemLibrary("kernel32");
-        lib.linkSystemLibrary("psapi");
+        lib.root_module.linkSystemLibrary("kernel32", .{});
+        lib.root_module.linkSystemLibrary("psapi", .{});
     }
     b.installArtifact(lib);
 
@@ -776,13 +772,13 @@ const BuildOptions = struct {
     recursive_call_limit: ?u32,
     stack_size: usize = 100_000,
 
-    pub fn init(b: *Build, is_wasm: bool, target: Build.ResolvedTarget, envMap: std.process.EnvMap) BuildOptions {
+    pub fn init(b: *Build, is_wasm: bool, target: Build.ResolvedTarget) BuildOptions {
         return BuildOptions{
             .target = target,
-            .version = std.SemanticVersion{ .major = 0, .minor = 6, .patch = 0 },
+            .version = .{ .major = 0, .minor = 6, .patch = 0 },
             // Current commit sha
-            .sha = envMap.get("GIT_SHA") orelse
-                envMap.get("GITHUB_SHA") orelse std.mem.trim(
+            .sha = b.graph.environ_map.get("GIT_SHA") orelse
+                b.graph.environ_map.get("GITHUB_SHA") orelse std.mem.trim(
                 u8,
                 b.run(
                     &.{
@@ -865,7 +861,7 @@ const BuildOptions = struct {
                 .debug_access = b.option(
                     bool,
                     "gc_debug_access",
-                    "Track objects access",
+                    "Show access debug information for the garbage collector",
                 ) orelse false,
                 .on = b.option(
                     bool,

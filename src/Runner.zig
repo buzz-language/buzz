@@ -3,6 +3,7 @@ const is_wasm = builtin.cpu.arch.isWasm();
 const builtin = @import("builtin");
 const _vm = @import("vm.zig");
 const VM = _vm.VM;
+const Init = _vm.Init;
 const CallFrame = _vm.CallFrame;
 const Fiber = _vm.Fiber;
 const RunFlavor = _vm.RunFlavor;
@@ -15,7 +16,7 @@ const JIT = if (!is_wasm) @import("Jit.zig") else void;
 const TypeRegistry = @import("TypeRegistry.zig");
 const Ast = @import("Ast.zig");
 const BuildOptions = @import("build_options");
-const io = @import("io.zig");
+const bz_io = @import("io.zig");
 const Renderer = @import("renderer.zig").Renderer;
 const Value = @import("value.zig").Value;
 const o = @import("obj.zig");
@@ -23,6 +24,7 @@ const disassembler = @import("disassembler.zig");
 
 const Runner = @This();
 
+process: Init,
 vm: VM,
 gc: GC,
 parser: Parser,
@@ -49,8 +51,9 @@ pub fn deinit(self: *Runner) void {
 
 /// Runner must, most of the time be on the stack, and it contains several circular references
 /// So the use provides the ptr to it and this function populates it
-pub fn init(runner_ptr: *Runner, allocator: std.mem.Allocator, flavor: RunFlavor, debugger: ?*Debugger) !void {
+pub fn init(runner_ptr: *Runner, process: Init, allocator: std.mem.Allocator, flavor: RunFlavor, debugger: ?*Debugger) !void {
     runner_ptr.* = .{
+        .process = process,
         .gc = try GC.init(allocator),
         .vm = undefined,
         .parser = undefined,
@@ -59,6 +62,7 @@ pub fn init(runner_ptr: *Runner, allocator: std.mem.Allocator, flavor: RunFlavor
 
     runner_ptr.gc.type_registry = try TypeRegistry.init(&runner_ptr.gc);
     runner_ptr.vm = try VM.init(
+        process,
         &runner_ptr.gc,
         &runner_ptr.import_registry,
         flavor,
@@ -71,6 +75,7 @@ pub fn init(runner_ptr: *Runner, allocator: std.mem.Allocator, flavor: RunFlavor
         null;
 
     runner_ptr.parser = Parser.init(
+        process,
         &runner_ptr.gc,
         &runner_ptr.imports,
         false,
@@ -78,6 +83,7 @@ pub fn init(runner_ptr: *Runner, allocator: std.mem.Allocator, flavor: RunFlavor
     );
 
     runner_ptr.codegen = CodeGen.init(
+        process,
         &runner_ptr.gc,
         &runner_ptr.parser,
         flavor,
@@ -92,18 +98,18 @@ pub fn runFile(
     args: []const []const u8,
 ) !void {
     var file = (if (std.fs.path.isAbsolute(file_name))
-        std.fs.openFileAbsolute(file_name, .{})
+        std.Io.Dir.openFileAbsolute(runner.process.io, file_name, .{})
     else
-        std.fs.cwd().openFile(file_name, .{})) catch {
-        io.print("File not found", .{});
+        std.Io.Dir.cwd().openFile(runner.process.io, file_name, .{})) catch {
+        bz_io.print(runner.process.io, "File not found", .{});
         return;
     };
-    defer file.close();
+    defer file.close(runner.process.io);
 
-    const source = try runner.gc.allocator.alloc(u8, (try file.stat()).size);
+    const source = try runner.gc.allocator.alloc(u8, (try file.stat(runner.process.io)).size);
     defer if (runner.vm.debugger == null) runner.gc.allocator.free(source);
 
-    _ = try file.readAll(source);
+    _ = try file.readPositionalAll(runner.process.io, source, 0);
 
     if (try runner.parser.parse(source, null, file_name)) |ast| {
         if (runner.vm.flavor != .Fmt) {
@@ -124,9 +130,10 @@ pub fn runFile(
             var arena = std.heap.ArenaAllocator.init(runner.gc.allocator);
             defer arena.deinit();
 
+            var stdout = bz_io.stdoutWriter(runner.process.io);
             try Renderer.render(
                 arena.allocator(),
-                io.stdoutWriter,
+                &stdout.interface,
                 ast,
             );
         }

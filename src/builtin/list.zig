@@ -287,7 +287,7 @@ pub fn sub(ctx: *o.NativeCtx) callconv(.c) c_int {
                 ctx.vm.panic("Out of memory");
                 unreachable;
             },
-            .items = std.ArrayList(v.Value){},
+            .items = std.ArrayList(v.Value).empty,
         },
     ) catch {
         ctx.vm.panic("Out of memory");

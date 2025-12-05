@@ -1,7 +1,7 @@
 import "std";
-import "fs" as fs;
+import "fs";
 
-test "fs\cwd" {
+test "cwd" {
     std\assert(fs\currentDirectory() != "", message: "Could get cwd");
 }
 
@@ -9,8 +9,8 @@ test "mkDir/rm" {
     fs\makeDirectory("yo");
     fs\makeDirectory("{fs\currentDirectory()}/yo2");
 
-    fs\delete("yo");
-    fs\delete("{fs\currentDirectory()}/yo2");
+    fs\deleteDirectory("yo");
+    fs\deleteDirectory("{fs\currentDirectory()}/yo2");
 }
 
 test "ls" {
