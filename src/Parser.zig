@@ -970,6 +970,8 @@ pub fn parse(self: *Self, source: []const u8, file_name: ?[]const u8, name: []co
         },
     );
 
+    var any_error = std.ArrayList(*obj.ObjTypeDef).empty;
+    try any_error.append(self.gc.allocator, self.gc.type_registry.any_type);
     const function_node = try self.ast.appendNode(
         .{
             .tag = .Function,
@@ -986,6 +988,7 @@ pub fn parse(self: *Self, source: []const u8, file_name: ?[]const u8, name: []co
                             .return_type = self.gc.type_registry.void_type,
                             .yield_type = self.gc.type_registry.void_type,
                             .function_type = function_type,
+                            .error_types = try any_error.toOwnedSlice(self.gc.allocator),
                         },
                     },
                 },
@@ -994,7 +997,7 @@ pub fn parse(self: *Self, source: []const u8, file_name: ?[]const u8, name: []co
                 .Function = .{
                     .function_signature = null,
                     .id = Ast.Function.nextId(),
-                    .upvalue_binding = .{},
+                    .upvalue_binding = .empty,
                     .body = body_node,
                 },
             },
@@ -1164,7 +1167,7 @@ fn beginFrame(self: *Self, function_type: obj.ObjFunction.FunctionType, function
                 .{
                     .def_type = .List,
                     .resolved_type = .{
-                        .List = obj.ObjList.ListDef.init(
+                        .List = .init(
                             self.gc.type_registry.str_type,
                             false,
                         ),

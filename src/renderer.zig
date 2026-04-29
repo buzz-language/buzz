@@ -7,6 +7,20 @@ const Token = @import("Token.zig");
 pub const Renderer = struct {
     const Self = @This();
 
+    const equals: []const Token.Type = &.{
+        .Equal,
+        .PlusEqual,
+        .MinusEqual,
+        .StarEqual,
+        .SlashEqual,
+        .ShiftRightEqual,
+        .ShiftLeftEqual,
+        .XorEqual,
+        .BorEqual,
+        .AmpersandEqual,
+        .PercentEqual,
+    };
+
     allocator: std.mem.Allocator,
     ast: Ast.Slice,
     ais: *AutoIndentingStream,
@@ -3090,9 +3104,9 @@ pub const Renderer = struct {
 
         if (components.value) |value| {
             // =
-            try self.renderExpectedToken(
+            try self.renderOneOfExpectedToken(
                 locations[value] - 1,
-                .Equal,
+                equals,
                 .Space,
             );
 
