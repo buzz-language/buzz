@@ -1,0 +1,21 @@
+// Perf focus: per-instance list/map native-method caches and untracked GC allocator
+// memory for container buffers. Keeps containers alive to make peak RSS visible.
+
+fun main() > void {
+    final keep: mut [any] = mut [];
+    var i = 0;
+
+    while (i < 40000) {
+        final list: mut [int] = mut [];
+        list.append(i);
+        keep.append(list);
+
+        final map: mut {int: int} = mut {};
+        map[i] = i;
+        keep.append(map);
+
+        i = i + 1;
+    }
+
+    _ = keep.len();
+}

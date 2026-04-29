@@ -1,0 +1,19 @@
+// Perf focus: VM dispatch overhead, repeated currentFrame/readInstruction lookup,
+// no-debug dispatch branches, and stack-top integer arithmetic micro-ops.
+// With JIT enabled this should be a cheap/high-gain hotspot for candidate scoring.
+
+fun main() > void {
+    var i = 0;
+    var a = 1;
+    var b = 3;
+    var c = 7;
+
+    while (i < 20000000) {
+        a = (a + b + i) % 1000003;
+        b = (b * 3 + c) % 1000033;
+        c = (c + a - b) % 1000037;
+        i = i + 1;
+    }
+
+    _ = a + b + c;
+}

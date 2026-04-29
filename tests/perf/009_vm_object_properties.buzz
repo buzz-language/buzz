@@ -1,0 +1,20 @@
+// Perf focus: object property load/store, object-heavy JIT lowering, and the
+// kind of workload that should receive a lower JIT score until object ops lower directly.
+
+object Counter {
+    value: int = 0,
+    other: int = 1,
+}
+
+fun main() > void {
+    final counter = mut Counter{};
+    var i = 0;
+
+    while (i < 3000000) {
+        counter.value = (counter.value + counter.other + i) % 1000003;
+        counter.other = (counter.other + counter.value) % 1000033;
+        i = i + 1;
+    }
+
+    _ = counter.value + counter.other;
+}

@@ -1,0 +1,12 @@
+// Perf focus: imported globals cloned into the parent VM.
+
+namespace leaf04;
+
+final value = 4;
+final hidden_a = 104;
+final hidden_b = 204;
+
+fun get() > int => value;
+
+export value;
+export get;

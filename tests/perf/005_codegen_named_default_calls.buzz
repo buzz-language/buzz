@@ -1,0 +1,18 @@
+// Perf focus: non-fast-path calls with named arguments, defaults, and reordering.
+// Use this as the counterexample when checking the positional-call fast path.
+
+fun mix(a: int = 1, b: int = 2, c: int = 3, d: int = 4) > int {
+    return (a * 3 + b * 5 + c * 7 + d * 11) % 1000003;
+}
+
+fun main() > void {
+    var i = 0;
+    var total = 1;
+
+    while (i < 500000) {
+        total = mix(d: i, b: total, a: (i + 1));
+        i = i + 1;
+    }
+
+    _ = total;
+}

@@ -1,0 +1,18 @@
+// Perf focus: import path generation allocations, imported-global cloning/prefixing,
+// and OP_IMPORT child VM allocation/deinit.
+// The current compiler may still print W94 unused-import warnings for this local
+// perf harness; the program exits successfully and exercises the import path.
+
+import "tests/perf/imports/leaf_01" as leaf01;
+import "tests/perf/imports/leaf_02" as leaf02;
+import "tests/perf/imports/leaf_03" as leaf03;
+import "tests/perf/imports/leaf_04" as leaf04;
+import "tests/perf/imports/leaf_05" as leaf05;
+import "tests/perf/imports/leaf_06" as leaf06;
+import "tests/perf/imports/leaf_07" as leaf07;
+import "tests/perf/imports/leaf_08" as leaf08;
+
+test "import pressure" {
+    _ = leaf01\get() + leaf02\get() + leaf03\get() + leaf04\get()
+        + leaf05\get() + leaf06\get() + leaf07\get() + leaf08\get();
+}

@@ -1,0 +1,40 @@
+// Perf focus: JIT candidate scoring should be conservative for object/call-heavy trees
+// until direct object property lowering and compile-latency improvements land.
+
+object Node {
+    left: Node? = null,
+    right: Node? = null,
+    item: int = 0,
+}
+
+fun build(depth: int, item: int) > Node {
+    if (depth == 0) {
+        return Node{ item = item };
+    }
+
+    return Node{
+        left = build(depth: depth - 1, item: item * 2),
+        right = build(depth: depth - 1, item: item * 2 + 1),
+        item = item,
+    };
+}
+
+fun check(node: Node?) > int {
+    if (node == null) {
+        return 0;
+    }
+
+    return node!.item + check(node: node!.left) - check(node: node!.right);
+}
+
+fun main() > void {
+    var i = 0;
+    var total = 0;
+
+    while (i < 250) {
+        total = total + check(node: build(depth: 7, item: i));
+        i = i + 1;
+    }
+
+    _ = total;
+}

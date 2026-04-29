@@ -1,0 +1,23 @@
+// Perf focus: Codegen/JIT call fast path for no-default calls.
+// Buzz's multi-argument shorthand uses parameter-name variables (`combine(a, b)`).
+// Runtime also shows VM call overhead when JIT is disabled.
+
+fun combine(a: int, b: int, c: int, d: int) > int {
+    return (a + b * 3 + c * 5 + d * 7) % 1000003;
+}
+
+fun main() > void {
+    var i = 0;
+    var total = 1;
+
+    while (i < 2000000) {
+        final a = total;
+        final b = i;
+        final c = i + 1;
+        final d = i + 2;
+        total = combine(a, b, c, d);
+        i = i + 1;
+    }
+
+    _ = total;
+}

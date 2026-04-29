@@ -1,0 +1,12 @@
+// Perf focus: imported globals cloned into the parent VM.
+
+namespace leaf03;
+
+final value = 3;
+final hidden_a = 103;
+final hidden_b = 203;
+
+fun get() > int => value;
+
+export value;
+export get;
