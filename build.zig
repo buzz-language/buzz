@@ -762,7 +762,6 @@ pub fn buildFuzz(
 
 const BuildOptions = struct {
     version: std.SemanticVersion,
-    sha: []const u8,
     mimalloc: bool,
     debug: DebugOptions,
     gc: GCOptions,
@@ -773,23 +772,27 @@ const BuildOptions = struct {
     stack_size: usize = 100_000,
 
     pub fn init(b: *Build, is_wasm: bool, target: Build.ResolvedTarget) BuildOptions {
-        return BuildOptions{
+        return .{
             .target = target,
-            .version = .{ .major = 0, .minor = 6, .patch = 0 },
-            // Current commit sha
-            .sha = b.graph.environ_map.get("GIT_SHA") orelse
-                b.graph.environ_map.get("GITHUB_SHA") orelse std.mem.trim(
-                u8,
-                b.run(
-                    &.{
-                        "git",
-                        "rev-parse",
-                        "--short",
-                        "HEAD",
-                    },
+            .version = .{
+                .major = 0,
+                .minor = 6,
+                .patch = 0,
+                .pre = "dev",
+                .build = b.graph.environ_map.get("GIT_SHA") orelse
+                    b.graph.environ_map.get("GITHUB_SHA") orelse std.mem.trim(
+                    u8,
+                    b.run(
+                        &.{
+                            "git",
+                            "rev-parse",
+                            "--short",
+                            "HEAD",
+                        },
+                    ),
+                    "\n \t",
                 ),
-                "\n \t",
-            ),
+            },
             .cycle_limit = b.option(
                 usize,
                 "cycle_limit",
@@ -927,7 +930,6 @@ const BuildOptions = struct {
     pub fn step(self: @This(), b: *Build) *Build.Module {
         var options = b.addOptions();
         options.addOption(@TypeOf(self.version), "version", self.version);
-        options.addOption(@TypeOf(self.sha), "sha", self.sha);
         options.addOption(@TypeOf(self.mimalloc), "mimalloc", self.mimalloc);
         options.addOption(@TypeOf(self.cycle_limit), "cycle_limit", self.cycle_limit);
         options.addOption(@TypeOf(self.recursive_call_limit), "recursive_call_limit", self.recursive_call_limit);

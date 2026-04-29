@@ -437,11 +437,8 @@ const Handler = struct {
         var version = std.Io.Writer.Allocating.init(allocator);
 
         try version.writer.print(
-            "{f}-{s}",
-            .{
-                BuildOptions.version,
-                BuildOptions.sha,
-            },
+            "{f}",
+            .{BuildOptions.version},
         );
 
         return .{

@@ -939,7 +939,7 @@ pub const VM = struct {
     /// Called instead of regular op_code when program is paused by the debugger
     fn OP_NOOP(self: *Self, current_frame: *CallFrame, next_full_instruction: u32, code: Chunk.OpCode, args: u24) void {
         // Wait a little for the user to resume the program
-        std.Io.sleep(self.process.io, .fromMilliseconds(10), .awake) catch {};
+        self.process.io.sleep(.fromMilliseconds(10), .awake) catch {};
 
         @call(
             dispatch_call_modifier,

@@ -22,10 +22,9 @@ pub const MULTILINE_PROMPT = "... ";
 
 pub fn printBanner(out: *std.Io.Writer, full: bool) void {
     out.print(
-        "👨‍🚀 buzz {f}-{s} Copyright (C) 2021-present Benoit Giannangeli\n",
+        "👨‍🚀 buzz {f} Copyright (C) 2021-present Benoit Giannangeli\n",
         .{
             BuildOptions.version,
-            BuildOptions.sha,
         },
     ) catch unreachable;
 
@@ -34,12 +33,7 @@ pub fn printBanner(out: *std.Io.Writer, full: bool) void {
             "Built with Zig {f} {s}\nAllocator: {s}, Memory limit: {} {s}\nJIT: {s}, CPU limit: {} {s}\n",
             .{
                 builtin.zig_version,
-                switch (builtin.mode) {
-                    .ReleaseFast => "release-fast",
-                    .ReleaseSafe => "release-safe",
-                    .ReleaseSmall => "release-small",
-                    .Debug => "debug",
-                },
+                @tagName(builtin.mode),
                 if (builtin.mode == .Debug or is_wasm)
                     "gpa"
                 else if (BuildOptions.mimalloc)
