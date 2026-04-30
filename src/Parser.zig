@@ -6082,18 +6082,25 @@ fn qualifiedName(self: *Self) Error!Ast.QualifiedName {
 
     var full_name = std.ArrayList(Ast.TokenIndex).empty;
 
-    try full_name.append(self.gc.allocator, self.current_token.? - 1);
+    const first = self.current_token.? - 1;
     while ((try self.match(.AntiSlash)) and !self.check(.Eof)) {
         try self.consume(.Identifier, "Expected identifier");
 
         try full_name.append(self.gc.allocator, self.current_token.? - 1);
     }
 
-    const name = full_name.items[full_name.items.len - 1];
-    try full_name.shrinkAndFreePrecise(
-        self.gc.allocator,
-        if (full_name.items.len > 1) full_name.items.len - 1 else 0,
-    );
+    const name = if (full_name.items.len > 0)
+        full_name.items[full_name.items.len - 1]
+    else
+        first;
+
+    if (full_name.items.len > 0) {
+        try full_name.insert(self.gc.allocator, 0, first);
+        try full_name.shrinkAndFreePrecise(
+            self.gc.allocator,
+            if (full_name.items.len > 1) full_name.items.len - 1 else 0,
+        );
+    }
 
     return .{
         .namespace = full_name.toOwnedSliceAssert(),
