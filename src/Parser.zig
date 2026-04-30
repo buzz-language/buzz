@@ -1018,6 +1018,7 @@ pub fn parse(self: *Self, source: []const u8, file_name: ?[]const u8, name: []co
 
     try self.advancePastEof();
 
+    var statements = std.ArrayList(Ast.Node.Index).empty;
     while (!(try self.match(.Eof))) {
         if (self.declarationOrStatement(null) catch |err| {
             if (function_type != .Repl and err == error.ReachedMaximumMemoryUsage) {
@@ -1037,13 +1038,7 @@ pub fn parse(self: *Self, source: []const u8, file_name: ?[]const u8, name: []co
             }
             return null;
         }) |decl| {
-            var statements = std.ArrayList(Ast.Node.Index).fromOwnedSlice(
-                @constCast(self.ast.nodes.items(.components)[body_node].Block),
-            );
-
             try statements.append(self.gc.allocator, decl);
-
-            self.ast.nodes.items(.components)[body_node].Block = try statements.toOwnedSlice(self.gc.allocator);
         } else {
             self.reporter.reportErrorAt(
                 .syntax,
@@ -1054,6 +1049,7 @@ pub fn parse(self: *Self, source: []const u8, file_name: ?[]const u8, name: []co
             break;
         }
     }
+    self.ast.nodes.items(.components)[body_node].Block = try statements.toOwnedSlice(self.gc.allocator);
 
     // If top level, search `main` or `test` function(s) and call them
     // Then put any exported globals on the stack
@@ -1117,14 +1113,14 @@ pub fn parse(self: *Self, source: []const u8, file_name: ?[]const u8, name: []co
     self.ast.nodes.items(.components)[function_node].Function.entry = entry;
 
     // Start root node at the first statement
-    const statements = self.ast.nodes.items(.components)[body_node].Block;
-    if (statements.len > 0) {
+    const statements_slice = self.ast.nodes.items(.components)[body_node].Block;
+    if (statements_slice.len > 0) {
         self.ast.nodes.items(.location)[function_node] = self.ast.nodes.items(.location)[
-            statements[0]
+            statements_slice[0]
         ];
 
         self.ast.nodes.items(.end_location)[function_node] = self.ast.nodes.items(.end_location)[
-            statements[statements.len - 1]
+            statements_slice[statements_slice.len - 1]
         ];
     }
 
