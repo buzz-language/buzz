@@ -645,7 +645,7 @@ pub const Renderer = struct {
         const token_idx = idx: {
             if (comp.test_message) |test_message| {
                 // test
-                try self.renderExpectedToken(test_message - 2, .Test, .Space);
+                try self.renderExpectedToken(test_message - 1, .Test, .Space);
 
                 try self.ais.pushIndent(self.allocator, .normal);
 
