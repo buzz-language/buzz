@@ -195,16 +195,13 @@ pub const Renderer = struct {
         }
     }
 
-    fn renderQualifiedName(self: *Self, tokens: []const Ast.TokenIndex, space: Space) Error!void {
-        for (tokens, 0..) |token, i| {
-            const is_last = i == tokens.len - 1;
-
-            try self.renderToken(token, if (is_last) space else .None);
-
-            if (!is_last) {
-                try self.ais.writeByte('\\');
-            }
+    fn renderQualifiedName(self: *Self, qualified_name: Ast.QualifiedName, space: Space) Error!void {
+        for (qualified_name.namespace) |token| {
+            try self.renderToken(token, .None);
+            try self.ais.writeByte('\\');
         }
+
+        try self.renderToken(qualified_name.name, space);
     }
 
     fn dumpTokens(self: *Self, from: Ast.TokenIndex, upto: Ast.TokenIndex) void {
@@ -978,7 +975,7 @@ pub const Renderer = struct {
         const components = self.ast.nodes.items(.components)[node].NamedVariable;
 
         try self.renderQualifiedName(
-            components.name,
+            components.qualified_name,
             if (components.assign_token != null) .Space else space,
         );
 
@@ -1851,8 +1848,12 @@ pub const Renderer = struct {
         );
 
         // qualified name
+        const namespace = self.ast.nodes.items(.components)[node].Namespace;
         try self.renderQualifiedName(
-            self.ast.nodes.items(.components)[node].Namespace,
+            .{
+                .namespace = namespace[0 .. namespace.len - 1],
+                .name = namespace[namespace.len - 1],
+            },
             .Semicolon,
         );
     }
@@ -2126,7 +2127,7 @@ pub const Renderer = struct {
             try self.renderNode(decl, space);
         } else {
             try self.renderQualifiedName(
-                components.name.?,
+                components.qualified_name.?,
                 if (components.alias != null) .Space else space,
             );
 
@@ -2638,7 +2639,13 @@ pub const Renderer = struct {
             );
 
             // prefix
-            try self.renderQualifiedName(prefix, space);
+            try self.renderQualifiedName(
+                .{
+                    .namespace = prefix[0 .. prefix.len - 1],
+                    .name = prefix[prefix.len - 1],
+                },
+                space,
+            );
         }
     }
 
@@ -3266,7 +3273,7 @@ pub const Renderer = struct {
 
         if (type_def.isMutable()) {
             try self.renderExpectedToken(
-                components.name[0] - 1,
+                components.qualified_name.firstToken() - 1,
                 .Mut,
                 .Space,
             );
@@ -3274,7 +3281,7 @@ pub const Renderer = struct {
 
         // user type
         try self.renderQualifiedName(
-            components.name,
+            components.qualified_name,
             if (components.generic_resolve != null or is_optional)
                 .None
             else
@@ -3284,7 +3291,7 @@ pub const Renderer = struct {
         // ?
         if (is_optional) {
             try self.renderExpectedToken(
-                components.name[components.name.len - 1] + 1,
+                components.qualified_name.name + 1,
                 .Question,
                 if (components.generic_resolve != null)
                     .None

@@ -1263,6 +1263,63 @@ pub const Node = struct {
     };
 };
 
+pub const QualifiedName = struct {
+    name: TokenIndex,
+    namespace: []const TokenIndex = &.{},
+
+    pub fn print(self: QualifiedName, ast: *Self) void {
+        const lexemes = ast.tokens.items(.lexeme);
+
+        for (self.namespace) |part| {
+            std.debug.print("{s}\\", .{lexemes[part]});
+        }
+
+        std.debug.print("{s}", .{lexemes[self.name]});
+    }
+
+    pub fn firstToken(self: QualifiedName) TokenIndex {
+        return if (self.namespace.len > 0) self.namespace[0] else self.name;
+    }
+
+    pub const Context = struct {
+        ast: *const Self,
+
+        pub fn hash(ctx: Context, key: QualifiedName) u64 {
+            var h = std.hash.Wyhash.init(0);
+            const lexemes = ctx.ast.tokens.items(.lexeme);
+
+            for (key.namespace) |part| {
+                h.update(lexemes[part]);
+                h.update("\\");
+            }
+
+            h.update(lexemes[key.name]);
+
+            return h.final();
+        }
+
+        pub fn eql(ctx: @This(), a: QualifiedName, b: QualifiedName) bool {
+            const lexemes = ctx.ast.tokens.items(.lexeme);
+
+            if (a.namespace.len != b.namespace.len) return false;
+            for (a.namespace, b.namespace) |ap, bp| {
+                if (!std.mem.eql(u8, lexemes[ap], lexemes[bp])) return false;
+            }
+
+            return std.mem.eql(u8, lexemes[a.name], lexemes[b.name]);
+        }
+    };
+
+    pub fn HashMap(V: type) type {
+        return std.HashMapUnmanaged(
+            QualifiedName,
+            V,
+            Context,
+            std.hash_map.default_max_load_percentage,
+        );
+    }
+};
+
 pub const AnonymousObjectType = struct {
     fields: []const Field,
 
@@ -1339,7 +1396,7 @@ pub const Enum = struct {
 };
 
 pub const Export = struct {
-    name: ?[]const TokenIndex,
+    qualified_name: ?QualifiedName,
     alias: ?TokenIndex,
     declaration: ?Node.Index,
 };
@@ -1489,7 +1546,7 @@ pub const SlotType = enum(u8) {
 pub const Slot = u32;
 
 pub const NamedVariable = struct {
-    name: []const TokenIndex,
+    qualified_name: QualifiedName,
     definition: Node.Index,
     value: ?Node.Index,
     assign_token: ?TokenIndex,
@@ -1589,7 +1646,7 @@ pub const Unwrap = struct {
 };
 
 pub const UserType = struct {
-    name: []const TokenIndex,
+    qualified_name: QualifiedName,
     generic_resolve: ?Node.Index,
 };
 

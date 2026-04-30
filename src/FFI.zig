@@ -705,7 +705,7 @@ fn identifier(self: *Self, decl_index: Ast.Node.Index) Error!*Zdef {
                 if (std.mem.eql(
                     u8,
                     id,
-                    self.state.?.parser.?.ast.tokens.items(.lexeme)[global.name[global.name.len - 1]],
+                    self.state.?.parser.?.ast.tokens.items(.lexeme)[global.qualified_name.name],
                 )) {
                     break :glb idx;
                 }

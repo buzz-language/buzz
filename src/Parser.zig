@@ -155,12 +155,13 @@ exporting: bool = false,
 /// Cached imported functions (shared across instances of Parser)
 imports: *std.StringHashMapUnmanaged(ScriptImport),
 /// Keep track of things imported by the current script
-script_imports: std.StringHashMapUnmanaged(LocalScriptImport),
+script_imports: std.StringHashMapUnmanaged(LocalScriptImport) = .empty,
 test_count: u64 = 0,
 // FIXME: use SinglyLinkedList instead of heap allocated ptrs
 current: ?*Frame = null,
 current_object: ?ObjectFrame = null,
-globals: std.ArrayList(Global),
+globals: std.ArrayList(Global) = .empty,
+globals_lookup: Ast.QualifiedName.HashMap(usize) = .empty,
 namespace: ?[]const Ast.TokenIndex = null,
 flavor: RunFlavor,
 ffi: FFI,
@@ -180,9 +181,7 @@ pub fn init(
         .process = process,
         .gc = gc,
         .imports = imports,
-        .script_imports = .empty,
         .imported = imported,
-        .globals = .empty,
         .flavor = flavor,
         .reporter = .{
             .process = process,
@@ -200,6 +199,7 @@ pub fn deinit(self: *Self) void {
     //     self.gc.allocator.free(global.name);
     // }
     self.globals.deinit(self.gc.allocator);
+    self.globals_lookup.deinit(self.gc.allocator);
     self.script_imports.deinit(self.gc.allocator);
     if (self.opt_jumps) |*jumps| {
         jumps.deinit(self.gc.allocator);
@@ -281,7 +281,7 @@ pub const Local = struct {
 };
 
 pub const Global = struct {
-    name: []const Ast.TokenIndex,
+    qualified_name: Ast.QualifiedName,
     node: Ast.Node.Index,
     type_def: *obj.ObjTypeDef,
     export_alias: ?Ast.TokenIndex = null,
@@ -306,27 +306,27 @@ pub const Global = struct {
             self.type_def.def_type == .Void or
             self.type_def.def_type == .Placeholder or
             (function_type == .Extern or function_type == .Abstract or function_type == .EntryPoint or function_type == .ScriptEntryPoint or function_type != .Repl) or
-            lexemes[self.name[self.name.len - 1]][0] == '$' or
-            (lexemes[self.name[self.name.len - 1]][0] == '_' and lexemes[self.name[self.name.len - 1]].len == 1) or
+            lexemes[self.qualified_name.name][0] == '$' or
+            (lexemes[self.qualified_name.name][0] == '_' and lexemes[self.qualified_name.name].len == 1) or
             self.exported;
     }
 
-    fn match(self: Global, ast: Ast, qualified: []const Ast.TokenIndex, name: ?Ast.TokenIndex) bool {
-        if (self.name.len != qualified.len + 1) {
+    fn match(self: Global, ast: Ast, namespace: []const Ast.TokenIndex, name: ?Ast.TokenIndex) bool {
+        if (self.qualified_name.namespace.len != namespace.len) {
             return false;
         }
 
         const lexemes = ast.tokens.items(.lexeme);
 
-        if (qualified.len > 0) {
-            for (qualified[0 .. qualified.len - 1], 0..) |name_token, i| {
-                if (!std.mem.eql(u8, lexemes[name_token], lexemes[self.name[i]])) {
+        if (namespace.len > 0) {
+            for (namespace[0 .. namespace.len - 1], 0..) |name_token, i| {
+                if (!std.mem.eql(u8, lexemes[name_token], lexemes[self.qualified_name.namespace[i]])) {
                     return false;
                 }
             }
         }
 
-        return name == null or std.mem.eql(u8, lexemes[name.?], lexemes[self.name[self.name.len - 1]]);
+        return name == null or std.mem.eql(u8, lexemes[name.?], lexemes[self.qualified_name.name]);
     }
 
     pub fn matchName(self: Global, ast: Ast, namespace: []const Ast.TokenIndex, name: Ast.TokenIndex) bool {
@@ -1055,15 +1055,14 @@ pub fn parse(self: *Self, source: []const u8, file_name: ?[]const u8, name: []co
     // Then put any exported globals on the stack
     if (function_type == .ScriptEntryPoint) {
         for (self.globals.items, 0..) |global, index| {
-            if (std.mem.eql(u8, self.ast.tokens.items(.lexeme)[global.name[global.name.len - 1]], "main") and
+            if (std.mem.eql(u8, self.ast.tokens.items(.lexeme)[global.qualified_name.name], "main") and
                 !global.hidden and
-                (self.namespace == null or
-                    global.name.len == 1 or
-                    global.matchNamespace(self.ast, self.namespace.?)))
+                (global.qualified_name.namespace.len == 0 or
+                    global.matchNamespace(self.ast, self.namespace orelse &.{})))
             {
                 entry.main_slot = index;
                 entry.push_cli_args = global.type_def.resolved_type.?.Function.parameters.count() > 0;
-                entry.main_location = global.name[global.name.len - 1];
+                entry.main_location = global.qualified_name.name;
                 break;
             }
         }
@@ -1075,7 +1074,7 @@ pub fn parse(self: *Self, source: []const u8, file_name: ?[]const u8, name: []co
     for (self.globals.items, 0..) |global, index| {
         if (global.type_def.def_type == .Function and global.type_def.resolved_type.?.Function.function_type == .Test) {
             try test_slots.append(self.gc.allocator, index);
-            try test_locations.append(self.gc.allocator, global.name[0]);
+            try test_locations.append(self.gc.allocator, global.qualified_name.name);
         }
     }
 
@@ -1248,7 +1247,7 @@ fn endFrame(self: *Self) Ast.Node.Index {
                 const type_def_str = global.type_def.toStringAlloc(self.gc.allocator, false) catch unreachable;
                 defer self.gc.allocator.free(type_def_str);
 
-                const location = self.ast.tokens.get(global.name[0]);
+                const location = self.ast.tokens.get(global.qualified_name.firstToken());
 
                 self.reporter.warnFmt(
                     .unused_argument,
@@ -1765,16 +1764,38 @@ fn addGlobal(
     final: bool,
     mutable: bool,
 ) Error!usize {
-    const lexemes = self.ast.tokens.items(.lexeme);
-    // Search for an existing placeholder global with the same name
-    for (self.globals.items, 0..) |*global, index| {
-        if (global.type_def.def_type == .Placeholder and
-            (self.namespace == null or global.matchNamespace(self.ast, self.namespace.?)) and
-            std.mem.eql(u8, lexemes[global.name[global.name.len - 1]], lexemes[name]))
-        {
+    const qualified_name = Ast.QualifiedName{
+        .namespace = self.namespace orelse &.{},
+        .name = name,
+    };
+
+    if (self.globals_lookup.getContext(qualified_name, .{ .ast = &self.ast })) |index| {
+        const global = &self.globals.items[index];
+
+        // Placeholder already exists, resolve it if the type is concrete
+        if (global.type_def.def_type == .Placeholder) {
             global.exported = self.exporting;
 
-            if (global_type.def_type != .Placeholder) {
+            if (global_type.def_type == .Placeholder) {
+                return index;
+            }
+
+            // A function declares a global with an incomplete typedef so that it can handle recursion
+            // The placeholder resolution occurs after we parsed the functions body in `funDeclaration`
+            if (global_type.resolved_type != null or @intFromEnum(global_type.def_type) < @intFromEnum(obj.ObjTypeDef.Type.ObjectInstance)) {
+                if (BuildOptions.debug_placeholders) {
+                    print(
+                        self.process.io,
+                        "Global placeholder @{} resolve with @{} {s} (opt {})\n",
+                        .{
+                            @intFromPtr(global.type_def),
+                            @intFromPtr(global_type),
+                            try global_type.toStringAlloc(self.gc.allocator),
+                            global_type.optional,
+                        },
+                    );
+                }
+
                 try self.resolvePlaceholder(global.type_def, global_type, final);
 
                 if (self.flavor == .Ast) {
@@ -1785,9 +1806,27 @@ fn addGlobal(
                     global.placeholder_referrers.deinit(self.gc.allocator);
                 }
             }
+        } else { // Name collision
+            const location = self.ast.tokens.get(name);
+            const decl_location = self.ast.tokens.get(
+                if (global.qualified_name.namespace.len > 0) global.qualified_name.namespace[0] else global.qualified_name.name,
+            );
 
-            return index;
+            self.reporter.reportWithOrigin(
+                .variable_already_exists,
+                location,
+                location,
+                decl_location,
+                self.ast.tokens.get(global.qualified_name.name),
+                "A global named `{s}` already exists",
+                .{
+                    location.lexeme,
+                },
+                null,
+            );
         }
+
+        return index;
     }
 
     if (self.globals.items.len == std.math.maxInt(u24)) {
@@ -1802,16 +1841,10 @@ fn addGlobal(
         return 0;
     }
 
-    var qualified_name = std.ArrayList(Ast.TokenIndex).empty;
-    if (self.namespace) |namespace| {
-        try qualified_name.appendSlice(self.gc.allocator, namespace);
-    }
-    try qualified_name.append(self.gc.allocator, name);
-
     try self.globals.append(
         self.gc.allocator,
         .{
-            .name = try qualified_name.toOwnedSlice(self.gc.allocator),
+            .qualified_name = qualified_name,
             .node = node,
             .type_def = global_type,
             .final = final,
@@ -1820,7 +1853,18 @@ fn addGlobal(
         },
     );
 
-    return self.globals.items.len - 1;
+    const slot = self.globals.items.len - 1;
+
+    try self.globals_lookup.putContext(
+        self.gc.allocator,
+        qualified_name,
+        slot,
+        .{
+            .ast = &self.ast,
+        },
+    );
+
+    return slot;
 }
 
 fn resolveGeneric(self: *Self, name: *obj.ObjString) ?*obj.ObjTypeDef {
@@ -1871,43 +1915,52 @@ fn resolveLocal(self: *Self, frame: *Frame, name: Ast.TokenIndex) !?usize {
 }
 
 // Will consume tokens if find a prefixed identifier
-pub fn resolveGlobal(self: *Self, referrer: Ast.Node.Index, name: []const Ast.TokenIndex) Error!?usize {
+pub fn resolveGlobal(self: *Self, referrer: Ast.Node.Index, qualified_name: Ast.QualifiedName) Error!?usize {
     if (self.globals.items.len == 0) {
         return null;
     }
 
     const lexemes = self.ast.tokens.items(.lexeme);
-    if (name.len == 1 and std.mem.eql(u8, lexemes[name[name.len - 1]], "_")) {
+    if (qualified_name.namespace.len == 0 and std.mem.eql(u8, lexemes[qualified_name.name], "_")) {
         return null;
     }
 
-    var i: usize = self.globals.items.len - 1;
-    while (i >= 0) : (i -= 1) {
-        const global: *Global = &self.globals.items[i];
+    const global_slot: ?usize = self.globals_lookup.getContext(qualified_name, .{ .ast = &self.ast }) orelse slot: {
+        var i = self.globals.items.len - 1;
+        while (i >= 0) : (i -= 1) {
+            const global = &self.globals.items[i];
 
-        if (global.matchName(
-            self.ast,
-            if (name.len > 1)
-                name[0 .. name.len - 1]
-            else
-                self.namespace orelse &[_]Ast.TokenIndex{},
-            name[name.len - 1],
-        ) and
-            !global.hidden)
-        {
+            if (global.matchName(
+                self.ast,
+                if (qualified_name.namespace.len > 0)
+                    qualified_name.namespace
+                else
+                    self.namespace orelse &.{},
+                qualified_name.name,
+            ) and !global.hidden) {
+                break :slot i;
+            }
+
+            if (i == 0) break;
+        }
+
+        break :slot null;
+    };
+
+    if (global_slot) |slot| {
+        const global = &self.globals.items[slot];
+
+        if (!global.hidden) {
             if (!global.initialized) {
-                const location = self.ast.tokens.get(global.name[0]);
+                const location = self.ast.tokens.get(global.qualified_name.firstToken());
 
                 self.reporter.reportErrorFmt(
                     .global_initializer,
                     location,
-                    if (global.name.len > 1)
-                        self.ast.tokens.get(global.name[global.name.len - 1])
-                    else
-                        location,
+                    self.ast.tokens.get(global.qualified_name.name),
                     "Can't read global `{s}` variable in its own initializer.",
                     .{
-                        lexemes[global.name[global.name.len - 1]],
+                        lexemes[global.qualified_name.name],
                     },
                 );
             }
@@ -1918,11 +1971,8 @@ pub fn resolveGlobal(self: *Self, referrer: Ast.Node.Index, name: []const Ast.To
                 try global.placeholder_referrers.append(self.gc.allocator, referrer);
             }
 
-            return i;
-            // Is it an import prefix?
+            return slot;
         }
-
-        if (i == 0) break;
     }
 
     return null;
@@ -2516,7 +2566,6 @@ fn declareVariable(
     name: Ast.TokenIndex,
     final: bool,
     mutable: bool,
-    check_name: bool,
 ) Error!usize {
     const lexemes = self.ast.tokens.items(.lexeme);
     const name_lexeme = lexemes[name];
@@ -2525,7 +2574,7 @@ fn declareVariable(
         // Check a local with the same name doesn't exists
         if (self.current.?.local_count > 0) {
             var i: usize = self.current.?.local_count - 1;
-            while (check_name and i >= 0) : (i -= 1) {
+            while (i >= 0) : (i -= 1) {
                 const local: *Local = &self.current.?.locals[i];
 
                 if (local.depth != -1 and local.depth < self.current.?.scope_depth) {
@@ -2545,7 +2594,7 @@ fn declareVariable(
                         location,
                         decl_location,
                         decl_location,
-                        "A variable named `{s}` already exists",
+                        "A local named `{s}` already exists",
                         .{name_lexeme},
                         null,
                     );
@@ -2563,73 +2612,6 @@ fn declareVariable(
             mutable,
         );
     } else {
-        if (check_name) {
-            // Check a global with the same name doesn't exists
-            for (self.globals.items, 0..) |*global, index| {
-                if (!std.mem.eql(u8, name_lexeme, "_") and
-                    global.matchName(
-                        self.ast,
-                        self.namespace orelse &[_]Ast.TokenIndex{},
-                        name,
-                    ) and
-                    !global.hidden)
-                {
-                    // If we found a placeholder with that name, try to resolve it with `variable_type`
-                    if (global.type_def.def_type == .Placeholder) {
-                        // A function declares a global with an incomplete typedef so that it can handle recursion
-                        // The placeholder resolution occurs after we parsed the functions body in `funDeclaration`
-                        if (variable_type.resolved_type != null or @intFromEnum(variable_type.def_type) < @intFromEnum(obj.ObjTypeDef.Type.ObjectInstance)) {
-                            if (BuildOptions.debug_placeholders) {
-                                print(
-                                    self.process.io,
-                                    "Global placeholder @{} resolve with @{} {s} (opt {})\n",
-                                    .{
-                                        @intFromPtr(global.type_def),
-                                        @intFromPtr(variable_type),
-                                        try variable_type.toStringAlloc(self.gc.allocator),
-                                        variable_type.optional,
-                                    },
-                                );
-                            }
-
-                            try self.resolvePlaceholder(global.type_def, variable_type, final);
-
-                            if (self.flavor == .Ast) {
-                                for (global.placeholder_referrers.items) |referrer| {
-                                    try self.resolveReferrer(referrer, node);
-                                }
-
-                                global.placeholder_referrers.deinit(self.gc.allocator);
-                            }
-                        }
-
-                        global.referenced = true;
-
-                        return index;
-                    } else {
-                        const location = self.ast.tokens.get(name);
-                        const decl_location = self.ast.tokens.get(global.name[0]);
-
-                        self.reporter.reportWithOrigin(
-                            .variable_already_exists,
-                            location,
-                            location,
-                            decl_location,
-                            if (global.name.len > 1)
-                                self.ast.tokens.get(global.name[global.name.len - 1])
-                            else
-                                decl_location,
-                            "A global named `{s}` already exists",
-                            .{
-                                location.lexeme,
-                            },
-                            null,
-                        );
-                    }
-                }
-            }
-        }
-
         return try self.addGlobal(
             node,
             name,
@@ -2659,7 +2641,6 @@ fn parseVariable(
         identifier orelse self.current_token.? - 1,
         final,
         mutable,
-        true,
     );
 }
 
@@ -3736,17 +3717,16 @@ fn parseUserType(self: *Self, instance: bool, mutable: bool) Error!Ast.Node.Inde
                 .def_type = .Placeholder,
                 .resolved_type = .{
                     .Placeholder = obj.PlaceholderDef.init(
-                        user_type_name[user_type_name.len - 1],
-                        user_type_name[user_type_name.len - 1],
+                        user_type_name.firstToken(),
+                        user_type_name.name,
                         null,
                     ),
                 },
             },
         );
 
-        std.debug.assert(user_type_name.len > 0);
         global_slot = try self.declarePlaceholder(
-            user_type_name[user_type_name.len - 1],
+            user_type_name.name,
             var_type.?,
         );
     }
@@ -3817,13 +3797,13 @@ fn parseUserType(self: *Self, instance: bool, mutable: bool) Error!Ast.Node.Inde
         break :gn null;
     } else null;
 
-    std.debug.assert(!mutable or self.ast.tokens.items(.tag)[user_type_name[0] - 1] == .Mut);
+    std.debug.assert(!mutable or self.ast.tokens.items(.tag)[user_type_name.firstToken() - 1] == .Mut);
 
     self.ast.nodes.set(
         node_slot,
         .{
             .tag = .UserType,
-            .location = if (mutable) user_type_name[0] - 1 else user_type_name[0],
+            .location = if (mutable) user_type_name.firstToken() - 1 else user_type_name.firstToken(),
             .end_location = self.current_token.? - 1,
             .type_def = if (instance)
                 try var_type.?.toInstance(
@@ -3835,7 +3815,7 @@ fn parseUserType(self: *Self, instance: bool, mutable: bool) Error!Ast.Node.Inde
             .components = .{
                 .UserType = .{
                     .generic_resolve = generic_resolve,
-                    .name = user_type_name,
+                    .qualified_name = user_type_name,
                 },
             },
         },
@@ -5979,23 +5959,23 @@ fn string(self: *Self, _: bool) Error!Ast.Node.Index {
     return string_node;
 }
 
-fn namedVariable(self: *Self, name: []const Ast.TokenIndex, can_assign: bool) Error!Ast.Node.Index {
+fn namedVariable(self: *Self, qualified_name: Ast.QualifiedName, can_assign: bool) Error!Ast.Node.Index {
     const node_slot = try self.ast.nodes.addOne(self.ast.allocator);
-    const start_location = name[0];
+    const start_location = qualified_name.firstToken();
 
     var var_def: ?*obj.ObjTypeDef = null;
     var slot: usize = undefined;
     var slot_type: Ast.SlotType = undefined;
     var slot_final = false;
     var def_node: Ast.Node.Index = 0;
-    if (name.len == 1) {
-        if (try self.resolveLocal(self.current.?, name[0])) |uslot| {
+    if (qualified_name.namespace.len == 0) {
+        if (try self.resolveLocal(self.current.?, qualified_name.name)) |uslot| {
             var_def = self.current.?.locals[uslot].type_def;
             slot = uslot;
             slot_type = .Local;
             slot_final = self.current.?.locals[uslot].final;
             def_node = self.current.?.locals[uslot].node;
-        } else if (try self.resolveUpvalue(self.current.?, name[0])) |uslot| {
+        } else if (try self.resolveUpvalue(self.current.?, qualified_name.name)) |uslot| {
             var_def = self.current.?.enclosing.?.locals[self.current.?.upvalues[uslot].index].type_def;
             slot = uslot;
             slot_type = .UpValue;
@@ -6005,7 +5985,7 @@ fn namedVariable(self: *Self, name: []const Ast.TokenIndex, can_assign: bool) Er
     }
 
     if (var_def == null) {
-        if (try self.resolveGlobal(@intCast(node_slot), name)) |uslot| {
+        if (try self.resolveGlobal(@intCast(node_slot), qualified_name)) |uslot| {
             const global = self.globals.items[uslot];
 
             var_def = global.type_def;
@@ -6028,18 +6008,18 @@ fn namedVariable(self: *Self, name: []const Ast.TokenIndex, can_assign: bool) Er
                 );
             }
         } else {
-            slot = try self.declarePlaceholder(name[0], null);
+            slot = try self.declarePlaceholder(qualified_name.name, null);
             var_def = self.globals.items[slot].type_def;
             slot_type = .Global;
 
-            if (name.len > 1) {
+            if (qualified_name.namespace.len > 0) {
                 self.reporter.reportErrorFmt(
                     .syntax,
-                    self.ast.tokens.get(name[0]),
-                    self.ast.tokens.get(name[name.len - 1]),
+                    self.ast.tokens.get(qualified_name.firstToken()),
+                    self.ast.tokens.get(qualified_name.name),
                     "`{s}` does not exists in that namespace or namespace does not exists",
                     .{
-                        self.ast.tokens.items(.lexeme)[name[0]],
+                        self.ast.tokens.items(.lexeme)[qualified_name.name],
                     },
                 );
             }
@@ -6080,7 +6060,7 @@ fn namedVariable(self: *Self, name: []const Ast.TokenIndex, can_assign: bool) Er
             .type_def = var_def,
             .components = .{
                 .NamedVariable = .{
-                    .name = name,
+                    .qualified_name = qualified_name,
                     .definition = def_node,
                     .value = value,
                     .assign_token = assign_token,
@@ -6096,20 +6076,46 @@ fn namedVariable(self: *Self, name: []const Ast.TokenIndex, can_assign: bool) Er
 }
 
 /// Will parse qualified name too: identifier or A\B\C\identifier
-fn qualifiedName(self: *Self) Error![]const Ast.TokenIndex {
+fn qualifiedName(self: *Self) Error!Ast.QualifiedName {
     // Assumes one identifier has already been consumed
     std.debug.assert(self.ast.tokens.items(.tag)[self.current_token.? - 1] == .Identifier);
 
-    var name = std.ArrayList(Ast.TokenIndex).empty;
+    var full_name = std.ArrayList(Ast.TokenIndex).empty;
 
-    try name.append(self.gc.allocator, self.current_token.? - 1);
+    try full_name.append(self.gc.allocator, self.current_token.? - 1);
     while ((try self.match(.AntiSlash)) and !self.check(.Eof)) {
         try self.consume(.Identifier, "Expected identifier");
 
-        try name.append(self.gc.allocator, self.current_token.? - 1);
+        try full_name.append(self.gc.allocator, self.current_token.? - 1);
     }
 
-    return try name.toOwnedSlice(self.gc.allocator);
+    const name = full_name.items[full_name.items.len - 1];
+    try full_name.shrinkAndFreePrecise(
+        self.gc.allocator,
+        if (full_name.items.len > 1) full_name.items.len - 1 else 0,
+    );
+
+    return .{
+        .namespace = full_name.toOwnedSliceAssert(),
+        .name = name,
+    };
+}
+
+/// Will parse A\B\C and assume last identifier is not a name but the end of the namespace
+fn parseNamespace(self: *Self) Error![]const Ast.TokenIndex {
+    // Assumes one identifier has already been consumed
+    std.debug.assert(self.ast.tokens.items(.tag)[self.current_token.? - 1] == .Identifier);
+
+    var namespace = std.ArrayList(Ast.TokenIndex).empty;
+
+    try namespace.append(self.gc.allocator, self.current_token.? - 1);
+    while ((try self.match(.AntiSlash)) and !self.check(.Eof)) {
+        try self.consume(.Identifier, "Expected identifier");
+
+        try namespace.append(self.gc.allocator, self.current_token.? - 1);
+    }
+
+    return namespace.toOwnedSlice(self.gc.allocator);
 }
 
 fn variable(self: *Self, can_assign: bool) Error!Ast.Node.Index {
@@ -6209,8 +6215,7 @@ fn function(
 
     // Parse generic & argument list
     if (function_type == .Test) {
-        try self.consume(.String, "Expected a string after `test`.");
-        self.ast.nodes.items(.components)[function_node].Function.test_message = self.current_token.? - 1;
+        self.ast.nodes.items(.components)[function_node].Function.test_message = self.current_token.? - 2;
     } else {
         // Generics
         if (try self.match(.DoubleColon)) {
@@ -7224,7 +7229,6 @@ fn funDeclaration(self: *Self) Error!Ast.Node.Index {
         name_token,
         true,
         false,
-        true,
     );
 
     self.markInitialized();
@@ -7298,14 +7302,7 @@ fn exportStatement(self: *Self, docblock: ?Ast.TokenIndex) Error!Ast.Node.Index 
             }
 
             // If we're exporting an imported global, overwrite its namespace
-            const name = global.name[global.name.len - 1];
-            // self.gc.allocator.free(global.name);
-            var new_global_name = std.ArrayList(Ast.TokenIndex).empty;
-            try new_global_name.appendSlice(self.gc.allocator, self.namespace orelse &[_]Ast.TokenIndex{});
-            try new_global_name.append(self.gc.allocator, name);
-            global.name = try new_global_name.toOwnedSlice(
-                self.gc.allocator,
-            );
+            global.qualified_name.namespace = self.namespace orelse &.{};
 
             try self.consume(.Semicolon, "Expected `;` after statement.");
 
@@ -7318,7 +7315,7 @@ fn exportStatement(self: *Self, docblock: ?Ast.TokenIndex) Error!Ast.Node.Index 
                     .type_def = global.type_def,
                     .components = .{
                         .Export = .{
-                            .name = qualified_name,
+                            .qualified_name = qualified_name,
                             .alias = alias,
                             .declaration = null,
                         },
@@ -7345,7 +7342,7 @@ fn exportStatement(self: *Self, docblock: ?Ast.TokenIndex) Error!Ast.Node.Index 
                     .type_def = self.ast.nodes.items(.type_def)[decl],
                     .components = .{
                         .Export = .{
-                            .name = null,
+                            .qualified_name = null,
                             .alias = null,
                             .declaration = decl,
                         },
@@ -7374,7 +7371,7 @@ fn exportStatement(self: *Self, docblock: ?Ast.TokenIndex) Error!Ast.Node.Index 
             .type_def = null,
             .components = .{
                 .Export = .{
-                    .name = &[_]Ast.TokenIndex{self.current_token.? - 1},
+                    .qualified_name = .{ .name = self.current_token.? - 1 },
                     .alias = null,
                     .declaration = null,
                 },
@@ -7874,7 +7871,6 @@ fn objectDeclaration(self: *Self) Error!Ast.Node.Index {
         object_name_token,
         true, // Object is always final
         false,
-        true,
     );
 
     self.globals.items[slot].node = @intCast(node_slot);
@@ -8059,7 +8055,6 @@ fn protocolDeclaration(self: *Self) Error!Ast.Node.Index {
         protocol_name,
         true, // Protocol is always final
         false,
-        true,
     );
 
     self.globals.items[slot].node = @intCast(node_slot);
@@ -8159,7 +8154,6 @@ fn enumDeclaration(self: *Self) Error!Ast.Node.Index {
         enum_name,
         true,
         false,
-        true,
     );
     self.markInitialized();
 
@@ -8492,7 +8486,6 @@ fn implicitVarDeclaration(
         name,
         final,
         mutable,
-        true,
     );
     self.markInitialized();
 
@@ -8525,8 +8518,9 @@ fn implicitVarDeclaration(
 fn testStatement(self: *Self) Error!Ast.Node.Index {
     const node_slot = try self.ast.nodes.addOne(self.gc.allocator);
     const start_location = self.current_token.? - 1;
-    // We can't consume the name because declareVariable will do it
-    const name_token = self.current_token.?;
+
+    try self.consume(.String, "Expected test name");
+    const name_token = self.current_token.? - 1;
 
     var function_def_placeholder = obj.ObjTypeDef{
         .def_type = .Function,
@@ -8540,7 +8534,6 @@ fn testStatement(self: *Self) Error!Ast.Node.Index {
         name_token,
         true,
         false,
-        true,
     );
 
     self.markInitialized();
@@ -9029,19 +9022,7 @@ fn importScript(
                     global.exported = false;
 
                     if (global.export_alias) |export_alias| {
-                        const previous_name = global.name;
-                        var new_name = std.ArrayList(Ast.TokenIndex).empty;
-                        try new_name.appendSlice(
-                            self.gc.allocator,
-                            if (global.name.len > 1)
-                                global.name[0 .. global.name.len - 1]
-                            else
-                                &[_]Ast.TokenIndex{},
-                        );
-                        try new_name.append(self.gc.allocator, export_alias);
-                        self.gc.allocator.free(previous_name); // TODO: will this free be an issue?
-
-                        global.name = try new_name.toOwnedSlice(self.gc.allocator);
+                        global.qualified_name.name = export_alias;
                         global.export_alias = null;
                     }
                 } else {
@@ -9088,25 +9069,16 @@ fn importScript(
             var global = imported_global;
 
             if (!global.hidden) {
-                if (imported_symbols.get(lexemes[global.name[global.name.len - 1]]) != null) {
-                    _ = imported_symbols.remove(lexemes[global.name[global.name.len - 1]]);
-                } else if (selective_import) {
+                if (selective_import and !imported_symbols.remove(lexemes[global.qualified_name.name])) {
                     global.hidden = true;
                 }
 
                 // If requalified, overwrite namespace
-                var imported_name = std.ArrayList(Ast.TokenIndex).empty;
-                try imported_name.appendSlice(
-                    self.gc.allocator,
-                    if (prefix != null and prefix.?.len == 1 and std.mem.eql(u8, lexemes[prefix.?[0]], "_"))
-                        &[_]Ast.TokenIndex{} // With a `_` override, we erase the namespace
-                    else
-                        prefix orelse global.name[0 .. global.name.len - 1], // override or take initial namespace
-                );
-                try imported_name.append(self.gc.allocator, global.name[global.name.len - 1]);
-                // self.gc.allocator.free(global.name);
-
-                global.name = try imported_name.toOwnedSlice(self.gc.allocator);
+                // If requalified namespace is `_`, means we erase the namespace altogether
+                global.qualified_name.namespace = if (prefix != null and prefix.?.len == 1 and lexemes[prefix.?[0]].len == 1 and lexemes[prefix.?[0]][0] == '_')
+                    self.namespace orelse &.{}
+                else
+                    prefix orelse global.qualified_name.namespace;
             }
 
             global.imported_from = file_name;
@@ -9317,7 +9289,7 @@ fn importStatement(self: *Self) Error!Ast.Node.Index {
 
     if (imported_symbols.count() == 0 and try self.match(.As)) {
         try self.consume(.Identifier, "Expected identifier after `as`.");
-        prefix = try self.qualifiedName();
+        prefix = try self.parseNamespace();
     }
 
     try self.consume(.Semicolon, "Expected `;` after statement.");
@@ -9420,7 +9392,6 @@ fn zdefStatement(self: *Self) Error!Ast.Node.Index {
                 zdef_name_token,
                 true,
                 false,
-                true,
             );
             // self.current_token.? - 1 = zdef_name_token;
             self.markInitialized();
@@ -9580,8 +9551,8 @@ fn userVarDeclaration(self: *Self, identifier: Ast.TokenIndex, final: bool, muta
                 .resolved_type = .{
                     // TODO: token is wrong but what else can we put here?
                     .Placeholder = obj.PlaceholderDef.init(
-                        user_type_name[0],
-                        user_type_name[user_type_name.len - 1],
+                        user_type_name.firstToken(),
+                        user_type_name.name,
                         mutable,
                     ),
                 },
@@ -9589,7 +9560,7 @@ fn userVarDeclaration(self: *Self, identifier: Ast.TokenIndex, final: bool, muta
         );
 
         _ = try self.declarePlaceholder(
-            user_type_name[user_type_name.len - 1],
+            user_type_name.name,
             var_type,
         );
     }
@@ -9677,7 +9648,7 @@ fn userVarDeclaration(self: *Self, identifier: Ast.TokenIndex, final: bool, muta
             .type_def = var_type,
             .components = .{
                 .UserType = .{
-                    .name = user_type_name,
+                    .qualified_name = user_type_name,
                     .generic_resolve = generic_resolve,
                 },
             },
