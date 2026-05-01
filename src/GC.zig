@@ -707,7 +707,7 @@ fn traceReference(self: *GC) !void {
 }
 
 fn sweep(self: *GC, mode: Mode) !void {
-    const swept: usize = self.bytes_allocated;
+    const swept = self.bytes_allocated;
 
     var obj_count: usize = 0;
     var obj_node = self.objects.first;
