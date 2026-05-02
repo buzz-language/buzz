@@ -188,7 +188,7 @@ export object Tester {
         }
     }
 
-    fun assertEqual::<T>(actual: T, expected: T, message: str?) > void {
+    fun assertEqual(actual: any, expected: any, message: str?) > void {
         this.assert(
             actual == expected,
             error: "expected `{expected}` got `{actual}`",
@@ -196,7 +196,7 @@ export object Tester {
         );
     }
 
-    fun assertNotEqual::<T>(actual: T, expected: T, message: str?) > void {
+    fun assertNotEqual(actual: any, expected: any, message: str?) > void {
         this.assert(
             actual != expected,
             error: "expected `{expected}` got `{actual}`",
@@ -204,7 +204,7 @@ export object Tester {
         );
     }
 
-    fun assertAreEqual::<T>(values: [T], message: str?) > void {
+    fun assertAreEqual(values: [any], message: str?) > void {
         if (values.len() < 2) {
             return;
         }
@@ -227,7 +227,7 @@ export object Tester {
         );
     }
 
-    fun assertAreNotEqual::<T>(values: [T], message: str?) > void {
+    fun assertAreNotEqual(values: [any], message: str?) > void {
         if (values.len() < 2) {
             return;
         }

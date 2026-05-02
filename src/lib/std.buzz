@@ -9,12 +9,12 @@ export extern fun assert(condition: bool, message: str? = null) > void;
 /// @param value value to print
 export extern fun print(value: str) > void;
 
-/// Parse integer, returns false if string does not represent a integer
+/// Parse integer, returns null if string does not represent a integer
 /// @param string string to parse
 /// @return integer parsed or null
 export extern fun parseInt(string: str) > int?;
 
-/// Parse double, returns false if string does not represent a double
+/// Parse double, returns null if string does not represent a double
 /// @param string string to parse
 /// @return double parsed or null
 export extern fun parseDouble(string: str) > double?;
