@@ -13,9 +13,6 @@ source: []const u8,
 
 parser: *Parser,
 current: ?u8 = null,
-// TODO: this memory is never freed: it end up as key of the `strings` hashmap
-//       and since not all of its keys come from here, we don't know which we can
-//       free when we deinit strings.
 delimiter: u8,
 current_chunk: std.ArrayList(u8) = .empty,
 offset: usize = 0,
@@ -58,7 +55,7 @@ pub fn parse(self: *Self) !Ast.Node.Index {
                 if (self.previous_interp == null or self.previous_interp.? < self.offset - 1) {
                     if (self.current_chunk.items.len > 0) {
                         try self.push(self.current_chunk.items);
-                        // The previous `current_chunk` memory is owned by the parser
+                        self.current_chunk.deinit(self.parser.gc.allocator);
                         self.current_chunk = .empty;
 
                         try self.inc();
