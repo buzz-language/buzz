@@ -1709,16 +1709,6 @@ fn wrap(self: *Self, def_type: o.ObjTypeDef.Type, value: m.MIR_op_t, dest: m.MIR
 }
 
 fn buildExternApiCall(self: *Self, method: ExternApi, dest: ?m.MIR_op_t, args: []const m.MIR_op_t) !void {
-    var full_args = std.ArrayList(m.MIR_op_t).empty;
-    defer full_args.deinit(self.vm.gc.allocator);
-
-    try full_args.append(self.vm.gc.allocator, m.MIR_new_ref_op(self.ctx, try method.declare(self)));
-    try full_args.append(self.vm.gc.allocator, m.MIR_new_ref_op(self.ctx, m.MIR_new_import(self.ctx, method.name())));
-    if (dest) |udest| {
-        try full_args.append(self.vm.gc.allocator, udest);
-    }
-    try full_args.appendSlice(self.vm.gc.allocator, args);
-
     self.args_buffer[0] = m.MIR_new_ref_op(self.ctx, try method.declare(self));
     self.args_buffer[1] = m.MIR_new_ref_op(self.ctx, m.MIR_new_import(self.ctx, method.name()));
     if (dest) |udest| {
