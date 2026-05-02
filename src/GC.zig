@@ -574,8 +574,8 @@ pub fn markFiber(self: *GC, fiber: *v.Fiber) !void {
         if (BuildOptions.gc_debug) {
             std.log.info("MARKING STACK OF FIBER @{}", .{@intFromPtr(ufiber)});
         }
-        var i: [*]Value = @ptrCast(fiber.stack);
-        while (@intFromPtr(i) < @intFromPtr(fiber.stack_top)) : (i += 1) {
+        var i: [*]Value = @ptrCast(ufiber.stack);
+        while (@intFromPtr(i) < @intFromPtr(ufiber.stack_top)) : (i += 1) {
             try self.markValue(i[0]);
         }
         if (BuildOptions.gc_debug) {
@@ -586,7 +586,7 @@ pub fn markFiber(self: *GC, fiber: *v.Fiber) !void {
         if (BuildOptions.gc_debug) {
             std.log.info("MARKING FRAMES OF FIBER @{}", .{@intFromPtr(ufiber)});
         }
-        for (fiber.frames.items) |frame| {
+        for (ufiber.frames.items) |frame| {
             try self.markObj(frame.closure.toObj());
             if (frame.error_value) |error_value| {
                 try self.markValue(error_value);
@@ -603,7 +603,7 @@ pub fn markFiber(self: *GC, fiber: *v.Fiber) !void {
         if (BuildOptions.gc_debug) {
             std.log.info("MARKING UPVALUES OF FIBER @{}", .{@intFromPtr(ufiber)});
         }
-        if (fiber.open_upvalues) |open_upvalues| {
+        if (ufiber.open_upvalues) |open_upvalues| {
             var upvalue: ?*o.ObjUpValue = open_upvalues;
             while (upvalue) |unwrapped| : (upvalue = unwrapped.next) {
                 try self.markObj(unwrapped.toObj());
@@ -686,7 +686,7 @@ fn markRoots(self: *GC, vm: *v.VM) !void {
     }
 
     // Mark ast constant values (some are only referenced by the JIT so might be collected before)
-    // TODO: does this takes too long or are we saved by vertue of MultiArrayList?
+    // TODO: does this takes too long or are we saved by virtue of MultiArrayList?
     for (vm.current_ast.nodes.items(.value)) |valueOpt| {
         if (valueOpt) |value| {
             try self.markValue(value);
@@ -822,6 +822,7 @@ pub fn collectGarbage(self: *GC) !void {
     self.next_gc = self.bytes_allocated * BuildOptions.next_gc_ratio;
     if (mode == .Full) {
         self.next_full_gc = self.bytes_allocated * BuildOptions.next_full_gc_ratio;
+        self.gray_stack.shrinkAndFree(self.allocator, self.gray_stack.items.len / 2);
     }
     self.last_gc = mode;
 
