@@ -36,9 +36,11 @@ pub const Frame = struct {
     return_counts: bool = false,
     return_emitted: bool = false,
     // Keep track of constants to avoid adding the same more than once to the chunk
-    constants: std.AutoHashMapUnmanaged(Value, u24),
+    constants: std.AutoHashMapUnmanaged(Value, u24) = .empty,
 
     try_should_handle: ?std.AutoHashMapUnmanaged(*obj.ObjTypeDef, Ast.TokenIndex) = null,
+
+    pub const empty = .{};
 
     pub fn deinit(self: *Frame, allocator: std.mem.Allocator) void {
         self.constants.deinit(allocator);
