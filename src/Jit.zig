@@ -141,10 +141,10 @@ pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
 
 // Ensure queues are empty for future use
 fn reset(self: *Self, allocator: std.mem.Allocator) void {
-    self.functions_queue.clearAndFree(allocator);
-    self.objclosures_queue.clearAndFree(allocator);
-    self.required_ext_api.clearAndFree(allocator);
-    self.modules.clearAndFree(allocator);
+    self.functions_queue.clearRetainingCapacity();
+    self.objclosures_queue.clearRetainingCapacity();
+    self.required_ext_api.clearRetainingCapacity();
+    self.modules.clearRetainingCapacity();
 
     self.state.?.deinit(allocator);
     self.state = null;
