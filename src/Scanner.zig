@@ -213,6 +213,7 @@ fn docblock(self: *Self) !Token {
     _ = self.advance(); // Skip third `/`
 
     var block = std.ArrayList(u8).empty;
+    defer block.deinit(self.allocator);
 
     while (!self.isEOF()) {
         while (!self.isEOF()) {
@@ -243,10 +244,14 @@ fn docblock(self: *Self) !Token {
         }
     }
 
+    const trimmed = std.mem.trim(u8, block.items, " ");
+    const result = try self.allocator.alloc(u8, trimmed.len);
+    std.mem.copyForwards(u8, result, trimmed);
+
     return self.makeToken(
         .Docblock,
         .{
-            .String = std.mem.trim(u8, block.items, " "),
+            .String = result,
         },
     );
 }
