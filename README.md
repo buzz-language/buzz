@@ -7,7 +7,7 @@
 A small/lightweight statically typed scripting language written in Zig
 
 <p align="center">
-    <img src="https://github.com/buzz-language/buzz/raw/perf/example.png" alt="buzz code example">
+    <img src="https://github.com/buzz-language/buzz/raw/main/example.png" alt="buzz code example">
 </p>
 
 <p align="center">
