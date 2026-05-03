@@ -441,20 +441,6 @@ fn generateNode(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj
     return null;
 }
 
-fn nodeValue(self: *Self, node: Ast.Node.Index) Error!?Value {
-    const value = &self.ast.nodes.items(.value)[node];
-
-    if (value.* == null and self.ast.isConstant(node)) {
-        value.* = try self.ast.typeCheckAndToValue(
-            node,
-            &self.reporter,
-            self.gc,
-        );
-    }
-
-    return value.*;
-}
-
 fn generateAs(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.ObjFunction {
     const locations = self.ast.nodes.items(.location);
     const node_location = locations[node];
@@ -3024,7 +3010,7 @@ fn generateZdef(self: *Self, node: Ast.Node.Index, _: ?*Breaks) Error!?*obj.ObjF
             switch (element.zdef.type_def.def_type) {
                 .Function => {
                     if (element.obj_native == null) {
-                        element.obj_native = try self.jit.?.compileZdef(self.ast, element.*);
+                        element.obj_native = try self.jit.?.compileZdef(self.gc, self.ast, element.*);
 
                         try self.emitConstant(location, element.obj_native.?.toValue());
                     }

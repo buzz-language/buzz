@@ -901,23 +901,28 @@ const BuildOptions = struct {
                 .always_on = !is_wasm and b.option(
                     bool,
                     "jit_always_on",
-                    "JIT engine will compile any function encountered",
+                    "JIT compiler will compile any function encountered",
                 ) orelse false,
                 .hotspot_always_on = !is_wasm and b.option(
                     bool,
                     "jit_hotspot_always_on",
-                    "JIT engine will compile any hotspot encountered",
+                    "JIT compiler will compile any hotspot encountered",
                 ) orelse false,
                 .hotspot_on = !is_wasm and b.option(
                     bool,
                     "jit_hotspot_on",
-                    "JIT engine will compile hotspot when threshold reached",
+                    "JIT compiler will compile hotspot when threshold reached",
                 ) orelse true,
                 .on = !is_wasm and b.option(
                     bool,
                     "jit",
                     "Turn on JIT engine",
                 ) orelse true,
+                .asynchronous = !is_wasm and b.option(
+                    bool,
+                    "jit_asynchronous",
+                    "JIT will work in a dedicated thread",
+                ) orelse false,
                 .prof_threshold = b.option(
                     f128,
                     "jit_prof_threshold",
@@ -973,6 +978,7 @@ const BuildOptions = struct {
         hotspot_on: bool,
         debug: bool,
         prof_threshold: f128 = 0.05,
+        asynchronous: bool,
 
         pub fn step(self: JITOptions, options: *Build.Step.Options) void {
             options.addOption(@TypeOf(self.debug), "jit_debug", self.debug);
@@ -981,6 +987,7 @@ const BuildOptions = struct {
             options.addOption(@TypeOf(self.on), "jit", self.on);
             options.addOption(@TypeOf(self.prof_threshold), "jit_prof_threshold", self.prof_threshold);
             options.addOption(@TypeOf(self.hotspot_on), "jit_hotspot_on", self.hotspot_on);
+            options.addOption(@TypeOf(self.asynchronous), "jit_asynchronous", self.asynchronous);
         }
     };
 

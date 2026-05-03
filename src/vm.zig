@@ -428,6 +428,7 @@ pub const VM = struct {
     pub const Error = error{
         RuntimeError, // Thrown in wasm build because we can't stop the program
         CantCompile,
+        CantStartJit,
         UnwrappedNull,
         OutOfBound,
         NumberOverflow,
@@ -1051,7 +1052,7 @@ pub const VM = struct {
         );
     }
 
-    fn OP_CLONE(self: *Self, frame: *CallFrame, _: u32, _: Chunk.OpCode, _: u24) void {
+    fn OP_CLONE(self: *Self, _: *CallFrame, _: u32, _: Chunk.OpCode, _: u24) void {
         self.push(
             self.cloneValue(self.pop()) catch {
                 self.panic("Out of memory");
@@ -1059,6 +1060,7 @@ pub const VM = struct {
             },
         );
 
+        const frame = self.currentFrame().?;
         const next_full_instruction = self.readInstruction(frame);
         @call(
             dispatch_call_modifier,
@@ -1073,7 +1075,7 @@ pub const VM = struct {
         );
     }
 
-    fn OP_SWAP(self: *Self, frame: *CallFrame, full_instruction: u32, _: Chunk.OpCode, _: u24) void {
+    fn OP_SWAP(self: *Self, _: *CallFrame, full_instruction: u32, _: Chunk.OpCode, _: u24) void {
         const from: u8 = @intCast((0x00ffffff & full_instruction) >> 16);
         const to: u8 = @intCast(0x0000ffff & full_instruction);
 
@@ -1081,6 +1083,7 @@ pub const VM = struct {
         (self.current_fiber.stack_top - to - 1)[0] = (self.current_fiber.stack_top - from - 1)[0];
         (self.current_fiber.stack_top - from - 1)[0] = temp;
 
+        const frame = self.currentFrame().?;
         const next_full_instruction = self.readInstruction(frame);
         @call(
             dispatch_call_modifier,
@@ -1095,7 +1098,7 @@ pub const VM = struct {
         );
     }
 
-    fn OP_DEFINE_GLOBAL(self: *Self, frame: *CallFrame, _: u32, _: Chunk.OpCode, arg: u24) void {
+    fn OP_DEFINE_GLOBAL(self: *Self, _: *CallFrame, _: u32, _: Chunk.OpCode, arg: u24) void {
         const new_len = @max(arg + 1, self.globals.items.len);
 
         self.globals.ensureTotalCapacity(self.gc.allocator, new_len) catch {
@@ -1110,6 +1113,7 @@ pub const VM = struct {
         self.globals_count = @max(self.globals_count, arg);
         _ = self.pop();
 
+        const frame = self.currentFrame().?;
         const next_full_instruction = self.readInstruction(frame);
         @call(
             dispatch_call_modifier,
@@ -1243,13 +1247,13 @@ pub const VM = struct {
         );
     }
 
-    fn OP_TO_STRING(self: *Self, frame: *CallFrame, _: u32, _: Chunk.OpCode, _: u24) void {
+    fn OP_TO_STRING(self: *Self, _: *CallFrame, _: u32, _: Chunk.OpCode, _: u24) void {
         const str = self.pop().toStringAlloc(self.gc.allocator) catch {
             self.panic("Out of memory");
             unreachable;
         };
         self.push(
-            Value.fromObj(
+            .fromObj(
                 (self.gc.copyString(str) catch {
                     self.panic("Out of memory");
                     unreachable;
@@ -1258,6 +1262,7 @@ pub const VM = struct {
         );
         self.gc.allocator.free(str);
 
+        const frame = self.currentFrame().?;
         const next_full_instruction = self.readInstruction(frame);
         @call(
             dispatch_call_modifier,
@@ -1274,7 +1279,7 @@ pub const VM = struct {
 
     fn OP_NEGATE_I(self: *Self, frame: *CallFrame, _: u32, _: Chunk.OpCode, _: u24) void {
         self.push(
-            Value.fromInteger(
+            .fromInteger(
                 -%self.pop().integer(),
             ),
         );
@@ -1314,8 +1319,8 @@ pub const VM = struct {
         );
     }
 
-    fn OP_CLOSURE(self: *Self, frame: *CallFrame, _: u32, _: Chunk.OpCode, arg: u24) void {
-        const function = self.readConstant(frame, arg).obj().access(
+    fn OP_CLOSURE(self: *Self, current_frame: *CallFrame, _: u32, _: Chunk.OpCode, arg: u24) void {
+        const function = self.readConstant(current_frame, arg).obj().access(
             obj.ObjFunction,
             .Function,
             self.gc,
@@ -1336,6 +1341,8 @@ pub const VM = struct {
         };
 
         self.push(closure.toValue());
+
+        const frame = self.currentFrame().?;
 
         var i: usize = 0;
         while (i < function.upvalue_count) : (i += 1) {
@@ -1384,9 +1391,9 @@ pub const VM = struct {
         );
     }
 
-    fn OP_FIBER(self: *Self, frame: *CallFrame, _: u32, _: Chunk.OpCode, _: u24) void {
+    fn OP_FIBER(self: *Self, current_frame: *CallFrame, _: u32, _: Chunk.OpCode, _: u24) void {
         // We read the next instruction to know about the call we want to wrap in the fiber
-        const instruction = self.readInstruction(frame);
+        const instruction = self.readInstruction(current_frame);
         // Some opcodes need an extra instruction
         const extra_instruction = switch (getCode(instruction)) {
             .OP_CALL_INSTANCE_PROPERTY,
@@ -1400,7 +1407,7 @@ pub const VM = struct {
             .OP_PROTOCOL_TAIL_INVOKE,
             .OP_RANGE_INVOKE,
             .OP_INSTANCE_INVOKE,
-            => self.readInstruction(frame),
+            => self.readInstruction(current_frame),
             else => null,
         };
 
@@ -1462,6 +1469,7 @@ pub const VM = struct {
 
         self.push(obj_fiber.toValue());
 
+        const frame = self.currentFrame().?;
         const next_full_instruction = self.readInstruction(frame);
         @call(
             dispatch_call_modifier,
@@ -2254,7 +2262,7 @@ pub const VM = struct {
         // Ends program, so we don't call dispatch
     }
 
-    fn OP_IMPORT(self: *Self, frame: *CallFrame, _: u32, _: Chunk.OpCode, _: u24) void {
+    fn OP_IMPORT(self: *Self, _: *CallFrame, _: u32, _: Chunk.OpCode, _: u24) void {
         const fullpath = self.peek(1).obj().access(obj.ObjString, .String, self.gc).?;
         const closure = self.peek(0).obj().access(obj.ObjClosure, .Closure, self.gc).?;
 
@@ -2355,6 +2363,7 @@ pub const VM = struct {
         // Pop path and closure
         self.discard(2);
 
+        const frame = self.currentFrame().?;
         const next_full_instruction = self.readInstruction(frame);
         @call(
             dispatch_call_modifier,
@@ -2437,11 +2446,11 @@ pub const VM = struct {
         );
     }
 
-    fn OP_LIST(self: *Self, frame: *CallFrame, _: u32, _: Chunk.OpCode, arg: u24) void {
+    fn OP_LIST(self: *Self, current_frame: *CallFrame, _: u32, _: Chunk.OpCode, arg: u24) void {
         var list = self.gc.allocateObject(
             obj.ObjList.init(
                 self.gc.allocator,
-                self.readConstant(frame, arg).obj().access(
+                self.readConstant(current_frame, arg).obj().access(
                     obj.ObjTypeDef,
                     .Type,
                     self.gc,
@@ -2457,6 +2466,7 @@ pub const VM = struct {
 
         self.push(.fromObj(list.toObj()));
 
+        const frame = self.currentFrame().?;
         const next_full_instruction = self.readInstruction(frame);
         @call(
             dispatch_call_modifier,
@@ -2471,7 +2481,7 @@ pub const VM = struct {
         );
     }
 
-    fn OP_RANGE(self: *Self, frame: *CallFrame, _: u32, _: Chunk.OpCode, _: u24) void {
+    fn OP_RANGE(self: *Self, _: *CallFrame, _: u32, _: Chunk.OpCode, _: u24) void {
         const high = self.pop().integer();
         const low = self.pop().integer();
 
@@ -2487,6 +2497,7 @@ pub const VM = struct {
             }).toObj()),
         );
 
+        const frame = self.currentFrame().?;
         const next_full_instruction = self.readInstruction(frame);
         @call(
             dispatch_call_modifier,
@@ -2501,7 +2512,7 @@ pub const VM = struct {
         );
     }
 
-    fn OP_LIST_APPEND(self: *Self, frame: *CallFrame, _: u32, _: Chunk.OpCode, item_count: u24) void {
+    fn OP_LIST_APPEND(self: *Self, _: *CallFrame, _: u32, _: Chunk.OpCode, item_count: u24) void {
         var list = self.peek(item_count).obj().access(obj.ObjList, .List, self.gc).?;
 
         var distance: i64 = @intCast(item_count - 1);
@@ -2516,6 +2527,7 @@ pub const VM = struct {
         // Pop items all at once
         self.current_fiber.stack_top -= item_count;
 
+        const frame = self.currentFrame().?;
         const next_full_instruction = self.readInstruction(frame);
         @call(
             dispatch_call_modifier,
@@ -2530,11 +2542,11 @@ pub const VM = struct {
         );
     }
 
-    fn OP_MAP(self: *Self, frame: *CallFrame, _: u32, _: Chunk.OpCode, arg: u24) void {
+    fn OP_MAP(self: *Self, current_frame: *CallFrame, _: u32, _: Chunk.OpCode, arg: u24) void {
         var map = self.gc.allocateObject(
             obj.ObjMap.init(
                 self.gc.allocator,
-                self.readConstant(frame, arg).obj().access(obj.ObjTypeDef, .Type, self.gc).?,
+                self.readConstant(current_frame, arg).obj().access(obj.ObjTypeDef, .Type, self.gc).?,
             ) catch {
                 self.panic("Out of memory");
                 unreachable;
@@ -2546,6 +2558,7 @@ pub const VM = struct {
 
         self.push(.fromObj(map.toObj()));
 
+        const frame = self.currentFrame().?;
         const next_full_instruction = self.readInstruction(frame);
         @call(
             dispatch_call_modifier,
@@ -2772,7 +2785,7 @@ pub const VM = struct {
         );
     }
 
-    fn OP_SET_LIST_SUBSCRIPT(self: *Self, frame: *CallFrame, _: u32, _: Chunk.OpCode, _: u24) void {
+    fn OP_SET_LIST_SUBSCRIPT(self: *Self, _: *CallFrame, _: u32, _: Chunk.OpCode, _: u24) void {
         var list = self.peek(2).obj().access(obj.ObjList, .List, self.gc).?;
         const index = self.peek(1);
         const value = self.peek(0);
@@ -2830,6 +2843,7 @@ pub const VM = struct {
             };
         }
 
+        const frame = self.currentFrame().?;
         const next_full_instruction = self.readInstruction(frame);
         @call(
             dispatch_call_modifier,
@@ -2874,7 +2888,7 @@ pub const VM = struct {
         );
     }
 
-    fn OP_GET_ENUM_CASE(self: *Self, frame: *CallFrame, _: u32, _: Chunk.OpCode, arg: u24) void {
+    fn OP_GET_ENUM_CASE(self: *Self, _: *CallFrame, _: u32, _: Chunk.OpCode, arg: u24) void {
         const enum_ = self.peek(0).obj().access(obj.ObjEnum, .Enum, self.gc).?;
 
         var enum_case: *obj.ObjEnumInstance = self.gc.allocateObject(
@@ -2890,6 +2904,7 @@ pub const VM = struct {
         _ = self.pop();
         self.push(.fromObj(enum_case.toObj()));
 
+        const frame = self.currentFrame().?;
         const next_full_instruction = self.readInstruction(frame);
         @call(
             dispatch_call_modifier,
@@ -2924,7 +2939,7 @@ pub const VM = struct {
         );
     }
 
-    fn OP_GET_ENUM_CASE_FROM_VALUE(self: *Self, frame: *CallFrame, _: u32, _: Chunk.OpCode, _: u24) void {
+    fn OP_GET_ENUM_CASE_FROM_VALUE(self: *Self, _: *CallFrame, _: u32, _: Chunk.OpCode, _: u24) void {
         const case_value = self.pop();
         const enum_ = self.pop().obj().access(obj.ObjEnum, .Enum, self.gc).?;
 
@@ -2952,6 +2967,7 @@ pub const VM = struct {
             self.push(.Null);
         }
 
+        const frame = self.currentFrame().?;
         const next_full_instruction = self.readInstruction(frame);
         @call(
             dispatch_call_modifier,
@@ -2966,11 +2982,11 @@ pub const VM = struct {
         );
     }
 
-    fn OP_OBJECT(self: *Self, frame: *CallFrame, _: u32, _: Chunk.OpCode, type_def_constant: u24) void {
+    fn OP_OBJECT(self: *Self, current_frame: *CallFrame, _: u32, _: Chunk.OpCode, type_def_constant: u24) void {
         var object = self.gc.allocateObject(
             obj.ObjObject.init(
                 self.gc.allocator,
-                self.readConstant(frame, type_def_constant)
+                self.readConstant(current_frame, type_def_constant)
                     .obj().access(obj.ObjTypeDef, .Type, self.gc).?,
             ) catch {
                 self.panic("Out of memory");
@@ -2983,6 +2999,7 @@ pub const VM = struct {
 
         self.push(.fromObj(object.toObj()));
 
+        const frame = self.currentFrame().?;
         const next_full_instruction = self.readInstruction(frame);
         @call(
             dispatch_call_modifier,
@@ -2997,7 +3014,7 @@ pub const VM = struct {
         );
     }
 
-    fn OP_FCONTAINER_INSTANCE(self: *Self, frame: *CallFrame, _: u32, _: Chunk.OpCode, _: u24) void {
+    fn OP_FCONTAINER_INSTANCE(self: *Self, _: *CallFrame, _: u32, _: Chunk.OpCode, _: u24) void {
         const typedef = self.pop().obj().access(obj.ObjTypeDef, .Type, self.gc);
         const instance = (self.gc.allocateObject(
             obj.ObjForeignContainer.init(
@@ -3014,6 +3031,7 @@ pub const VM = struct {
 
         self.push(instance);
 
+        const frame = self.currentFrame().?;
         const next_full_instruction = self.readInstruction(frame);
         @call(
             dispatch_call_modifier,
@@ -3028,7 +3046,7 @@ pub const VM = struct {
         );
     }
 
-    fn OP_INSTANCE(self: *Self, frame: *CallFrame, _: u32, _: Chunk.OpCode, _: u24) void {
+    fn OP_INSTANCE(self: *Self, _: *CallFrame, _: u32, _: Chunk.OpCode, _: u24) void {
         const typedef = self.pop().obj().access(obj.ObjTypeDef, .Type, self.gc).?;
         const object_or_null = self.pop();
         const object = if (object_or_null.isObj())
@@ -3073,6 +3091,7 @@ pub const VM = struct {
 
         self.push(obj_instance.toValue());
 
+        const frame = self.currentFrame().?;
         const next_full_instruction = self.readInstruction(frame);
         @call(
             dispatch_call_modifier,
@@ -3087,7 +3106,7 @@ pub const VM = struct {
         );
     }
 
-    fn OP_OBJECT_DEFAULT(self: *Self, frame: *CallFrame, _: u32, _: Chunk.OpCode, property_idx: u24) void {
+    fn OP_OBJECT_DEFAULT(self: *Self, _: *CallFrame, _: u32, _: Chunk.OpCode, property_idx: u24) void {
         self.peek(1).obj()
             .access(obj.ObjObject, .Object, self.gc).?
             .setPropertyDefaultValue(
@@ -3101,6 +3120,7 @@ pub const VM = struct {
 
         _ = self.pop();
 
+        const frame = self.currentFrame().?;
         const next_full_instruction = self.readInstruction(frame);
         @call(
             dispatch_call_modifier,
@@ -3115,7 +3135,7 @@ pub const VM = struct {
         );
     }
 
-    fn OP_PROPERTY(self: *Self, frame: *CallFrame, _: u32, _: Chunk.OpCode, property_idx: u24) void {
+    fn OP_PROPERTY(self: *Self, _: *CallFrame, _: u32, _: Chunk.OpCode, property_idx: u24) void {
         self.peek(1).obj()
             .access(obj.ObjObject, .Object, self.gc).?
             .setField(
@@ -3129,6 +3149,7 @@ pub const VM = struct {
 
         _ = self.pop();
 
+        const frame = self.currentFrame().?;
         const next_full_instruction = self.readInstruction(frame);
         @call(
             dispatch_call_modifier,
@@ -3244,11 +3265,11 @@ pub const VM = struct {
         );
     }
 
-    fn OP_GET_PROTOCOL_METHOD(self: *Self, frame: *CallFrame, _: u32, _: Chunk.OpCode, name_constant: u24) void {
+    fn OP_GET_PROTOCOL_METHOD(self: *Self, current_frame: *CallFrame, _: u32, _: Chunk.OpCode, name_constant: u24) void {
         const instance: *obj.ObjObjectInstance = self.peek(0).obj()
             .access(obj.ObjObjectInstance, .ObjectInstance, self.gc).?;
 
-        const name = self.readConstant(frame, name_constant).obj()
+        const name = self.readConstant(current_frame, name_constant).obj()
             .access(obj.ObjString, .String, self.gc).?
             .string;
 
@@ -3269,6 +3290,7 @@ pub const VM = struct {
             unreachable;
         };
 
+        const frame = self.currentFrame().?;
         const next_full_instruction = self.readInstruction(frame);
         @call(
             dispatch_call_modifier,
@@ -3283,7 +3305,7 @@ pub const VM = struct {
         );
     }
 
-    fn OP_GET_LIST_PROPERTY(self: *Self, frame: *CallFrame, _: u32, _: Chunk.OpCode, method_idx: u24) void {
+    fn OP_GET_LIST_PROPERTY(self: *Self, _: *CallFrame, _: u32, _: Chunk.OpCode, method_idx: u24) void {
         self.bindMethod(
             null,
             (self.peek(0).obj().access(obj.ObjList, .List, self.gc).?
@@ -3296,6 +3318,7 @@ pub const VM = struct {
             unreachable;
         };
 
+        const frame = self.currentFrame().?;
         const next_full_instruction = self.readInstruction(frame);
         @call(
             dispatch_call_modifier,
@@ -3309,7 +3332,7 @@ pub const VM = struct {
             },
         );
     }
-    fn OP_GET_MAP_PROPERTY(self: *Self, frame: *CallFrame, _: u32, _: Chunk.OpCode, method_idx: u24) void {
+    fn OP_GET_MAP_PROPERTY(self: *Self, _: *CallFrame, _: u32, _: Chunk.OpCode, method_idx: u24) void {
         self.bindMethod(
             null,
             (self.peek(0).obj().access(obj.ObjMap, .Map, self.gc).?
@@ -3322,6 +3345,7 @@ pub const VM = struct {
             unreachable;
         };
 
+        const frame = self.currentFrame().?;
         const next_full_instruction = self.readInstruction(frame);
         @call(
             dispatch_call_modifier,
@@ -3336,7 +3360,7 @@ pub const VM = struct {
         );
     }
 
-    fn OP_GET_STRING_PROPERTY(self: *Self, frame: *CallFrame, _: u32, _: Chunk.OpCode, method_idx: u24) void {
+    fn OP_GET_STRING_PROPERTY(self: *Self, _: *CallFrame, _: u32, _: Chunk.OpCode, method_idx: u24) void {
         self.bindMethod(
             null,
             (obj.ObjString
@@ -3349,6 +3373,7 @@ pub const VM = struct {
             unreachable;
         };
 
+        const frame = self.currentFrame().?;
         const next_full_instruction = self.readInstruction(frame);
         @call(
             dispatch_call_modifier,
@@ -3363,7 +3388,7 @@ pub const VM = struct {
         );
     }
 
-    fn OP_GET_PATTERN_PROPERTY(self: *Self, frame: *CallFrame, _: u32, _: Chunk.OpCode, method_idx: u24) void {
+    fn OP_GET_PATTERN_PROPERTY(self: *Self, _: *CallFrame, _: u32, _: Chunk.OpCode, method_idx: u24) void {
         self.bindMethod(
             null,
             (obj.ObjPattern
@@ -3376,6 +3401,7 @@ pub const VM = struct {
             unreachable;
         };
 
+        const frame = self.currentFrame().?;
         const next_full_instruction = self.readInstruction(frame);
         @call(
             dispatch_call_modifier,
@@ -3390,7 +3416,7 @@ pub const VM = struct {
         );
     }
 
-    fn OP_GET_FIBER_PROPERTY(self: *Self, frame: *CallFrame, _: u32, _: Chunk.OpCode, method_idx: u24) void {
+    fn OP_GET_FIBER_PROPERTY(self: *Self, _: *CallFrame, _: u32, _: Chunk.OpCode, method_idx: u24) void {
         self.bindMethod(
             null,
             (obj.ObjFiber
@@ -3403,6 +3429,7 @@ pub const VM = struct {
             unreachable;
         };
 
+        const frame = self.currentFrame().?;
         const next_full_instruction = self.readInstruction(frame);
         @call(
             dispatch_call_modifier,
@@ -3417,7 +3444,7 @@ pub const VM = struct {
         );
     }
 
-    fn OP_GET_RANGE_PROPERTY(self: *Self, frame: *CallFrame, _: u32, _: Chunk.OpCode, method_idx: u24) void {
+    fn OP_GET_RANGE_PROPERTY(self: *Self, _: *CallFrame, _: u32, _: Chunk.OpCode, method_idx: u24) void {
         self.bindMethod(
             null,
             (obj.ObjRange.member(self, method_idx) catch {
@@ -3429,6 +3456,7 @@ pub const VM = struct {
             unreachable;
         };
 
+        const frame = self.currentFrame().?;
         const next_full_instruction = self.readInstruction(frame);
         @call(
             dispatch_call_modifier,
@@ -3685,7 +3713,7 @@ pub const VM = struct {
         );
     }
 
-    fn OP_ADD_LIST(self: *Self, frame: *CallFrame, _: u32, _: Chunk.OpCode, _: u24) void {
+    fn OP_ADD_LIST(self: *Self, _: *CallFrame, _: u32, _: Chunk.OpCode, _: u24) void {
         const right = self.pop().obj().access(obj.ObjList, .List, self.gc).?;
         const left = self.pop().obj().access(obj.ObjList, .List, self.gc).?;
 
@@ -3712,6 +3740,7 @@ pub const VM = struct {
             }).toValue(),
         );
 
+        const frame = self.currentFrame().?;
         const next_full_instruction = self.readInstruction(frame);
         @call(
             dispatch_call_modifier,
@@ -3726,7 +3755,7 @@ pub const VM = struct {
         );
     }
 
-    fn OP_ADD_MAP(self: *Self, frame: *CallFrame, _: u32, _: Chunk.OpCode, _: u24) void {
+    fn OP_ADD_MAP(self: *Self, _: *CallFrame, _: u32, _: Chunk.OpCode, _: u24) void {
         const right = self.pop().obj().access(obj.ObjMap, .Map, self.gc).?;
         const left = self.pop().obj().access(obj.ObjMap, .Map, self.gc).?;
 
@@ -3759,6 +3788,7 @@ pub const VM = struct {
             }).toValue(),
         );
 
+        const frame = self.currentFrame().?;
         const next_full_instruction = self.readInstruction(frame);
         @call(
             dispatch_call_modifier,
@@ -4237,7 +4267,7 @@ pub const VM = struct {
         );
     }
 
-    fn OP_STRING_FOREACH(self: *Self, frame: *CallFrame, _: u32, _: Chunk.OpCode, _: u24) void {
+    fn OP_STRING_FOREACH(self: *Self, _: *CallFrame, _: u32, _: Chunk.OpCode, _: u24) void {
         const key_slot: *Value = @ptrCast(self.current_fiber.stack_top - 3);
         const value_slot: *Value = @ptrCast(self.current_fiber.stack_top - 2);
         const str = self.peek(0).obj().access(obj.ObjString, .String, self.gc).?;
@@ -4268,6 +4298,7 @@ pub const VM = struct {
             }).toValue();
         }
 
+        const frame = self.currentFrame().?;
         const next_full_instruction = self.readInstruction(frame);
         @call(
             dispatch_call_modifier,
@@ -4282,7 +4313,7 @@ pub const VM = struct {
         );
     }
 
-    fn OP_LIST_FOREACH(self: *Self, frame: *CallFrame, _: u32, _: Chunk.OpCode, _: u24) void {
+    fn OP_LIST_FOREACH(self: *Self, _: *CallFrame, _: u32, _: Chunk.OpCode, _: u24) void {
         var key_slot: *Value = @ptrCast(self.current_fiber.stack_top - 3);
         const value_slot: *Value = @ptrCast(self.current_fiber.stack_top - 2);
         var list = self.peek(0).obj().access(obj.ObjList, .List, self.gc).?;
@@ -4304,6 +4335,7 @@ pub const VM = struct {
             value_slot.* = list.items.items[@as(usize, @intCast(key_slot.integer()))];
         }
 
+        const frame = self.currentFrame().?;
         const next_full_instruction = self.readInstruction(frame);
         @call(
             dispatch_call_modifier,
@@ -4318,7 +4350,7 @@ pub const VM = struct {
         );
     }
 
-    fn OP_RANGE_FOREACH(self: *Self, frame: *CallFrame, _: u32, _: Chunk.OpCode, _: u24) void {
+    fn OP_RANGE_FOREACH(self: *Self, _: *CallFrame, _: u32, _: Chunk.OpCode, _: u24) void {
         const value_slot: *Value = @ptrCast(self.current_fiber.stack_top - 2);
         const range = self.peek(0).obj().access(obj.ObjRange, .Range, self.gc).?;
 
@@ -4338,6 +4370,7 @@ pub const VM = struct {
             value_slot.* = .fromInteger(range.low);
         }
 
+        const frame = self.currentFrame().?;
         const next_full_instruction = self.readInstruction(frame);
         @call(
             dispatch_call_modifier,
@@ -4352,7 +4385,7 @@ pub const VM = struct {
         );
     }
 
-    fn OP_ENUM_FOREACH(self: *Self, frame: *CallFrame, _: u32, _: Chunk.OpCode, _: u24) void {
+    fn OP_ENUM_FOREACH(self: *Self, _: *CallFrame, _: u32, _: Chunk.OpCode, _: u24) void {
         var value_slot: *Value = @ptrCast(self.current_fiber.stack_top - 2);
         const enum_case = if (value_slot.*.isNull())
             null
@@ -4367,6 +4400,7 @@ pub const VM = struct {
         };
         value_slot.* = (if (next_case) |new_case| .fromObj(new_case.toObj()) else .Null);
 
+        const frame = self.currentFrame().?;
         const next_full_instruction = self.readInstruction(frame);
         @call(
             dispatch_call_modifier,
@@ -4381,7 +4415,7 @@ pub const VM = struct {
         );
     }
 
-    fn OP_MAP_FOREACH(self: *Self, frame: *CallFrame, _: u32, _: Chunk.OpCode, _: u24) void {
+    fn OP_MAP_FOREACH(self: *Self, _: *CallFrame, _: u32, _: Chunk.OpCode, _: u24) void {
         const key_slot: *Value = @ptrCast(self.current_fiber.stack_top - 3);
         const value_slot: *Value = @ptrCast(self.current_fiber.stack_top - 2);
         var map: *obj.ObjMap = self.peek(0).obj().access(obj.ObjMap, .Map, self.gc).?;
@@ -4394,6 +4428,7 @@ pub const VM = struct {
             value_slot.* = map.map.get(unext_key) orelse .Null;
         }
 
+        const frame = self.currentFrame().?;
         const next_full_instruction = self.readInstruction(frame);
         @call(
             dispatch_call_modifier,
@@ -4473,12 +4508,13 @@ pub const VM = struct {
         );
     }
 
-    fn OP_TYPEOF(self: *Self, frame: *CallFrame, _: u32, _: Chunk.OpCode, _: u24) void {
+    fn OP_TYPEOF(self: *Self, _: *CallFrame, _: u32, _: Chunk.OpCode, _: u24) void {
         self.push((self.pop().typeOf(self.gc) catch {
             self.panic("Out of memory");
             unreachable;
         }).toValue());
 
+        const frame = self.currentFrame().?;
         const next_full_instruction = self.readInstruction(frame);
         @call(
             dispatch_call_modifier,
@@ -4494,73 +4530,74 @@ pub const VM = struct {
     }
 
     // Never generated if jit is disabled
-    fn OP_HOTSPOT(self: *Self, frame: *CallFrame, _: u32, _: Chunk.OpCode, end_ip: u24) void {
+    fn OP_HOTSPOT(self: *Self, current_frame: *CallFrame, _: u32, _: Chunk.OpCode, end_ip: u24) void {
         if (is_wasm) unreachable;
+
+        var frame = current_frame;
 
         const node = self.readInstruction(frame);
 
         self.current_ast.nodes.items(.count)[node] += 1;
 
         if (self.shouldCompileHotspot(node)) {
-            if (self.jit.?.compileHotSpot(
+            self.jit.?.compile(
                 self.current_ast,
                 frame.closure,
                 node,
-            ) catch null) |native| {
-                const obj_native = self.gc.allocateObject(
-                    obj.ObjNative{
-                        .native = native,
-                    },
-                ) catch {
-                    self.panic("Out of memory");
-                    unreachable;
-                };
-
-                // Prevent collection
-                self.gc.markObj(obj_native.toObj()) catch {
-                    self.panic("Out of memory");
-                    unreachable;
-                };
-                obj_native.mark(self.gc);
-
-                if (BuildOptions.jit_debug) {
-                    print(
-                        self.io,
-                        "Compiled hotspot {s} in function `{s}`\n",
-                        .{
-                            @tagName(self.current_ast.nodes.items(.tag)[node]),
-                            frame.closure.function.type_def.resolved_type.?.Function.name.string,
-                        },
-                    );
-                }
-
-                // The now compile hotspot must be a new constant for the current function
-                frame.closure.function.chunk.constants.append(
-                    frame.closure.function.chunk.allocator,
-                    obj_native.toValue(),
-                ) catch {
-                    self.panic("Out of memory");
-                    unreachable;
-                };
-
-                // Patch bytecode to replace hotspot with function call
-                self.patchHotspot(
-                    self.current_ast.nodes.items(.location)[node],
-                    frame.closure.function.chunk.constants.items.len - 1,
-                    end_ip,
-                ) catch {
-                    self.panic("Out of memory");
-                    unreachable;
-                };
-            } else {
-                // Blacklist the node
-                self.jit.?.blacklisted_nodes.put(self.gc.allocator, node, {}) catch {
-                    self.panic("Out of memory");
-                    unreachable;
-                };
-            }
+            ) catch {};
         }
 
+        if (self.current_ast.nodes.items(.compiled)[node]) |native| {
+            const obj_native = self.gc.allocateObject(
+                obj.ObjNative{
+                    .native = native,
+                },
+            ) catch {
+                self.panic("Out of memory");
+                unreachable;
+            };
+
+            frame = self.currentFrame().?;
+
+            // Prevent collection
+            self.gc.markObj(obj_native.toObj()) catch {
+                self.panic("Out of memory");
+                unreachable;
+            };
+            obj_native.mark(self.gc);
+
+            if (BuildOptions.jit_debug) {
+                print(
+                    self.process.io,
+                    "Compiled hotspot {s} in function `{s}`\n",
+                    .{
+                        @tagName(self.current_ast.nodes.items(.tag)[node]),
+                        frame.closure.function.type_def.resolved_type.?.Function.name.string,
+                    },
+                );
+            }
+
+            // The now compile hotspot must be a new constant for the current function
+            frame.closure.function.chunk.constants.append(
+                frame.closure.function.chunk.allocator,
+                obj_native.toValue(),
+            ) catch {
+                self.panic("Out of memory");
+                unreachable;
+            };
+
+            // Patch bytecode to replace hotspot with function call
+            self.patchHotspot(
+                self.current_ast.nodes.items(.location)[node],
+                frame.closure.function.chunk.constants.items.len - 1,
+                end_ip,
+            ) catch {
+                self.panic("Out of memory");
+                unreachable;
+            };
+        }
+
+        frame = self.currentFrame().?;
         const next_full_instruction = self.readInstruction(frame);
         @call(
             dispatch_call_modifier,
@@ -4666,9 +4703,9 @@ pub const VM = struct {
         );
     }
 
-    fn OP_DBG_GLOBAL_DEFINE(self: *Self, frame: *CallFrame, _: u32, _: Chunk.OpCode, _: u24) void {
-        const slot = self.readInstruction(frame);
-        const name_constant = self.readConstant(frame, @intCast(self.readInstruction(frame)));
+    fn OP_DBG_GLOBAL_DEFINE(self: *Self, current_frame: *CallFrame, _: u32, _: Chunk.OpCode, _: u24) void {
+        const slot = self.readInstruction(current_frame);
+        const name_constant = self.readConstant(current_frame, @intCast(self.readInstruction(current_frame)));
 
         const previous_len = self.globals_dbg.items.len;
         const new_len = @max(slot + 1, previous_len);
@@ -4690,6 +4727,7 @@ pub const VM = struct {
 
         self.globals_dbg.items[slot] = name_constant;
 
+        const frame = self.currentFrame().?;
         const next_full_instruction = self.readInstruction(frame);
         @call(
             dispatch_call_modifier,
@@ -4705,7 +4743,7 @@ pub const VM = struct {
     }
 
     pub fn run(self: *Self) error{RuntimeError}!void {
-        const next_current_frame: *CallFrame = self.currentFrame().?;
+        const next_current_frame = self.currentFrame().?;
         const next_full_instruction = self.readInstruction(next_current_frame);
         const next_instruction: Chunk.OpCode = getCode(next_full_instruction);
         const next_arg: u24 = getArg(next_full_instruction);
@@ -4966,7 +5004,7 @@ pub const VM = struct {
             // TODO: figure out threshold strategy
             if (self.shouldCompileFunction(closure)) {
                 var success = true;
-                jit.compileFunction(self.current_ast, closure) catch |err| {
+                jit.compile(self.current_ast, closure, null) catch |err| {
                     if (err == Error.CantCompile) {
                         success = false;
                     } else {
@@ -4976,7 +5014,7 @@ pub const VM = struct {
 
                 if (BuildOptions.jit_debug and success) {
                     print(
-                        self.io,
+                        self.process.io,
                         "Compiled function `{s}`\n",
                         .{
                             closure.function.type_def.resolved_type.?.Function.name.string,
@@ -4993,7 +5031,8 @@ pub const VM = struct {
         // Is there a compiled version of it?
         if (native != null) {
             // if (BuildOptions.jit_debug) {
-            //     io.print(
+            //     print(
+            //         self.process.io,
             //         "Calling compiled version of function `{s}.{}.n{}`\n",
             //         .{
             //             closure.function.type_def.resolved_type.?.Function.name.string,
@@ -5488,49 +5527,30 @@ pub const VM = struct {
             else => {},
         }
 
-        if (
-        // Marked as compilable
-        self.current_ast.nodes.items(.compilable)[closure.function.node] and
+        return self.current_ast.nodes.items(.jit_status)[closure.function.node] == .compilable and
+            self.current_ast.nodes.items(.compiled)[closure.function.node] == null and
             self.jit != null and
             (
                 // Always on
                 BuildOptions.jit_always_on or
                     // Threshold reached
-                    (closure.function.call_count > 10 and (@as(f128, @floatFromInt(closure.function.call_count)) / @as(f128, @floatFromInt(self.jit.?.call_count))) > BuildOptions.jit_prof_threshold)))
-        {
-            // Not blacklisted or already compiled
-            self.current_ast.nodes.items(.compilable)[closure.function.node] =
-                self.jit.?.compiled_nodes.get(closure.function.node) == null and
-                self.jit.?.blacklisted_nodes.get(closure.function.node) == null;
-
-            return self.current_ast.nodes.items(.compilable)[closure.function.node];
-        }
-
-        return false;
+                    (closure.function.call_count > 10 and (@as(f128, @floatFromInt(closure.function.call_count)) / @as(f128, @floatFromInt(self.jit.?.call_count))) > BuildOptions.jit_prof_threshold));
     }
 
     fn shouldCompileHotspot(self: *Self, node: Ast.Node.Index) bool {
         const count = self.current_ast.nodes.items(.count)[node];
 
-        if (BuildOptions.jit_hotspot_on and
+        return BuildOptions.jit_hotspot_on and
             // Marked as compilable
-            self.current_ast.nodes.items(.compilable)[node] and
+            self.current_ast.nodes.items(.jit_status)[node] == .compilable and
+            self.current_ast.nodes.items(.compiled)[node] == null and
             self.jit != null and
             // JIT compile all the thing?
             (
                 // Always compile
                 BuildOptions.jit_always_on or BuildOptions.jit_hotspot_always_on or
                     // Threshold reached
-                    (count > 10 and (@as(f128, @floatFromInt(count)) / @as(f128, @floatFromInt(self.hotspots_count))) > BuildOptions.jit_prof_threshold)))
-        {
-            // It's not already done or blacklisted
-            self.current_ast.nodes.items(.compilable)[node] = (self.jit.?.compiled_nodes.get(node) == null and
-                self.jit.?.blacklisted_nodes.get(node) == null);
-
-            return self.current_ast.nodes.items(.compilable)[node];
-        }
-
-        return false;
+                    (count > 10 and (@as(f128, @floatFromInt(count)) / @as(f128, @floatFromInt(self.hotspots_count))) > BuildOptions.jit_prof_threshold));
     }
 
     fn patchHotspot(

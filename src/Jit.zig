@@ -1,19 +1,27 @@
 const std = @import("std");
+const BuildOptions = @import("build_options");
+const bz_io = @import("io.zig");
+const _vm = @import("vm.zig");
+const VM = _vm.VM;
+const GC = @import("GC.zig");
+const TryCtx = _vm.TryCtx;
+const Init = _vm.Init;
 const Ast = @import("Ast.zig");
 const o = @import("obj.zig");
-const v = @import("value.zig");
-const Value = v.Value;
 const m = @import("mir.zig");
-const builtin = @import("builtin");
-const BuildOptions = @import("build_options");
-const r = @import("vm.zig");
-const VM = r.VM;
-const ZigType = @import("zigtypes.zig").Type;
-const ExternApi = @import("jit_extern_api.zig").ExternApi;
-const api = @import("lib/buzz_api.zig");
-const bz_io = @import("io.zig");
 const Chunk = @import("Chunk.zig");
+const ExternApi = @import("jit_extern_api.zig").ExternApi;
+const SpscQueue = @import("spsc_queue.zig").SpscQueue;
+const _v = @import("value.zig");
+const Value = _v.Value;
+const Double = _v.Double;
 const Token = @import("Token.zig");
+const ZigType = @import("zigtypes.zig").Type;
+const api = @import("buzz_api.zig");
+
+const log = std.log.scoped(.jit);
+
+const Self = @This();
 
 pub const Error = error{
     CantCompile,
@@ -23,6 +31,17 @@ pub const Error = error{
     ReachedMaximumMemoryUsage,
     WriteFailed,
 } || std.mem.Allocator.Error || std.fmt.BufPrintError;
+
+pub const StartError = Error || error{CantStartJit};
+
+const Job = struct {
+    /// Ast node being compiled (can be the closure's function node or a hotspot)
+    node: Ast.Node.Index,
+    /// Closure in which the compiled ptr must be set
+    closure: *o.ObjClosure,
+    /// AST
+    ast: Ast.Slice,
+};
 
 const OptJump = struct {
     current_insn: std.ArrayList(m.MIR_insn_t),
@@ -41,7 +60,7 @@ const Break = struct {
 
 const Breaks = std.ArrayList(Break);
 
-const GenState = struct {
+const State = struct {
     module: m.MIR_module_t,
     prototypes: std.AutoHashMapUnmanaged(ExternApi, m.MIR_item_t) = .empty,
 
@@ -75,7 +94,9 @@ const GenState = struct {
 
     breaks_label: Breaks = .empty,
 
-    pub fn deinit(self: *GenState, allocator: std.mem.Allocator) void {
+    args_buffer: [255]m.MIR_op_t = undefined,
+
+    pub fn deinit(self: *State, allocator: std.mem.Allocator) void {
         self.prototypes.deinit(allocator);
         self.registers.deinit(allocator);
         if (self.try_should_handle) |*try_should_handle| {
@@ -89,20 +110,22 @@ const GenState = struct {
     }
 };
 
-const CompiledFunction = struct {
-    native: *anyopaque,
-    native_raw: *anyopaque,
-};
-
-const Self = @This();
-
-vm: *VM,
+process: Init,
+/// We only read the interned strings map, the worker thread can allocate buzz objects since it's not thread safe.
+/// But it does not make sense for the Jit to have to allocate any buzz constant since it must have been done by CodeGen first.
+gc: *GC,
+/// Current compilation state
+state: ?State = null,
+/// MIR context (only read by worker thread)
 ctx: m.MIR_context_t,
-state: ?GenState = null,
-/// Set of closures or hotspots being or already compiled
-compiled_nodes: std.AutoHashMapUnmanaged(Ast.Node.Index, void) = .empty,
-/// Closures or hotspots we can't compile (containing async call, or yield)
-blacklisted_nodes: std.AutoHashMapUnmanaged(Ast.Node.Index, void) = .empty,
+/// Call count of all functions
+call_count: usize = 0,
+/// Queue of things to compile
+jobs: SpscQueue(Job),
+/// Worker thread
+worker: ?std.Thread = null,
+/// To stop the worker,
+worker_stopped: std.atomic.Value(bool) = .{ .raw = true },
 /// MIR doesn't allow generating multiple functions at once, so we keep a set of function to compile
 /// Once compiled, the value is set to an array of the native and raw native func_items
 functions_queue: std.AutoHashMapUnmanaged(
@@ -113,73 +136,61 @@ functions_queue: std.AutoHashMapUnmanaged(
     },
 ) = .empty,
 /// ObjClosures for which we later compiled the function and need to set it's native and native_raw fields
-objclosures_queue: std.AutoHashMapUnmanaged(*o.ObjClosure, void) = .empty,
+objclosures_queue: std.AutoHashMapUnmanaged(Ast.Node.Index, *o.ObjClosure) = .empty,
 /// External api to link
 required_ext_api: std.AutoHashMapUnmanaged(ExternApi, void) = .empty,
 /// Modules to load when linking/generating
 modules: std.ArrayList(m.MIR_module_t) = .empty,
-/// Call count of all functions
-call_count: u128 = 0,
-/// Closures already compiled (hash is bytecode list), useful to compile once a function
-compiled_functions_bodies: Chunk.HashMap(CompiledFunction) = .empty,
 
-args_buffer: [255]m.MIR_op_t = undefined,
-
-pub fn init(vm: *VM) Self {
+pub fn init(process: Init, gc: *GC) Error!Self {
     return .{
-        .vm = vm,
+        .gc = gc,
         .ctx = m.MIR_init(),
+        .process = process,
+        .jobs = try .initCapacity(gc.allocator, 256),
     };
 }
 
-pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
-    self.compiled_nodes.deinit(allocator);
-    self.blacklisted_nodes.deinit(allocator);
-    // std.debug.assert(self.functions_queue.count() == 0);
-    self.functions_queue.deinit(allocator);
-    // std.debug.assert(self.objclosures_queue.count() == 0);
-    self.objclosures_queue.deinit(allocator);
-    self.modules.deinit(allocator);
-    self.required_ext_api.deinit(allocator);
-    self.compiled_functions_bodies.deinit(allocator);
-    m.MIR_finish(self.ctx);
-}
-
-// Ensure queues are empty for future use
-fn reset(self: *Self, allocator: std.mem.Allocator) void {
+fn reset(self: *Self) void {
     self.functions_queue.clearRetainingCapacity();
     self.objclosures_queue.clearRetainingCapacity();
     self.required_ext_api.clearRetainingCapacity();
     self.modules.clearRetainingCapacity();
 
-    self.state.?.deinit(allocator);
-    self.state = null;
+    if (self.state) |*state| {
+        state.deinit(self.gc.allocator);
+        self.state = null;
+    }
 }
 
-pub fn compileFunction(self: *Self, ast: Ast.Slice, closure: *o.ObjClosure) Error!void {
-    const function = closure.function;
+pub fn deinit(self: *Self) void {
+    if (self.worker != null) {
+        self.worker.?.detach();
+    }
+    self.jobs.deinit(self.gc.allocator);
+    self.functions_queue.deinit(self.gc.allocator);
+    self.objclosures_queue.deinit(self.gc.allocator);
+    self.required_ext_api.deinit(self.gc.allocator);
+    self.modules.deinit(self.gc.allocator);
+    m.MIR_finish(self.ctx);
+}
 
-    // Did we already compile a function with the same body?
-    if (self.compiled_functions_bodies.get(function.chunk)) |compiled| {
-        function.native = compiled.native;
-        function.native_raw = compiled.native_raw;
+pub fn compile(self: *Self, ast: Ast.Slice, closure: *o.ObjClosure, hotspot_node: ?Ast.Node.Index) StartError!void {
+    const ast_node = hotspot_node orelse closure.function.node;
 
-        if (BuildOptions.jit_debug) {
-            bz_io.print(self.vm.io, "Reusing previous compilation\n", .{});
-        }
-
-        return;
+    // Is the node already compiled or blacklisted
+    switch (ast.nodes.items(.jit_status)[ast_node]) {
+        .blacklisted => return error.CantCompile,
+        .queued, .compiled => return,
+        .compilable => {},
     }
 
-    const ast_node = function.node;
-
     if (try ast.usesFiber(
-        self.vm.gc.allocator,
+        self.gc.allocator,
         ast_node,
     )) {
         if (BuildOptions.jit_debug) {
-            bz_io.print(
-                self.vm.io,
+            log.debug(
                 "Not compiling node {s}#{}, likely because it uses a fiber\n",
                 .{
                     @tagName(ast.nodes.items(.tag)[ast_node]),
@@ -187,185 +198,110 @@ pub fn compileFunction(self: *Self, ast: Ast.Slice, closure: *o.ObjClosure) Erro
                 },
             );
         }
-        _ = self.functions_queue.remove(ast_node);
-        _ = self.objclosures_queue.remove(closure);
-        try self.blacklisted_nodes.put(self.vm.gc.allocator, closure.function.node, {});
+
+        ast.nodes.items(.jit_status)[ast_node] = .blacklisted;
 
         return error.CantCompile;
     }
 
-    // Remember we need to set this functions fields
-    try self.objclosures_queue.put(self.vm.gc.allocator, closure, {});
+    const job = Job{
+        .ast = ast,
+        .closure = closure,
+        .node = ast_node,
+    };
 
-    // Build the function
-    try self.buildFunction(ast, closure, ast_node);
+    // Mark as not compilable now that it's in the job queue
+    ast.nodes.items(.jit_status)[ast_node] = .queued;
 
-    // Did we encounter other functions to compile?
-    try self.buildCollateralFunctions(ast);
+    if (BuildOptions.jit_asynchronous) {
+        // Put new job in queue
+        self.jobs.push(job);
 
-    // Load modules
-    for (self.modules.items) |module| {
-        m.MIR_load_module(self.ctx, module);
-    }
-
-    // Load external functions
-    var it_ext = self.required_ext_api.iterator();
-    while (it_ext.next()) |kv| {
-        switch (kv.key_ptr.*) {
-            // TODO: don't mix those with actual api functions
-            .RawFn, .NativeFn => {},
-            else => m.MIR_load_external(
-                self.ctx,
-                kv.key_ptr.*.name(),
-                kv.key_ptr.*.ptr(),
-            ),
-        }
-    }
-
-    // Link everything together
-    m.MIR_link(self.ctx, m.MIR_set_lazy_gen_interface, null);
-
-    m.MIR_gen_init(self.ctx);
-    defer m.MIR_gen_finish(self.ctx);
-
-    // Generate all needed functions and set them in corresponding ObjFunctions
-    var it2 = self.functions_queue.iterator();
-    while (it2.next()) |kv| {
-        const node = kv.key_ptr.*;
-        const items = kv.value_ptr.*.?;
-
-        const native = if (items.native) |item| m.MIR_gen(self.ctx, item) else null;
-        const native_raw = if (items.native_raw) |item| m.MIR_gen(self.ctx, item) else null;
-
-        // Find out if we need to set it in a ObjFunction
-        var it3 = self.objclosures_queue.iterator();
-        while (it3.next()) |kv2| {
-            if (kv2.key_ptr.*.function.node == node) {
-                kv2.key_ptr.*.function.native = native;
-                kv2.key_ptr.*.function.native_raw = native_raw;
-
-                try self.compiled_functions_bodies.put(
-                    self.vm.gc.allocator,
-                    kv2.key_ptr.*.function.chunk,
-                    .{
-                        .native = native.?,
-                        .native_raw = native_raw.?,
-                    },
-                );
-                break;
-            }
-        }
-    }
-
-    self.reset(self.vm.gc.allocator);
-}
-
-pub fn compileHotSpot(self: *Self, ast: Ast.Slice, closure: *o.ObjClosure, hotspot_node: Ast.Node.Index) Error!*anyopaque {
-    if (try ast.usesFiber(
-        self.vm.gc.allocator,
-        hotspot_node,
-    )) {
         if (BuildOptions.jit_debug) {
-            bz_io.print(
-                self.vm.io,
-                "Not compiling node {s}#{}, likely because it uses a fiber\n",
+            log.debug(
+                "Job queued for node {} and closure {*}",
                 .{
-                    @tagName(ast.nodes.items(.tag)[hotspot_node]),
-                    hotspot_node,
+                    ast_node,
+                    closure,
                 },
             );
         }
 
-        try self.blacklisted_nodes.put(self.vm.gc.allocator, hotspot_node, {});
-
-        return error.CantCompile;
+        // If the worker is not working, start it again
+        try self.start();
+    } else {
+        try self.doJob(&job);
+        self.reset();
     }
-
-    // Build function surrounding the node
-    try self.buildFunction(
-        ast,
-        closure,
-        hotspot_node,
-    );
-
-    // Did we encounter other functions to compile?
-    try self.buildCollateralFunctions(ast);
-
-    // Load modules
-    for (self.modules.items) |module| {
-        m.MIR_load_module(self.ctx, module);
-    }
-
-    // Load external functions
-    var it_ext = self.required_ext_api.iterator();
-    while (it_ext.next()) |kv| {
-        switch (kv.key_ptr.*) {
-            // TODO: don't mix those with actual api functions
-            .RawFn, .NativeFn => {},
-            else => m.MIR_load_external(
-                self.ctx,
-                kv.key_ptr.*.name(),
-                kv.key_ptr.*.ptr(),
-            ),
-        }
-    }
-
-    // Link everything together
-    m.MIR_link(self.ctx, m.MIR_set_lazy_gen_interface, null);
-
-    m.MIR_gen_init(self.ctx);
-    defer m.MIR_gen_finish(self.ctx);
-
-    // Generate all needed functions and set them in corresponding ObjFunctions
-    var it2 = self.functions_queue.iterator();
-    var hotspot_native: ?*anyopaque = null;
-    while (it2.next()) |kv| {
-        const node = kv.key_ptr.*;
-        const items = kv.value_ptr.*.?;
-
-        const native = if (items.native) |item| m.MIR_gen(self.ctx, item) else null;
-        const native_raw = if (items.native_raw) |item| m.MIR_gen(self.ctx, item) else null;
-
-        // Find out if we need to set it in a ObjFunction
-        var it3 = self.objclosures_queue.iterator();
-        while (it3.next()) |kv2| {
-            if (kv2.key_ptr.*.function.node == node) {
-                kv2.key_ptr.*.function.native = native;
-                kv2.key_ptr.*.function.native_raw = native_raw;
-                break;
-            }
-        }
-
-        // If its the hotspot, return the NativeFn pointer
-        if (node == hotspot_node) {
-            hotspot_native = native_raw;
-        }
-    }
-
-    self.reset(self.vm.gc.allocator);
-
-    return hotspot_native orelse Error.CantCompile;
 }
 
-fn buildCollateralFunctions(self: *Self, ast: Ast.Slice) Error!void {
+pub fn start(self: *Self) StartError!void {
+    if (BuildOptions.jit_asynchronous and (self.worker == null or self.worker_stopped.load(.acquire))) {
+        if (self.worker) |*worker| {
+            worker.detach();
+        }
+
+        self.worker_stopped.store(false, .release);
+
+        self.worker = std.Thread.spawn(
+            .{},
+            work,
+            .{self},
+        ) catch return error.CantStartJit;
+
+        if (BuildOptions.jit_debug) {
+            log.debug("Worker spawned", .{});
+        }
+    }
+}
+
+fn work(self: *Self) Error!void {
+    while (self.jobs.front()) |job| {
+        if (BuildOptions.jit_debug) {
+            log.debug(
+                "Worker starting job for node {} and closure {*}",
+                .{
+                    job.node,
+                    job.closure,
+                },
+            );
+        }
+
+        try self.doJob(job);
+
+        self.jobs.pop();
+        self.reset();
+    }
+
+    if (BuildOptions.jit_debug) {
+        log.debug("Worker done", .{});
+    }
+
+    self.worker_stopped.store(true, .release);
+}
+
+fn doJob(self: *Self, job: *const Job) Error!void {
+    // Remember we need to set this functions fields
+    try self.objclosures_queue.put(
+        self.gc.allocator,
+        job.node,
+        job.closure,
+    );
+
+    // Build the function
+    try self.buildFunction(job.ast, job.closure, job.node);
+
+    // Did we encounter other functions to compile?
     var it = self.functions_queue.iterator();
     while (it.next()) |kv| {
         const node = kv.key_ptr.*;
 
         if (kv.value_ptr.* == null) {
             // Does it have an associated closure?
-            var it2 = self.objclosures_queue.iterator();
-            var sub_closure: ?*o.ObjClosure = null;
-            while (it2.next()) |kv2| {
-                if (kv2.key_ptr.*.function.node == node) {
-                    sub_closure = kv2.key_ptr.*;
-                    break;
-                }
-            }
+            const sub_closure = self.objclosures_queue.get(node);
 
             if (BuildOptions.jit_debug) {
-                bz_io.print(
-                    self.vm.io,
+                log.debug(
                     "Building collateral function node #{}\n",
                     .{
                         node,
@@ -373,11 +309,138 @@ fn buildCollateralFunctions(self: *Self, ast: Ast.Slice) Error!void {
                 );
             }
 
-            try self.buildFunction(ast, sub_closure, node);
+            try self.buildFunction(job.ast, sub_closure, node);
 
             // Building a new function might have added functions in the queue, so we reset the iterator
             it = self.functions_queue.iterator();
         }
+    }
+
+    // Load modules
+    for (self.modules.items) |module| {
+        m.MIR_load_module(self.ctx, module);
+    }
+
+    try self.loadRequiredExternalApi();
+
+    // Link everything together
+    m.MIR_link(self.ctx, m.MIR_set_lazy_gen_interface, null);
+
+    m.MIR_gen_init(self.ctx);
+    defer m.MIR_gen_finish(self.ctx);
+
+    // Generate all needed functions and set them in corresponding ObjFunctions
+    var it2 = self.functions_queue.iterator();
+    while (it2.next()) |kv| {
+        const node = kv.key_ptr.*;
+        const items = kv.value_ptr.*.?;
+
+        const native = if (items.native) |item| m.MIR_gen(self.ctx, item) else null;
+        const native_raw = if (items.native_raw) |item| m.MIR_gen(self.ctx, item) else null;
+
+        // Find out if we need to set it in closure or hostpot node
+        if (self.objclosures_queue.get(node)) |closure| {
+            closure.function.native = native;
+            closure.function.native_raw = native_raw;
+        } else if (node == job.node) {
+            job.ast.nodes.items(.compiled)[node] = native_raw;
+        }
+
+        job.ast.nodes.items(.jit_status)[node] = .compiled;
+    }
+
+    if (BuildOptions.jit_debug) {
+        log.debug(
+            "Job for node {} and closure {*} finished",
+            .{
+                job.node,
+                job.closure,
+            },
+        );
+    }
+}
+
+fn loadRequiredExternalApi(self: *Self) Error!void {
+    var it_ext = self.required_ext_api.iterator();
+    while (it_ext.next()) |kv| {
+        switch (kv.key_ptr.*) {
+            .RawFn, .NativeFn => {},
+            else => m.MIR_load_external(
+                self.ctx,
+                kv.key_ptr.*.name(),
+                kv.key_ptr.*.ptr(),
+            ),
+        }
+    }
+}
+
+fn getQualifiedName(self: *Self, node: Ast.Node.Index, raw: bool) ![]const u8 {
+    const tag = self.state.?.ast.nodes.items(.tag)[node];
+
+    switch (tag) {
+        .Function => {
+            const components = self.state.?.ast.nodes.items(.components)[node].Function;
+            const type_defs = self.state.?.ast.nodes.items(.type_def);
+
+            const function_def = type_defs[node].?.resolved_type.?.Function;
+            const function_type = function_def.function_type;
+            const name = function_def.name.string;
+
+            var qualified_name = std.Io.Writer.Allocating.init(self.gc.allocator);
+
+            try qualified_name.writer.writeAll(name);
+
+            // Main and script are not allowed to be compiled
+            std.debug.assert(function_type != .ScriptEntryPoint and function_type != .Script);
+
+            // Don't qualify extern functions
+            if (function_type != .Extern) {
+                try qualified_name.writer.print(
+                    ".{}.n{}",
+                    .{
+                        components.id,
+                        node,
+                    },
+                );
+            }
+            if (function_type != .Extern and raw) {
+                try qualified_name.writer.writeAll(".raw");
+            }
+            try qualified_name.writer.writeByte(0);
+
+            return qualified_name.toOwnedSlice();
+        },
+
+        .For,
+        .ForEach,
+        .While,
+        => {
+            var qualified_name = std.Io.Writer.Allocating.init(self.gc.allocator);
+
+            try qualified_name.writer.print(
+                "{s}#{d}\x00",
+                .{
+                    @tagName(tag),
+                    node,
+                },
+            );
+
+            return qualified_name.toOwnedSlice();
+        },
+
+        else => {
+            if (BuildOptions.debug) {
+                bz_io.print(
+                    self.vm.io,
+                    "Ast {s} node are not valid hotspots",
+                    .{
+                        @tagName(tag),
+                    },
+                );
+            }
+
+            unreachable;
+        },
     }
 }
 
@@ -394,26 +457,22 @@ fn buildFunction(self: *Self, ast: Ast.Slice, closure: ?*o.ObjClosure, ast_node:
         ast_node,
         false,
     );
-    defer self.vm.gc.allocator.free(qualified_name);
+    defer self.gc.allocator.free(qualified_name);
     const raw_qualified_name = try self.getQualifiedName(
         ast_node,
         true,
     );
-    defer self.vm.gc.allocator.free(raw_qualified_name);
+    defer self.gc.allocator.free(raw_qualified_name);
 
     const module = m.MIR_new_module(self.ctx, @ptrCast(qualified_name));
     defer m.MIR_finish_module(self.ctx);
 
-    try self.modules.append(self.vm.gc.allocator, module);
+    try self.modules.append(self.gc.allocator, module);
 
     self.state.?.module = module;
-
-    if (closure) |uclosure| {
-        try self.compiled_nodes.put(self.vm.gc.allocator, uclosure.function.node, {});
-
-        if (BuildOptions.jit_debug) {
-            bz_io.print(
-                self.vm.io,
+    if (BuildOptions.jit_debug) {
+        if (closure) |uclosure| {
+            log.debug(
                 "Compiling function `{s}` because it was called {}/{} times\n",
                 .{
                     qualified_name,
@@ -421,14 +480,9 @@ fn buildFunction(self: *Self, ast: Ast.Slice, closure: ?*o.ObjClosure, ast_node:
                     self.call_count,
                 },
             );
-        }
-    } else {
-        try self.compiled_nodes.put(self.vm.gc.allocator, ast_node, {});
-
-        if (BuildOptions.jit_debug) {
+        } else {
             if (tag.isHotspot()) {
-                bz_io.print(
-                    self.vm.io,
+                log.debug(
                     "Compiling hotspot for node {s} {}\n",
                     .{
                         @tagName(self.state.?.ast.nodes.items(.tag)[ast_node]),
@@ -436,8 +490,7 @@ fn buildFunction(self: *Self, ast: Ast.Slice, closure: ?*o.ObjClosure, ast_node:
                     },
                 );
             } else {
-                bz_io.print(
-                    self.vm.io,
+                log.debug(
                     "Compiling closure `{s}`\n",
                     .{
                         qualified_name,
@@ -453,15 +506,15 @@ fn buildFunction(self: *Self, ast: Ast.Slice, closure: ?*o.ObjClosure, ast_node:
         self.generateNode(ast_node)) catch |err| {
         if (err == Error.CantCompile) {
             if (BuildOptions.jit_debug) {
-                bz_io.print(self.vm.io, "Not compiling `{s}`, likely because it uses a fiber\n", .{qualified_name});
+                log.debug("Not compiling `{s}`, likely because it uses a fiber\n", .{qualified_name});
             }
 
             m.MIR_finish_func(self.ctx);
 
             _ = self.functions_queue.remove(ast_node);
             if (closure) |uclosure| {
-                _ = self.objclosures_queue.remove(uclosure);
-                try self.blacklisted_nodes.put(self.vm.gc.allocator, uclosure.function.node, {});
+                _ = self.objclosures_queue.remove(uclosure.function.node);
+                ast.nodes.items(.jit_status)[uclosure.function.node] = .blacklisted;
             }
         }
 
@@ -488,10 +541,12 @@ fn buildFunction(self: *Self, ast: Ast.Slice, closure: ?*o.ObjClosure, ast_node:
 fn generateNode(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
     const components = self.state.?.ast.nodes.items(.components);
     const tag = self.state.?.ast.nodes.items(.tag)[node];
-    const constant = self.state.?.ast.nodes.items(.value)[node] orelse if (try self.state.?.ast.isConstant(self.vm.gc.allocator, node))
-        try self.state.?.ast.toValue(node, &self.vm.reporter, self.vm.gc)
-    else
-        null;
+    const constant = self.state.?.ast.nodes.items(.value)[node];
+    // FIXME: we should already have generated any constant node in CodeGen no?
+    // orelse if (try self.state.?.ast.isConstant(self.gc.allocator, node))
+    //     try self.state.?.ast.toValue(node, self.vm.gc)
+    // else
+    //     null;
 
     var value = if (constant != null)
         m.MIR_new_uint_op(self.ctx, constant.?.val)
@@ -564,7 +619,7 @@ fn generateNode(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
         => return Error.CantCompile,
 
         else => {
-            bz_io.print(self.vm.process.io, "{} NYI\n", .{tag});
+            bz_io.print(self.process.io, "{} NYI\n", .{tag});
             unreachable;
         },
     };
@@ -595,7 +650,7 @@ fn generateNode(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
                         self.ctx,
                         @intFromEnum(m.MIR_Instruction.BEQ),
                         3,
-                        &[_]m.MIR_op_t{
+                        &.{
                             m.MIR_new_label_op(self.ctx, out_label),
                             m.MIR_new_reg_op(self.ctx, opt_jump.alloca),
                             m.MIR_new_uint_op(self.ctx, Value.Null.val),
@@ -608,7 +663,7 @@ fn generateNode(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
 
             value = m.MIR_new_reg_op(self.ctx, opt_jump.alloca);
 
-            opt_jump.deinit(self.vm.gc.allocator);
+            opt_jump.deinit(self.gc.allocator);
         }
         // Close scope if needed
         if (constant == null or tag != .Range) { // Range creates locals for its limits, but we don't push anything if its constant
@@ -679,7 +734,7 @@ fn buildCloseUpValues(self: *Self) !void {
     try self.buildExternApiCall(
         .bz_closeUpValues,
         null,
-        &[_]m.MIR_op_t{
+        &.{
             m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
             m.MIR_new_reg_op(self.ctx, stack_top_base),
         },
@@ -1226,7 +1281,7 @@ fn buildValueToCString(self: *Self, value: m.MIR_op_t, dest: m.MIR_op_t) !void {
     try self.buildExternApiCall(
         .bz_valueToCString,
         dest,
-        &[_]m.MIR_op_t{value},
+        &.{value},
     );
 }
 
@@ -1247,7 +1302,7 @@ fn buildValueToOptionalCString(self: *Self, value: m.MIR_op_t, dest: m.MIR_op_t)
     try self.buildExternApiCall(
         .bz_valueToCString,
         dest,
-        &[_]m.MIR_op_t{value},
+        &.{value},
     );
 
     self.append(null_label);
@@ -1257,7 +1312,7 @@ fn buildValueFromCString(self: *Self, value: m.MIR_op_t, dest: m.MIR_op_t) !void
     try self.buildExternApiCall(
         .bz_stringToValueZ,
         dest,
-        &[_]m.MIR_op_t{
+        &.{
             m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
             value,
         },
@@ -1281,7 +1336,7 @@ fn buildValueFromOptionalCString(self: *Self, value: m.MIR_op_t, dest: m.MIR_op_
     try self.buildExternApiCall(
         .bz_stringToValueZ,
         dest,
-        &[_]m.MIR_op_t{
+        &.{
             m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
             value,
         },
@@ -1294,7 +1349,7 @@ fn buildValueToUserData(self: *Self, value: m.MIR_op_t, dest: m.MIR_op_t) !void 
     try self.buildExternApiCall(
         .bz_getUserDataPtr,
         dest,
-        &[_]m.MIR_op_t{value},
+        &.{value},
     );
 }
 
@@ -1302,7 +1357,7 @@ fn buildValueToForeignContainerPtr(self: *Self, value: m.MIR_op_t, dest: m.MIR_o
     try self.buildExternApiCall(
         .bz_valueToForeignContainerPtr,
         dest,
-        &[_]m.MIR_op_t{value},
+        &.{value},
     );
 }
 
@@ -1310,7 +1365,7 @@ fn buildValueFromForeignContainerPtr(self: *Self, type_def: *o.ObjTypeDef, value
     try self.buildExternApiCall(
         .bz_newForeignContainerFromSlice,
         dest,
-        &[_]m.MIR_op_t{
+        &.{
             m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
             m.MIR_new_uint_op(self.ctx, @intFromPtr(type_def)),
             value,
@@ -1336,7 +1391,7 @@ fn buildValueFromOptionalForeignContainerPtr(self: *Self, type_def: *o.ObjTypeDe
     try self.buildExternApiCall(
         .bz_newForeignContainerFromSlice,
         dest,
-        &[_]m.MIR_op_t{
+        &.{
             m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
             m.MIR_new_uint_op(self.ctx, @intFromPtr(type_def)),
             value,
@@ -1364,7 +1419,7 @@ fn buildValueToOptionalForeignContainerPtr(self: *Self, value: m.MIR_op_t, dest:
     try self.buildExternApiCall(
         .bz_valueToForeignContainerPtr,
         dest,
-        &[_]m.MIR_op_t{value},
+        &.{value},
     );
 
     self.append(null_label);
@@ -1374,7 +1429,7 @@ fn buildValueFromUserData(self: *Self, value: m.MIR_op_t, dest: m.MIR_op_t) !voi
     try self.buildExternApiCall(
         .bz_newUserData,
         dest,
-        &[_]m.MIR_op_t{
+        &.{
             m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
             value,
         },
@@ -1398,7 +1453,7 @@ fn buildValueFromOptionalUserData(self: *Self, value: m.MIR_op_t, dest: m.MIR_op
     try self.buildExternApiCall(
         .bz_newUserData,
         dest,
-        &[_]m.MIR_op_t{
+        &.{
             m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
             value,
         },
@@ -1424,7 +1479,7 @@ fn buildValueToOptionalUserData(self: *Self, value: m.MIR_op_t, dest: m.MIR_op_t
     try self.buildExternApiCall(
         .bz_getUserDataPtr,
         dest,
-        &[_]m.MIR_op_t{value},
+        &.{value},
     );
 
     self.append(null_label);
@@ -1581,7 +1636,7 @@ fn buildValueToForeignContainer(self: *Self, value: m.MIR_op_t, dest: m.MIR_op_t
     try self.buildExternApiCall(
         .bz_valueToForeignContainerPtr,
         m.MIR_new_reg_op(self.ctx, foreign),
-        &[_]m.MIR_op_t{value},
+        &.{value},
     );
 
     self.MOV(
@@ -1620,7 +1675,7 @@ fn buildReturn(self: *Self, value: m.MIR_op_t) !void {
     try self.buildExternApiCall(
         .bz_closeUpValues,
         null,
-        &[_]m.MIR_op_t{
+        &.{
             m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
             base,
         },
@@ -1715,15 +1770,15 @@ fn wrap(self: *Self, def_type: o.ObjTypeDef.Type, value: m.MIR_op_t, dest: m.MIR
 }
 
 fn buildExternApiCall(self: *Self, method: ExternApi, dest: ?m.MIR_op_t, args: []const m.MIR_op_t) !void {
-    self.args_buffer[0] = m.MIR_new_ref_op(self.ctx, try method.declare(self));
-    self.args_buffer[1] = m.MIR_new_ref_op(self.ctx, m.MIR_new_import(self.ctx, method.name()));
+    self.state.?.args_buffer[0] = m.MIR_new_ref_op(self.ctx, try method.declare(self));
+    self.state.?.args_buffer[1] = m.MIR_new_ref_op(self.ctx, m.MIR_new_import(self.ctx, method.name()));
     if (dest) |udest| {
-        self.args_buffer[2] = udest;
+        self.state.?.args_buffer[2] = udest;
     }
     const off: usize = if (dest != null) 3 else 2;
     std.mem.copyForwards(
         m.MIR_op_t,
-        self.args_buffer[off..],
+        self.state.?.args_buffer[off..],
         args,
     );
 
@@ -1732,7 +1787,7 @@ fn buildExternApiCall(self: *Self, method: ExternApi, dest: ?m.MIR_op_t, args: [
             self.ctx,
             @intFromEnum(m.MIR_Instruction.CALL),
             off + args.len,
-            &self.args_buffer,
+            &self.state.?.args_buffer,
         ),
     );
 }
@@ -1761,7 +1816,7 @@ fn generateString(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
             try self.buildExternApiCall(
                 .bz_valueCastToString,
                 dest,
-                &[_]m.MIR_op_t{
+                &.{
                     value,
                     m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
                 },
@@ -1779,7 +1834,7 @@ fn generateString(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
             try self.buildExternApiCall(
                 .bz_stringConcat,
                 dest,
-                &[_]m.MIR_op_t{
+                &.{
                     uprevious,
                     value,
                     m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
@@ -1844,16 +1899,18 @@ fn generateNamedVariable(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
                 const closure = o.ObjClosure.cast(self.state.?.closure.globals.items[components.slot].obj()).?;
 
                 // Does it need to be compiled?
-                if (self.compiled_nodes.get(closure.function.node) == null) {
-                    if (self.blacklisted_nodes.get(closure.function.node) != null) {
-                        return Error.CantCompile;
-                    }
+                switch (self.state.?.ast.nodes.items(.jit_status)[closure.function.node]) {
+                    .compilable => if (self.state.?.ast.nodes.items(.compiled)[closure.function.node] == null) {
+                        // Remember we need to set native fields of this ObjFunction later
+                        try self.objclosures_queue.put(self.gc.allocator, closure.function.node, closure);
 
-                    // Remember we need to set native fields of this ObjFunction later
-                    try self.objclosures_queue.put(self.vm.gc.allocator, closure, {});
+                        // Remember that we need to compile this function later
+                        try self.functions_queue.put(self.gc.allocator, closure.function.node, null);
 
-                    // Remember that we need to compile this function later
-                    try self.functions_queue.put(self.vm.gc.allocator, closure.function.node, null);
+                        self.state.?.ast.nodes.items(.jit_status)[closure.function.node] = .queued;
+                    },
+                    .blacklisted => return error.CantCompile,
+                    .queued, .compiled => {},
                 }
 
                 return m.MIR_new_uint_op(self.ctx, closure.toValue().val);
@@ -1895,7 +1952,7 @@ fn generateNamedVariable(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
                     try self.buildExternApiCall(
                         .bz_getUpValue,
                         upvalue,
-                        &[_]m.MIR_op_t{
+                        &.{
                             m.MIR_new_reg_op(self.ctx, self.state.?.ctx_reg.?),
                             m.MIR_new_uint_op(self.ctx, components.slot),
                         },
@@ -1912,7 +1969,7 @@ fn generateNamedVariable(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
                     try self.buildExternApiCall(
                         .bz_setUpValue,
                         null,
-                        &[_]m.MIR_op_t{
+                        &.{
                             m.MIR_new_reg_op(self.ctx, self.state.?.ctx_reg.?),
                             m.MIR_new_uint_op(self.ctx, components.slot),
                             val,
@@ -1931,7 +1988,7 @@ fn generateNamedVariable(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
             try self.buildExternApiCall(
                 .bz_getUpValue,
                 upvalue,
-                &[_]m.MIR_op_t{
+                &.{
                     m.MIR_new_reg_op(self.ctx, self.state.?.ctx_reg.?),
                     m.MIR_new_uint_op(self.ctx, components.slot),
                 },
@@ -1956,7 +2013,7 @@ fn generateCall(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
         try self.buildExternApiCall(
             .bz_getEnumCaseFromValue,
             m.MIR_new_reg_op(self.ctx, result_reg),
-            &[_]m.MIR_op_t{
+            &.{
                 (try self.generateNode(components.callee)).?,
                 (try self.generateNode(components.arguments[0].value)).?,
                 m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
@@ -1989,7 +2046,7 @@ fn generateCall(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
             .Object => try self.buildExternApiCall(
                 .bz_getObjectField,
                 callee,
-                &[_]m.MIR_op_t{
+                &.{
                     subject.?,
                     m.MIR_new_uint_op(
                         self.ctx,
@@ -2013,7 +2070,7 @@ fn generateCall(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
                         .bz_getObjectInstanceProperty,
                     callee,
                     if (field.method)
-                        &[_]m.MIR_op_t{
+                        &.{
                             // subject
                             subject.?,
                             // member
@@ -2024,7 +2081,7 @@ fn generateCall(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
                             m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
                         }
                     else
-                        &[_]m.MIR_op_t{
+                        &.{
                             // subject
                             subject.?,
                             // member
@@ -2052,7 +2109,7 @@ fn generateCall(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
                 },
                 callee,
                 if (invoked_on.? != .ProtocolInstance)
-                    &[_]m.MIR_op_t{
+                    &.{
                         // vm
                         m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
                         // subject
@@ -2074,15 +2131,15 @@ fn generateCall(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
                         m.MIR_new_uint_op(self.ctx, 0),
                     }
                 else
-                    &[_]m.MIR_op_t{
+                    &.{
                         // subject
                         subject.?,
                         // member
                         m.MIR_new_uint_op(
                             self.ctx,
-                            (try self.vm.gc.copyString(
+                            self.gc.strings.get(
                                 self.state.?.ast.tokens.items(.lexeme)[node_components[dot.?].Dot.identifier],
-                            )).toValue().val,
+                            ).?.toValue().val,
                         ),
                         // vm
                         m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
@@ -2144,7 +2201,7 @@ fn generateCall(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
         try self.buildExternApiCall(
             .bz_setTryCtx,
             try_ctx,
-            &[_]m.MIR_op_t{
+            &.{
                 m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
             },
         );
@@ -2156,14 +2213,14 @@ fn generateCall(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
         self.ADD(
             env,
             try_ctx,
-            m.MIR_new_uint_op(self.ctx, @offsetOf(r.TryCtx, "env")),
+            m.MIR_new_uint_op(self.ctx, @offsetOf(TryCtx, "env")),
         );
 
         const status = try self.REG("status", m.MIR_T_I64);
         try self.buildExternApiCall(
             .setjmp,
             m.MIR_new_reg_op(self.ctx, status),
-            &[_]m.MIR_op_t{env},
+            &.{env},
         );
 
         self.BEQ(
@@ -2209,17 +2266,17 @@ fn generateCall(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
     const arg_keys = args.keys();
 
     var arguments = std.AutoArrayHashMapUnmanaged(*o.ObjString, m.MIR_op_t).empty;
-    defer arguments.deinit(self.vm.gc.allocator);
+    defer arguments.deinit(self.gc.allocator);
 
     // Evaluate arguments
     for (components.arguments, 0..) |argument, index| {
         const actual_arg_key = if (index == 0 and argument.name == null)
             arg_keys[0]
         else
-            (try self.vm.gc.copyString(lexemes[argument.name.?]));
+            self.gc.strings.get(lexemes[argument.name.?]).?;
 
         try arguments.put(
-            self.vm.gc.allocator,
+            self.gc.allocator,
             actual_arg_key,
             (try self.generateNode(argument.value)).?,
         );
@@ -2230,17 +2287,14 @@ fn generateCall(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
         if (arguments.get(key)) |arg| {
             try self.buildPush(arg);
         } else {
-            var value = defaults.get(key).?;
-            value = if (value.isObj()) try o.cloneObject(value.obj(), self.vm) else value;
-
             // Push clone of default
             const clone = try self.REG("clone", m.MIR_T_I64);
             try self.buildExternApiCall(
                 .bz_clone,
                 m.MIR_new_reg_op(self.ctx, clone),
-                &[_]m.MIR_op_t{
+                &.{
                     m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
-                    m.MIR_new_uint_op(self.ctx, value.val),
+                    m.MIR_new_uint_op(self.ctx, defaults.get(key).?.val),
                 },
             );
 
@@ -2254,7 +2308,7 @@ fn generateCall(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
     try self.buildExternApiCall(
         .bz_context,
         callee,
-        &[_]m.MIR_op_t{
+        &.{
             m.MIR_new_reg_op(self.ctx, self.state.?.ctx_reg.?),
             callee,
             m.MIR_new_reg_op(self.ctx, new_ctx),
@@ -2269,7 +2323,7 @@ fn generateCall(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
             self.ctx,
             @intFromEnum(m.MIR_Instruction.CALL),
             4,
-            &[_]m.MIR_op_t{
+            &.{
                 m.MIR_new_ref_op(
                     self.ctx,
                     if (function_type == .Extern)
@@ -2337,7 +2391,7 @@ fn generateHandleExternReturn(
             try self.buildExternApiCall(
                 .bz_rethrow,
                 null,
-                &[_]m.MIR_op_t{
+                &.{
                     m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
                 },
             );
@@ -2345,7 +2399,7 @@ fn generateHandleExternReturn(
             try self.buildExternApiCall(
                 .exit,
                 null,
-                &[_]m.MIR_op_t{m.MIR_new_uint_op(self.ctx, 1)},
+                &.{m.MIR_new_uint_op(self.ctx, 1)},
             );
         }
 
@@ -2364,7 +2418,7 @@ fn generateHandleExternReturn(
     try self.buildExternApiCall(
         .exit,
         null,
-        &[_]m.MIR_op_t{m.MIR_new_uint_op(self.ctx, 1)},
+        &.{m.MIR_new_uint_op(self.ctx, 1)},
     );
 
     self.append(continue_label);
@@ -2480,7 +2534,7 @@ fn generateIf(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
         try self.buildExternApiCall(
             .bz_valueIs,
             condition,
-            &[_]m.MIR_op_t{
+            &.{
                 condition_value.?,
                 m.MIR_new_uint_op(
                     self.ctx,
@@ -2498,7 +2552,7 @@ fn generateIf(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
         try self.buildExternApiCall(
             .bz_valueEqual,
             condition,
-            &[_]m.MIR_op_t{
+            &.{
                 condition_value.?,
                 m.MIR_new_uint_op(self.ctx, Value.Null.val),
             },
@@ -2634,7 +2688,7 @@ fn generateTypeOfExpression(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t
     try self.buildExternApiCall(
         .bz_valueTypeOf,
         result,
-        &[_]m.MIR_op_t{
+        &.{
             value,
             m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
         },
@@ -2698,7 +2752,7 @@ fn buildBinary(
                     try self.buildExternApiCall(
                         .bz_stringConcat,
                         dest,
-                        &[_]m.MIR_op_t{
+                        &.{
                             left_value,
                             right_value,
                             m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
@@ -2709,7 +2763,7 @@ fn buildBinary(
                     try self.buildExternApiCall(
                         .bz_listConcat,
                         dest,
-                        &[_]m.MIR_op_t{
+                        &.{
                             left_value,
                             right_value,
                             m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
@@ -2720,7 +2774,7 @@ fn buildBinary(
                     try self.buildExternApiCall(
                         .bz_mapConcat,
                         dest,
-                        &[_]m.MIR_op_t{
+                        &.{
                             left_value,
                             right_value,
                             m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
@@ -2772,7 +2826,7 @@ fn buildBinary(
                     try self.buildExternApiCall(
                         .exit,
                         null,
-                        &[_]m.MIR_op_t{m.MIR_new_uint_op(self.ctx, 1)},
+                        &.{m.MIR_new_uint_op(self.ctx, 1)},
                     );
 
                     self.append(zero_label);
@@ -2791,7 +2845,7 @@ fn buildBinary(
                     try self.buildExternApiCall(
                         .exit,
                         null,
-                        &[_]m.MIR_op_t{m.MIR_new_uint_op(self.ctx, 1)},
+                        &.{m.MIR_new_uint_op(self.ctx, 1)},
                     );
 
                     self.append(zero_label);
@@ -2813,7 +2867,7 @@ fn buildBinary(
                 try self.buildExternApiCall(
                     .exit,
                     null,
-                    &[_]m.MIR_op_t{m.MIR_new_uint_op(self.ctx, 1)},
+                    &.{m.MIR_new_uint_op(self.ctx, 1)},
                 );
 
                 self.append(zero_check_label);
@@ -2875,7 +2929,7 @@ fn buildBinary(
             .Double => try self.buildExternApiCall(
                 .fmod,
                 dest,
-                &[_]m.MIR_op_t{
+                &.{
                     left,
                     right,
                 },
@@ -3004,7 +3058,7 @@ fn generateComparison(self: *Self, components: Ast.Binary) Error!?m.MIR_op_t {
         .EqualEqual => try self.buildExternApiCall(
             .bz_valueEqual,
             res,
-            &[_]m.MIR_op_t{
+            &.{
                 left_value,
                 right_value,
             },
@@ -3013,7 +3067,7 @@ fn generateComparison(self: *Self, components: Ast.Binary) Error!?m.MIR_op_t {
             try self.buildExternApiCall(
                 .bz_valueEqual,
                 res,
-                &[_]m.MIR_op_t{
+                &.{
                     left_value,
                     right_value,
                 },
@@ -3195,7 +3249,7 @@ fn generateWhile(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
 
     if (components.label != null) {
         try self.state.?.breaks_label.append(
-            self.vm.gc.allocator,
+            self.gc.allocator,
             .{
                 .node = node,
                 .break_label = out_label,
@@ -3241,7 +3295,7 @@ fn generateDoUntil(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
 
     if (components.label != null) {
         try self.state.?.breaks_label.append(
-            self.vm.gc.allocator,
+            self.gc.allocator,
             .{
                 .node = node,
                 .break_label = out_label,
@@ -3289,7 +3343,7 @@ fn generateFor(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
 
     if (components.label != null) {
         try self.state.?.breaks_label.append(
-            self.vm.gc.allocator,
+            self.gc.allocator,
             .{
                 .node = node,
                 .break_label = out_label,
@@ -3391,7 +3445,7 @@ fn generateList(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
     try self.buildExternApiCall(
         .bz_newList,
         new_list,
-        &[_]m.MIR_op_t{
+        &.{
             m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
             m.MIR_new_uint_op(self.ctx, type_def.?.toValue().val),
         },
@@ -3404,7 +3458,7 @@ fn generateList(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
         try self.buildExternApiCall(
             .bz_listAppend,
             null,
-            &[_]m.MIR_op_t{
+            &.{
                 new_list,
                 (try self.generateNode(item)).?,
                 m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
@@ -3428,7 +3482,7 @@ fn generateRange(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
     try self.buildExternApiCall(
         .bz_newRange,
         new_range,
-        &[_]m.MIR_op_t{
+        &.{
             m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
             (try self.generateNode(components.low)).?,
             (try self.generateNode(components.high)).?,
@@ -3450,7 +3504,7 @@ fn generateMap(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
     try self.buildExternApiCall(
         .bz_newMap,
         new_map,
-        &[_]m.MIR_op_t{
+        &.{
             m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
             m.MIR_new_uint_op(self.ctx, @constCast(type_def.?).toValue().val),
         },
@@ -3463,7 +3517,7 @@ fn generateMap(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
         try self.buildExternApiCall(
             .bz_mapSet,
             null,
-            &[_]m.MIR_op_t{
+            &.{
                 new_map,
                 (try self.generateNode(entry.key)).?,
                 (try self.generateNode(entry.value)).?,
@@ -3484,7 +3538,6 @@ fn generateDot(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
 
     const callee_type = type_defs[components.callee].?;
     const member_lexeme = self.state.?.ast.tokens.items(.lexeme)[components.identifier];
-    const member_identifier = (try self.vm.gc.copyString(member_lexeme)).toValue().val;
 
     switch (callee_type.def_type) {
         .Fiber => {
@@ -3498,7 +3551,7 @@ fn generateDot(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
                     try self.buildExternApiCall(
                         .bz_getFiberProperty,
                         res,
-                        &[_]m.MIR_op_t{
+                        &.{
                             m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
                             (try self.generateNode(components.callee)).?,
                             m.MIR_new_uint_op(
@@ -3525,7 +3578,7 @@ fn generateDot(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
                     try self.buildExternApiCall(
                         .bz_getPatternProperty,
                         res,
-                        &[_]m.MIR_op_t{
+                        &.{
                             m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
                             (try self.generateNode(components.callee)).?,
                             m.MIR_new_uint_op(
@@ -3552,7 +3605,7 @@ fn generateDot(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
                     try self.buildExternApiCall(
                         .bz_getStringProperty,
                         res,
-                        &[_]m.MIR_op_t{
+                        &.{
                             m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
                             (try self.generateNode(components.callee)).?,
                             m.MIR_new_uint_op(
@@ -3579,7 +3632,7 @@ fn generateDot(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
                     try self.buildExternApiCall(
                         .bz_getRangeProperty,
                         res,
-                        &[_]m.MIR_op_t{
+                        &.{
                             m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
                             (try self.generateNode(components.callee)).?,
                             m.MIR_new_uint_op(
@@ -3609,7 +3662,7 @@ fn generateDot(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
                         try self.buildExternApiCall(
                             .bz_setObjectField,
                             null,
-                            &[_]m.MIR_op_t{
+                            &.{
                                 (try self.generateNode(components.callee)).?,
                                 m.MIR_new_uint_op(self.ctx, field.index),
                                 gen_value,
@@ -3628,7 +3681,7 @@ fn generateDot(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
                     try self.buildExternApiCall(
                         .bz_getObjectField,
                         res,
-                        &[_]m.MIR_op_t{
+                        &.{
                             (try self.generateNode(components.callee)).?,
                             m.MIR_new_uint_op(self.ctx, field.index),
                         },
@@ -3645,7 +3698,7 @@ fn generateDot(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
                     try self.buildExternApiCall(
                         .bz_setObjectField,
                         null,
-                        &[_]m.MIR_op_t{
+                        &.{
                             (try self.generateNode(components.callee)).?,
                             m.MIR_new_uint_op(self.ctx, field.index),
                             res,
@@ -3666,7 +3719,7 @@ fn generateDot(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
                     try self.buildExternApiCall(
                         .bz_getObjectField,
                         res,
-                        &[_]m.MIR_op_t{
+                        &.{
                             (try self.generateNode(components.callee)).?,
                             m.MIR_new_uint_op(self.ctx, field.index),
                         },
@@ -3693,7 +3746,7 @@ fn generateDot(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
                         try self.buildExternApiCall(
                             .bz_setObjectInstanceProperty,
                             null,
-                            &[_]m.MIR_op_t{
+                            &.{
                                 (try self.generateNode(components.callee)).?,
                                 m.MIR_new_uint_op(
                                     self.ctx,
@@ -3715,7 +3768,7 @@ fn generateDot(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
                     try self.buildExternApiCall(
                         .bz_getObjectInstanceProperty,
                         res,
-                        &[_]m.MIR_op_t{
+                        &.{
                             (try self.generateNode(components.callee)).?,
                             m.MIR_new_uint_op(self.ctx, field.index),
                         },
@@ -3732,7 +3785,7 @@ fn generateDot(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
                     try self.buildExternApiCall(
                         .bz_setObjectInstanceProperty,
                         null,
-                        &[_]m.MIR_op_t{
+                        &.{
                             (try self.generateNode(components.callee)).?,
                             m.MIR_new_uint_op(
                                 self.ctx,
@@ -3763,7 +3816,7 @@ fn generateDot(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
                             try self.buildExternApiCall(
                                 .bz_getObjectInstanceMethod,
                                 res,
-                                &[_]m.MIR_op_t{
+                                &.{
                                     (try self.generateNode(components.callee)).?,
                                     m.MIR_new_uint_op(self.ctx, f.index),
                                     m.MIR_new_uint_op(self.ctx, 1),
@@ -3774,7 +3827,7 @@ fn generateDot(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
                             try self.buildExternApiCall(
                                 .bz_getObjectInstanceProperty,
                                 res,
-                                &[_]m.MIR_op_t{
+                                &.{
                                     (try self.generateNode(components.callee)).?,
                                     m.MIR_new_uint_op(self.ctx, f.index),
                                 },
@@ -3784,9 +3837,9 @@ fn generateDot(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
                         try self.buildExternApiCall(
                             .bz_getProtocolMethod,
                             res,
-                            &[_]m.MIR_op_t{
+                            &.{
                                 (try self.generateNode(components.callee)).?,
-                                m.MIR_new_uint_op(self.ctx, member_identifier),
+                                m.MIR_new_uint_op(self.ctx, self.gc.strings.get(member_lexeme).?.toValue().val),
                                 m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
                             },
                         );
@@ -3815,7 +3868,7 @@ fn generateDot(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
                         try self.buildExternApiCall(
                             .bz_foreignContainerSet,
                             null,
-                            &[_]m.MIR_op_t{
+                            &.{
                                 (try self.generateNode(components.callee)).?,
                                 m.MIR_new_uint_op(
                                     self.ctx,
@@ -3837,7 +3890,7 @@ fn generateDot(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
                     try self.buildExternApiCall(
                         .bz_foreignContainerGet,
                         res,
-                        &[_]m.MIR_op_t{
+                        &.{
                             (try self.generateNode(components.callee)).?,
                             m.MIR_new_uint_op(
                                 self.ctx,
@@ -3858,7 +3911,7 @@ fn generateDot(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
                     try self.buildExternApiCall(
                         .bz_foreignContainerSet,
                         null,
-                        &[_]m.MIR_op_t{
+                        &.{
                             (try self.generateNode(components.callee)).?,
                             m.MIR_new_uint_op(
                                 self.ctx,
@@ -3880,7 +3933,7 @@ fn generateDot(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
                     try self.buildExternApiCall(
                         .bz_foreignContainerGet,
                         res,
-                        &[_]m.MIR_op_t{
+                        &.{
                             (try self.generateNode(components.callee)).?,
                             m.MIR_new_uint_op(
                                 self.ctx,
@@ -3905,9 +3958,9 @@ fn generateDot(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
             try self.buildExternApiCall(
                 .bz_getEnumCase,
                 res,
-                &[_]m.MIR_op_t{
+                &.{
                     (try self.generateNode(components.callee)).?,
-                    m.MIR_new_uint_op(self.ctx, member_identifier),
+                    m.MIR_new_uint_op(self.ctx, self.gc.strings.get(member_lexeme).?.toValue().val),
                     m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
                 },
             );
@@ -3923,7 +3976,7 @@ fn generateDot(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
             try self.buildExternApiCall(
                 .bz_getEnumInstanceValue,
                 res,
-                &[_]m.MIR_op_t{
+                &.{
                     (try self.generateNode(components.callee)).?,
                 },
             );
@@ -3942,7 +3995,7 @@ fn generateDot(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
                     try self.buildExternApiCall(
                         .bz_getListProperty,
                         res,
-                        &[_]m.MIR_op_t{
+                        &.{
                             m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
                             (try self.generateNode(components.callee)).?,
                             m.MIR_new_uint_op(self.ctx, o.ObjList.members_name.get(member_lexeme).?),
@@ -3966,7 +4019,7 @@ fn generateDot(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
                     try self.buildExternApiCall(
                         .bz_getMapProperty,
                         res,
-                        &[_]m.MIR_op_t{
+                        &.{
                             m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
                             (try self.generateNode(components.callee)).?,
                             m.MIR_new_uint_op(self.ctx, o.ObjMap.members_name.get(member_lexeme).?),
@@ -4010,7 +4063,7 @@ fn generateSubscript(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
                     try self.buildExternApiCall(
                         .bz_listGet,
                         res,
-                        &[_]m.MIR_op_t{
+                        &.{
                             subscripted,
                             index,
                             m.MIR_new_uint_op(self.ctx, 0),
@@ -4028,7 +4081,7 @@ fn generateSubscript(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
                     try self.buildExternApiCall(
                         .bz_listSet,
                         null,
-                        &[_]m.MIR_op_t{
+                        &.{
                             subscripted,
                             index,
                             res,
@@ -4039,7 +4092,7 @@ fn generateSubscript(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
                     try self.buildExternApiCall(
                         .bz_listSet,
                         null,
-                        &[_]m.MIR_op_t{
+                        &.{
                             subscripted,
                             index,
                             val,
@@ -4059,7 +4112,7 @@ fn generateSubscript(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
             try self.buildExternApiCall(
                 .bz_listGet,
                 res,
-                &[_]m.MIR_op_t{
+                &.{
                     subscripted,
                     index,
                     m.MIR_new_uint_op(
@@ -4080,7 +4133,7 @@ fn generateSubscript(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
             try self.buildExternApiCall(
                 .bz_stringSubscript,
                 res,
-                &[_]m.MIR_op_t{
+                &.{
                     subscripted,
                     index_val,
                     m.MIR_new_uint_op(
@@ -4098,7 +4151,7 @@ fn generateSubscript(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
                 try self.buildExternApiCall(
                     .bz_mapSet,
                     null,
-                    &[_]m.MIR_op_t{
+                    &.{
                         subscripted,
                         index_val,
                         val,
@@ -4117,7 +4170,7 @@ fn generateSubscript(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
             try self.buildExternApiCall(
                 .bz_mapGet,
                 res,
-                &[_]m.MIR_op_t{
+                &.{
                     subscripted,
                     index_val,
                 },
@@ -4140,7 +4193,7 @@ fn generateIs(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
     try self.buildExternApiCall(
         .bz_valueIs,
         res,
-        &[_]m.MIR_op_t{
+        &.{
             (try self.generateNode(components.left)).?,
             m.MIR_new_uint_op(
                 self.ctx,
@@ -4172,7 +4225,7 @@ fn generateAs(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
     try self.buildExternApiCall(
         .bz_valueIs,
         res,
-        &[_]m.MIR_op_t{
+        &.{
             left,
             m.MIR_new_uint_op(
                 self.ctx,
@@ -4207,11 +4260,11 @@ fn generateTry(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
     const out_label = m.MIR_new_label(self.ctx);
     const catch_label = m.MIR_new_label(self.ctx);
     var clause_labels = std.ArrayList(m.MIR_insn_t).empty;
-    defer clause_labels.deinit(self.vm.gc.allocator);
+    defer clause_labels.deinit(self.gc.allocator);
 
     for (components.clauses) |_| {
         try clause_labels.append(
-            self.vm.gc.allocator,
+            self.gc.allocator,
             m.MIR_new_label(self.ctx),
         );
     }
@@ -4267,7 +4320,7 @@ fn generateTry(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
     try self.buildExternApiCall(
         .bz_setTryCtx,
         try_ctx,
-        &[_]m.MIR_op_t{
+        &.{
             m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
         },
     );
@@ -4279,14 +4332,14 @@ fn generateTry(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
     self.ADD(
         env,
         try_ctx,
-        m.MIR_new_uint_op(self.ctx, @offsetOf(r.TryCtx, "env")),
+        m.MIR_new_uint_op(self.ctx, @offsetOf(TryCtx, "env")),
     );
 
     const status = try self.REG("status", m.MIR_T_I64);
     try self.buildExternApiCall(
         .setjmp,
         m.MIR_new_reg_op(self.ctx, status),
-        &[_]m.MIR_op_t{env},
+        &.{env},
     );
 
     self.BEQ(
@@ -4312,7 +4365,7 @@ fn generateTry(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
     try self.buildExternApiCall(
         .bz_closeUpValues,
         null,
-        &[_]m.MIR_op_t{
+        &.{
             m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
             stack_top,
         },
@@ -4348,7 +4401,7 @@ fn generateTry(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
         try self.buildExternApiCall(
             .bz_valueIs,
             m.MIR_new_reg_op(self.ctx, matches),
-            &[_]m.MIR_op_t{
+            &.{
                 m.MIR_new_reg_op(self.ctx, err_payload),
                 m.MIR_new_uint_op(self.ctx, @constCast(type_defs[clause.type_def].?).toValue().val),
             },
@@ -4378,7 +4431,7 @@ fn generateTry(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
         try self.buildExternApiCall(
             .bz_popTryCtx,
             null,
-            &[_]m.MIR_op_t{
+            &.{
                 m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
             },
         );
@@ -4395,7 +4448,7 @@ fn generateTry(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
         try self.buildExternApiCall(
             .bz_popTryCtx,
             null,
-            &[_]m.MIR_op_t{
+            &.{
                 m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
             },
         );
@@ -4411,7 +4464,7 @@ fn generateTry(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
     try self.buildExternApiCall(
         .bz_popTryCtx,
         null,
-        &[_]m.MIR_op_t{
+        &.{
             m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
         },
     );
@@ -4420,7 +4473,7 @@ fn generateTry(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
     try self.buildExternApiCall(
         .bz_rethrow,
         null,
-        &[_]m.MIR_op_t{
+        &.{
             m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
         },
     );
@@ -4431,7 +4484,7 @@ fn generateTry(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
     try self.buildExternApiCall(
         .bz_popTryCtx,
         null,
-        &[_]m.MIR_op_t{
+        &.{
             m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
         },
     );
@@ -4449,7 +4502,7 @@ fn generateThrow(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
     try self.buildExternApiCall(
         .bz_throw,
         null,
-        &[_]m.MIR_op_t{
+        &.{
             m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
             (try self.generateNode(components.expression)).?,
         },
@@ -4466,7 +4519,7 @@ fn generateUnwrap(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
     // Remember that we need to had a terminator to this block that will jump at the end of the optionals chain
     if (self.state.?.opt_jumps.items.len == 0 or components.start_opt_jumps) {
         try self.state.?.opt_jumps.append(
-            self.vm.gc.allocator,
+            self.gc.allocator,
             .{
                 // Store the value on the stack, that spot will be overwritten with the final value of the optional chain
                 .alloca = try self.REG("opt", m.MIR_T_I64),
@@ -4481,7 +4534,7 @@ fn generateUnwrap(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
         self.ctx,
         @intFromEnum(m.MIR_Instruction.MOV),
         2,
-        &[_]m.MIR_op_t{
+        &.{
             m.MIR_new_reg_op(
                 self.ctx,
                 self.state.?.opt_jumps.items[@intCast(self.state.?.opt_jumps.items.len - 1)].alloca,
@@ -4496,7 +4549,7 @@ fn generateUnwrap(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
 
     try self.state.?.opt_jumps.items[@intCast(self.state.?.opt_jumps.items.len - 1)]
         .current_insn
-        .append(self.vm.gc.allocator, current_insn);
+        .append(self.gc.allocator, current_insn);
 
     return value;
 }
@@ -4528,7 +4581,7 @@ fn generateObjectInit(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
     try self.buildExternApiCall(
         .bz_newObjectInstance,
         instance,
-        &[_]m.MIR_op_t{
+        &.{
             m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
             object,
             typedef,
@@ -4542,7 +4595,7 @@ fn generateObjectInit(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
         try self.buildExternApiCall(
             .bz_setObjectInstanceProperty,
             null,
-            &[_]m.MIR_op_t{
+            &.{
                 instance,
                 m.MIR_new_uint_op(
                     self.ctx,
@@ -4574,7 +4627,7 @@ fn generateForeignContainerInit(self: *Self, node: Ast.Node.Index) Error!?m.MIR_
     try self.buildExternApiCall(
         .bz_newForeignContainerInstance,
         instance,
-        &[_]m.MIR_op_t{
+        &.{
             m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
             m.MIR_new_uint_op(
                 self.ctx,
@@ -4587,7 +4640,7 @@ fn generateForeignContainerInit(self: *Self, node: Ast.Node.Index) Error!?m.MIR_
         try self.buildExternApiCall(
             .bz_foreignContainerSet,
             null,
-            &[_]m.MIR_op_t{
+            &.{
                 instance,
                 m.MIR_new_uint_op(
                     self.ctx,
@@ -4618,11 +4671,10 @@ fn generateForceUnwrap(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
     );
 
     try self.buildExternApiCall(
-        .bz_throw,
+        .throwUnwrapError,
         null,
-        &[_]m.MIR_op_t{
+        &.{
             m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
-            m.MIR_new_uint_op(self.ctx, (try self.vm.gc.copyString("Force unwrapped optional is null")).toValue().val),
         },
     );
 
@@ -4759,7 +4811,7 @@ fn generateForEach(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
 
     if (components.label != null) {
         try self.state.?.breaks_label.append(
-            self.vm.gc.allocator,
+            self.gc.allocator,
             .{
                 .node = node,
                 .break_label = out_label,
@@ -4778,7 +4830,7 @@ fn generateForEach(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
         try self.buildExternApiCall(
             .bz_enumNext,
             try self.LOAD(value_ptr),
-            &[_]m.MIR_op_t{
+            &.{
                 iterable,
                 try self.LOAD(value_ptr),
                 m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
@@ -4795,7 +4847,7 @@ fn generateForEach(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
         try self.buildExternApiCall(
             .bz_rangeNext,
             try self.LOAD(value_ptr),
-            &[_]m.MIR_op_t{
+            &.{
                 iterable,
                 try self.LOAD(value_ptr),
             },
@@ -4818,13 +4870,13 @@ fn generateForEach(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
             },
             try self.LOAD(value_ptr),
             if (iterable_type_def.?.def_type == .Map)
-                &[_]m.MIR_op_t{
+                &.{
                     iterable,
                     // Pass ptr so the method can put he new key in it
                     key_ptr,
                 }
             else
-                &[_]m.MIR_op_t{
+                &.{
                     iterable,
                     // Pass ptr so the method can put he new key in it
                     key_ptr,
@@ -4916,16 +4968,19 @@ fn generateFunction(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
 
     // Get fully qualified name of function
     const qualified_name = try self.getQualifiedName(node, true);
-    defer self.vm.gc.allocator.free(qualified_name);
+    defer self.gc.allocator.free(qualified_name);
 
     // If this is not the root function, we need to compile this later
     if (self.state.?.ast_node != node) {
         const nativefn_qualified_name = try self.getQualifiedName(node, false);
-        defer self.vm.gc.allocator.free(nativefn_qualified_name);
+        defer self.gc.allocator.free(nativefn_qualified_name);
 
         // Remember that we need to compile this function later
-        if (self.compiled_nodes.get(node) == null) {
-            try self.functions_queue.put(self.vm.gc.allocator, node, null);
+        if (self.state.?.ast.nodes.items(.compiled)[node] == null and
+            self.state.?.ast.nodes.items(.jit_status)[node] == .compilable)
+        {
+            try self.functions_queue.put(self.gc.allocator, node, null);
+            self.state.?.ast.nodes.items(.jit_status)[node] = .queued;
         }
 
         // For now declare it
@@ -4941,7 +4996,7 @@ fn generateFunction(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
         try self.buildExternApiCall(
             .bz_closure,
             dest,
-            &[_]m.MIR_op_t{
+            &.{
                 // ctx
                 m.MIR_new_reg_op(self.ctx, self.state.?.ctx_reg.?),
                 // function_node
@@ -4955,18 +5010,15 @@ fn generateFunction(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
     }
 
     // FIXME: I don't get why we need this: a simple constant becomes rubbish as soon as we enter MIR_new_func_arr if we don't
-    const ctx_name = self.vm.gc.allocator.dupeZ(u8, "ctx") catch {
-        self.vm.panic("Out of memory");
-        unreachable;
-    };
-    defer self.vm.gc.allocator.free(ctx_name);
+    const ctx_name = try self.gc.allocator.dupeZ(u8, "ctx");
+    defer self.gc.allocator.free(ctx_name);
     const function = m.MIR_new_func_arr(
         self.ctx,
         @ptrCast(qualified_name),
         1,
-        &[_]m.MIR_type_t{m.MIR_T_U64},
+        &.{m.MIR_T_U64},
         1,
-        &[_]m.MIR_var_t{
+        &.{
             .{
                 .type = m.MIR_T_P,
                 .name = @ptrCast(ctx_name.ptr),
@@ -5021,7 +5073,7 @@ fn generateFunction(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
     const native_fn = try self.generateNativeFn(node, function);
 
     try self.functions_queue.put(
-        self.vm.gc.allocator,
+        self.gc.allocator,
         node,
         .{
             .native = native_fn,
@@ -5038,20 +5090,17 @@ fn generateHotspotFunction(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t 
     std.debug.assert(tag.isHotspot());
 
     const qualified_name = try self.getQualifiedName(node, false);
-    defer self.vm.gc.allocator.free(qualified_name);
+    defer self.gc.allocator.free(qualified_name);
 
-    const ctx_name = self.vm.gc.allocator.dupeZ(u8, "ctx") catch {
-        self.vm.panic("Out of memory");
-        unreachable;
-    };
-    defer self.vm.gc.allocator.free(ctx_name);
+    const ctx_name = try self.gc.allocator.dupeZ(u8, "ctx");
+    defer self.gc.allocator.free(ctx_name);
     const function = m.MIR_new_func_arr(
         self.ctx,
         @ptrCast(qualified_name),
         1,
-        &[_]m.MIR_type_t{m.MIR_T_U64},
+        &.{m.MIR_T_U64},
         1,
-        &[_]m.MIR_var_t{
+        &.{
             .{
                 .type = m.MIR_T_P,
                 .name = @ptrCast(ctx_name.ptr),
@@ -5091,7 +5140,7 @@ fn generateHotspotFunction(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t 
     m.MIR_finish_func(self.ctx);
 
     try self.functions_queue.put(
-        self.vm.gc.allocator,
+        self.gc.allocator,
         node,
         .{
             .native = null,
@@ -5111,21 +5160,18 @@ fn generateNativeFn(self: *Self, node: Ast.Node.Index, raw_fn: m.MIR_item_t) !m.
     std.debug.assert(function_type != .Extern);
 
     const nativefn_qualified_name = try self.getQualifiedName(node, false);
-    defer self.vm.gc.allocator.free(nativefn_qualified_name);
+    defer self.gc.allocator.free(nativefn_qualified_name);
 
     // FIXME: I don't get why we need this: a simple constant becomes rubbish as soon as we enter MIR_new_func_arr if we don't
-    const ctx_name = self.vm.gc.allocator.dupeZ(u8, "ctx") catch {
-        self.vm.panic("Out of memory");
-        unreachable;
-    };
-    defer self.vm.gc.allocator.free(ctx_name);
+    const ctx_name = try self.gc.allocator.dupeZ(u8, "ctx");
+    defer self.gc.allocator.free(ctx_name);
     const function = m.MIR_new_func_arr(
         self.ctx,
         @ptrCast(nativefn_qualified_name),
         1,
-        &[_]m.MIR_type_t{m.MIR_T_I64},
+        &.{m.MIR_T_I64},
         1,
-        &[_]m.MIR_var_t{
+        &.{
             .{
                 .type = m.MIR_T_P,
                 .name = @ptrCast(ctx_name.ptr),
@@ -5170,7 +5216,7 @@ fn generateNativeFn(self: *Self, node: Ast.Node.Index, raw_fn: m.MIR_item_t) !m.
         try self.buildExternApiCall(
             .bz_setTryCtx,
             try_ctx,
-            &[_]m.MIR_op_t{
+            &.{
                 m.MIR_new_reg_op(self.ctx, vm_reg),
             },
         );
@@ -5185,7 +5231,7 @@ fn generateNativeFn(self: *Self, node: Ast.Node.Index, raw_fn: m.MIR_item_t) !m.
             try_ctx,
             m.MIR_new_uint_op(
                 self.ctx,
-                @offsetOf(r.TryCtx, "env"),
+                @offsetOf(TryCtx, "env"),
             ),
         );
 
@@ -5197,7 +5243,7 @@ fn generateNativeFn(self: *Self, node: Ast.Node.Index, raw_fn: m.MIR_item_t) !m.
         try self.buildExternApiCall(
             .setjmp,
             status,
-            &[_]m.MIR_op_t{env},
+            &.{env},
         );
 
         const fun_label = m.MIR_new_label(self.ctx);
@@ -5213,7 +5259,7 @@ fn generateNativeFn(self: *Self, node: Ast.Node.Index, raw_fn: m.MIR_item_t) !m.
         try self.buildExternApiCall(
             .bz_popTryCtx,
             null,
-            &[_]m.MIR_op_t{
+            &.{
                 m.MIR_new_reg_op(self.ctx, vm_reg),
             },
         );
@@ -5236,7 +5282,7 @@ fn generateNativeFn(self: *Self, node: Ast.Node.Index, raw_fn: m.MIR_item_t) !m.
             self.ctx,
             @intFromEnum(m.MIR_Instruction.CALL),
             4,
-            &[_]m.MIR_op_t{
+            &.{
                 m.MIR_new_ref_op(self.ctx, try ExternApi.RawFn.declare(self)),
                 m.MIR_new_ref_op(self.ctx, raw_fn),
                 result,
@@ -5259,7 +5305,7 @@ fn generateNativeFn(self: *Self, node: Ast.Node.Index, raw_fn: m.MIR_item_t) !m.
         try self.buildExternApiCall(
             .bz_popTryCtx,
             null,
-            &[_]m.MIR_op_t{
+            &.{
                 m.MIR_new_reg_op(self.ctx, vm_reg),
             },
         );
@@ -5277,78 +5323,8 @@ fn generateNativeFn(self: *Self, node: Ast.Node.Index, raw_fn: m.MIR_item_t) !m.
     return function;
 }
 
-fn getQualifiedName(self: *Self, node: Ast.Node.Index, raw: bool) ![]const u8 {
-    const tag = self.state.?.ast.nodes.items(.tag)[node];
-
-    switch (tag) {
-        .Function => {
-            const components = self.state.?.ast.nodes.items(.components)[node].Function;
-            const type_defs = self.state.?.ast.nodes.items(.type_def);
-
-            const function_def = type_defs[node].?.resolved_type.?.Function;
-            const function_type = function_def.function_type;
-            const name = function_def.name.string;
-
-            var qualified_name = std.Io.Writer.Allocating.init(self.vm.gc.allocator);
-
-            try qualified_name.writer.writeAll(name);
-
-            // Main and script are not allowed to be compiled
-            std.debug.assert(function_type != .ScriptEntryPoint and function_type != .Script);
-
-            // Don't qualify extern functions
-            if (function_type != .Extern) {
-                try qualified_name.writer.print(
-                    ".{}.n{}",
-                    .{
-                        components.id,
-                        node,
-                    },
-                );
-            }
-            if (function_type != .Extern and raw) {
-                try qualified_name.writer.writeAll(".raw");
-            }
-            try qualified_name.writer.writeByte(0);
-
-            return qualified_name.toOwnedSlice();
-        },
-
-        .For,
-        .ForEach,
-        .While,
-        => {
-            var qualified_name = std.Io.Writer.Allocating.init(self.vm.gc.allocator);
-
-            try qualified_name.writer.print(
-                "{s}#{d}\x00",
-                .{
-                    @tagName(tag),
-                    node,
-                },
-            );
-
-            return qualified_name.toOwnedSlice();
-        },
-
-        else => {
-            if (BuildOptions.debug) {
-                bz_io.print(
-                    self.vm.io,
-                    "Ast {s} node are not valid hotspots",
-                    .{
-                        @tagName(tag),
-                    },
-                );
-            }
-
-            unreachable;
-        },
-    }
-}
-
 pub fn compileZdefContainer(self: *Self, ast: Ast.Slice, zdef_element: Ast.Zdef.ZdefElement) Error!void {
-    var wrapper_name = std.Io.Writer.Allocating.init(self.vm.gc.allocator);
+    var wrapper_name = std.Io.Writer.Allocating.init(self.gc.allocator);
     defer wrapper_name.deinit();
 
     try wrapper_name.writer.print(
@@ -5365,12 +5341,11 @@ pub fn compileZdefContainer(self: *Self, ast: Ast.Slice, zdef_element: Ast.Zdef.
     defer m.MIR_finish_module(self.ctx);
 
     if (BuildOptions.jit_debug) {
-        bz_io.print(
-            self.vm.io,
+        log.debug(
             "Compiling zdef struct getters/setters for `{s}` of type `{s}`\n",
             .{
                 zdef_element.zdef.name,
-                zdef_element.zdef.type_def.toStringAlloc(self.vm.gc.allocator, true) catch unreachable,
+                zdef_element.zdef.type_def.toStringAlloc(self.gc.allocator, true) catch unreachable,
             },
         );
     }
@@ -5382,14 +5357,14 @@ pub fn compileZdefContainer(self: *Self, ast: Ast.Slice, zdef_element: Ast.Zdef.
         .ast_node = undefined,
         .closure = undefined,
     };
-    defer self.reset(self.vm.gc.allocator);
+    defer self.reset();
 
     const foreign_def = zdef_element.zdef.type_def.resolved_type.?.ForeignContainer;
 
     var getters = std.ArrayList(m.MIR_item_t).empty;
-    defer getters.deinit(self.vm.gc.allocator);
+    defer getters.deinit(self.gc.allocator);
     var setters = std.ArrayList(m.MIR_item_t).empty;
-    defer setters.deinit(self.vm.gc.allocator);
+    defer setters.deinit(self.gc.allocator);
 
     switch (foreign_def.zig_type) {
         .Struct => {
@@ -5397,7 +5372,7 @@ pub fn compileZdefContainer(self: *Self, ast: Ast.Slice, zdef_element: Ast.Zdef.
                 const container_field = foreign_def.fields.getEntry(field.name).?;
 
                 try getters.append(
-                    self.vm.gc.allocator,
+                    self.gc.allocator,
                     try self.buildZdefContainerGetter(
                         container_field.value_ptr.*.offset,
                         foreign_def.name.string,
@@ -5408,7 +5383,7 @@ pub fn compileZdefContainer(self: *Self, ast: Ast.Slice, zdef_element: Ast.Zdef.
                 );
 
                 try setters.append(
-                    self.vm.gc.allocator,
+                    self.gc.allocator,
                     try self.buildZdefContainerSetter(
                         container_field.value_ptr.*.offset,
                         foreign_def.name.string,
@@ -5426,7 +5401,7 @@ pub fn compileZdefContainer(self: *Self, ast: Ast.Slice, zdef_element: Ast.Zdef.
                 _ = container_field;
 
                 try getters.append(
-                    self.vm.gc.allocator,
+                    self.gc.allocator,
                     try self.buildZdefUnionGetter(
                         foreign_def.name.string,
                         field.name,
@@ -5436,7 +5411,7 @@ pub fn compileZdefContainer(self: *Self, ast: Ast.Slice, zdef_element: Ast.Zdef.
                 );
 
                 try setters.append(
-                    self.vm.gc.allocator,
+                    self.gc.allocator,
                     try self.buildZdefUnionSetter(
                         foreign_def.name.string,
                         field.name,
@@ -5456,19 +5431,7 @@ pub fn compileZdefContainer(self: *Self, ast: Ast.Slice, zdef_element: Ast.Zdef.
 
     m.MIR_load_module(self.ctx, module);
 
-    // Load external functions
-    var it_ext = self.required_ext_api.iterator();
-    while (it_ext.next()) |kv| {
-        switch (kv.key_ptr.*) {
-            // TODO: don't mix those with actual api functions
-            .RawFn, .NativeFn => {},
-            else => m.MIR_load_external(
-                self.ctx,
-                kv.key_ptr.*.name(),
-                kv.key_ptr.*.ptr(),
-            ),
-        }
-    }
+    try self.loadRequiredExternalApi();
 
     // Link everything together
     m.MIR_link(self.ctx, m.MIR_set_lazy_gen_interface, null);
@@ -5632,28 +5595,24 @@ fn buildZigValueToBuzzValue(self: *Self, buzz_type: *o.ObjTypeDef, zig_type: Zig
     }
 }
 
-pub fn compileZdef(self: *Self, buzz_ast: Ast.Slice, zdef: Ast.Zdef.ZdefElement) Error!*o.ObjNative {
-    var wrapper_name = std.Io.Writer.Allocating.init(self.vm.gc.allocator);
+pub fn compileZdef(self: *Self, gc: *GC, buzz_ast: Ast.Slice, zdef: Ast.Zdef.ZdefElement) Error!*o.ObjNative {
+    var wrapper_name = std.Io.Writer.Allocating.init(self.gc.allocator);
     defer wrapper_name.deinit();
 
     try wrapper_name.writer.print("zdef_{s}\x00", .{zdef.zdef.name});
 
-    const dupped_symbol = self.vm.gc.allocator.dupeZ(u8, zdef.zdef.name) catch {
-        self.vm.panic("Out of memory");
-        unreachable;
-    };
-    defer self.vm.gc.allocator.free(dupped_symbol);
+    const dupped_symbol = try self.gc.allocator.dupeZ(u8, zdef.zdef.name);
+    defer self.gc.allocator.free(dupped_symbol);
 
     const module = m.MIR_new_module(self.ctx, @ptrCast(wrapper_name.written().ptr));
     defer m.MIR_finish_module(self.ctx);
 
     if (BuildOptions.jit_debug) {
-        bz_io.print(
-            self.vm.io,
+        log.debug(
             "Compiling zdef wrapper for `{s}` of type `{s}`\n",
             .{
                 zdef.zdef.name,
-                zdef.zdef.type_def.toStringAlloc(self.vm.gc.allocator, true) catch unreachable,
+                zdef.zdef.type_def.toStringAlloc(self.gc.allocator, true) catch unreachable,
             },
         );
     }
@@ -5665,7 +5624,7 @@ pub fn compileZdef(self: *Self, buzz_ast: Ast.Slice, zdef: Ast.Zdef.ZdefElement)
         .ast_node = undefined,
         .closure = undefined,
     };
-    defer self.reset(self.vm.gc.allocator);
+    defer self.reset();
 
     // Build wrapper
     const wrapper_item = try self.buildZdefWrapper(zdef);
@@ -5681,19 +5640,7 @@ pub fn compileZdef(self: *Self, buzz_ast: Ast.Slice, zdef: Ast.Zdef.ZdefElement)
     // Load function we're wrapping
     m.MIR_load_external(self.ctx, dupped_symbol, zdef.fn_ptr.?);
 
-    // Load external functions
-    var it_ext = self.required_ext_api.iterator();
-    while (it_ext.next()) |kv| {
-        switch (kv.key_ptr.*) {
-            // TODO: don't mix those with actual api functions
-            .RawFn, .NativeFn => {},
-            else => m.MIR_load_external(
-                self.ctx,
-                kv.key_ptr.*.name(),
-                kv.key_ptr.*.ptr(),
-            ),
-        }
-    }
+    try self.loadRequiredExternalApi();
 
     // Link everything together
     m.MIR_link(self.ctx, m.MIR_set_lazy_gen_interface, null);
@@ -5701,7 +5648,7 @@ pub fn compileZdef(self: *Self, buzz_ast: Ast.Slice, zdef: Ast.Zdef.ZdefElement)
     m.MIR_gen_init(self.ctx);
     defer m.MIR_gen_finish(self.ctx);
 
-    return try self.vm.gc.allocateObject(
+    return try gc.allocateObject(
         o.ObjNative{
             .native = m.MIR_gen(self.ctx, wrapper_item) orelse unreachable,
         },
@@ -5758,35 +5705,29 @@ fn zigToMIRRegType(zig_type: ZigType) m.MIR_type_t {
 }
 
 fn buildZdefWrapper(self: *Self, zdef_element: Ast.Zdef.ZdefElement) Error!m.MIR_item_t {
-    var wrapper_name = std.Io.Writer.Allocating.init(self.vm.gc.allocator);
+    var wrapper_name = std.Io.Writer.Allocating.init(self.gc.allocator);
     defer wrapper_name.deinit();
 
     try wrapper_name.writer.print("zdef_{s}\x00", .{zdef_element.zdef.name});
 
-    var wrapper_protocol_name = std.Io.Writer.Allocating.init(self.vm.gc.allocator);
+    var wrapper_protocol_name = std.Io.Writer.Allocating.init(self.gc.allocator);
     defer wrapper_protocol_name.deinit();
 
     try wrapper_protocol_name.writer.print("p_zdef_{s}\x00", .{zdef_element.zdef.name});
 
-    const dupped_symbol = self.vm.gc.allocator.dupeZ(u8, zdef_element.zdef.name) catch {
-        self.vm.panic("Out of memory");
-        unreachable;
-    };
-    defer self.vm.gc.allocator.free(dupped_symbol);
+    const dupped_symbol = try self.gc.allocator.dupeZ(u8, zdef_element.zdef.name);
+    defer self.gc.allocator.free(dupped_symbol);
 
     // FIXME: I don't get why we need this: a simple constant becomes rubbish as soon as we enter MIR_new_func_arr if we don't
-    const ctx_name = self.vm.gc.allocator.dupeZ(u8, "ctx") catch {
-        self.vm.panic("Out of memory");
-        unreachable;
-    };
-    defer self.vm.gc.allocator.free(ctx_name);
+    const ctx_name = try self.gc.allocator.dupeZ(u8, "ctx");
+    defer self.gc.allocator.free(ctx_name);
     const function = m.MIR_new_func_arr(
         self.ctx,
         @ptrCast(wrapper_name.written().ptr),
         1,
-        &[_]m.MIR_type_t{m.MIR_T_U64},
+        &.{m.MIR_T_U64},
         1,
-        &[_]m.MIR_var_t{
+        &.{
             .{
                 .type = m.MIR_T_P,
                 .name = @ptrCast(ctx_name.ptr),
@@ -5823,14 +5764,14 @@ fn buildZdefWrapper(self: *Self, zdef_element: Ast.Zdef.ZdefElement) Error!m.MIR
 
     // Get arguments from stack
     var full_args = std.ArrayList(m.MIR_op_t).empty;
-    defer full_args.deinit(self.vm.gc.allocator);
+    defer full_args.deinit(self.gc.allocator);
 
     var arg_types = std.ArrayList(m.MIR_var_t).empty;
-    defer arg_types.deinit(self.vm.gc.allocator);
+    defer arg_types.deinit(self.gc.allocator);
 
     for (zig_function_def.Fn.params) |param| {
         try arg_types.append(
-            self.vm.gc.allocator,
+            self.gc.allocator,
             .{
                 .type = try zigToMIRType(
                     if (param.type) |param_type|
@@ -5877,14 +5818,14 @@ fn buildZdefWrapper(self: *Self, zdef_element: Ast.Zdef.ZdefElement) Error!m.MIR
 
     // proto
     try full_args.append(
-        self.vm.gc.allocator,
+        self.gc.allocator,
         m.MIR_new_ref_op(
             self.ctx,
             m.MIR_new_proto_arr(
                 self.ctx,
                 @ptrCast(wrapper_protocol_name.written().ptr),
                 if (return_mir_type != null) 1 else 0,
-                if (return_mir_type) |rmt| &[_]m.MIR_type_t{rmt} else null,
+                if (return_mir_type) |rmt| &.{rmt} else null,
                 arg_types.items.len,
                 arg_types.items.ptr,
             ),
@@ -5892,14 +5833,14 @@ fn buildZdefWrapper(self: *Self, zdef_element: Ast.Zdef.ZdefElement) Error!m.MIR
     );
     // import
     try full_args.append(
-        self.vm.gc.allocator,
+        self.gc.allocator,
         m.MIR_new_ref_op(
             self.ctx,
             m.MIR_new_import(self.ctx, @ptrCast(dupped_symbol)),
         ),
     );
     if (result) |res| {
-        try full_args.append(self.vm.gc.allocator, res);
+        try full_args.append(self.gc.allocator, res);
     }
     // actual args
     var it = function_def.parameters.iterator();
@@ -5927,7 +5868,7 @@ fn buildZdefWrapper(self: *Self, zdef_element: Ast.Zdef.ZdefElement) Error!m.MIR
             param,
         );
 
-        try full_args.append(self.vm.gc.allocator, param);
+        try full_args.append(self.gc.allocator, param);
     }
 
     // Make the call
@@ -5974,7 +5915,7 @@ fn buildZdefUnionGetter(
     buzz_type: *o.ObjTypeDef,
     zig_type: *const ZigType,
 ) Error!m.MIR_item_t {
-    var getter_name = std.Io.Writer.Allocating.init(self.vm.gc.allocator);
+    var getter_name = std.Io.Writer.Allocating.init(self.gc.allocator);
     defer getter_name.deinit();
 
     try getter_name.writer.print(
@@ -5986,23 +5927,17 @@ fn buildZdefUnionGetter(
     );
 
     // FIXME: I don't get why we need this: a simple constant becomes rubbish as soon as we enter MIR_new_func_arr if we don't
-    const vm_name = self.vm.gc.allocator.dupeZ(u8, "vm") catch {
-        self.vm.panic("Out of memory");
-        unreachable;
-    };
-    defer self.vm.gc.allocator.free(vm_name);
-    const data_name = self.vm.gc.allocator.dupeZ(u8, "data") catch {
-        self.vm.panic("Out of memory");
-        unreachable;
-    };
-    defer self.vm.gc.allocator.free(data_name);
+    const vm_name = try self.gc.allocator.dupeZ(u8, "vm");
+    defer self.gc.allocator.free(vm_name);
+    const data_name = try self.gc.allocator.dupeZ(u8, "data");
+    defer self.gc.allocator.free(data_name);
     const function = m.MIR_new_func_arr(
         self.ctx,
         @ptrCast(getter_name.written().ptr),
         1,
-        &[_]m.MIR_type_t{m.MIR_T_U64},
+        &.{m.MIR_T_U64},
         2,
-        &[_]m.MIR_var_t{
+        &.{
             .{
                 .type = m.MIR_T_P,
                 .name = @ptrCast(vm_name.ptr),
@@ -6035,7 +5970,7 @@ fn buildZdefUnionGetter(
             try self.buildExternApiCall(
                 .bz_newForeignContainerFromSlice,
                 result_value,
-                &[_]m.MIR_op_t{
+                &.{
                     m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
                     m.MIR_new_uint_op(self.ctx, @intFromPtr(buzz_type)),
                     m.MIR_new_reg_op(self.ctx, data_reg),
@@ -6084,7 +6019,7 @@ fn buildZdefUnionSetter(
     buzz_type: *o.ObjTypeDef,
     zig_type: *const ZigType,
 ) Error!m.MIR_item_t {
-    var setter_name = std.Io.Writer.Allocating.init(self.vm.gc.allocator);
+    var setter_name = std.Io.Writer.Allocating.init(self.gc.allocator);
     defer setter_name.deinit();
 
     try setter_name.writer.print(
@@ -6096,28 +6031,19 @@ fn buildZdefUnionSetter(
     );
 
     // FIXME: I don't get why we need this: a simple constant becomes rubbish as soon as we enter MIR_new_func_arr if we don't
-    const vm_name = self.vm.gc.allocator.dupeZ(u8, "vm") catch {
-        self.vm.panic("Out of memory");
-        unreachable;
-    };
-    defer self.vm.gc.allocator.free(vm_name);
-    const data_name = self.vm.gc.allocator.dupeZ(u8, "data") catch {
-        self.vm.panic("Out of memory");
-        unreachable;
-    };
-    defer self.vm.gc.allocator.free(data_name);
-    const new_value_name = self.vm.gc.allocator.dupeZ(u8, "new_value") catch {
-        self.vm.panic("Out of memory");
-        unreachable;
-    };
-    defer self.vm.gc.allocator.free(new_value_name);
+    const vm_name = try self.gc.allocator.dupeZ(u8, "vm");
+    defer self.gc.allocator.free(vm_name);
+    const data_name = try self.gc.allocator.dupeZ(u8, "data");
+    defer self.gc.allocator.free(data_name);
+    const new_value_name = try self.gc.allocator.dupeZ(u8, "new_value");
+    defer self.gc.allocator.free(new_value_name);
     const function = m.MIR_new_func_arr(
         self.ctx,
         @ptrCast(setter_name.written().ptr),
         0,
         null,
         3,
-        &[_]m.MIR_var_t{
+        &.{
             .{
                 .type = m.MIR_T_P,
                 .name = @ptrCast(vm_name.ptr),
@@ -6152,7 +6078,7 @@ fn buildZdefUnionSetter(
             try self.buildExternApiCall(
                 .memcpy,
                 null,
-                &[_]m.MIR_op_t{
+                &.{
                     m.MIR_new_reg_op(self.ctx, data_reg),
                     m.MIR_new_uint_op(self.ctx, zig_type.size()),
                     ptr_reg,
@@ -6200,7 +6126,7 @@ fn buildZdefContainerGetter(
     buzz_type: *o.ObjTypeDef,
     zig_type: *const ZigType,
 ) Error!m.MIR_item_t {
-    var getter_name = std.Io.Writer.Allocating.init(self.vm.gc.allocator);
+    var getter_name = std.Io.Writer.Allocating.init(self.gc.allocator);
     defer getter_name.deinit();
 
     try getter_name.writer.print(
@@ -6212,23 +6138,17 @@ fn buildZdefContainerGetter(
     );
 
     // FIXME: I don't get why we need this: a simple constant becomes rubbish as soon as we enter MIR_new_func_arr if we don't
-    const vm_name = self.vm.gc.allocator.dupeZ(u8, "vm") catch {
-        self.vm.panic("Out of memory");
-        unreachable;
-    };
-    defer self.vm.gc.allocator.free(vm_name);
-    const data_name = self.vm.gc.allocator.dupeZ(u8, "data") catch {
-        self.vm.panic("Out of memory");
-        unreachable;
-    };
-    defer self.vm.gc.allocator.free(data_name);
+    const vm_name = try self.gc.allocator.dupeZ(u8, "vm");
+    defer self.gc.allocator.free(vm_name);
+    const data_name = try self.gc.allocator.dupeZ(u8, "data");
+    defer self.gc.allocator.free(data_name);
     const function = m.MIR_new_func_arr(
         self.ctx,
         @ptrCast(getter_name.written().ptr),
         1,
-        &[_]m.MIR_type_t{m.MIR_T_U64},
+        &.{m.MIR_T_U64},
         2,
-        &[_]m.MIR_var_t{
+        &.{
             .{
                 .type = m.MIR_T_P,
                 .name = @ptrCast(vm_name.ptr),
@@ -6294,7 +6214,7 @@ fn buildZdefContainerSetter(
     buzz_type: *o.ObjTypeDef,
     zig_type: *const ZigType,
 ) Error!m.MIR_item_t {
-    var setter_name = std.Io.Writer.Allocating.init(self.vm.gc.allocator);
+    var setter_name = std.Io.Writer.Allocating.init(self.gc.allocator);
     defer setter_name.deinit();
 
     try setter_name.writer.print(
@@ -6306,28 +6226,19 @@ fn buildZdefContainerSetter(
     );
 
     // FIXME: I don't get why we need this: a simple constant becomes rubbish as soon as we enter MIR_new_func_arr if we don't
-    const vm_name = self.vm.gc.allocator.dupeZ(u8, "vm") catch {
-        self.vm.panic("Out of memory");
-        unreachable;
-    };
-    defer self.vm.gc.allocator.free(vm_name);
-    const data_name = self.vm.gc.allocator.dupeZ(u8, "data") catch {
-        self.vm.panic("Out of memory");
-        unreachable;
-    };
-    defer self.vm.gc.allocator.free(data_name);
-    const new_value_name = self.vm.gc.allocator.dupeZ(u8, "new_value") catch {
-        self.vm.panic("Out of memory");
-        unreachable;
-    };
-    defer self.vm.gc.allocator.free(new_value_name);
+    const vm_name = try self.gc.allocator.dupeZ(u8, "vm");
+    defer self.gc.allocator.free(vm_name);
+    const data_name = try self.gc.allocator.dupeZ(u8, "data");
+    defer self.gc.allocator.free(data_name);
+    const new_value_name = try self.gc.allocator.dupeZ(u8, "new_value");
+    defer self.gc.allocator.free(new_value_name);
     const function = m.MIR_new_func_arr(
         self.ctx,
         @ptrCast(setter_name.written().ptr),
         0,
         null,
         3,
-        &[_]m.MIR_var_t{
+        &.{
             .{
                 .type = m.MIR_T_P,
                 .name = @ptrCast(vm_name.ptr),
@@ -6419,7 +6330,7 @@ inline fn MOV(self: *Self, dest: m.MIR_op_t, value: m.MIR_op_t) void {
             self.ctx,
             @intFromEnum(m.MIR_Instruction.MOV),
             2,
-            &[_]m.MIR_op_t{
+            &.{
                 dest,
                 value,
             },
@@ -6433,7 +6344,7 @@ inline fn DMOV(self: *Self, dest: m.MIR_op_t, value: m.MIR_op_t) void {
             self.ctx,
             @intFromEnum(m.MIR_Instruction.DMOV),
             2,
-            &[_]m.MIR_op_t{
+            &.{
                 dest,
                 value,
             },
@@ -6447,7 +6358,7 @@ inline fn FMOV(self: *Self, dest: m.MIR_op_t, value: m.MIR_op_t) void {
             self.ctx,
             @intFromEnum(m.MIR_Instruction.FMOV),
             2,
-            &[_]m.MIR_op_t{
+            &.{
                 dest,
                 value,
             },
@@ -6461,7 +6372,7 @@ inline fn EQ(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t)
             self.ctx,
             @intFromEnum(m.MIR_Instruction.EQ),
             3,
-            &[_]m.MIR_op_t{
+            &.{
                 dest,
                 left,
                 right,
@@ -6476,7 +6387,7 @@ inline fn EQS(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t
             self.ctx,
             @intFromEnum(m.MIR_Instruction.EQS),
             3,
-            &[_]m.MIR_op_t{
+            &.{
                 dest,
                 left,
                 right,
@@ -6491,7 +6402,7 @@ inline fn DEQ(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t
             self.ctx,
             @intFromEnum(m.MIR_Instruction.DEQ),
             3,
-            &[_]m.MIR_op_t{
+            &.{
                 dest,
                 left,
                 right,
@@ -6506,7 +6417,7 @@ inline fn GT(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t)
             self.ctx,
             @intFromEnum(m.MIR_Instruction.GT),
             3,
-            &[_]m.MIR_op_t{
+            &.{
                 dest,
                 left,
                 right,
@@ -6521,7 +6432,7 @@ inline fn GTS(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t
             self.ctx,
             @intFromEnum(m.MIR_Instruction.GTS),
             3,
-            &[_]m.MIR_op_t{
+            &.{
                 dest,
                 left,
                 right,
@@ -6536,7 +6447,7 @@ inline fn DGT(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t
             self.ctx,
             @intFromEnum(m.MIR_Instruction.DGT),
             3,
-            &[_]m.MIR_op_t{
+            &.{
                 dest,
                 left,
                 right,
@@ -6551,7 +6462,7 @@ inline fn LT(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t)
             self.ctx,
             @intFromEnum(m.MIR_Instruction.LT),
             3,
-            &[_]m.MIR_op_t{
+            &.{
                 dest,
                 left,
                 right,
@@ -6566,7 +6477,7 @@ inline fn LTS(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t
             self.ctx,
             @intFromEnum(m.MIR_Instruction.LTS),
             3,
-            &[_]m.MIR_op_t{
+            &.{
                 dest,
                 left,
                 right,
@@ -6581,7 +6492,7 @@ inline fn DLT(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t
             self.ctx,
             @intFromEnum(m.MIR_Instruction.DLT),
             3,
-            &[_]m.MIR_op_t{
+            &.{
                 dest,
                 left,
                 right,
@@ -6596,7 +6507,7 @@ inline fn GE(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t)
             self.ctx,
             @intFromEnum(m.MIR_Instruction.GE),
             3,
-            &[_]m.MIR_op_t{
+            &.{
                 dest,
                 left,
                 right,
@@ -6611,7 +6522,7 @@ inline fn GES(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t
             self.ctx,
             @intFromEnum(m.MIR_Instruction.GES),
             3,
-            &[_]m.MIR_op_t{
+            &.{
                 dest,
                 left,
                 right,
@@ -6626,7 +6537,7 @@ inline fn DGE(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t
             self.ctx,
             @intFromEnum(m.MIR_Instruction.DGE),
             3,
-            &[_]m.MIR_op_t{
+            &.{
                 dest,
                 left,
                 right,
@@ -6641,7 +6552,7 @@ inline fn LE(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t)
             self.ctx,
             @intFromEnum(m.MIR_Instruction.LE),
             3,
-            &[_]m.MIR_op_t{
+            &.{
                 dest,
                 left,
                 right,
@@ -6656,7 +6567,7 @@ inline fn LES(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t
             self.ctx,
             @intFromEnum(m.MIR_Instruction.LES),
             3,
-            &[_]m.MIR_op_t{
+            &.{
                 dest,
                 left,
                 right,
@@ -6671,7 +6582,7 @@ inline fn DLE(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t
             self.ctx,
             @intFromEnum(m.MIR_Instruction.DLE),
             3,
-            &[_]m.MIR_op_t{
+            &.{
                 dest,
                 left,
                 right,
@@ -6686,7 +6597,7 @@ inline fn NE(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t)
             self.ctx,
             @intFromEnum(m.MIR_Instruction.NE),
             3,
-            &[_]m.MIR_op_t{
+            &.{
                 dest,
                 left,
                 right,
@@ -6701,7 +6612,7 @@ inline fn NES(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t
             self.ctx,
             @intFromEnum(m.MIR_Instruction.NES),
             3,
-            &[_]m.MIR_op_t{
+            &.{
                 dest,
                 left,
                 right,
@@ -6716,7 +6627,7 @@ inline fn DNE(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t
             self.ctx,
             @intFromEnum(m.MIR_Instruction.DNE),
             3,
-            &[_]m.MIR_op_t{
+            &.{
                 dest,
                 left,
                 right,
@@ -6731,7 +6642,7 @@ inline fn BEQ(self: *Self, label: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_
             self.ctx,
             @intFromEnum(m.MIR_Instruction.BEQ),
             3,
-            &[_]m.MIR_op_t{
+            &.{
                 label,
                 left,
                 right,
@@ -6746,7 +6657,7 @@ inline fn BLT(self: *Self, label: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_
             self.ctx,
             @intFromEnum(m.MIR_Instruction.BLT),
             3,
-            &[_]m.MIR_op_t{
+            &.{
                 label,
                 left,
                 right,
@@ -6761,7 +6672,7 @@ inline fn BGT(self: *Self, label: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_
             self.ctx,
             @intFromEnum(m.MIR_Instruction.BGT),
             3,
-            &[_]m.MIR_op_t{
+            &.{
                 label,
                 left,
                 right,
@@ -6776,7 +6687,7 @@ inline fn BNE(self: *Self, label: m.MIR_insn_t, left: m.MIR_op_t, right: m.MIR_o
             self.ctx,
             @intFromEnum(m.MIR_Instruction.BNE),
             3,
-            &[_]m.MIR_op_t{
+            &.{
                 m.MIR_new_label_op(self.ctx, label),
                 left,
                 right,
@@ -6791,7 +6702,7 @@ inline fn JMP(self: *Self, label: m.MIR_insn_t) void {
             self.ctx,
             @intFromEnum(m.MIR_Instruction.JMP),
             1,
-            &[_]m.MIR_op_t{
+            &.{
                 m.MIR_new_label_op(self.ctx, label),
             },
         ),
@@ -6804,7 +6715,7 @@ inline fn ADD(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t
             self.ctx,
             @intFromEnum(m.MIR_Instruction.ADD),
             3,
-            &[_]m.MIR_op_t{
+            &.{
                 dest,
                 left,
                 right,
@@ -6819,7 +6730,7 @@ inline fn DADD(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_
             self.ctx,
             @intFromEnum(m.MIR_Instruction.DADD),
             3,
-            &[_]m.MIR_op_t{
+            &.{
                 dest,
                 left,
                 right,
@@ -6834,7 +6745,7 @@ inline fn ADDS(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_
             self.ctx,
             @intFromEnum(m.MIR_Instruction.ADDS),
             3,
-            &[_]m.MIR_op_t{
+            &.{
                 dest,
                 left,
                 right,
@@ -6849,7 +6760,7 @@ inline fn SUB(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t
             self.ctx,
             @intFromEnum(m.MIR_Instruction.SUB),
             3,
-            &[_]m.MIR_op_t{
+            &.{
                 dest,
                 left,
                 right,
@@ -6864,7 +6775,7 @@ inline fn SUBS(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_
             self.ctx,
             @intFromEnum(m.MIR_Instruction.SUBS),
             3,
-            &[_]m.MIR_op_t{
+            &.{
                 dest,
                 left,
                 right,
@@ -6879,7 +6790,7 @@ inline fn DSUB(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_
             self.ctx,
             @intFromEnum(m.MIR_Instruction.DSUB),
             3,
-            &[_]m.MIR_op_t{
+            &.{
                 dest,
                 left,
                 right,
@@ -6894,7 +6805,7 @@ inline fn MUL(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t
             self.ctx,
             @intFromEnum(m.MIR_Instruction.MUL),
             3,
-            &[_]m.MIR_op_t{
+            &.{
                 dest,
                 left,
                 right,
@@ -6909,7 +6820,7 @@ inline fn MULS(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_
             self.ctx,
             @intFromEnum(m.MIR_Instruction.MULS),
             3,
-            &[_]m.MIR_op_t{
+            &.{
                 dest,
                 left,
                 right,
@@ -6924,7 +6835,7 @@ inline fn DMUL(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_
             self.ctx,
             @intFromEnum(m.MIR_Instruction.DMUL),
             3,
-            &[_]m.MIR_op_t{
+            &.{
                 dest,
                 left,
                 right,
@@ -6939,7 +6850,7 @@ inline fn DIV(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t
             self.ctx,
             @intFromEnum(m.MIR_Instruction.DIV),
             3,
-            &[_]m.MIR_op_t{
+            &.{
                 dest,
                 left,
                 right,
@@ -6954,7 +6865,7 @@ inline fn DIVS(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_
             self.ctx,
             @intFromEnum(m.MIR_Instruction.DIVS),
             3,
-            &[_]m.MIR_op_t{
+            &.{
                 dest,
                 left,
                 right,
@@ -6969,7 +6880,7 @@ inline fn DDIV(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_
             self.ctx,
             @intFromEnum(m.MIR_Instruction.DDIV),
             3,
-            &[_]m.MIR_op_t{
+            &.{
                 dest,
                 left,
                 right,
@@ -6984,7 +6895,7 @@ inline fn MOD(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t
             self.ctx,
             @intFromEnum(m.MIR_Instruction.MOD),
             3,
-            &[_]m.MIR_op_t{
+            &.{
                 dest,
                 left,
                 right,
@@ -6999,7 +6910,7 @@ inline fn MODS(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_
             self.ctx,
             @intFromEnum(m.MIR_Instruction.MODS),
             3,
-            &[_]m.MIR_op_t{
+            &.{
                 dest,
                 left,
                 right,
@@ -7014,7 +6925,7 @@ inline fn AND(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t
             self.ctx,
             @intFromEnum(m.MIR_Instruction.AND),
             3,
-            &[_]m.MIR_op_t{
+            &.{
                 dest,
                 left,
                 right,
@@ -7029,7 +6940,7 @@ inline fn ANDS(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_
             self.ctx,
             @intFromEnum(m.MIR_Instruction.ANDS),
             3,
-            &[_]m.MIR_op_t{
+            &.{
                 dest,
                 left,
                 right,
@@ -7044,7 +6955,7 @@ inline fn OR(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t)
             self.ctx,
             @intFromEnum(m.MIR_Instruction.OR),
             3,
-            &[_]m.MIR_op_t{
+            &.{
                 dest,
                 left,
                 right,
@@ -7059,7 +6970,7 @@ inline fn ORS(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t
             self.ctx,
             @intFromEnum(m.MIR_Instruction.ORS),
             3,
-            &[_]m.MIR_op_t{
+            &.{
                 dest,
                 left,
                 right,
@@ -7074,7 +6985,7 @@ inline fn XOR(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t
             self.ctx,
             @intFromEnum(m.MIR_Instruction.XOR),
             3,
-            &[_]m.MIR_op_t{
+            &.{
                 dest,
                 left,
                 right,
@@ -7089,7 +7000,7 @@ inline fn SHL(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t
             self.ctx,
             @intFromEnum(m.MIR_Instruction.LSH),
             3,
-            &[_]m.MIR_op_t{
+            &.{
                 dest,
                 left,
                 right,
@@ -7104,7 +7015,7 @@ inline fn SHR(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t
             self.ctx,
             @intFromEnum(m.MIR_Instruction.RSH),
             3,
-            &[_]m.MIR_op_t{
+            &.{
                 dest,
                 left,
                 right,
@@ -7119,7 +7030,7 @@ inline fn NOT(self: *Self, dest: m.MIR_op_t, value: m.MIR_op_t) void {
             self.ctx,
             @intFromEnum(m.MIR_Instruction.XOR),
             3,
-            &[_]m.MIR_op_t{
+            &.{
                 dest,
                 value,
                 m.MIR_new_uint_op(self.ctx, std.math.maxInt(u64)),
@@ -7134,7 +7045,7 @@ inline fn NOTS(self: *Self, dest: m.MIR_op_t, value: m.MIR_op_t) void {
             self.ctx,
             @intFromEnum(m.MIR_Instruction.XORS),
             3,
-            &[_]m.MIR_op_t{
+            &.{
                 dest,
                 value,
                 m.MIR_new_uint_op(self.ctx, std.math.maxInt(u64)),
@@ -7149,7 +7060,7 @@ inline fn I2D(self: *Self, dest: m.MIR_op_t, value: m.MIR_op_t) void {
             self.ctx,
             @intFromEnum(m.MIR_Instruction.I2D),
             2,
-            &[_]m.MIR_op_t{
+            &.{
                 dest,
                 value,
             },
@@ -7163,7 +7074,7 @@ inline fn UI2D(self: *Self, dest: m.MIR_op_t, value: m.MIR_op_t) void {
             self.ctx,
             @intFromEnum(m.MIR_Instruction.UI2D),
             2,
-            &[_]m.MIR_op_t{
+            &.{
                 dest,
                 value,
             },
@@ -7177,7 +7088,7 @@ inline fn D2I(self: *Self, dest: m.MIR_op_t, value: m.MIR_op_t) void {
             self.ctx,
             @intFromEnum(m.MIR_Instruction.D2I),
             2,
-            &[_]m.MIR_op_t{
+            &.{
                 dest,
                 value,
             },
@@ -7191,7 +7102,7 @@ inline fn NEG(self: *Self, dest: m.MIR_op_t, value: m.MIR_op_t) void {
             self.ctx,
             @intFromEnum(m.MIR_Instruction.NEG),
             2,
-            &[_]m.MIR_op_t{
+            &.{
                 dest,
                 value,
             },
@@ -7205,7 +7116,7 @@ inline fn DNEG(self: *Self, dest: m.MIR_op_t, value: m.MIR_op_t) void {
             self.ctx,
             @intFromEnum(m.MIR_Instruction.DNEG),
             2,
-            &[_]m.MIR_op_t{
+            &.{
                 dest,
                 value,
             },
@@ -7219,7 +7130,7 @@ inline fn RET(self: *Self, return_value: m.MIR_op_t) void {
             self.ctx,
             @intFromEnum(m.MIR_Instruction.RET),
             1,
-            &[_]m.MIR_op_t{
+            &.{
                 return_value,
             },
         ),
@@ -7232,7 +7143,7 @@ inline fn ALLOCA(self: *Self, reg: m.MIR_reg_t, size: usize) void {
             self.ctx,
             @intFromEnum(m.MIR_Instruction.ALLOCA),
             2,
-            &[_]m.MIR_op_t{
+            &.{
                 m.MIR_new_reg_op(self.ctx, reg),
                 m.MIR_new_uint_op(self.ctx, size),
             },
@@ -7246,7 +7157,7 @@ inline fn BSTART(self: *Self, into: m.MIR_reg_t) void {
             self.ctx,
             @intFromEnum(m.MIR_Instruction.BSTART),
             1,
-            &[_]m.MIR_op_t{
+            &.{
                 m.MIR_new_reg_op(self.ctx, into),
             },
         ),
@@ -7259,7 +7170,7 @@ inline fn BEND(self: *Self, from: m.MIR_reg_t) void {
             self.ctx,
             @intFromEnum(m.MIR_Instruction.BEND),
             1,
-            &[_]m.MIR_op_t{
+            &.{
                 m.MIR_new_reg_op(self.ctx, from),
             },
         ),
@@ -7267,7 +7178,7 @@ inline fn BEND(self: *Self, from: m.MIR_reg_t) void {
 }
 
 fn REG(self: *Self, name: [*:0]const u8, reg_type: m.MIR_type_t) !m.MIR_reg_t {
-    var actual_name = std.Io.Writer.Allocating.init(self.vm.gc.allocator);
+    var actual_name = std.Io.Writer.Allocating.init(self.gc.allocator);
     defer actual_name.deinit();
 
     const count = self.state.?.registers.get(name) orelse 0;
@@ -7285,7 +7196,7 @@ fn REG(self: *Self, name: [*:0]const u8, reg_type: m.MIR_type_t) !m.MIR_reg_t {
     );
 
     try self.state.?.registers.put(
-        self.vm.gc.allocator,
+        self.gc.allocator,
         name,
         count + 1,
     );
@@ -7295,7 +7206,7 @@ fn REG(self: *Self, name: [*:0]const u8, reg_type: m.MIR_type_t) !m.MIR_reg_t {
 
 fn outputModule(self: *Self, name: []const u8, module: m.MIR_module_t) void {
     // Output MIR code to .mir file
-    var debug_path = std.Io.Writer.Allocating.init(self.vm.gc.allocator);
+    var debug_path = std.Io.Writer.Allocating.init(self.gc.allocator);
     defer debug_path.deinit();
 
     debug_path.writer.print(
@@ -7318,6 +7229,16 @@ fn outputModule(self: *Self, name: []const u8, module: m.MIR_module_t) void {
     );
 }
 
-pub fn fmod(lhs: v.Double, rhs: v.Double) callconv(.c) Value {
+pub fn fmod(lhs: Double, rhs: Double) callconv(.c) Value {
     return .fromDouble(@mod(lhs, rhs));
+}
+
+pub fn throwUnwrapError(vm: *VM) callconv(.c) void {
+    api.bz_throw(
+        vm,
+        (vm.gc.copyString("Force unwrapped optional is null") catch {
+            vm.panic("Out of memory");
+            unreachable;
+        }).toValue(),
+    );
 }

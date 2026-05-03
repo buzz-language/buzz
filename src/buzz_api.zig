@@ -1106,7 +1106,7 @@ export fn bz_rethrow(vm: *VM) callconv(.c) void {
     }
 }
 
-export fn bz_throw(vm: *VM, value: v.Value) callconv(.c) void {
+pub export fn bz_throw(vm: *VM, value: v.Value) callconv(.c) void {
     vm.push(value);
 
     bz_rethrow(vm);
@@ -1180,7 +1180,7 @@ export fn bz_context(ctx: *o.NativeCtx, closure_value: v.Value, new_ctx: *o.Nati
 
     if (closure) |cls| {
         if (cls.function.native_raw == null and cls.function.native == null) {
-            ctx.vm.jit.?.compileFunction(ctx.vm.current_ast, cls) catch @panic("Failed compiling function");
+            ctx.vm.jit.?.compile(ctx.vm.current_ast, cls, null) catch @panic("Failed compiling function");
         }
 
         ctx.vm.current_fiber.current_compiled_function = cls.function;

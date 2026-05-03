@@ -13,8 +13,8 @@
             .hash = "lsp_kit-0.1.0-bi_PL3IyDACfp1xdTnkiOHEok2YpPCCCJHuuOcNzjl1D",
         },
         .dap_kit = .{
-            .url = "git+https://github.com/buzz-language/dap-kit.git#d26c761a3107006f8651b0adeaec658d59cf4e6f",
-            .hash = "dap_kit-0.0.0-OvEgyMtgAgD0T-XgpQ9Hbv9E-34xaqCz_ql6lJnqfQOK",
+            .url = "git+https://github.com/buzz-language/dap-kit.git#478f2adf40b70f2f8e669352d5c419e6192f1a51",
+            .hash = "dap_kit-0.0.0-OvEgyANhAgAMRFGjEEJoqlAKKzuxV2VNRqsb6cO0nFUV",
         },
     },
     .paths = .{""},
