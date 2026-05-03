@@ -82,13 +82,14 @@ pub const ExternApi = enum {
     bz_valueDump,
     fmod,
     memcpy,
+    throwUnwrapError,
 
     pub fn declare(self: ExternApi, jit: *JIT) !m.MIR_item_t {
         const prototype = jit.state.?.prototypes.get(self) orelse self.proto(jit.ctx);
 
-        try jit.required_ext_api.put(jit.vm.gc.allocator, self, {});
+        try jit.required_ext_api.put(jit.gc.allocator, self, {});
         try jit.state.?.prototypes.put(
-            jit.vm.gc.allocator,
+            jit.gc.allocator,
             self,
             prototype,
         );
@@ -103,9 +104,9 @@ pub const ExternApi = enum {
                 ctx,
                 self.pname(),
                 1,
-                &[_]m.MIR_type_t{m.MIR_T_U64},
+                &.{m.MIR_T_U64},
                 4,
-                &[_]m.MIR_var_t{
+                &.{
                     .{
                         .type = m.MIR_T_U64,
                         .name = "obj_string",
@@ -132,9 +133,9 @@ pub const ExternApi = enum {
                 ctx,
                 self.pname(),
                 1,
-                &[_]m.MIR_type_t{m.MIR_T_U64},
+                &.{m.MIR_T_U64},
                 4,
-                &[_]m.MIR_var_t{
+                &.{
                     .{
                         .type = m.MIR_T_P,
                         .name = "ctx",
@@ -161,9 +162,9 @@ pub const ExternApi = enum {
                 ctx,
                 self.pname(),
                 1,
-                &[_]m.MIR_type_t{m.MIR_T_U64},
+                &.{m.MIR_T_U64},
                 2,
-                &[_]m.MIR_var_t{
+                &.{
                     .{
                         .type = m.MIR_T_U64,
                         .name = "value",
@@ -180,9 +181,9 @@ pub const ExternApi = enum {
                 ctx,
                 self.pname(),
                 1,
-                &[_]m.MIR_type_t{m.MIR_T_U64},
+                &.{m.MIR_T_U64},
                 3,
-                &[_]m.MIR_var_t{
+                &.{
                     .{
                         .type = m.MIR_T_P,
                         .name = "vm",
@@ -206,7 +207,7 @@ pub const ExternApi = enum {
                 0,
                 null,
                 3,
-                &[_]m.MIR_var_t{
+                &.{
                     .{
                         .type = m.MIR_T_U64,
                         .name = "list",
@@ -228,9 +229,9 @@ pub const ExternApi = enum {
                 ctx,
                 self.pname(),
                 1,
-                &[_]m.MIR_type_t{m.MIR_T_U64},
+                &.{m.MIR_T_U64},
                 3,
-                &[_]m.MIR_var_t{
+                &.{
                     .{
                         .type = m.MIR_T_U64,
                         .name = "list",
@@ -252,9 +253,9 @@ pub const ExternApi = enum {
                 ctx,
                 self.pname(),
                 1,
-                &[_]m.MIR_type_t{m.MIR_T_U64},
+                &.{m.MIR_T_U64},
                 2,
-                &[_]m.MIR_var_t{
+                &.{
                     .{
                         .type = m.MIR_T_U64,
                         .name = "list",
@@ -273,7 +274,7 @@ pub const ExternApi = enum {
                 0,
                 null,
                 4,
-                &[_]m.MIR_var_t{
+                &.{
                     .{
                         .type = m.MIR_T_U64,
                         .name = "list",
@@ -300,9 +301,9 @@ pub const ExternApi = enum {
                 ctx,
                 self.pname(),
                 1,
-                &[_]m.MIR_type_t{m.MIR_T_U64},
+                &.{m.MIR_T_U64},
                 2,
-                &[_]m.MIR_var_t{
+                &.{
                     .{
                         .type = m.MIR_T_U64,
                         .name = "value",
@@ -323,9 +324,9 @@ pub const ExternApi = enum {
                 ctx,
                 self.pname(),
                 1,
-                &[_]m.MIR_type_t{m.MIR_T_U64},
+                &.{m.MIR_T_U64},
                 3,
-                &[_]m.MIR_var_t{
+                &.{
                     .{
                         .type = m.MIR_T_U64,
                         .name = "list",
@@ -349,9 +350,9 @@ pub const ExternApi = enum {
                 ctx,
                 self.pname(),
                 1,
-                &[_]m.MIR_type_t{m.MIR_T_U64},
+                &.{m.MIR_T_U64},
                 3,
-                &[_]m.MIR_var_t{
+                &.{
                     .{
                         .type = m.MIR_T_U64,
                         .name = "enum",
@@ -373,9 +374,9 @@ pub const ExternApi = enum {
                 ctx,
                 self.pname(),
                 1,
-                &[_]m.MIR_type_t{m.MIR_T_U64},
+                &.{m.MIR_T_U64},
                 1,
-                &[_]m.MIR_var_t{
+                &.{
                     .{
                         .type = m.MIR_T_U64,
                         .name = "enum_instance",
@@ -390,9 +391,9 @@ pub const ExternApi = enum {
                 ctx,
                 self.pname(),
                 1,
-                &[_]m.MIR_type_t{m.MIR_T_U64},
+                &.{m.MIR_T_U64},
                 2,
-                &[_]m.MIR_var_t{
+                &.{
                     .{
                         .type = m.MIR_T_U64,
                         .name = "subject",
@@ -415,9 +416,9 @@ pub const ExternApi = enum {
                 ctx,
                 self.pname(),
                 1,
-                &[_]m.MIR_type_t{m.MIR_T_U64},
+                &.{m.MIR_T_U64},
                 4,
-                &[_]m.MIR_var_t{
+                &.{
                     .{
                         .type = m.MIR_T_P,
                         .name = "vm",
@@ -445,9 +446,9 @@ pub const ExternApi = enum {
                 ctx,
                 self.pname(),
                 1,
-                &[_]m.MIR_type_t{m.MIR_T_U64},
+                &.{m.MIR_T_U64},
                 3,
-                &[_]m.MIR_var_t{
+                &.{
                     .{
                         .type = m.MIR_T_U64,
                         .name = "subject",
@@ -470,9 +471,9 @@ pub const ExternApi = enum {
                 ctx,
                 self.pname(),
                 1,
-                &[_]m.MIR_type_t{m.MIR_T_U64},
+                &.{m.MIR_T_U64},
                 4,
-                &[_]m.MIR_var_t{
+                &.{
                     .{
                         .type = m.MIR_T_U64,
                         .name = "subject",
@@ -504,7 +505,7 @@ pub const ExternApi = enum {
                 0,
                 null,
                 4,
-                &[_]m.MIR_var_t{
+                &.{
                     .{
                         .type = m.MIR_T_U64,
                         .name = "instance",
@@ -531,9 +532,9 @@ pub const ExternApi = enum {
                 ctx,
                 self.pname(),
                 1,
-                &[_]m.MIR_type_t{m.MIR_T_U64},
+                &.{m.MIR_T_U64},
                 2,
-                &[_]m.MIR_var_t{
+                &.{
                     .{
                         .type = m.MIR_T_P,
                         .name = "native_ctx",
@@ -552,7 +553,7 @@ pub const ExternApi = enum {
                 0,
                 null,
                 3,
-                &[_]m.MIR_var_t{
+                &.{
                     .{
                         .type = m.MIR_T_P,
                         .name = "native_ctx",
@@ -576,7 +577,7 @@ pub const ExternApi = enum {
                 0,
                 null,
                 2,
-                &[_]m.MIR_var_t{
+                &.{
                     .{
                         .type = m.MIR_T_P,
                         .name = "vm",
@@ -594,9 +595,9 @@ pub const ExternApi = enum {
                 self.pname(),
                 1,
                 // *TryContext
-                &[_]m.MIR_type_t{m.MIR_T_P},
+                &.{m.MIR_T_P},
                 1,
-                &[_]m.MIR_var_t{
+                &.{
                     .{
                         .type = m.MIR_T_P,
                         .name = "vm",
@@ -610,7 +611,7 @@ pub const ExternApi = enum {
                 0,
                 null,
                 1,
-                &[_]m.MIR_var_t{
+                &.{
                     .{
                         .type = m.MIR_T_P,
                         .name = "vm",
@@ -624,7 +625,7 @@ pub const ExternApi = enum {
                 0,
                 null,
                 2,
-                &[_]m.MIR_var_t{
+                &.{
                     .{
                         .type = m.MIR_T_P,
                         .name = "vm",
@@ -641,9 +642,9 @@ pub const ExternApi = enum {
                 ctx,
                 self.pname(),
                 1,
-                &[_]m.MIR_type_t{m.MIR_T_P},
+                &.{m.MIR_T_P},
                 4,
-                &[_]m.MIR_var_t{
+                &.{
                     .{
                         .type = m.MIR_T_P,
                         .name = "native_ctx",
@@ -670,9 +671,9 @@ pub const ExternApi = enum {
                 ctx,
                 self.pname(),
                 1,
-                &[_]m.MIR_type_t{m.MIR_T_U64},
+                &.{m.MIR_T_U64},
                 1,
-                &[_]m.MIR_var_t{
+                &.{
                     .{
                         .type = m.MIR_T_P,
                         .name = "jmp_buf",
@@ -684,9 +685,9 @@ pub const ExternApi = enum {
                 ctx,
                 self.pname(),
                 1,
-                &[_]m.MIR_type_t{m.MIR_T_U64},
+                &.{m.MIR_T_U64},
                 2,
-                &[_]m.MIR_var_t{
+                &.{
                     .{
                         .type = m.MIR_T_P,
                         .name = "vm",
@@ -705,7 +706,7 @@ pub const ExternApi = enum {
                 0,
                 null,
                 2,
-                &[_]m.MIR_var_t{
+                &.{
                     .{
                         .type = m.MIR_T_P,
                         .name = "ctx",
@@ -724,7 +725,7 @@ pub const ExternApi = enum {
                 0,
                 null,
                 1,
-                &[_]m.MIR_var_t{
+                &.{
                     .{
                         .type = m.MIR_T_U8,
                         .name = "status",
@@ -739,9 +740,9 @@ pub const ExternApi = enum {
                 ctx,
                 self.pname(),
                 1,
-                &[_]m.MIR_type_t{m.MIR_T_U64},
+                &.{m.MIR_T_U64},
                 3,
-                &[_]m.MIR_var_t{
+                &.{
                     .{
                         .type = m.MIR_T_U64,
                         .name = "iterable",
@@ -763,9 +764,9 @@ pub const ExternApi = enum {
                 ctx,
                 self.pname(),
                 1,
-                &[_]m.MIR_type_t{m.MIR_T_U64},
+                &.{m.MIR_T_U64},
                 2,
-                &[_]m.MIR_var_t{
+                &.{
                     .{
                         .type = m.MIR_T_U64,
                         .name = "iterable",
@@ -782,9 +783,9 @@ pub const ExternApi = enum {
                 ctx,
                 self.pname(),
                 1,
-                &[_]m.MIR_type_t{m.MIR_T_U64},
+                &.{m.MIR_T_U64},
                 2,
-                &[_]m.MIR_var_t{
+                &.{
                     .{
                         .type = m.MIR_T_U64,
                         .name = "range_value",
@@ -801,9 +802,9 @@ pub const ExternApi = enum {
                 ctx,
                 self.pname(),
                 1,
-                &[_]m.MIR_type_t{m.MIR_T_U64},
+                &.{m.MIR_T_U64},
                 1,
-                &[_]m.MIR_var_t{
+                &.{
                     .{
                         .type = m.MIR_T_P,
                         .name = "ctx",
@@ -815,9 +816,9 @@ pub const ExternApi = enum {
                 ctx,
                 self.pname(),
                 1,
-                &[_]m.MIR_type_t{m.MIR_T_I16},
+                &.{m.MIR_T_I16},
                 1,
-                &[_]m.MIR_var_t{
+                &.{
                     .{
                         .type = m.MIR_T_P,
                         .name = "ctx",
@@ -831,7 +832,7 @@ pub const ExternApi = enum {
                 0,
                 null,
                 2,
-                &[_]m.MIR_var_t{
+                &.{
                     .{
                         .type = m.MIR_T_U64,
                         .name = "value",
@@ -848,9 +849,9 @@ pub const ExternApi = enum {
                 ctx,
                 self.pname(),
                 1,
-                &[_]m.MIR_type_t{m.MIR_T_P},
+                &.{m.MIR_T_P},
                 1,
-                &[_]m.MIR_var_t{
+                &.{
                     .{
                         .type = m.MIR_T_U64,
                         .name = "value",
@@ -862,9 +863,9 @@ pub const ExternApi = enum {
                 ctx,
                 self.pname(),
                 1,
-                &[_]m.MIR_type_t{m.MIR_T_P},
+                &.{m.MIR_T_P},
                 1,
-                &[_]m.MIR_var_t{
+                &.{
                     .{
                         .type = m.MIR_T_U64,
                         .name = "value",
@@ -876,9 +877,9 @@ pub const ExternApi = enum {
                 ctx,
                 self.pname(),
                 1,
-                &[_]m.MIR_type_t{m.MIR_T_I64},
+                &.{m.MIR_T_I64},
                 2,
-                &[_]m.MIR_var_t{
+                &.{
                     .{
                         .type = m.MIR_T_P,
                         .name = "vm",
@@ -895,9 +896,9 @@ pub const ExternApi = enum {
                 ctx,
                 self.pname(),
                 1,
-                &[_]m.MIR_type_t{m.MIR_T_P},
+                &.{m.MIR_T_P},
                 1,
-                &[_]m.MIR_var_t{
+                &.{
                     .{
                         .type = m.MIR_T_U64,
                         .name = "value",
@@ -909,9 +910,9 @@ pub const ExternApi = enum {
                 ctx,
                 self.pname(),
                 1,
-                &[_]m.MIR_type_t{m.MIR_T_I64},
+                &.{m.MIR_T_I64},
                 2,
-                &[_]m.MIR_var_t{
+                &.{
                     .{
                         .type = m.MIR_T_P,
                         .name = "vm",
@@ -928,9 +929,9 @@ pub const ExternApi = enum {
                 ctx,
                 self.pname(),
                 1,
-                &[_]m.MIR_type_t{m.MIR_T_I64},
+                &.{m.MIR_T_I64},
                 3,
-                &[_]m.MIR_var_t{
+                &.{
                     .{
                         .type = m.MIR_T_U64,
                         .name = "value",
@@ -954,7 +955,7 @@ pub const ExternApi = enum {
                 0,
                 null,
                 4,
-                &[_]m.MIR_var_t{
+                &.{
                     .{
                         .type = m.MIR_T_U64,
                         .name = "value",
@@ -981,9 +982,9 @@ pub const ExternApi = enum {
                 ctx,
                 self.pname(),
                 1,
-                &[_]m.MIR_type_t{m.MIR_T_I64},
+                &.{m.MIR_T_I64},
                 2,
-                &[_]m.MIR_var_t{
+                &.{
                     .{
                         .type = m.MIR_T_P,
                         .name = "vm",
@@ -1000,9 +1001,9 @@ pub const ExternApi = enum {
                 ctx,
                 self.pname(),
                 1,
-                &[_]m.MIR_type_t{m.MIR_T_I64},
+                &.{m.MIR_T_I64},
                 2,
-                &[_]m.MIR_var_t{
+                &.{
                     .{
                         .type = m.MIR_T_U64,
                         .name = "value",
@@ -1019,9 +1020,9 @@ pub const ExternApi = enum {
                 ctx,
                 self.pname(),
                 1,
-                &[_]m.MIR_type_t{m.MIR_T_I64},
+                &.{m.MIR_T_I64},
                 4,
-                &[_]m.MIR_var_t{
+                &.{
                     .{
                         .type = m.MIR_T_P,
                         .name = "vm",
@@ -1048,9 +1049,9 @@ pub const ExternApi = enum {
                 ctx,
                 self.pname(),
                 1,
-                &[_]m.MIR_type_t{m.MIR_T_I64},
+                &.{m.MIR_T_I64},
                 2,
-                &[_]m.MIR_var_t{
+                &.{
                     .{
                         .type = m.MIR_T_D,
                         .name = "lhs",
@@ -1069,7 +1070,7 @@ pub const ExternApi = enum {
                 0,
                 null,
                 4,
-                &[_]m.MIR_var_t{
+                &.{
                     .{
                         .type = m.MIR_T_P,
                         .name = "dest",
@@ -1088,6 +1089,20 @@ pub const ExternApi = enum {
                     .{
                         .type = m.MIR_T_U64,
                         .name = "source_len",
+                        .size = undefined,
+                    },
+                },
+            ),
+            .throwUnwrapError => m.MIR_new_proto_arr(
+                ctx,
+                self.pname(),
+                0,
+                null,
+                1,
+                &.{
+                    .{
+                        .type = m.MIR_T_P,
+                        .name = "vm",
                         .size = undefined,
                     },
                 },
@@ -1171,6 +1186,7 @@ pub const ExternApi = enum {
             .bz_valueDump => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.Value.bz_valueDump))),
             .fmod => @as(*anyopaque, @ptrFromInt(@intFromPtr(&JIT.fmod))),
             .memcpy => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.bz_memcpy))),
+            .throwUnwrapError => @as(*anyopaque, @ptrFromInt(@intFromPtr(&JIT.throwUnwrapError))),
             else => unreachable,
         };
     }

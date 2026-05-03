@@ -43,7 +43,7 @@ pub fn deinit(self: *Runner) void {
     self.imports.deinit(self.gc.allocator);
     // TODO: free type_registry and its keys which are on the heap
     if (!is_wasm and self.vm.jit != null) {
-        self.vm.jit.?.deinit(self.gc.allocator);
+        self.vm.jit.?.deinit();
         self.vm.jit = null;
     }
     self.vm.deinit();
@@ -70,7 +70,7 @@ pub fn init(runner_ptr: *Runner, process: Init, allocator: std.mem.Allocator, fl
     );
 
     runner_ptr.vm.jit = if (BuildOptions.jit and BuildOptions.cycle_limit == null and debugger == null)
-        JIT.init(&runner_ptr.vm)
+        try JIT.init(process, &runner_ptr.gc)
     else
         null;
 

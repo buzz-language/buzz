@@ -16,7 +16,6 @@ const Ast = @import("Ast.zig");
 const BuildOptions = @import("build_options");
 const clap = @import("clap");
 const GC = @import("GC.zig");
-const JIT = if (!is_wasm) @import("Jit.zig") else void;
 const is_wasm = builtin.cpu.arch.isWasm();
 const _repl = if (!is_wasm) @import("repl.zig") else void;
 const repl = if (!is_wasm) _repl.repl else void;
@@ -33,18 +32,16 @@ pub const os = if (is_wasm)
 else
     std.os;
 
-pub fn main(init: Init) u8 {
+pub fn main(provided_init: Init) u8 {
     if (is_wasm) unreachable;
 
-    // DebugAllocator recently got super slow, will put this back on once its fixed
-    // var gpa = std.heap.DebugAllocator(.{ .safety = builtin.mode == .Debug }){};
-    // const allocator = if (builtin.mode == .Debug or is_wasm)
-    //     gpa.allocator()
-    // else
+    var init = provided_init;
     const allocator = if (BuildOptions.mimalloc)
         @import("mimalloc.zig").mim_allocator
     else
         init.gpa;
+    // FIXME: Use process.allocator everywhere?
+    init.gpa = allocator;
 
     const params = comptime clap.parseParamsComptime(
         \\-h, --help             Show help and exit

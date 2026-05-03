@@ -3410,7 +3410,7 @@ fn parseFunctionType(self: *Self, parent_generic_types: ?std.AutoArrayHashMapUnm
             },
         );
         if (if (default) |dflt|
-            try self.ast.slice().toValue(dflt, &self.reporter, self.gc)
+            try self.ast.slice().toValue(dflt, self.gc)
         else if (arg_type_def.?.optional)
             Value.Null
         else
@@ -6389,7 +6389,7 @@ fn function(
                 try function_typedef.resolved_type.?.Function.defaults.put(
                     self.gc.allocator,
                     try self.gc.copyString(self.ast.tokens.items(.lexeme)[local.name]),
-                    try self.ast.slice().toValue(dft, &self.reporter, self.gc),
+                    try self.ast.slice().toValue(dft, self.gc),
                 );
             }
 
@@ -8313,7 +8313,7 @@ fn enumDeclaration(self: *Self) Error!Ast.Node.Index {
         try obj_cases.append(
             self.gc.allocator,
             if (case.value) |case_value|
-                try self.ast.slice().toValue(case_value, &self.reporter, self.gc)
+                try self.ast.slice().toValue(case_value, self.gc)
             else if (enum_type.def_type == .Integer)
                 Value.fromInteger(@intCast(idx))
             else if (enum_type.def_type == .String)
