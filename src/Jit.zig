@@ -105,7 +105,13 @@ compiled_nodes: std.AutoHashMapUnmanaged(Ast.Node.Index, void) = .empty,
 blacklisted_nodes: std.AutoHashMapUnmanaged(Ast.Node.Index, void) = .empty,
 /// MIR doesn't allow generating multiple functions at once, so we keep a set of function to compile
 /// Once compiled, the value is set to an array of the native and raw native func_items
-functions_queue: std.AutoHashMapUnmanaged(Ast.Node.Index, ?[2]?m.MIR_item_t) = .empty,
+functions_queue: std.AutoHashMapUnmanaged(
+    Ast.Node.Index,
+    ?struct {
+        native: ?m.MIR_item_t,
+        native_raw: ?m.MIR_item_t,
+    },
+) = .empty,
 /// ObjClosures for which we later compiled the function and need to set it's native and native_raw fields
 objclosures_queue: std.AutoHashMapUnmanaged(*o.ObjClosure, void) = .empty,
 /// External api to link
@@ -228,8 +234,8 @@ pub fn compileFunction(self: *Self, ast: Ast.Slice, closure: *o.ObjClosure) Erro
         const node = kv.key_ptr.*;
         const items = kv.value_ptr.*.?;
 
-        const native = if (items[0]) |item| m.MIR_gen(self.ctx, item) else null;
-        const native_raw = if (items[1]) |item| m.MIR_gen(self.ctx, item) else null;
+        const native = if (items.native) |item| m.MIR_gen(self.ctx, item) else null;
+        const native_raw = if (items.native_raw) |item| m.MIR_gen(self.ctx, item) else null;
 
         // Find out if we need to set it in a ObjFunction
         var it3 = self.objclosures_queue.iterator();
@@ -317,8 +323,8 @@ pub fn compileHotSpot(self: *Self, ast: Ast.Slice, closure: *o.ObjClosure, hotsp
         const node = kv.key_ptr.*;
         const items = kv.value_ptr.*.?;
 
-        const native = if (items[0]) |item| m.MIR_gen(self.ctx, item) else null;
-        const native_raw = if (items[1]) |item| m.MIR_gen(self.ctx, item) else null;
+        const native = if (items.native) |item| m.MIR_gen(self.ctx, item) else null;
+        const native_raw = if (items.native_raw) |item| m.MIR_gen(self.ctx, item) else null;
 
         // Find out if we need to set it in a ObjFunction
         var it3 = self.objclosures_queue.iterator();
@@ -5017,9 +5023,9 @@ fn generateFunction(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
     try self.functions_queue.put(
         self.vm.gc.allocator,
         node,
-        [_]m.MIR_item_t{
-            native_fn,
-            self.state.?.function.?,
+        .{
+            .native = native_fn,
+            .native_raw = self.state.?.function.?,
         },
     );
 
@@ -5087,9 +5093,9 @@ fn generateHotspotFunction(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t 
     try self.functions_queue.put(
         self.vm.gc.allocator,
         node,
-        [_]?m.MIR_item_t{
-            null,
-            self.state.?.function.?,
+        .{
+            .native = null,
+            .native_raw = self.state.?.function.?,
         },
     );
 

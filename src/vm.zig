@@ -5524,7 +5524,8 @@ pub const VM = struct {
                     (count > 10 and (@as(f128, @floatFromInt(count)) / @as(f128, @floatFromInt(self.hotspots_count))) > BuildOptions.jit_prof_threshold)))
         {
             // It's not already done or blacklisted
-            self.current_ast.nodes.items(.compilable)[node] = (self.jit.?.compiled_nodes.get(node) == null and self.jit.?.blacklisted_nodes.get(node) == null);
+            self.current_ast.nodes.items(.compilable)[node] = (self.jit.?.compiled_nodes.get(node) == null and
+                self.jit.?.blacklisted_nodes.get(node) == null);
 
             return self.current_ast.nodes.items(.compilable)[node];
         }
