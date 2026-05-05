@@ -319,7 +319,7 @@ pub const Global = struct {
         const lexemes = ast.tokens.items(.lexeme);
 
         if (namespace.len > 0) {
-            for (namespace[0 .. namespace.len - 1], 0..) |name_token, i| {
+            for (namespace[0..namespace.len], 0..) |name_token, i| {
                 if (!std.mem.eql(u8, lexemes[name_token], lexemes[self.qualified_name.namespace[i]])) {
                     return false;
                 }
