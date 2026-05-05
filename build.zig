@@ -236,6 +236,22 @@ pub fn build(b: *Build) !void {
         },
     );
     b.installArtifact(static_lib);
+    const pic_static_lib = b.addLibrary(
+        .{
+            .name = "buzz",
+            .linkage = .static,
+            .use_llvm = true,
+            .root_module = b.createModule(
+                .{
+                    .root_source_file = b.path("src/buzz_api.zig"),
+                    .target = target,
+                    .optimize = build_mode,
+                    .pic = true,
+                },
+            ),
+        },
+    );
+    b.installArtifact(pic_static_lib);
 
     // Test
     const tests = b.addTest(
@@ -259,7 +275,7 @@ pub fn build(b: *Build) !void {
     run_tests.step.dependOn(install_step); // wait for libraries to be installed
     test_step.dependOn(&run_tests.step);
 
-    for ([_]?*std.Build.Step.Compile{ static_lib, lib, exe, behavior_exe, debugger_exe, lsp_exe, check_exe, tests, fuzz }) |comp| {
+    for ([_]?*std.Build.Step.Compile{ pic_static_lib, static_lib, lib, exe, behavior_exe, debugger_exe, lsp_exe, check_exe, tests, fuzz }) |comp| {
         if (comp) |c| {
             // BuildOptions
             c.root_module.addImport("build_options", build_option_module);
@@ -286,7 +302,7 @@ pub fn build(b: *Build) !void {
         }
     }
 
-    for ([_]?*std.Build.Step.Compile{ tests, static_lib, lib, exe, debugger_exe, lsp_exe, behavior_exe, check_exe, fuzz }) |comp| {
+    for ([_]?*std.Build.Step.Compile{ tests, pic_static_lib, static_lib, lib, exe, debugger_exe, lsp_exe, behavior_exe, check_exe, fuzz }) |comp| {
         if (comp) |c| {
             c.root_module.addImport(
                 "dap",
@@ -388,7 +404,7 @@ pub fn build(b: *Build) !void {
             std_lib.root_module.linkLibrary(dep);
         }
 
-        std_lib.root_module.linkLibrary(static_lib);
+        std_lib.root_module.linkLibrary(pic_static_lib);
         std_lib.root_module.addImport("build_options", build_option_module);
 
         b.default_step.dependOn(&std_lib.step);
@@ -427,6 +443,7 @@ pub fn buildPcre2(b: *Build, target: Build.ResolvedTarget, optimize: std.builtin
                     .optimize = optimize,
                     .sanitize_c = .off,
                     .link_libc = true,
+                    .pic = true,
                 },
             ),
         },
@@ -488,6 +505,7 @@ pub fn buildMimalloc(b: *Build, target: Build.ResolvedTarget, optimize: std.buil
                     .target = target,
                     .optimize = optimize,
                     .link_libc = true,
+                    .pic = true,
                 },
             ),
         },
@@ -551,6 +569,7 @@ pub fn buildLinenoise(b: *Build, target: Build.ResolvedTarget, optimize: std.bui
                     .optimize = optimize,
                     .sanitize_c = .off,
                     .link_libc = true,
+                    .pic = true,
                 },
             ),
         },
@@ -620,6 +639,7 @@ pub fn buildMir(b: *Build, target: Build.ResolvedTarget, optimize: std.builtin.O
                     .target = target,
                     .optimize = optimize,
                     .link_libc = true,
+                    .pic = true,
                 },
             ),
         },
@@ -674,6 +694,7 @@ pub fn buildFuzz(
                     .stack_check = false, // not linking with compiler-rt
                     .sanitize_c = .off,
                     .link_libc = true,
+                    .pic = true,
                 },
             ),
         },
