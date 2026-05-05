@@ -49,7 +49,7 @@ This release builds with zig 0.16.0. We will only use tagged version of zig from
 - `rg.subsetOf`, `rg.intersect`, `rg.union`
 - Tuples (https://github.com/buzz-language/buzz/issues/298): syntaxic sugar over anonymous objects:
 ```buzz
-const tuple = .{ "john", "james" };
+final tuple = .{ "john", "james" };
 
 tuple.@"0" == "john";
 ```

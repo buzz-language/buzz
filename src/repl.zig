@@ -16,6 +16,7 @@ const io = @import("io.zig");
 const GC = @import("GC.zig");
 const TypeRegistry = @import("TypeRegistry.zig");
 const Runner = @import("Runner.zig");
+const QualifiedNameContext = @import("Ast.zig").QualifiedName.Context;
 
 pub const PROMPT = ">>> ";
 pub const MULTILINE_PROMPT = "... ";
@@ -93,6 +94,10 @@ pub fn repl(process: std.process.Init, allocator: std.mem.Allocator) !void {
 
     var previous_global_top = runner.vm.globals_count;
     var previous_parser_globals = try runner.parser.globals.clone(allocator);
+    var previous_globals_lookup = try runner.parser.globals_lookup.cloneContext(
+        allocator,
+        QualifiedNameContext{ .ast = &runner.parser.ast },
+    );
     var previous_globals = try runner.vm.globals.clone(allocator);
     var previous_type_registry = try runner.gc.type_registry.registry.clone(allocator);
     var previous_input: ?[]u8 = null;
@@ -188,6 +193,10 @@ pub fn repl(process: std.process.Init, allocator: std.mem.Allocator) !void {
                 previous_parser_globals = try runner.parser.globals.clone(allocator);
                 // previous_globals.deinit();
                 previous_globals = try runner.vm.globals.clone(allocator);
+                previous_globals_lookup = try runner.parser.globals_lookup.cloneContext(
+                    allocator,
+                    QualifiedNameContext{ .ast = &runner.parser.ast },
+                );
                 // previous_type_registry.deinit();
                 previous_type_registry = try runner.gc.type_registry.registry.clone(allocator);
 
@@ -224,6 +233,7 @@ pub fn repl(process: std.process.Init, allocator: std.mem.Allocator) !void {
                 // FIXME: why can't I deinit those?
                 // parser.globals.deinit();
                 runner.parser.globals = previous_parser_globals;
+                runner.parser.globals_lookup = previous_globals_lookup;
 
                 // vm.globals.deinit();
                 runner.vm.globals = previous_globals;

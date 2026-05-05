@@ -4663,19 +4663,17 @@ fn anonymousObjectInit(self: *Self, _: bool) Error!Ast.Node.Index {
     defer qualified_name.deinit();
     try qualified_name.writer.print("{s}.anonymous", .{qualifier});
 
-    const object_def = obj.ObjObject.ObjectDef.init(
-        start_location,
-        try self.gc.copyString("anonymous"),
-        try self.gc.copyString(qualified_name.written()),
-        true,
-    );
-
-    const resolved_type = obj.ObjTypeDef.TypeUnion{ .Object = object_def };
-
     // We build the object type has we parse its instanciation
     var object_type = obj.ObjTypeDef{
         .def_type = .Object,
-        .resolved_type = resolved_type,
+        .resolved_type = .{
+            .Object = obj.ObjObject.ObjectDef.init(
+                start_location,
+                try self.gc.copyString("anonymous"),
+                try self.gc.copyString(qualified_name.written()),
+                true,
+            ),
+        },
     };
 
     // Anonymous object can only have properties without default values (no methods, no static fields)
