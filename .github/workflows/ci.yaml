@@ -52,7 +52,7 @@ jobs:
       - name: Setup nightly Zig
         uses: mlugg/setup-zig@v2
         with:
-          version: master
+          version: ${{ matrix.zig-version }}
       - name: Build for wasm
         run: zig build -Dtarget=wasm32-freestanding -Doptimize=ReleaseSmall
       - name: Cleanup
@@ -65,5 +65,5 @@ jobs:
       - name: Setup Zig
         uses: mlugg/setup-zig@v2
         with:
-          version: master
+          version: ${{ matrix.zig-version }}
       - run: zig fmt --check src/*.zig src/**/*.zig
