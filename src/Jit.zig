@@ -548,12 +548,15 @@ fn buildFunction(self: *Self, ast: Ast.Slice, closure: ?*o.ObjClosure, ast_node:
 fn generateNode(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
     const components = self.state.?.ast.nodes.items(.components);
     const tag = self.state.?.ast.nodes.items(.tag)[node];
-    const constant = self.state.?.ast.nodes.items(.value)[node];
-    // FIXME: we should already have generated any constant node in CodeGen no?
-    // orelse if (try self.state.?.ast.isConstant(self.gc.allocator, node))
-    //     try self.state.?.ast.toValue(node, self.vm.gc)
-    // else
-    //     null;
+    const constant = if (!BuildOptions.jit_always_on) // If jit always on, we avoid constant folding to check that every path works once jit compiled
+        self.state.?.ast.nodes.items(.value)[node] orelse
+            // When async, we can't do toValue
+            if (!BuildOptions.jit_asynchronous and try self.state.?.ast.isConstant(self.gc.allocator, node))
+                try self.state.?.ast.toValue(node, self.gc)
+            else
+                null
+    else
+        null;
 
     var value = if (constant != null)
         m.MIR_new_uint_op(self.ctx, constant.?.val)
@@ -562,9 +565,9 @@ fn generateNode(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
             self.ctx,
             Value.fromBoolean(components[node].Boolean).val,
         ),
-        .Double => m.MIR_new_double_op(
+        .Double => m.MIR_new_uint_op(
             self.ctx,
-            components[node].Double,
+            Value.fromDouble(components[node].Double).val,
         ),
         .Integer => m.MIR_new_uint_op(
             self.ctx,
@@ -4735,19 +4738,21 @@ fn generateUnary(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
             self.append(out_label);
         },
         .Minus => {
-            try self.unwrap(.Integer, left, result);
-
             if (left_type_def.?.def_type == .Integer) {
+                try self.unwrap(.Integer, left, result);
                 self.NEG(result, result);
-            } else {
-                self.DNEG(result, result);
-            }
 
-            try self.wrap(
-                left_type_def.?.def_type,
-                result,
-                result,
-            );
+                try self.wrap(.Integer, result, result);
+            } else {
+                const unwrapped = m.MIR_new_reg_op(
+                    self.ctx,
+                    try self.REG("unwrapped", m.MIR_T_D),
+                );
+                try self.unwrap(.Double, left, unwrapped);
+                self.DNEG(unwrapped, unwrapped);
+
+                try self.wrap(.Double, unwrapped, result);
+            }
         },
         else => unreachable,
     }
