@@ -35,6 +35,10 @@ else
 pub fn main(provided_init: Init) u8 {
     if (is_wasm) unreachable;
 
+    if (BuildOptions.jit and BuildOptions.jit_always_on and BuildOptions.jit_asynchronous) {
+        @compileError("jit_always_on and jit_asynchronous can't used together");
+    }
+
     var init = provided_init;
     const allocator = if (BuildOptions.mimalloc)
         @import("mimalloc.zig").mim_allocator

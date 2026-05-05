@@ -360,6 +360,13 @@ fn doJob(self: *Self, job: *const Job) Error!void {
     }
 }
 
+fn getString(self: *Self, string: []const u8) Error!*o.ObjString {
+    return if (BuildOptions.jit_always_on)
+        try self.gc.copyString(string) // In this case, we did not run bytecode even once so strings are likely not interned
+    else
+        self.gc.strings.get(string).?;
+}
+
 fn loadRequiredExternalApi(self: *Self) Error!void {
     var it_ext = self.required_ext_api.iterator();
     while (it_ext.next()) |kv| {
@@ -2137,9 +2144,9 @@ fn generateCall(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
                         // member
                         m.MIR_new_uint_op(
                             self.ctx,
-                            self.gc.strings.get(
+                            (try self.getString(
                                 self.state.?.ast.tokens.items(.lexeme)[node_components[dot.?].Dot.identifier],
-                            ).?.toValue().val,
+                            )).toValue().val,
                         ),
                         // vm
                         m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
@@ -2273,7 +2280,7 @@ fn generateCall(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
         const actual_arg_key = if (index == 0 and argument.name == null)
             arg_keys[0]
         else
-            self.gc.strings.get(lexemes[argument.name.?]).?;
+            try self.getString(lexemes[argument.name.?]);
 
         try arguments.put(
             self.gc.allocator,
@@ -3839,7 +3846,7 @@ fn generateDot(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
                             res,
                             &.{
                                 (try self.generateNode(components.callee)).?,
-                                m.MIR_new_uint_op(self.ctx, self.gc.strings.get(member_lexeme).?.toValue().val),
+                                m.MIR_new_uint_op(self.ctx, (try self.getString(member_lexeme)).toValue().val),
                                 m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
                             },
                         );
@@ -3960,7 +3967,7 @@ fn generateDot(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
                 res,
                 &.{
                     (try self.generateNode(components.callee)).?,
-                    m.MIR_new_uint_op(self.ctx, self.gc.strings.get(member_lexeme).?.toValue().val),
+                    m.MIR_new_uint_op(self.ctx, (try self.getString(member_lexeme)).toValue().val),
                     m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
                 },
             );
