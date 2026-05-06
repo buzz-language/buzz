@@ -79,7 +79,7 @@ zig build test
 Run a single Buzz file containing `test` blocks:
 
 ```sh
-zig build run -- -t tests/behavior/NNN-name.buzz
+zig build run -- -t tests/behavior/descriptive-name.buzz
 ```
 
 Run a regular Buzz script with a `main` function:
@@ -110,8 +110,8 @@ Only Zig files need formatting checks for now.
 
 ## Tests
 
-- New language behavior tests go in `tests/behavior/NNN-name.buzz`.
-- Choose the next unused `NNN` in `tests/behavior/`.
+- New language behavior tests go in `tests/behavior/` with a descriptive `.buzz` filename.
+- Existing numbered behavior test filenames are historical; new tests do not need a sequence number.
 - Every language feature or bug fix should include a behavior test unless there is a clear reason not to.
 - Parser, typechecker, compiler, and crash fixes should include a reduced regression test when possible.
 - Do not add fuzzed crashes yourself.

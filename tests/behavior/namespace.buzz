@@ -1,0 +1,6 @@
+import "std";
+import "math";
+
+test "Global is resolved with correct namespace" {
+    std\print("hello world");
+}

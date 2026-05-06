@@ -11,7 +11,6 @@ const clap = @import("clap");
 
 const black_listed_tests = std.StaticStringMap(void).initComptime(
     .{
-        .{ "tests/behavior/027-run-file.buzz", {} },
         .{ "tests/fuzzed/id:000162,src:000030,time:151734520,execs:633310,op:arith8,pos:439,val:+20.buzz", {} },
         .{ "tests/fuzzed/id:000163,src:000030,time:151877078,execs:633895,op:arith8,pos:1177,val:+27.buzz", {} },
     },
@@ -72,20 +71,23 @@ fn testBehaviors(process: std.process.Init, allocator: std.mem.Allocator, fail_f
                 );
 
                 if (black_listed_tests.has(file_name.written())) {
+                    printFileStatus(process.io, file.name, .skipped);
                     result.skipped += 1;
                     continue;
                 }
 
-                // io.print("\u{001b}[33m[{s} ...]\u{001b}[0m\n", .{file_name.written()});
+                printFileStatus(process.io, file.name, .started);
 
                 var had_error: bool = false;
                 var runner: Runner = undefined;
                 try runner.init(process, allocator, .Test, null);
 
+                var failed = false;
                 runner.runFile(
                     file_name.written(),
                     &[_][:0]u8{},
                 ) catch {
+                    failed = true;
                     had_error = true;
                     try result.failed.append(allocator, try file_name.toOwnedSlice());
 
@@ -93,6 +95,8 @@ fn testBehaviors(process: std.process.Init, allocator: std.mem.Allocator, fail_f
                         break;
                     }
                 };
+
+                printFileStatus(process.io, file.name, if (failed) .failed else .succeeded);
             }
         }
     }
@@ -114,12 +118,19 @@ fn testCompileErrors(process: std.process.Init, allocator: std.mem.Allocator, fa
             try file_name.writer.print("tests/compile_errors/{s}", .{file.name});
 
             if (black_listed_tests.has(file_name.written())) {
+                printFileStatus(process.io, file.name, .skipped);
                 result.skipped += 1;
                 continue;
             }
 
+            printFileStatus(process.io, file.name, .started);
+
             // First line of test file is expected error message
-            const test_file = try std.Io.Dir.cwd().openFile(process.io, file_name.written(), .{ .mode = .read_only });
+            const test_file = try std.Io.Dir.cwd().openFile(
+                process.io,
+                file_name.written(),
+                .{ .mode = .read_only },
+            );
             var buffer = [_]u8{0} ** 255;
             var file_reader = test_file.reader(process.io, buffer[0..]);
             var reader = bz_io.AllocatedReader.init(
@@ -153,19 +164,14 @@ fn testCompileErrors(process: std.process.Init, allocator: std.mem.Allocator, fa
             defer allocator.free(run_result.stderr);
 
             if (!std.mem.containsAtLeast(u8, run_result.stderr, 1, first_line[2..])) {
-                // io.print(
-                //     "Expected error `{s}` got `{s}`\n",
-                //     .{
-                //         first_line[2..],
-                //         run_result.stderr,
-                //     },
-                // );
-
+                printFileStatus(process.io, file.name, .failed);
                 try result.failed.append(allocator, try file_name.toOwnedSlice());
 
                 if (fail_fast) {
                     break;
                 }
+            } else {
+                printFileStatus(process.io, file.name, .succeeded);
             }
         }
     }
@@ -190,8 +196,11 @@ fn testFuzzCrashes(process: std.process.Init, allocator: std.mem.Allocator, fail
 
             if (black_listed_tests.has(file_name.written())) {
                 result.skipped += 1;
+                printFileStatus(process.io, file.name, .skipped);
                 continue;
             }
+
+            printFileStatus(process.io, file.name, .started);
 
             const arg0 = std.fmt.allocPrint(
                 allocator,
@@ -232,8 +241,11 @@ fn testFuzzCrashes(process: std.process.Init, allocator: std.mem.Allocator, fail
             defer allocator.free(run_result.stderr);
 
             switch (run_result.term) {
-                .exited => {},
+                .exited => {
+                    printFileStatus(process.io, file.name, .succeeded);
+                },
                 else => {
+                    printFileStatus(process.io, file.name, .failed);
                     try result.failed.append(allocator, try file_name.toOwnedSlice());
                     if (fail_fast) break;
                 },
@@ -242,6 +254,39 @@ fn testFuzzCrashes(process: std.process.Init, allocator: std.mem.Allocator, fail
     }
 
     return result;
+}
+
+const Status = enum {
+    started,
+    skipped,
+    failed,
+    succeeded,
+};
+
+fn printFileStatus(io: std.Io, file_name: []const u8, status: Status) void {
+    bz_io.print(
+        io,
+        "{s}\x1b[{s}m[{s} {s}]\x1b[0m\n",
+        .{
+            switch (status) {
+                .failed, .succeeded, .skipped => "\x1b[1A\r\x1b[2K",
+                else => "",
+            },
+            switch (status) {
+                .started => "2",
+                .failed => "31",
+                .succeeded => "32",
+                .skipped => "33",
+            },
+            file_name,
+            switch (status) {
+                .started => "...",
+                .failed => "✘",
+                .succeeded => "✔",
+                .skipped => "○",
+            },
+        },
+    );
 }
 
 pub fn main(init: std.process.Init) !u8 {
@@ -319,6 +364,7 @@ pub fn main(init: std.process.Init) !u8 {
     const do_all = res.args.all == 1 or (res.args.behavior != 1 and res.args.@"compile-error" != 1 and res.args.fuzz != 1);
 
     if (do_all or res.args.behavior == 1) {
+        bz_io.print(init.io, "\n\x1b[34m■ Behavior tests\x1b[0m...\n", .{});
         var tests_result = try testBehaviors(init, allocator, res.args.fast == 1);
         try result.merge(
             allocator,
@@ -327,6 +373,7 @@ pub fn main(init: std.process.Init) !u8 {
     }
 
     if (do_all or res.args.@"compile-error" == 1) {
+        bz_io.print(init.io, "\n\x1b[34m■ Compile errors\x1b[0m...\n", .{});
         var tests_result = try testCompileErrors(init, allocator, res.args.fast == 1);
         try result.merge(
             allocator,
@@ -335,6 +382,7 @@ pub fn main(init: std.process.Init) !u8 {
     }
 
     if (do_all or res.args.fuzz == 1) {
+        bz_io.print(init.io, "\n\x1b[34m■ Fuzz tests\x1b[0m...\n", .{});
         var tests_result = try testFuzzCrashes(init, allocator, res.args.fast == 1);
         try result.merge(
             allocator,
@@ -345,24 +393,19 @@ pub fn main(init: std.process.Init) !u8 {
     if (result.failed.items.len > 0) {
         bz_io.print(init.io, "Failed tests:\n", .{});
         for (result.failed.items) |failed| {
-            bz_io.print(init.io, "  \u{001b}[31m{s}\u{001b}[0m\n", .{failed});
+            bz_io.print(init.io, "  \x1b[31m{s}\x1b[0m\n", .{failed});
         }
     }
 
     if (result.hanged.items.len > 0) {
         bz_io.print(init.io, "Hanged tests:\n", .{});
         for (result.hanged.items) |hanged| {
-            bz_io.print(init.io, "  \u{001b}[31m{s}\u{001b}[0m\n", .{hanged});
+            bz_io.print(init.io, "  \x1b[31m{s}\x1b[0m\n", .{hanged});
         }
     }
 
-    if (result.hasFailed()) {
-        bz_io.print(init.io, "\n\u{001b}[31m", .{});
-    } else {
-        bz_io.print(init.io, "\n\u{001b}[32m", .{});
-    }
-
-    bz_io.print(init.io, "Ran {}, Ok: {}, Failed: {}, Hanged {}, Skipped {}\u{001b}[0m\n", .{
+    bz_io.print(init.io, "\n\x1b[{s}mRan {}, Ok: {}, Failed: {}, Hanged {}, Skipped {}\x1b[0m\n", .{
+        if (result.hasFailed()) "31" else "32",
         result.total,
         result.total - result.failed.items.len - result.hanged.items.len,
         result.failed.items.len,
