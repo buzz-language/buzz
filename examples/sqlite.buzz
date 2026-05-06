@@ -3,7 +3,7 @@ namespace sqlite;
 import "ffi";
 import "std";
 import "buffer";
-import "serialize";
+import "serialize" as _;
 
 zdef(
     "sqlite3",
