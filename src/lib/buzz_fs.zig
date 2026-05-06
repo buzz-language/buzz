@@ -474,3 +474,15 @@ pub export fn exists(ctx: *api.NativeCtx) callconv(.c) c_int {
 
     return 1;
 }
+
+pub const library = api.BuzzApi(
+    "fs",
+    &.{
+        &.{ "makeDirectory", makeDirectory },
+        &.{ "deleteFile", deleteFile },
+        &.{ "deleteDirectory", deleteDirectory },
+        &.{ "move", move },
+        &.{ "list", list },
+        &.{ "exists", exists },
+    },
+){};

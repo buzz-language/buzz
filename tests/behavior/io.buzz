@@ -12,7 +12,7 @@ test "Write & read a file" {
     // Now read it
     final fileB = io\File.open("./hello.txt", mode: io\FileMode.read);
 
-    std\assert(file.readAll() == "Hello World", message: "Could write and read a file");
+    std\assert(fileB.readAll() == "Hello World", message: "Could write and read a file");
 
     fileB.close();
 

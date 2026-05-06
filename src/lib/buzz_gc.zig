@@ -20,3 +20,11 @@ pub export fn collect(ctx: *api.NativeCtx) callconv(.c) c_int {
 
     return 0;
 }
+
+pub const library = api.BuzzApi(
+    "gc",
+    &.{
+        &.{ "allocated", allocated },
+        &.{ "collect", collect },
+    },
+){};

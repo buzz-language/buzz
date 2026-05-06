@@ -609,3 +609,23 @@ pub export fn runFile(ctx: *api.NativeCtx) callconv(.c) c_int {
 
     return 0;
 }
+
+pub const library = api.BuzzApi(
+    "io",
+    &.{
+        &.{ "getStdIn", getStdIn },
+        &.{ "getStdOut", getStdOut },
+        &.{ "getStdErr", getStdErr },
+        &.{ "FileIsTTY", FileIsTTY },
+        &.{ "FileOpen", FileOpen },
+        &.{ "FileClose", FileClose },
+        &.{ "FileReadAll", FileReadAll },
+        &.{ "FileReadLine", FileReadLine },
+        &.{ "FileRead", FileRead },
+        &.{ "FileWrite", FileWrite },
+        // &.{ "FileGetPoller", FileGetPoller },
+        // &.{ "PollerPoll", PollerPoll },
+        // &.{ "PollerDeinit", PollerDeinit },
+        &.{ "runFile", runFile },
+    },
+){};

@@ -20,125 +20,35 @@ const pcre = if (!is_wasm) @import("pcre.zig") else void;
 const buzz_api = @import("lib/buzz_api.zig");
 const print = @import("io.zig").print;
 
-// In the wasm build, libraries are statically linked
-const std_lib = if (is_wasm) @import("lib/buzz_std.zig") else void;
-const std_api = if (is_wasm) std.StaticStringMap(buzz_api.NativeFn).initComptime(
-    .{
-        .{ "assert", &std_lib.assert },
-        .{ "buzzPanic", &std_lib.buzzPanic },
-        .{ "char", &std_lib.char },
-        .{ "currentFiber", &std_lib.currentFiber },
-        .{ "parseDouble", &std_lib.parseDouble },
-        .{ "parseInt", &std_lib.parseInt },
-        .{ "parseUd", &std_lib.parseUd },
-        .{ "print", &std_lib.print },
-        .{ "random", &std_lib.random },
-        .{ "toDouble", &std_lib.toDouble },
-        .{ "toInt", &std_lib.toInt },
-        .{ "toUd", &std_lib.toUd },
-        .{ "args", &std_lib.args },
-    },
-) else void;
-
-const gc_lib = if (is_wasm) @import("lib/buzz_gc.zig") else void;
-const gc_api = if (is_wasm) std.StaticStringMap(buzz_api.NativeFn).initComptime(
-    .{
-        .{ "allocated", &gc_lib.allocated },
-        .{ "collect", &gc_lib.collect },
-    },
-) else void;
-
-const math_lib = if (is_wasm) @import("lib/buzz_math.zig") else void;
-const math_api = if (is_wasm) std.StaticStringMap(buzz_api.NativeFn).initComptime(
-    .{
-        .{ "abs", &math_lib.abs },
-        .{ "acos", &math_lib.acos },
-        .{ "asin", &math_lib.asin },
-        .{ "atan", &math_lib.atan },
-        .{ "bzsqrt", &math_lib.bzsqrt },
-        .{ "bzceil", &math_lib.bzceil },
-        .{ "bzcos", &math_lib.bzcos },
-        .{ "bzexp", &math_lib.bzexp },
-        .{ "bzfloor", &math_lib.bzfloor },
-        .{ "bzlog", &math_lib.bzlog },
-        .{ "minDouble", &math_lib.minDouble },
-        .{ "maxDouble", &math_lib.maxDouble },
-        .{ "minInt", &math_lib.minInt },
-        .{ "maxInt", &math_lib.maxInt },
-        .{ "bzsin", &math_lib.bzsin },
-        .{ "bztan", &math_lib.bztan },
-        .{ "pow", &math_lib.pow },
-    },
-) else void;
-
-const buffer_lib = if (is_wasm) @import("lib/buzz_buffer.zig") else void;
-const buffer_api = if (is_wasm) std.StaticStringMap(buzz_api.NativeFn).initComptime(
-    .{
-        .{ "BufferNew", &buffer_lib.BufferNew },
-        .{ "BufferDeinit", &buffer_lib.BufferDeinit },
-        .{ "BufferRead", &buffer_lib.BufferRead },
-        .{ "BufferWrite", &buffer_lib.BufferWrite },
-        .{ "BufferReadBoolean", &buffer_lib.BufferReadBoolean },
-        .{ "BufferWriteBoolean", &buffer_lib.BufferWriteBoolean },
-        .{ "BufferWriteInt", &buffer_lib.BufferWriteInt },
-        .{ "BufferReadInt", &buffer_lib.BufferReadInt },
-        .{ "BufferWriteUserData", &buffer_lib.BufferWriteUserData },
-        .{ "BufferReadUserData", &buffer_lib.BufferReadUserData },
-        .{ "BufferWriteDouble", &buffer_lib.BufferWriteDouble },
-        .{ "BufferReadDouble", &buffer_lib.BufferReadDouble },
-        .{ "BufferLen", &buffer_lib.BufferLen },
-        .{ "BufferCursor", &buffer_lib.BufferCursor },
-        .{ "BufferBuffer", &buffer_lib.BufferBuffer },
-        .{ "BufferPtr", &buffer_lib.BufferPtr },
-        .{ "BufferEmpty", &buffer_lib.BufferEmpty },
-        .{ "BufferAt", &buffer_lib.BufferAt },
-        .{ "BufferSetAt", &buffer_lib.BufferSetAt },
-        .{ "BufferWriteZ", &buffer_lib.BufferWriteZ },
-        .{ "BufferWriteZAt", &buffer_lib.BufferWriteZAt },
-        .{ "BufferReadZ", &buffer_lib.BufferReadZ },
-        .{ "BufferReadZAt", &buffer_lib.BufferReadZAt },
-        .{ "BufferWriteStruct", &buffer_lib.BufferWriteStruct },
-        .{ "BufferWriteStructAt", &buffer_lib.BufferWriteStructAt },
-        .{ "BufferReadStruct", &buffer_lib.BufferReadStruct },
-        .{ "BufferReadStructAt", &buffer_lib.BufferReadStructAt },
-    },
-) else void;
-
-const debug_lib = if (is_wasm) @import("lib/buzz_debug.zig") else void;
-const debug_api = if (is_wasm) std.StaticStringMap(buzz_api.NativeFn).initComptime(
-    .{
-        .{ "dump", &debug_lib.dump },
-    },
-) else void;
-
-const serialize_lib = if (is_wasm) @import("lib/buzz_serialize.zig") else void;
-const serialize_api = if (is_wasm) std.StaticStringMap(buzz_api.NativeFn).initComptime(
-    .{
-        .{ "serialize", &serialize_lib.serializeValue },
-    },
-) else void;
-
-const crypto_lib = if (is_wasm) @import("lib/buzz_crypto.zig") else void;
-const crypto_api = if (is_wasm) std.StaticStringMap(buzz_api.NativeFn).initComptime(
-    .{
-        .{ "hash", &crypto_lib.hash },
-    },
-) else void;
-
-const libs = if (is_wasm)
+const libs = if (!is_wasm)
     std.StaticStringMap(std.StaticStringMap(buzz_api.NativeFn)).initComptime(
-        .{
-            .{ "std", std_api },
-            .{ "gc", gc_api },
-            .{ "math", math_api },
-            .{ "buffer", buffer_api },
-            .{ "debug", debug_api },
-            .{ "serialize", serialize_api },
-            .{ "crypto", crypto_api },
+        &.{
+            &.{ @import("lib/buzz_buffer.zig").library.name, @import("lib/buzz_buffer.zig").library.methods },
+            &.{ @import("lib/buzz_crypto.zig").library.name, @import("lib/buzz_crypto.zig").library.methods },
+            &.{ @import("lib/buzz_debug.zig").library.name, @import("lib/buzz_debug.zig").library.methods },
+            &.{ @import("lib/buzz_ffi.zig").library.name, @import("lib/buzz_ffi.zig").library.methods },
+            &.{ @import("lib/buzz_fs.zig").library.name, @import("lib/buzz_fs.zig").library.methods },
+            &.{ @import("lib/buzz_gc.zig").library.name, @import("lib/buzz_gc.zig").library.methods },
+            // &.{ @import("lib/buzz_http.zig").library.name, @import("lib/buzz_http.zig").library.methods },
+            &.{ @import("lib/buzz_io.zig").library.name, @import("lib/buzz_io.zig").library.methods },
+            &.{ @import("lib/buzz_math.zig").library.name, @import("lib/buzz_math.zig").library.methods },
+            &.{ @import("lib/buzz_os.zig").library.name, @import("lib/buzz_os.zig").library.methods },
+            &.{ @import("lib/buzz_serialize.zig").library.name, @import("lib/buzz_serialize.zig").library.methods },
+            &.{ @import("lib/buzz_std.zig").library.name, @import("lib/buzz_std.zig").library.methods },
         },
     )
 else
-    void;
+    std.StaticStringMap(std.StaticStringMap(buzz_api.NativeFn)).initComptime(
+        &.{
+            &.{ @import("lib/buzz_buffer.zig").library.name, @import("lib/buzz_buffer.zig").library.methods },
+            &.{ @import("lib/buzz_crypto.zig").library.name, @import("lib/buzz_crypto.zig").library.methods },
+            &.{ @import("lib/buzz_debug.zig").library.name, @import("lib/buzz_debug.zig").library.methods },
+            &.{ @import("lib/buzz_gc.zig").library.name, @import("lib/buzz_gc.zig").library.methods },
+            &.{ @import("lib/buzz_math.zig").library.name, @import("lib/buzz_math.zig").library.methods },
+            &.{ @import("lib/buzz_serialize.zig").library.name, @import("lib/buzz_serialize.zig").library.methods },
+            &.{ @import("lib/buzz_std.zig").library.name, @import("lib/buzz_std.zig").library.methods },
+        },
+    );
 
 const Self = @This();
 
@@ -6522,18 +6432,19 @@ fn function(
 
     if (function_type == .Extern) {
         if (self.flavor.resolveImports()) {
-            const native_opt = if (!is_wasm)
-                try self.importLibSymbol(
-                    self.ast.nodes.items(.location)[function_node],
-                    self.current_token.? - 1,
-                    self.script_name,
-                    function_typedef.resolved_type.?.Function.name.string,
-                )
-            else
-                try self.importStaticLibSymbol(
-                    self.script_name,
-                    function_typedef.resolved_type.?.Function.name.string,
-                );
+            const native_opt = try self.importStaticLibSymbol(
+                self.script_name,
+                function_typedef.resolved_type.?.Function.name.string,
+            ) orelse
+                if (!is_wasm)
+                    try self.importLibSymbol(
+                        self.ast.nodes.items(.location)[function_node],
+                        self.current_token.? - 1,
+                        self.script_name,
+                        function_typedef.resolved_type.?.Function.name.string,
+                    )
+                else
+                    null;
 
             // Search for a dylib/so/dll with the same name as the current script
             if (native_opt) |native| {
@@ -8854,17 +8765,40 @@ fn readStaticScript(self: *Self, file_name: []const u8) ?[2][]const u8 {
             @embedFile("lib/crypto.buzz"),
             file_name,
         }
+    else if (std.mem.eql(u8, file_name, "ffi"))
+        [_][]const u8{
+            @embedFile("lib/ffi.buzz"),
+            file_name,
+        }
+    else if (std.mem.eql(u8, file_name, "fs"))
+        [_][]const u8{
+            @embedFile("lib/fs.buzz"),
+            file_name,
+        }
+    else if (std.mem.eql(u8, file_name, "io"))
+        [_][]const u8{
+            @embedFile("lib/io.buzz"),
+            file_name,
+        }
+    else if (std.mem.eql(u8, file_name, "os"))
+        [_][]const u8{
+            @embedFile("lib/os.buzz"),
+            file_name,
+        }
     else none: {
-        const location = self.ast.tokens.get(self.current_token.? - 1);
-        self.reporter.reportErrorFmt(
-            .script_not_found,
-            location,
-            location,
-            "buzz script `{s}` not found",
-            .{
-                file_name,
-            },
-        );
+        // If wasm it will not fallback to importing actual files
+        if (is_wasm) {
+            const location = self.ast.tokens.get(self.current_token.? - 1);
+            self.reporter.reportErrorFmt(
+                .script_not_found,
+                location,
+                location,
+                "buzz script `{s}` not found",
+                .{
+                    file_name,
+                },
+            );
+        }
 
         break :none null;
     };
@@ -8976,10 +8910,12 @@ fn importScript(
             {},
         );
     } else {
-        const source_and_path = if (is_wasm)
-            self.readStaticScript(file_name)
-        else
-            try self.readScript(file_name);
+        const source_and_path =
+            self.readStaticScript(file_name) orelse
+            if (!is_wasm)
+                try self.readScript(file_name)
+            else
+                null;
 
         if (source_and_path == null) {
             return null;
@@ -9110,7 +9046,8 @@ fn importScript(
 
 // This is used in the wasm build. There, we only allow the import of std libs by name
 fn importStaticLibSymbol(self: *Self, file_name: []const u8, symbol: []const u8) !?*obj.ObjNative {
-    const symbol_ptr = if (libs.get(file_name)) |lib|
+    const std_lib = libs.get(file_name);
+    const symbol_ptr = if (std_lib) |lib|
         lib.get(symbol)
     else
         null;
@@ -9121,7 +9058,7 @@ fn importStaticLibSymbol(self: *Self, file_name: []const u8, symbol: []const u8)
             .symbol_not_found,
             location,
             location,
-            "Could not find symbol `{s}` in lib `{s}` (only std libraries can be imported from a WASM build)",
+            "Could not find symbol `{s}` in lib `{s}`",
             .{
                 symbol,
                 file_name,

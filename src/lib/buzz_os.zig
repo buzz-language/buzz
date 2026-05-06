@@ -734,3 +734,24 @@ pub export fn SocketServerAccept(ctx: *api.NativeCtx) callconv(.c) c_int {
 
     return 1;
 }
+
+pub const library = api.BuzzApi(
+    "os",
+    &.{
+        &.{ "sleep", sleep },
+        &.{ "time", time },
+        &.{ "env", env },
+        &.{ "tmpDir", tmpDir },
+        &.{ "tmpFilename", tmpFilename },
+        &.{ "buzzExit", buzzExit },
+        &.{ "execute", execute },
+        &.{ "SocketConnect", SocketConnect },
+        &.{ "SocketClose", SocketClose },
+        &.{ "SocketRead", SocketRead },
+        &.{ "SocketReadLine", SocketReadLine },
+        &.{ "SocketReadAll", SocketReadAll },
+        &.{ "SocketWrite", SocketWrite },
+        &.{ "SocketServerStart", SocketServerStart },
+        &.{ "SocketServerAccept", SocketServerAccept },
+    },
+){};

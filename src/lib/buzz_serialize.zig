@@ -25,3 +25,10 @@ pub export fn serializeValue(ctx: *api.NativeCtx) callconv(.c) c_int {
 
     return 1;
 }
+
+pub const library = api.BuzzApi(
+    "serialize",
+    &.{
+        &.{ "serializeValue", serializeValue },
+    },
+){};
