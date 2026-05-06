@@ -177,3 +177,26 @@ pub export fn pow(ctx: *api.NativeCtx) callconv(.c) c_int {
 
     return 1;
 }
+
+pub const library = api.BuzzApi(
+    "math",
+    &.{
+        &.{ "abs", abs },
+        &.{ "acos", acos },
+        &.{ "asin", asin },
+        &.{ "atan", atan },
+        &.{ "bzceil", bzceil },
+        &.{ "bzcos", bzcos },
+        &.{ "bzexp", bzexp },
+        &.{ "bzfloor", bzfloor },
+        &.{ "bzlog", bzlog },
+        &.{ "maxDouble", maxDouble },
+        &.{ "minDouble", minDouble },
+        &.{ "maxInt", maxInt },
+        &.{ "minInt", minInt },
+        &.{ "bzsin", bzsin },
+        &.{ "bzsqrt", bzsqrt },
+        &.{ "bztan", bztan },
+        &.{ "pow", pow },
+    },
+){};

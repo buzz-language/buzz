@@ -13,6 +13,14 @@ else
 pub const Native = fn (ctx: *NativeCtx) callconv(.c) c_int;
 pub const NativeFn = *const Native;
 
+/// Static representation of a buzz library (useful to statically import buzz api)
+pub fn BuzzApi(comptime name: []const u8, comptime methods: anytype) type {
+    return struct {
+        comptime name: []const u8 = name,
+        comptime methods: std.StaticStringMap(NativeFn) = .initComptime(methods),
+    };
+}
+
 pub const Double = f64;
 pub const Integer = i48;
 

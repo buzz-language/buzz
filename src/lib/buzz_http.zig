@@ -354,3 +354,15 @@ fn handleResponseError(ctx: *api.NativeCtx, err: anytype) void {
         => ctx.vm.pushErrorEnum("http.HttpError", @errorName(err)),
     }
 }
+
+pub const library = api.BuzzApi(
+    "http",
+    &.{
+        &.{ "HttpClientNew", HttpClientNew },
+        &.{ "HttpClientDeinit", HttpClientDeinit },
+        &.{ "HttpClientSend", HttpClientSend },
+        &.{ "HttpRequestWait", HttpRequestWait },
+        &.{ "HttpRequestDeinit", HttpRequestDeinit },
+        &.{ "HttpRequestRead", HttpRequestRead },
+    },
+){};

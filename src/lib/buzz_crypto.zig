@@ -96,3 +96,10 @@ pub export fn hash(ctx: *api.NativeCtx) callconv(.c) c_int {
 
     return 1;
 }
+
+pub const library = api.BuzzApi(
+    "crypto",
+    &.{
+        &.{ "hash", hash },
+    },
+){};

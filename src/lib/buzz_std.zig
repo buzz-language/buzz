@@ -238,3 +238,22 @@ pub export fn buzzPanic(ctx: *api.NativeCtx) callconv(.c) c_int {
 
     unreachable;
 }
+
+pub const library = api.BuzzApi(
+    "std",
+    &.{
+        &.{ "args", args },
+        &.{ "assert", assert },
+        &.{ "buzzPanic", buzzPanic },
+        &.{ "char", char },
+        &.{ "currentFiber", currentFiber },
+        &.{ "parseDouble", parseDouble },
+        &.{ "parseInt", parseInt },
+        &.{ "parseUd", parseUd },
+        &.{ "print", print },
+        &.{ "random", random },
+        &.{ "toDouble", toDouble },
+        &.{ "toInt", toInt },
+        &.{ "toUd", toUd },
+    },
+){};

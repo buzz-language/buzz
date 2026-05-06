@@ -327,88 +327,36 @@ pub fn build(b: *Build) !void {
     }
 
     // Building std libraries
-    const Lib = struct {
-        path: ?[]const u8 = null,
-        name: []const u8,
-    };
-
-    const libraries = [_]Lib{
-        .{ .name = "std", .path = "src/lib/buzz_std.zig" },
-        .{ .name = "io", .path = "src/lib/buzz_io.zig" },
-        .{ .name = "gc", .path = "src/lib/buzz_gc.zig" },
-        .{ .name = "os", .path = "src/lib/buzz_os.zig" },
-        .{ .name = "fs", .path = "src/lib/buzz_fs.zig" },
-        .{ .name = "math", .path = "src/lib/buzz_math.zig" },
-        .{ .name = "debug", .path = "src/lib/buzz_debug.zig" },
-        .{ .name = "buffer", .path = "src/lib/buzz_buffer.zig" },
-        .{ .name = "crypto", .path = "src/lib/buzz_crypto.zig" },
+    for ([_][]const u8{
+        "std",
+        "io",
+        "gc",
+        "os",
+        "fs",
+        "math",
+        "debug",
+        "buffer",
+        "crypto",
         // FIXME: API has changed
-        // .{ .name = "http", .path = "src/lib/buzz_http.zig" },
-        .{ .name = "ffi", .path = "src/lib/buzz_ffi.zig" },
-        .{ .name = "serialize", .path = "src/lib/buzz_serialize.zig" },
-        .{ .name = "testing" },
-        .{ .name = "errors" },
-    };
-
-    for (libraries) |library| {
-        // Copy buzz definitions
+        // "http",
+        "ffi",
+        "serialize",
+        "testing",
+        "errors",
+    }) |library| {
         const step = b.addInstallLibFile(
             b.path(
                 b.fmt(
                     "src/lib/{s}.buzz",
-                    .{library.name},
+                    .{library},
                 ),
             ),
             b.fmt(
                 "buzz/{s}.buzz",
-                .{library.name},
+                .{library},
             ),
         );
         install_step.dependOn(&step.step);
-
-        if (library.path == null or is_wasm) {
-            continue;
-        }
-
-        var std_lib = b.addLibrary(
-            .{
-                .name = library.name,
-                .linkage = .dynamic,
-                .use_llvm = true,
-                .root_module = b.createModule(
-                    .{
-                        .root_source_file = b.path(library.path.?),
-                        .target = target,
-                        .optimize = build_mode,
-                        .sanitize_c = .off,
-                    },
-                ),
-            },
-        );
-
-        std_lib.root_module.addImport(
-            "dap",
-            dap.module("dap_kit"),
-        );
-
-        const artifact = b.addInstallArtifact(std_lib, .{});
-        install_step.dependOn(&artifact.step);
-        artifact.dest_dir = .{ .custom = "lib/buzz" };
-
-        // No need to link anything when building for wasm since everything is static
-        if (build_options.needLibC()) {
-            std_lib.root_module.link_libc = true;
-        }
-
-        for (ext_deps) |dep| {
-            std_lib.root_module.linkLibrary(dep);
-        }
-
-        std_lib.root_module.linkLibrary(pic_static_lib);
-        std_lib.root_module.addImport("build_options", build_option_module);
-
-        b.default_step.dependOn(&std_lib.step);
-        check_exe.step.dependOn(&std_lib.step);
     }
 }
 

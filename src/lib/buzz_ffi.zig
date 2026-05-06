@@ -114,3 +114,14 @@ pub export fn rawData(ctx: *api.NativeCtx) callconv(.c) c_int {
 
     return 1;
 }
+
+pub const library = api.BuzzApi(
+    "ffi",
+    &.{
+        &.{ "alignOf", alignOf },
+        &.{ "alignOfStruct", alignOfStruct },
+        &.{ "rawData", rawData },
+        &.{ "sizeOf", sizeOf },
+        &.{ "sizeOfStruct", sizeOfStruct },
+    },
+){};

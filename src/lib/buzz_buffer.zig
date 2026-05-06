@@ -814,3 +814,36 @@ pub export fn BufferReadZAt(ctx: *api.NativeCtx) callconv(.c) c_int {
         ztype[0..len],
     );
 }
+
+pub const library = api.BuzzApi(
+    "buffer",
+    &.{
+        &.{ "BufferNew", BufferNew },
+        &.{ "BufferDeinit", BufferDeinit },
+        &.{ "BufferRead", BufferRead },
+        &.{ "BufferWrite", BufferWrite },
+        &.{ "BufferSetAt", BufferSetAt },
+        &.{ "BufferReadBoolean", BufferReadBoolean },
+        &.{ "BufferWriteBoolean", BufferWriteBoolean },
+        &.{ "BufferReadInt", BufferReadInt },
+        &.{ "BufferReadUserData", BufferReadUserData },
+        &.{ "BufferReadDouble", BufferReadDouble },
+        &.{ "BufferWriteInt", BufferWriteInt },
+        &.{ "BufferWriteUserData", BufferWriteUserData },
+        &.{ "BufferWriteDouble", BufferWriteDouble },
+        &.{ "BufferEmpty", BufferEmpty },
+        &.{ "BufferLen", BufferLen },
+        &.{ "BufferCursor", BufferCursor },
+        &.{ "BufferBuffer", BufferBuffer },
+        &.{ "BufferPtr", BufferPtr },
+        &.{ "BufferAt", BufferAt },
+        &.{ "BufferWriteZ", BufferWriteZ },
+        &.{ "BufferWriteZAt", BufferWriteZAt },
+        &.{ "BufferWriteStruct", BufferWriteStruct },
+        &.{ "BufferWriteStructAt", BufferWriteStructAt },
+        &.{ "BufferReadStruct", BufferReadStruct },
+        &.{ "BufferReadStructAt", BufferReadStructAt },
+        &.{ "BufferReadZ", BufferReadZ },
+        &.{ "BufferReadZAt", BufferReadZAt },
+    },
+){};

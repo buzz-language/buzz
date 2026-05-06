@@ -15,3 +15,10 @@ pub export fn dump(ctx: *api.NativeCtx) callconv(.c) c_int {
 
     return 0;
 }
+
+pub const library = api.BuzzApi(
+    "debug",
+    &.{
+        &.{ "dump", dump },
+    },
+){};

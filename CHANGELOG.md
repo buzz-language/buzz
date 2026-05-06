@@ -2,7 +2,7 @@
 
 This release builds with zig 0.16.0. We will only use tagged version of zig from now on.
 
-# Added
+## Added
 
 - First working version of a LSP thanks to [lsp-kit](https://github.com/zigtools/lsp-kit) (https://github.com/buzz-language/buzz/issues/16)
 - First working version of the debugger that implements the [Debugger Adapater Protocol](https://microsoft.github.io/debug-adapter-protocol/) thanks to [buzz-language/dap-kit](https://github.com/buzz-language/dap-kit) (https://github.com/buzz-language/buzz/issues/88)
@@ -11,12 +11,16 @@ This release builds with zig 0.16.0. We will only use tagged version of zig from
 - _Shortcut_ operators: `+=`, `-=`, `*=`, etc. (https://github.com/buzz-language/buzz/issues/78)
 - `rg.contains`
 
-# Changed
+## Changed
 
 - `int` are now `i48` instead of `i32` (https://github.com/buzz-language/buzz/issues/306). If you're wondering why, it's because all buzz values live in a NaN boxed f64 and the maximum bits available for an integer in there is 48. However, C ABI does not understand `i48` so we're still stuck with `i32` in FFI for now.
 - `main` signature can omit `args` argument
 - Maximum number of enum cases is now 16 777 215 instead of 255
 - `pattern.match` returns now a list of `obj{ start: int, end: int, capture: str }` and `matchAll` a list of those lists
+
+## Internal
+
+- The standard libraries are now statically loaded which gives a small speed boost
 
 # 0.5.0 (01-24-2025)
 
