@@ -13,7 +13,7 @@ This release builds with zig 0.16.0. We will only use tagged version of zig from
 
 ## Changed
 
-- Extern library now must expose only one function which will be called by the compiler to lookup the functions of the library
+- Extern libraries now must expose only one function which will be called by the compiler to lookup the functions of the library
 - `int` are now `i48` instead of `i32` (https://github.com/buzz-language/buzz/issues/306). If you're wondering why, it's because all buzz values live in a NaN boxed f64 and the maximum bits available for an integer in there is 48. However, C ABI does not understand `i48` so we're still stuck with `i32` in FFI for now.
 - `main` signature can omit `args` argument
 - Maximum number of enum cases is now 16 777 215 instead of 255

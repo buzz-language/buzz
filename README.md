@@ -14,6 +14,8 @@ A small/lightweight statically typed scripting language written in Zig
     <a href="https://buzz-lang.dev">Homepage</a> — <a href="https://discord.gg/VnMdNSdpNV">Discord</a>
 </p>
 
+_buzz is in alpha and is **not** ready any professional or production use_
+
 ## Features
 
 - Small in size and complexity (just a bit more than Lua though)
