@@ -1,0 +1,5 @@
+import "tests/utils/hello";
+
+test "Use external library" {
+    hello\sayHello();
+}

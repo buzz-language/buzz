@@ -49,11 +49,13 @@ const Document = struct {
         var gc = try GC.init(allocator);
         gc.type_registry = TypeRegistry.init(&gc) catch return error.OutOfMemory;
         var imports = std.StringHashMapUnmanaged(Parser.ScriptImport).empty;
+        var dlib = std.StringHashMapUnmanaged(Parser.Dlib).empty;
 
         var parser = Parser.init(
             process,
             &gc,
             &imports,
+            &dlib,
             false,
             .Ast,
         );

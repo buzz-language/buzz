@@ -9,12 +9,12 @@ const Renderer = @import("../renderer.zig").Renderer;
 const ignore = std.StaticStringMap(void).initComptime(
     .{
         // stringEscape escapes utf-8 graphemes (emojis, etc.)
-        .{ "tests/061-utf8.buzz", {} },
+        .{ "tests/utf8.buzz", {} },
         .{ "examples/2048.buzz", {} },
         // statements that enforce newline before them don't take comment into account
-        .{ "tests/042-anonymous-objects.buzz", {} },
+        .{ "tests/anonymous-objects.buzz", {} },
         // bad indentation of inline if-else else branch
-        .{ "tests/052-inline-if.buzz", {} },
+        .{ "tests/inline-if.buzz", {} },
         // something wrong with renderCopy signature
         .{ "examples/sdl-wrapped.buzz", {} },
     },
@@ -61,10 +61,12 @@ fn testFmt(process: std.process.Init, prefix: []const u8, entry: std.Io.Dir.Entr
     var gc = try GC.init(allocator);
     gc.type_registry = try TypeRegistry.init(&gc);
     var imports = std.StringHashMapUnmanaged(Parser.ScriptImport).empty;
+    var dlib = std.StringHashMapUnmanaged(Parser.Dlib).empty;
     var parser = Parser.init(
         process,
         &gc,
         &imports,
+        &dlib,
         false,
         .Fmt,
     );

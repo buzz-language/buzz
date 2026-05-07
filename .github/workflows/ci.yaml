@@ -32,9 +32,12 @@ jobs:
         uses: mlugg/setup-zig@v2
         with:
           version: ${{ matrix.zig-version }}
+      - name: Build
+        run: zig build -Doptimize=${{ matrix.optimize }} ${{ matrix.options }}
       - name: Build test ffi lib
         run: zig build-lib -dynamic tests/utils/foreign.zig && mv libforeign.* tests/utils/
-
+      - name: Build test buzz lib
+        run: zig build-lib -dynamic tests/utils/hello.zig -L ./zig-out/lib -lbuzz -lc
       - name: Run tests ${{ matrix.optimize }}
         run: zig build -Doptimize=${{ matrix.optimize }} ${{ matrix.options }} test
       - name: Run behavior tests ${{ matrix.optimize }}
