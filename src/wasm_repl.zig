@@ -53,7 +53,10 @@ pub export fn initRepl() *ReplCtx {
     gc.type_registry = TypeRegistry.init(gc) catch unreachable;
 
     const imports = allocator.create(std.StringHashMapUnmanaged(Parser.ScriptImport)) catch unreachable;
-    imports.* = .{};
+    imports.* = .empty;
+
+    const dlib = allocator.create(std.StringHashMapUnmanaged(Parser.Dlib)) catch unreachable;
+    dlib.* = .empty;
 
     const vm = allocator.create(VM) catch unreachable;
     vm.* = try VM.init(
@@ -69,6 +72,7 @@ pub export fn initRepl() *ReplCtx {
         process,
         gc,
         imports,
+        dlib,
         false,
         .Repl,
     );

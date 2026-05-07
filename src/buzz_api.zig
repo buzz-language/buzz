@@ -618,10 +618,12 @@ export fn bz_run(
 
     var imports = std.StringHashMapUnmanaged(Parser.ScriptImport){};
     var strings = std.StringHashMapUnmanaged(*o.ObjString).empty;
+    var dlib = std.StringHashMapUnmanaged(Parser.Dlib).empty;
     var parser = Parser.init(
         self.process,
         self.gc,
         &imports,
+        &dlib,
         false,
         self.flavor,
     );

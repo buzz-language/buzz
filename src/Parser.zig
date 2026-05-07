@@ -50,6 +50,44 @@ else
         },
     );
 
+pub const Dlib = struct {
+    pub const LookupFn = *const fn ([*:0]const u8) callconv(.c) ?obj.NativeFn;
+
+    dynlib: std.DynLib,
+    symbols: std.StringHashMapUnmanaged(*obj.ObjNative) = .empty,
+    lookup_fn: LookupFn,
+
+    pub fn lookup(self: *Dlib, gc: *GC, symbol: []const u8) !?*obj.ObjNative {
+        return self.symbols.get(symbol) orelse load: {
+            const ssymbol = try gc.allocator.dupeZ(u8, symbol);
+            defer gc.allocator.free(ssymbol);
+
+            if (self.lookup_fn(ssymbol)) |resolved| {
+                const native = try gc.allocateObject(
+                    obj.ObjNative{
+                        .native = @ptrFromInt(@intFromPtr(resolved)),
+                    },
+                );
+
+                try self.symbols.put(
+                    gc.allocator,
+                    symbol,
+                    native,
+                );
+
+                break :load native;
+            }
+
+            break :load null;
+        };
+    }
+
+    pub fn deinit(self: *Dlib, allocator: std.mem.Allocator) void {
+        if (!is_wasm) self.dynlib.close();
+        self.symbols.deinit(allocator);
+    }
+};
+
 const Self = @This();
 
 process: Init,
@@ -76,6 +114,8 @@ namespace: ?[]const Ast.TokenIndex = null,
 flavor: RunFlavor,
 ffi: FFI,
 reporter: Reporter,
+/// DynLib lookup cache
+dlib_symbols: *std.StringHashMapUnmanaged(Dlib),
 
 /// Jump to patch at end of current expression with a optional unwrapping in the middle of it
 opt_jumps: ?std.ArrayList(Precedence) = null,
@@ -84,6 +124,7 @@ pub fn init(
     process: Init,
     gc: *GC,
     imports: *std.StringHashMapUnmanaged(ScriptImport),
+    dlib_symbols: *std.StringHashMapUnmanaged(Dlib),
     imported: bool,
     flavor: RunFlavor,
 ) Self {
@@ -91,6 +132,7 @@ pub fn init(
         .process = process,
         .gc = gc,
         .imports = imports,
+        .dlib_symbols = dlib_symbols,
         .imported = imported,
         .flavor = flavor,
         .reporter = .{
@@ -118,7 +160,7 @@ pub fn deinit(self: *Self) void {
     self.reporter.deinit();
 }
 
-extern fn dlerror() callconv(.c) [*:0]u8;
+extern fn dlerror() callconv(.c) ?[*:0]u8;
 
 pub fn defaultBuzzPrefix() []const u8 {
     return ".";
@@ -371,6 +413,10 @@ const ParseRule = struct {
 
 const search_paths = if (builtin.os.tag == .windows)
     [_][]const u8{
+        "#/?.!",
+        "#/?/main.!",
+        "#/?/src/?.!",
+        "#/?/src/main.!",
         "$/?.!",
         "$/?/main.!",
         "$/?/src/?.!",
@@ -384,6 +430,10 @@ const search_paths = if (builtin.os.tag == .windows)
     }
 else
     [_][]const u8{
+        "#/?.!",
+        "#/?/main.!",
+        "#/?/src/?.!",
+        "#/?/src/main.!",
         "$/?.!",
         "$/?/main.!",
         "$/?/src/?.!",
@@ -405,6 +455,8 @@ else
 
 const lib_search_paths = if (builtin.os.tag == .windows)
     [_][]const u8{
+        "#/?.!",
+        "#/?/src/?.!",
         "$/?.!",
         "$/?/src/?.!",
         "./?.!",
@@ -413,6 +465,8 @@ const lib_search_paths = if (builtin.os.tag == .windows)
     }
 else
     [_][]const u8{
+        "#/lib?.!",
+        "#/?/src/lib?.!",
         "$/lib?.!",
         "$/?/src/lib?.!",
         "./lib?.!",
@@ -6446,6 +6500,20 @@ fn function(
                 else
                     null;
 
+            if (native_opt == null) {
+                const location = self.ast.tokens.get(self.current_token.? - 1);
+                self.reporter.reportErrorFmt(
+                    .symbol_not_found,
+                    location,
+                    location,
+                    "Could not find symbol `{s}` in lib `{s}`",
+                    .{
+                        function_typedef.resolved_type.?.Function.name.string,
+                        self.script_name,
+                    },
+                );
+            }
+
             // Search for a dylib/so/dll with the same name as the current script
             if (native_opt) |native| {
                 self.ast.nodes.items(.components)[function_node].Function.native = native;
@@ -8481,7 +8549,10 @@ fn testStatement(self: *Self) Error!Ast.Node.Index {
     return @intCast(node_slot);
 }
 
-fn searchPaths(self: *Self, file_name: []const u8) ![][]const u8 {
+fn searchPaths(self: *Self, full_file_name: []const u8) ![][]const u8 {
+    const dir_name = std.fs.path.dirname(full_file_name);
+    const file_name = std.fs.path.basename(full_file_name);
+
     var paths = std.ArrayList([]const u8).empty;
 
     for (search_paths) |path| {
@@ -8493,6 +8564,7 @@ fn searchPaths(self: *Self, file_name: []const u8) ![][]const u8 {
             file_name,
         );
         defer self.gc.allocator.free(filled);
+
         const suffixed = try std.mem.replaceOwned(
             u8,
             self.gc.allocator,
@@ -8501,15 +8573,40 @@ fn searchPaths(self: *Self, file_name: []const u8) ![][]const u8 {
             "buzz",
         );
         defer self.gc.allocator.free(suffixed);
+
+        const cwd = if (dir_name) |dn|
+            if (!std.fs.path.isAbsolute(dn))
+                try std.mem.replaceOwned(
+                    u8,
+                    self.gc.allocator,
+                    suffixed,
+                    "#",
+                    "./#",
+                )
+            else
+                null
+        else
+            null;
+        defer if (cwd) |d| self.gc.allocator.free(d);
+
+        const dir = if (dir_name) |dn| try std.mem.replaceOwned(
+            u8,
+            self.gc.allocator,
+            cwd orelse suffixed,
+            "#",
+            dn,
+        ) else null;
+        defer if (dir) |d| self.gc.allocator.free(d);
+
         const prefixed = try std.mem.replaceOwned(
             u8,
             self.gc.allocator,
-            suffixed,
+            dir orelse suffixed,
             "$",
             buzzLibPath(self.process.io, self.process.environ_map),
         );
 
-        if (builtin.os.tag == .windows) {
+        if (std.fs.path.sep != '/') {
             const windows = try std.mem.replaceOwned(
                 u8,
                 self.gc.allocator,
@@ -8526,7 +8623,10 @@ fn searchPaths(self: *Self, file_name: []const u8) ![][]const u8 {
     return try paths.toOwnedSlice(self.gc.allocator);
 }
 
-fn searchLibPaths(self: *Self, file_name: []const u8) ![][]const u8 {
+fn searchLibPaths(self: *Self, full_file_name: []const u8) ![][]const u8 {
+    const dir_name = std.fs.path.dirname(full_file_name);
+    const file_name = std.fs.path.basename(full_file_name);
+
     var paths = std.ArrayList([]const u8).empty;
 
     for (lib_search_paths) |path| {
@@ -8538,6 +8638,7 @@ fn searchLibPaths(self: *Self, file_name: []const u8) ![][]const u8 {
             file_name,
         );
         defer self.gc.allocator.free(filled);
+
         const suffixed = try std.mem.replaceOwned(
             u8,
             self.gc.allocator,
@@ -8551,10 +8652,35 @@ fn searchLibPaths(self: *Self, file_name: []const u8) ![][]const u8 {
             },
         );
         defer self.gc.allocator.free(suffixed);
+
+        const cwd = if (dir_name) |dn|
+            if (!std.fs.path.isAbsolute(dn))
+                try std.mem.replaceOwned(
+                    u8,
+                    self.gc.allocator,
+                    suffixed,
+                    "#",
+                    "./#",
+                )
+            else
+                null
+        else
+            null;
+        defer if (cwd) |d| self.gc.allocator.free(d);
+
+        const dir = if (dir_name) |dn| try std.mem.replaceOwned(
+            u8,
+            self.gc.allocator,
+            cwd orelse suffixed,
+            "#",
+            dn,
+        ) else null;
+        defer if (dir) |d| self.gc.allocator.free(d);
+
         const prefixed = try std.mem.replaceOwned(
             u8,
             self.gc.allocator,
-            suffixed,
+            dir orelse suffixed,
             "$",
             buzzLibPath(self.process.io, self.process.environ_map),
         );
@@ -8925,6 +9051,7 @@ fn importScript(
             self.process,
             self.gc,
             self.imports,
+            self.dlib_symbols,
             true,
             self.flavor,
         );
@@ -9052,20 +9179,6 @@ fn importStaticLibSymbol(self: *Self, file_name: []const u8, symbol: []const u8)
     else
         null;
 
-    if (symbol_ptr == null) {
-        const location = self.ast.tokens.get(self.current_token.? - 1);
-        self.reporter.reportErrorFmt(
-            .symbol_not_found,
-            location,
-            location,
-            "Could not find symbol `{s}` in lib `{s}`",
-            .{
-                symbol,
-                file_name,
-            },
-        );
-    }
-
     return if (symbol_ptr) |ptr|
         try self.gc.allocateObject(
             obj.ObjNative{
@@ -9076,7 +9189,6 @@ fn importStaticLibSymbol(self: *Self, file_name: []const u8, symbol: []const u8)
         null;
 }
 
-// TODO: when to close the lib?
 fn importLibSymbol(
     self: *Self,
     location: Ast.TokenIndex,
@@ -9097,31 +9209,94 @@ fn importLibSymbol(
         full_file_name;
 
     const file_basename = std.fs.path.basename(file_name);
-    const paths = try self.searchLibPaths(file_basename);
-    defer {
-        for (paths) |path| {
-            self.gc.allocator.free(path);
+
+    if (self.dlib_symbols.getEntry(file_basename) orelse dl: {
+        const paths = try self.searchLibPaths(file_name);
+        defer {
+            for (paths) |path| {
+                self.gc.allocator.free(path);
+            }
+            self.gc.allocator.free(paths);
         }
-        self.gc.allocator.free(paths);
-    }
 
-    var lib: ?std.DynLib = null;
-    for (paths) |path| {
-        lib = std.DynLib.open(path) catch null;
-        if (lib != null) {
-            break;
+        var tried = std.ArrayList([]const u8).empty;
+        defer tried.deinit(self.gc.allocator);
+
+        var lib = lib: {
+            for (paths) |path| {
+                try tried.append(self.gc.allocator, path);
+
+                var exists = true;
+                if (std.fs.path.isAbsolute(path)) {
+                    std.Io.Dir.accessAbsolute(
+                        self.process.io,
+                        path,
+                        .{ .read = true },
+                    ) catch {
+                        exists = false;
+                    };
+                } else {
+                    std.Io.Dir.cwd().access(self.process.io, path, .{ .read = true }) catch {
+                        exists = false;
+                    };
+                }
+
+                if (exists) {
+                    break :lib std.DynLib.open(path) catch null;
+                }
+            }
+            break :lib null;
+        };
+
+        if (lib) |*dlib| {
+            const name = try self.gc.allocator.dupeZ(u8, file_basename);
+            defer self.gc.allocator.free(name);
+
+            // We search for the library helper which should have the same name as the library itself
+            if (dlib.lookup(Dlib.LookupFn, name)) |lookup_fn| {
+                const new = Dlib{
+                    .dynlib = dlib.*,
+                    .lookup_fn = lookup_fn,
+                };
+
+                try self.dlib_symbols.put(
+                    self.gc.allocator,
+                    file_basename,
+                    new,
+                );
+
+                break :dl self.dlib_symbols.getEntry(file_basename).?;
+            }
+        } else {
+            var search_report = std.Io.Writer.Allocating.init(self.gc.allocator);
+            defer search_report.deinit();
+
+            for (tried.items, 0..) |path, i| {
+                if (i == 0) try search_report.writer.print("\n", .{});
+                try search_report.writer.print("    no file `{s}`\n", .{path});
+            }
+
+            self.reporter.reportErrorFmt(
+                .library_not_found,
+                self.ast.tokens.get(location),
+                self.ast.tokens.get(end_location),
+                "External library `{s}` not found: {s}{s}\n",
+                .{
+                    file_basename,
+                    if (builtin.link_libc and builtin.os.tag != .windows)
+                        if (dlerror()) |err| std.mem.span(err) else ""
+                    else
+                        "",
+                    search_report.written(),
+                },
+            );
         }
-    }
 
-    if (lib) |*dlib| {
-        // Convert symbol names to zig slices
-        const ssymbol = try self.gc.allocator.dupeZ(u8, symbol);
-        defer self.gc.allocator.free(ssymbol);
-
-        // Lookup symbol NativeFn
-        const opaque_symbol_method = dlib.lookup(*anyopaque, ssymbol);
-
-        if (opaque_symbol_method == null) {
+        break :dl null;
+    }) |dlib_entry| {
+        if (try dlib_entry.value_ptr.lookup(self.gc, symbol)) |resolved| {
+            return resolved;
+        } else {
             self.reporter.reportErrorFmt(
                 .symbol_not_found,
                 self.ast.tokens.get(location),
@@ -9132,38 +9307,8 @@ fn importLibSymbol(
                     file_name,
                 },
             );
-            return null;
         }
-
-        // Create a ObjNative with it
-        return try self.gc.allocateObject(
-            obj.ObjNative{
-                .native = opaque_symbol_method.?,
-            },
-        );
     }
-
-    var search_report = std.Io.Writer.Allocating.init(self.gc.allocator);
-    defer search_report.deinit();
-
-    for (paths) |path| {
-        try search_report.writer.print("    no file `{s}`\n", .{path});
-    }
-
-    self.reporter.reportErrorFmt(
-        .library_not_found,
-        self.ast.tokens.get(location),
-        self.ast.tokens.get(end_location),
-        "External library `{s}` not found: {s}{s}\n",
-        .{
-            file_basename,
-            if (builtin.link_libc and builtin.os.tag != .windows)
-                std.mem.sliceTo(dlerror(), 0)
-            else
-                "",
-            search_report.written(),
-        },
-    );
 
     return null;
 }
@@ -9400,7 +9545,7 @@ fn zdefStatement(self: *Self) Error!Ast.Node.Index {
                         .{
                             lib_name_str,
                             if (builtin.link_libc and builtin.os.tag != .windows)
-                                std.mem.sliceTo(dlerror(), 0)
+                                if (dlerror()) |err| std.mem.span(err) else ""
                             else
                                 "",
                             search_report.written(),

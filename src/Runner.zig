@@ -31,13 +31,20 @@ parser: Parser,
 codegen: CodeGen,
 import_registry: ImportRegistry = .empty,
 imports: std.StringHashMapUnmanaged(Parser.ScriptImport) = .empty,
+/// DynLib lookup cache
+dlib_symbols: std.StringHashMapUnmanaged(Parser.Dlib) = .empty,
 
 pub fn deinit(self: *Runner) void {
     self.codegen.deinit();
     self.parser.deinit();
+    var it = self.dlib_symbols.valueIterator();
+    while (it.next()) |dlib| {
+        dlib.deinit(self.gc.allocator);
+    }
+    self.dlib_symbols.deinit(self.gc.allocator);
     // self.gc.deinit();
-    var it = self.imports.iterator();
-    while (it.next()) |kv| {
+    var it2 = self.imports.iterator();
+    while (it2.next()) |kv| {
         kv.value_ptr.*.globals.deinit(self.gc.allocator);
     }
     self.imports.deinit(self.gc.allocator);
@@ -78,6 +85,7 @@ pub fn init(runner_ptr: *Runner, process: Init, allocator: std.mem.Allocator, fl
         process,
         &runner_ptr.gc,
         &runner_ptr.imports,
+        &runner_ptr.dlib_symbols,
         false,
         flavor,
     );
