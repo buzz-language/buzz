@@ -8,11 +8,9 @@ fun main() > void !> any {
         if (poller.poll(100) -> polled) {
             std\print("> {polled}");
 
-            if (polled == "q") {
+            if (polled == "q\n") {
                 break;
             }
-        } else {
-            std\print("nothing...");
         }
     }
 }

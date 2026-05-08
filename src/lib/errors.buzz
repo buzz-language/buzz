@@ -6,6 +6,7 @@ export enum FileSystemError {
     BadPathName,
     Canceled,
     CrossDevice,
+    ConcurrencyUnavailable,
     DeviceBusy,
     DirNotEmpty,
     DiskQuota,

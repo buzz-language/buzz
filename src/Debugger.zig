@@ -207,7 +207,7 @@ pub fn start(
     // Create poller on the read ends of the pipes
     self.out_poller.init(
         self.allocator,
-        std.Options.debug_io,
+        process.io,
         self.out_poller_buffer.toStreams(),
         &.{
             .{
