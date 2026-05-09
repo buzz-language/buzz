@@ -223,7 +223,7 @@ pub const TryCtx = extern struct {
 pub const ZigType = opaque {
     pub extern fn bz_zigTypeSize(self: *ZigType) callconv(.c) usize;
     pub extern fn bz_zigTypeAlignment(self: *ZigType) callconv(.c) u16;
-    pub extern fn bz_zigTypeToCString(self: *ZigType, vm: *VM) callconv(.c) [*:0]const u8;
+    pub extern fn bz_zigTypeToCString(self: *ZigType, vm: *VM) callconv(.c) Value;
 };
 
 pub const VM = opaque {

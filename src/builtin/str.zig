@@ -136,7 +136,7 @@ pub fn byte(ctx: *o.NativeCtx) callconv(.c) c_int {
     );
 
     ctx.vm.push(
-        v.Value.fromInteger(
+        .fromInteger(
             @intCast(self.string[@intCast(index)]),
         ),
     );

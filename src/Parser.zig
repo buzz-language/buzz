@@ -147,6 +147,7 @@ pub fn init(
 }
 
 pub fn deinit(self: *Self) void {
+    self.discardFramesUntil(null);
     // for (self.globals.items) |global| {
     //     self.gc.allocator.free(global.name);
     // }
@@ -344,6 +345,11 @@ pub const ScriptImport = struct {
     globals: std.ArrayList(Global) = .empty,
     absolute_path: *obj.ObjString,
     imported_by: std.AutoHashMapUnmanaged(*Frame, void) = .{},
+
+    pub fn deinit(self: *ScriptImport, allocator: std.mem.Allocator) void {
+        self.globals.deinit(allocator);
+        self.imported_by.deinit(allocator);
+    }
 };
 
 const LocalScriptImport = struct {
@@ -975,7 +981,9 @@ pub fn parse(self: *Self, source: []const u8, file_name: ?[]const u8, name: []co
 
     self.script_name = name;
 
+    const enclosing_frame = self.current;
     try self.beginFrame(function_type, function_node, null);
+    errdefer self.discardFramesUntil(enclosing_frame);
 
     self.reporter.last_error = null;
     self.reporter.panic_mode = false;
@@ -1000,6 +1008,7 @@ pub fn parse(self: *Self, source: []const u8, file_name: ?[]const u8, name: []co
                     },
                 );
             }
+            self.discardFramesUntil(enclosing_frame);
             return null;
         }) |decl| {
             try statements.append(self.gc.allocator, decl);
@@ -1087,21 +1096,47 @@ pub fn parse(self: *Self, source: []const u8, file_name: ?[]const u8, name: []co
         ];
     }
 
-    self.ast.root = if (self.reporter.last_error != null) null else self.endFrame();
+    const root_node = self.endFrame();
+    self.ast.root = if (self.reporter.last_error != null) null else root_node;
 
     return if (self.reporter.last_error != null) null else self.ast;
 }
 
+fn discardFramesUntil(self: *Self, target: ?*Frame) void {
+    while (self.current) |frame| {
+        if (frame == target) {
+            break;
+        }
+
+        self.current = frame.enclosing;
+        self.destroyFrame(frame);
+    }
+}
+
+fn destroyFrame(self: *Self, frame: *Frame) void {
+    var imports_it = self.imports.valueIterator();
+    while (imports_it.next()) |import| {
+        _ = import.imported_by.remove(frame);
+    }
+
+    frame.deinit(self.gc.allocator);
+    self.gc.allocator.destroy(frame);
+}
+
 fn beginFrame(self: *Self, function_type: obj.ObjFunction.FunctionType, function_node: Ast.Node.Index, this: ?*obj.ObjTypeDef) !void {
     const enclosing = self.current;
-    // FIXME: is this ever deallocated?
-    self.current = try self.gc.allocator.create(Frame);
-    self.current.?.* = Frame{
+    const frame = try self.gc.allocator.create(Frame);
+    frame.* = Frame{
         .locals = [_]Local{undefined} ** 255,
         .upvalues = [_]UpValue{undefined} ** 255,
         .enclosing = enclosing,
         .function_node = function_node,
     };
+    self.current = frame;
+    errdefer {
+        self.current = enclosing;
+        self.destroyFrame(frame);
+    }
 
     if (function_type == .Extern) {
         return;
@@ -1226,10 +1261,10 @@ fn endFrame(self: *Self) Ast.Node.Index {
         }
     }
 
-    self.current.?.deinit(self.gc.allocator);
-
-    const current_node = self.current.?.function_node;
-    self.current = self.current.?.enclosing;
+    const current = self.current.?;
+    const current_node = current.function_node;
+    self.current = current.enclosing;
+    self.destroyFrame(current);
 
     return current_node;
 }

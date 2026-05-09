@@ -637,8 +637,12 @@ export fn bz_run(
     );
     defer {
         codegen.deinit();
-        imports.deinit(self.gc.allocator);
         parser.deinit();
+        var imports_it = imports.valueIterator();
+        while (imports_it.next()) |import| {
+            import.deinit(self.gc.allocator);
+        }
+        imports.deinit(self.gc.allocator);
         strings.deinit(self.gc.allocator);
     }
 
@@ -1507,7 +1511,7 @@ export fn bz_zigTypeAlignment(self: *ZigType) callconv(.c) u16 {
     return self.alignment();
 }
 
-export fn bz_zigTypeToCString(self: *ZigType, vm: *VM) callconv(.c) [*:0]const u8 {
+export fn bz_zigTypeToCString(self: *ZigType, vm: *VM) callconv(.c) v.Value {
     var out = std.Io.Writer.Allocating.init(vm.gc.allocator);
 
     out.writer.print("{}\x00", .{self.*}) catch {
@@ -1515,7 +1519,10 @@ export fn bz_zigTypeToCString(self: *ZigType, vm: *VM) callconv(.c) [*:0]const u
         unreachable;
     };
 
-    return @ptrCast(out.written().ptr);
+    return (vm.gc.copyString(out.written()) catch {
+        vm.panic("Out of memory");
+        unreachable;
+    }).toValue();
 }
 
 export fn bz_serialize(vm: *VM, value: v.Value, error_value: *v.Value) callconv(.c) v.Value {

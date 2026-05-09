@@ -163,7 +163,7 @@ pub fn scanToken(self: *Self) Allocator.Error!Token {
 
 fn skipWhitespaces(self: *Self) void {
     while (true) {
-        const char: u8 = self.peek();
+        const char = self.peek();
 
         switch (char) {
             ' ', '\r', '\t' => _ = self.advance(),

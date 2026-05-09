@@ -136,4 +136,4 @@ export final stderr = mut File{ file = getStdErr() };
 
 /// Run a buzz file
 /// @param filename path to buzz file
-export extern fun runFile(filename: str) > void !> errors\CompileError, errors\InterpretError, errors\FileSystemError, errors\ReadWriteError;
+export extern fun runFile(filename: str) > void !> errors\CompileError, errors\InterpretError, errors\FileSystemError, errors\ReadWriteError, errors\UnexpectedError;

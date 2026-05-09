@@ -43,9 +43,9 @@ pub fn deinit(self: *Runner) void {
     }
     self.dlib_symbols.deinit(self.gc.allocator);
     // self.gc.deinit();
-    var it2 = self.imports.iterator();
-    while (it2.next()) |kv| {
-        kv.value_ptr.*.globals.deinit(self.gc.allocator);
+    var it2 = self.imports.valueIterator();
+    while (it2.next()) |import| {
+        import.deinit(self.gc.allocator);
     }
     self.imports.deinit(self.gc.allocator);
     // TODO: free type_registry and its keys which are on the heap

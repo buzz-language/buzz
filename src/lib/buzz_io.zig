@@ -46,6 +46,9 @@ const File = struct {
             self.file.close(io);
         }
 
+        if (self.reader) |*reader| {
+            reader.deinit();
+        }
         if (self.reader_buffer) |b| {
             allocator.free(b);
         }
@@ -151,13 +154,9 @@ fn handleFileOpenError(ctx: *api.NativeCtx, err: anytype) void {
         error.NetworkNotFound,
         error.ReadOnlyFileSystem,
         error.FileLocksUnsupported,
-        => ctx.vm.pushErrorEnum("errors.FileSystemError", @errorName(err)),
-
         error.PermissionDenied,
-        => ctx.vm.pushErrorEnum("errors.ExecError", @errorName(err)),
-
         error.Canceled,
-        => ctx.vm.pushErrorEnum("errors.SocketError", @errorName(err)),
+        => ctx.vm.pushErrorEnum("errors.FileSystemError", @errorName(err)),
 
         error.Unexpected => ctx.vm.pushError("errors.UnexpectedError", null),
     }
@@ -217,6 +216,7 @@ pub export fn FileOpen(ctx: *api.NativeCtx) callconv(.c) c_int {
         fs_file,
         true,
     ) catch {
+        fs_file.close(ctx.getIo());
         ctx.vm.bz_panic("Out of memory", "Out of memory".len);
         unreachable;
     };
@@ -237,33 +237,25 @@ pub export fn FileClose(ctx: *api.NativeCtx) callconv(.c) c_int {
 fn handleFileReadWriteError(ctx: *api.NativeCtx, err: anytype) void {
     switch (err) {
         error.AccessDenied,
+        error.PermissionDenied,
+        error.DiskQuota,
         error.FileTooBig,
         error.InputOutput,
-        error.IsDir,
+        error.NoDevice,
+        error.NoSpaceLeft,
+        error.DeviceBusy,
+        error.FileBusy,
         error.SystemResources,
         error.WouldBlock,
-        error.SocketNotConnected,
+        error.Canceled,
         => ctx.vm.pushErrorEnum("errors.FileSystemError", @errorName(err)),
 
-        error.Canceled,
-        => ctx.vm.pushErrorEnum("errors.SocketError", @errorName(err)),
-
-        error.OperationAborted,
         error.BrokenPipe,
-        error.ConnectionResetByPeer,
-        error.ConnectionTimedOut,
-        error.NotOpenForReading,
+        error.NotOpenForWriting,
         error.LockViolation,
         => ctx.vm.pushErrorEnum("errors.ReadWriteError", @errorName(err)),
 
-        error.ProcessNotFound,
-        => ctx.vm.pushErrorEnum("errors.ExecError", @errorName(err)),
-
         error.Unexpected => ctx.vm.pushError("errors.UnexpectedError", null),
-        error.OutOfMemory => {
-            ctx.vm.bz_panic("Out of memory", "Out of memory".len);
-            unreachable;
-        },
     }
 }
 
@@ -399,8 +391,8 @@ pub export fn FileWrite(ctx: *api.NativeCtx) callconv(.c) c_int {
         return 0;
     }
 
-    file.file.writeStreamingAll(ctx.getIo(), value.?[0..len]) catch {
-        ctx.vm.pushErrorEnum("errors.ReadWriteError", "WriteFailed");
+    file.file.writeStreamingAll(ctx.getIo(), value.?[0..len]) catch |err| {
+        handleFileReadWriteError(ctx, err);
 
         return -1;
     };
@@ -504,6 +496,8 @@ pub export fn PollerPoll(ctx: *api.NativeCtx) callconv(.c) c_int {
         ctx.vm.bz_push(
             ctx.vm.bz_stringToValue(data.ptr, data.len),
         );
+
+        api.VM.allocator.free(data);
     } else {
         ctx.vm.bz_push(.Null);
     }

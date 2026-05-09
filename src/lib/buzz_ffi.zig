@@ -24,13 +24,13 @@ pub export fn alignOf(ctx: *api.NativeCtx) callconv(.c) c_int {
             unreachable;
         };
 
-        ctx.vm.pushError(
-            "ffi.FFIZigTypeParseError",
-            msg.toOwnedSlice() catch {
-                ctx.vm.bz_panic("Out of memory", "Out of memory".len);
-                unreachable;
-            },
-        );
+        const message = msg.toOwnedSlice() catch {
+            ctx.vm.bz_panic("Out of memory", "Out of memory".len);
+            unreachable;
+        };
+        defer api.VM.allocator.free(message);
+
+        ctx.vm.pushError("ffi.FFIZigTypeParseError", message);
 
         return -1;
     }
@@ -61,13 +61,13 @@ pub export fn sizeOf(ctx: *api.NativeCtx) callconv(.c) c_int {
             unreachable;
         };
 
-        ctx.vm.pushError(
-            "ffi.FFIZigTypeParseError",
-            msg.toOwnedSlice() catch {
-                ctx.vm.bz_panic("Out of memory", "Out of memory".len);
-                unreachable;
-            },
-        );
+        const message = msg.toOwnedSlice() catch {
+            ctx.vm.bz_panic("Out of memory", "Out of memory".len);
+            unreachable;
+        };
+        defer api.VM.allocator.free(message);
+
+        ctx.vm.pushError("ffi.FFIZigTypeParseError", message);
 
         return -1;
     }
