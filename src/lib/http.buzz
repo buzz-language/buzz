@@ -5,6 +5,7 @@ import "errors";
 
 export enum HttpError {
     CertificateBundleLoadFailure,
+    ClientCollected,
     CompressionInitializationFailed,
     CompressionUnsupported,
     ConnectionRefused,
@@ -14,16 +15,22 @@ export enum HttpError {
     EndOfStream,
     HostLacksNetworkAddresses,
     HttpChunkInvalid,
+    HttpChunkTruncated,
+    HttpConnectionClosing,
     HttpConnectionHeaderUnsupported,
+    HttpContentEncodingUnsupported,
     HttpHeaderContinuationsUnsupported,
     HttpHeadersInvalid,
     HttpHeadersOversize,
     HttpRedirectLocationInvalid,
     HttpRedirectLocationMissing,
+    HttpRedirectLocationOversize,
+    HttpRequestTruncated,
     HttpTransferEncodingUnsupported,
     InvalidCharacter,
     InvalidContentLength,
     InvalidFormat,
+    InvalidHostName,
     InvalidPort,
     InvalidTrailers,
     MalformedUri,
@@ -31,6 +38,7 @@ export enum HttpError {
     NetworkUnreachable,
     Overflow,
     RedirectRequiresResend,
+    RequestCollected,
     StreamTooLong,
     TemporaryNameServerFailure,
     TlsAlert,
@@ -42,14 +50,11 @@ export enum HttpError {
     UnexpectedReadFailure,
     UnexpectedWriteFailure,
     UnknownHostName,
+    UnsupportedCompressionMethod,
     UnsupportedTransferEncoding,
     UnsupportedUriScheme,
     UriMissingHost,
-    ClientCollected,
-    RequestCollected,
 }
-
-// https://datatracker.ietf.org/doc/html/rfc2616
 
 export enum<str> Method {
     GET,
@@ -64,87 +69,15 @@ export enum<str> Method {
 }
 
 /// @private
-extern fun HttpClientNew() > ud;
+extern fun HttpClientNew() > ud !> HttpError;
 /// @private
 extern fun HttpClientDeinit(client: ud) > void;
 /// @private
-extern fun HttpClientSend(client: ud, method: Method, uri: str, headers: {str: str}) > ud !> HttpError;
+extern fun HttpClientSend(client: ud, method: Method, uri: str, headers: {str: str}, body: str?) > ud !> HttpError, errors\SocketError, errors\ReadWriteError, errors\UnexpectedError;
 /// @private
-extern fun HttpRequestWait(request: ud) > void !> HttpError;
-/// @private
-extern fun HttpRequestRead(request: ud) > Response !> HttpError;
+extern fun HttpRequestWait(request: ud) > Response !> HttpError, errors\SocketError, errors\ReadWriteError, errors\UnexpectedError;
 /// @private
 extern fun HttpRequestDeinit(request: ud) > void;
-
-final reasons = {
-    100: "Continue",
-    101: "Switching Protocols",
-    102: "Processing",
-
-    200: "OK",
-    201: "Created",
-    202: "Accepted",
-    203: "Non-authoritative Information",
-    204: "No Content",
-    205: "Reset Content",
-    206: "Partial Content",
-    207: "Multi-Status",
-    208: "Already Reported",
-    226: "IM Used",
-
-    300: "Multiple Choices",
-    301: "Moved Permanently",
-    302: "Found",
-    303: "See Other",
-    304: "Not Modified",
-    305: "Use Proxy",
-    307: "Temporary Redirect",
-    308: "Permanent Redirect",
-
-    400: "Bad Request",
-    401: "Unauthorized",
-    402: "Payment Required",
-    403: "Forbidden",
-    404: "Not Found",
-    405: "Method Not Allowed",
-    406: "Not Acceptable",
-    407: "Proxy Authentication Required",
-    408: "Request Timeout",
-    409: "Conflict",
-    410: "Gone",
-    411: "Length Required",
-    412: "Precondition Failed",
-    413: "Payload Too Large",
-    414: "Request-URI Too Long",
-    415: "Unsupported Media Type",
-    416: "Requested Range Not Satisfiable",
-    417: "Expectation Failed",
-    418: "I'm a teapot",
-    421: "Misdirected Request",
-    422: "Unprocessable Entity",
-    423: "Locked",
-    424: "Failed Dependency",
-    426: "Upgrade Required",
-    428: "Precondition Required",
-    429: "Too Many Requests",
-    431: "Request Header Fields Too Large",
-    444: "Connection Closed Without Response",
-    451: "Unavailable For Legal Reasons",
-    499: "Client Closed Request",
-
-    500: "Internal Server Error",
-    501: "Not Implemented",
-    502: "Bad Gateway",
-    503: "Service Unavailable",
-    504: "Gateway Timeout",
-    505: "HTTP Version Not Supported",
-    506: "Variant Also Negotiates",
-    507: "Insufficient Storage",
-    508: "Loop Detected",
-    510: "Not Extended",
-    511: "Network Authentication Required",
-    599: "Network Connect Timeout Error",
-};
 
 export object HttpParseError{
     message: str? = null,
@@ -161,13 +94,13 @@ export object Client {
     /// @private
     collected: bool = false,
 
-    static fun init() > Client {
+    static fun init() > Client !> HttpError {
         return Client{
             client = HttpClientNew(),
         };
     }
 
-    fun send(request: mut Request) > Response *> void !> HttpError, errors\InvalidArgumentError, HttpParseError {
+    fun send(request: mut Request) > Response *> void !> HttpError, errors\SocketError, errors\ReadWriteError, errors\UnexpectedError, errors\InvalidArgumentError, HttpParseError {
         _ = this.start(request);
 
         yield void;
@@ -175,7 +108,7 @@ export object Client {
         return request.wait();
     }
 
-    fun start(request: mut Request) > mut Request !> HttpError {
+    fun start(request: mut Request) > mut Request !> HttpError, errors\SocketError, errors\ReadWriteError, errors\UnexpectedError {
         if (this.collected) {
             throw HttpError.ClientCollected;
         }
@@ -185,11 +118,10 @@ export object Client {
             method: request.method,
             uri: request.uri,
             headers: request.headers,
+            body: request.body,
         );
 
         request.request = requestPtr;
-        // In case we're reusing the request object
-        request.response = null;
 
         return request;
     }
@@ -204,37 +136,20 @@ export object Client {
 }
 
 export object Request {
-    request: ud? = null,
-    response: Response? = null,
-    method: Method,
-    headers: {str: str}  = {},
-    uri: str = "/",
     body: str? = null,
     collected: bool = false,
+    headers: {str: str}  = {},
+    method: Method,
+    request: ud? = null,
+    uri: str = "/",
 
-    mut fun wait() > Response !> HttpError, errors\InvalidArgumentError, HttpParseError {
+    fun wait() > Response !> HttpError, errors\SocketError, errors\ReadWriteError, errors\UnexpectedError, errors\InvalidArgumentError, HttpParseError {
         if (this.collected) {
             throw HttpError.RequestCollected;
         }
     
-        if (this.response != null) {
-            throw errors\InvalidArgumentError{};
-        }
-
         if (this.request -> request) {
-            HttpRequestWait(request);
-
-            final response = HttpRequestRead(request);
-
-            // - we don't need the request anymore
-            // - also this allows to properly reuse the Request object
-            // - finally the client can't be collected if there's opened connections
-            HttpRequestDeinit(request);
-
-            this.request = null;
-            this.response = response;
-
-            return response;
+            return HttpRequestWait(request);
         }
 
         throw errors\InvalidArgumentError{};
@@ -256,28 +171,22 @@ export object Request {
 
         return "";
     }
+
+    mut fun collect() > void {
+        if (this.collected) {
+            return;
+        }
+
+        this.collected = true;
+        if (this.request -> req) {
+            HttpRequestDeinit(req);
+        }
+    }
 }
 
-// Don't change proeprties order
 export object Response {
-    status: int = 200,
-    headers: {str: str} = {},
     body: str? = null,
-
-    fun toString() > str {
-        try {
-            var result = buffer\Buffer.init();
-
-            result.write("HTTP/1.1 {this.status} {reasons[this.status]}\r\n");
-            foreach (key, value in this.headers) {
-                result.write("{key}: {value}\r\n");
-            }
-
-            result.write("\r\n{this.body ?? ""}\r\n");
-
-            return result.toString();
-        } catch {}
-
-        return "HTTP/1.1 500 Internal Server Error";
-    }
+    collected: bool = false,
+    headers: {str: str} = {},
+    status: int = 200,
 }

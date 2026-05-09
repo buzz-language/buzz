@@ -29,7 +29,7 @@ const libs = if (!is_wasm)
             &.{ @import("lib/buzz_ffi.zig").library.name, @import("lib/buzz_ffi.zig").library.methods },
             &.{ @import("lib/buzz_fs.zig").library.name, @import("lib/buzz_fs.zig").library.methods },
             &.{ @import("lib/buzz_gc.zig").library.name, @import("lib/buzz_gc.zig").library.methods },
-            // &.{ @import("lib/buzz_http.zig").library.name, @import("lib/buzz_http.zig").library.methods },
+            &.{ @import("lib/buzz_http.zig").library.name, @import("lib/buzz_http.zig").library.methods },
             &.{ @import("lib/buzz_io.zig").library.name, @import("lib/buzz_io.zig").library.methods },
             &.{ @import("lib/buzz_math.zig").library.name, @import("lib/buzz_math.zig").library.methods },
             &.{ @import("lib/buzz_os.zig").library.name, @import("lib/buzz_os.zig").library.methods },
@@ -8909,6 +8909,11 @@ fn readStaticScript(self: *Self, file_name: []const u8) ?[2][]const u8 {
     else if (std.mem.eql(u8, file_name, "os"))
         [_][]const u8{
             @embedFile("lib/os.buzz"),
+            file_name,
+        }
+    else if (std.mem.eql(u8, file_name, "http"))
+        [_][]const u8{
+            @embedFile("lib/http.buzz"),
             file_name,
         }
     else none: {
