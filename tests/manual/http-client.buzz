@@ -1,0 +1,19 @@
+import "http" as _;
+import "debug";
+import "errors";
+
+fun main() > void !> any {
+    final client = Client.init();
+
+    final request = mut Request{
+        method = Method.GET,
+        headers = {
+            "accept": "*/*",
+        },
+        uri = "https://google.com",
+    };
+
+    final response = client.send(request);
+
+    debug\dump(response.body ?? "none");
+}
