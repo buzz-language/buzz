@@ -50,13 +50,18 @@ export enum FileSystemError {
 }
 
 export enum ExecError {
+    AccessDenied,
     ChildExecFailed,
     CurrentWorkingDirectoryUnlinked,
+    Canceled,
     InvalidExe,
+    InvalidBatchScriptArg,
     InvalidFileDescriptor,
     InvalidName,
     InvalidProcessGroupId,
     InvalidUserId,
+    InvalidWtf8,
+    OperationUnsupported,
     PermissionDenied,
     ProcessAlreadyExec,
     ProcessNotFound,

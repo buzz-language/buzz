@@ -28,24 +28,24 @@ export buzzExit as exit;
 /// Execute command and return its exit code
 /// @param command command to execute
 /// @return exit code of the command
-export extern fun execute(command: [str]) > int !> errors\FileSystemError, errors\UnexpectedError;
+export extern fun execute(command: [str]) > int !> errors\FileSystemError, errors\ExecError, errors\UnexpectedError;
 
 /// @private
-extern fun SocketConnect(address: str, port: int, netProtocol: int) > int !> errors\InvalidArgumentError, errors\SocketError, errors\NotYetImplementedError;
+extern fun SocketConnect(address: str, port: int, netProtocol: int) > int !> errors\InvalidArgumentError, errors\SocketError, errors\FileSystemError, errors\NotYetImplementedError, errors\UnexpectedError;
 /// @private
 extern fun SocketClose(fd: int) > void;
 /// @private
-extern fun SocketRead(fd: int, n: int) > str? !> errors\InvalidArgumentError, errors\FileSystemError, errors\ReadWriteError, errors\UnexpectedError;
+extern fun SocketRead(fd: int, n: int) > str? !> errors\InvalidArgumentError, errors\ReadWriteError;
 /// @private
-extern fun SocketWrite(fd: int, bytes: str) > void !> errors\FileSystemError, errors\ReadWriteError, errors\UnexpectedError;
+extern fun SocketWrite(fd: int, bytes: str) > void !> errors\ReadWriteError;
 /// @private
-extern fun SocketServerStart(address: str, port: int, reuseAddr: bool) > int !> errors\InvalidArgumentError, errors\SocketError, errors\UnexpectedError, errors\FileSystemError;
+extern fun SocketServerStart(address: str, port: int, reuseAddr: bool) > int !> errors\InvalidArgumentError, errors\SocketError, errors\UnexpectedError;
 /// @private
 extern fun SocketServerAccept(fd: int) > int !> errors\SocketError, errors\UnexpectedError;
 /// @private
-extern fun SocketReadLine(fd: int, maxSize: int?) > str? !> errors\FileSystemError, errors\UnexpectedError, errors\ReadWriteError;
+extern fun SocketReadLine(fd: int, maxSize: int?) > str? !> errors\ReadWriteError;
 /// @private
-extern fun SocketReadAll(fd: int, maxSize: int?) > str? !> errors\FileSystemError, errors\UnexpectedError, errors\ReadWriteError;
+extern fun SocketReadAll(fd: int, maxSize: int?) > str? !> errors\ReadWriteError;
 
 /// Protocols supported over a socket
 export enum SocketProtocol {
@@ -64,7 +64,7 @@ export object Socket {
     /// @param port Port to which to connect
     /// @param protocol Protocol to use
     /// @return A new `Socket` opened and ready to use
-    static fun connect(address: str, port: int = 0, netProtocol: SocketProtocol) > Socket !> errors\InvalidArgumentError, errors\SocketError, errors\NotYetImplementedError {
+    static fun connect(address: str, port: int = 0, netProtocol: SocketProtocol) > Socket !> errors\InvalidArgumentError, errors\SocketError, errors\FileSystemError, errors\NotYetImplementedError, errors\UnexpectedError {
         return Socket{
             fd = SocketConnect(address, port: port, netProtocol: netProtocol.value),
         };
@@ -78,25 +78,25 @@ export object Socket {
     /// Receive at most `n` bytes from the socket
     /// @param n How many bytes we're prepare to receive
     /// @return The bytes received or null if nothing to read
-    fun receive(n: int) > str? !> errors\InvalidArgumentError, errors\FileSystemError, errors\ReadWriteError, errors\UnexpectedError {
+    fun receive(n: int) > str? !> errors\InvalidArgumentError, errors\ReadWriteError {
         return SocketRead(this.fd, n: n);
     }
 
     /// Receive from socket until it's closed or a linefeed is received
     /// @return The bytes received or null if nothing to read
-    fun receiveLine(maxSize: int?) > str? !> errors\FileSystemError, errors\UnexpectedError, errors\ReadWriteError {
+    fun receiveLine(maxSize: int?) > str? !> errors\ReadWriteError {
         return SocketReadLine(this.fd, maxSize);
     }
 
     /// Receive from socket until it's closed
     /// @return The bytes received or null if nothing to read
-    fun receiveAll(maxSize: int?) > str? !> errors\FileSystemError, errors\UnexpectedError, errors\ReadWriteError {
+    fun receiveAll(maxSize: int?) > str? !> errors\ReadWriteError {
         return SocketReadAll(this.fd, maxSize);
     }
 
     /// Send bytes on the socket
     /// @param bytes Bytes to send
-    fun send(bytes: str) > void !> errors\FileSystemError, errors\ReadWriteError, errors\UnexpectedError {
+    fun send(bytes: str) > void !> errors\ReadWriteError {
         SocketWrite(this.fd, bytes: bytes);
     }
 }
@@ -117,8 +117,7 @@ export object TcpServer {
         > TcpServer
         !> errors\SocketError,
            errors\UnexpectedError,
-           errors\InvalidArgumentError,
-           errors\FileSystemError {
+           errors\InvalidArgumentError {
         return TcpServer{
             serverSocket = Socket{
                 fd = SocketServerStart(address, port: port, reuseAddr: reuseAddr),

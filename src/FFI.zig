@@ -287,6 +287,10 @@ pub fn parse(self: *Self, parser: ?*Parser, source: Ast.TokenIndex, type_expr: ?
     const root_decls = self.state.?.ast.rootDecls();
 
     if (root_decls.len == 0) {
+        if (self.state.?.buzz_ast == null) {
+            return null;
+        }
+
         const location = self.state.?.buzz_ast.?.tokens.get(self.state.?.source - 4);
 
         self.reporter.report(
@@ -939,6 +943,10 @@ fn fnProto(self: *Self, tag: Ast.Node.Tag, decl_index: Ast.Node.Index) Error!*Zd
 }
 
 fn reportZigError(self: *Self, err: Ast.Error) void {
+    if (self.state.?.buzz_ast == null) {
+        return;
+    }
+
     var message = std.Io.Writer.Allocating.init(self.gc.allocator);
     defer message.deinit();
 

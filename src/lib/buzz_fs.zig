@@ -17,12 +17,9 @@ fn handleMakeDirectoryError(ctx: *api.NativeCtx, err: std.Io.Dir.CreateDirError)
         error.SystemResources,
         error.FileNotFound,
         error.NetworkNotFound,
-        => ctx.vm.pushErrorEnum("errors.FileSystemError", @errorName(err)),
-
+        error.Canceled,
         error.PermissionDenied,
-        => ctx.vm.pushErrorEnum("errors.ExecError", @errorName(err)),
-
-        error.Canceled => ctx.vm.pushErrorEnum("errors.SocketError", @errorName(err)),
+        => ctx.vm.pushErrorEnum("errors.FileSystemError", @errorName(err)),
 
         error.Unexpected => ctx.vm.pushError("errors.UnexpectedError", null),
     }
@@ -181,13 +178,9 @@ fn handleMoveError(ctx: *api.NativeCtx, err: std.Io.Dir.RenameError) void {
         error.CrossDevice,
         error.DirNotEmpty,
         error.HardwareFailure,
-        => ctx.vm.pushErrorEnum("errors.FileSystemError", @errorName(err)),
-
         error.PermissionDenied,
-        => ctx.vm.pushErrorEnum("errors.ExecError", @errorName(err)),
-
         error.Canceled,
-        => ctx.vm.pushErrorEnum("errors.SocketError", @errorName(err)),
+        => ctx.vm.pushErrorEnum("errors.FileSystemError", @errorName(err)),
 
         error.Unexpected => ctx.vm.pushError("errors.UnexpectedError", null),
     }
@@ -217,14 +210,10 @@ fn handleRealPathFileAllocError(ctx: *api.NativeCtx, err: std.Io.Dir.RealPathFil
         error.SystemResources,
         error.FileNotFound,
         error.NetworkNotFound,
-        => ctx.vm.pushErrorEnum("errors.FileSystemError", @errorName(err)),
-
         error.PermissionDenied,
-        => ctx.vm.pushErrorEnum("errors.ExecError", @errorName(err)),
-
         error.Canceled,
         error.OperationUnsupported,
-        => ctx.vm.pushErrorEnum("errors.SocketError", @errorName(err)),
+        => ctx.vm.pushErrorEnum("errors.FileSystemError", @errorName(err)),
 
         error.Unexpected => ctx.vm.pushError("errors.UnexpectedError", null),
         error.OutOfMemory => {
@@ -257,14 +246,10 @@ fn handleRealPathError(ctx: *api.NativeCtx, err: std.Io.Dir.RealPathError) void 
         error.SystemResources,
         error.FileNotFound,
         error.NetworkNotFound,
-        => ctx.vm.pushErrorEnum("errors.FileSystemError", @errorName(err)),
-
         error.PermissionDenied,
-        => ctx.vm.pushErrorEnum("errors.ExecError", @errorName(err)),
-
         error.Canceled,
         error.OperationUnsupported,
-        => ctx.vm.pushErrorEnum("errors.SocketError", @errorName(err)),
+        => ctx.vm.pushErrorEnum("errors.FileSystemError", @errorName(err)),
 
         error.Unexpected => ctx.vm.pushError("errors.UnexpectedError", null),
     }
@@ -364,13 +349,9 @@ fn handleOpenDirError(ctx: *api.NativeCtx, err: std.Io.Dir.OpenError) void {
         error.SystemResources,
         error.FileNotFound,
         error.NetworkNotFound,
-        => ctx.vm.pushErrorEnum("errors.FileSystemError", @errorName(err)),
-
         error.PermissionDenied,
-        => ctx.vm.pushErrorEnum("errors.ExecError", @errorName(err)),
-
         error.Canceled,
-        => ctx.vm.pushErrorEnum("errors.SocketError", @errorName(err)),
+        => ctx.vm.pushErrorEnum("errors.FileSystemError", @errorName(err)),
 
         error.Unexpected => ctx.vm.pushError("errors.UnexpectedError", null),
     }
@@ -380,13 +361,9 @@ fn handleDirIterateError(ctx: *api.NativeCtx, err: std.Io.Dir.Iterator.Error) vo
     switch (err) {
         error.AccessDenied,
         error.SystemResources,
-        => ctx.vm.pushErrorEnum("errors.FileSystemError", @errorName(err)),
-
         error.PermissionDenied,
-        => ctx.vm.pushErrorEnum("errors.ExecError", @errorName(err)),
-
         error.Canceled,
-        => ctx.vm.pushErrorEnum("errors.SocketError", @errorName(err)),
+        => ctx.vm.pushErrorEnum("errors.FileSystemError", @errorName(err)),
 
         error.Unexpected => ctx.vm.pushError("errors.UnexpectedError", null),
     }
@@ -417,6 +394,7 @@ pub export fn list(ctx: *api.NativeCtx) callconv(.c) c_int {
         handleOpenDirError(ctx, err);
         return -1;
     };
+    defer dir.close(ctx.getIo());
 
     const file_list = ctx.vm.bz_newList(
         ctx.vm.bz_listType(ctx.vm.bz_stringType(), false),
