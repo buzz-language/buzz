@@ -11,6 +11,7 @@ const Reporter = @import("Reporter.zig");
 const CodeGen = @import("Codegen.zig");
 const Token = @import("Token.zig");
 const Renderer = @import("renderer.zig").Renderer;
+const o = @import("obj.zig");
 
 const log = std.log.scoped(.buzz_lsp);
 
@@ -326,6 +327,33 @@ const Document = struct {
     const InlayHintsContext = struct {
         document: *Document,
 
+        fn addTypeInlay(
+            self: *InlayHintsContext,
+            allocator: std.mem.Allocator,
+            type_def: *o.ObjTypeDef,
+            location: Token,
+            comptime prefix: []const u8,
+        ) (std.mem.Allocator.Error || std.fmt.BufPrintError || error{WriteFailed})!void {
+            var inlay = std.Io.Writer.Allocating.init(allocator);
+
+            try inlay.writer.writeAll(prefix);
+            try type_def.toString(&inlay.writer, false);
+
+            try self.document.inlay_hints.append(
+                allocator,
+                .{
+                    .position = .{
+                        .line = @intCast(location.line),
+                        .character = @intCast(@max(1, location.column + location.lexeme.len) - 1),
+                    },
+                    .label = .{
+                        .string = try inlay.toOwnedSlice(),
+                    },
+                    .kind = .Type,
+                },
+            );
+        }
+
         pub fn processNode(
             self: *InlayHintsContext,
             allocator: std.mem.Allocator,
@@ -340,23 +368,11 @@ const Document = struct {
 
                     // If type was omitted, provide it
                     if (!comp.implicit and comp.type == null and type_def != null) {
-                        var inlay = std.Io.Writer.Allocating.init(allocator);
-
-                        try inlay.writer.writeAll(": ");
-                        try type_def.?.toString(&inlay.writer, false);
-
-                        try self.document.inlay_hints.append(
+                        try self.addTypeInlay(
                             allocator,
-                            .{
-                                .position = .{
-                                    .line = @intCast(name.line),
-                                    .character = @intCast(@max(1, name.column + name.lexeme.len) - 1),
-                                },
-                                .label = .{
-                                    .string = try inlay.toOwnedSlice(),
-                                },
-                                .kind = .Type,
-                            },
+                            type_def.?,
+                            name,
+                            ": ",
                         );
                     }
                 },
@@ -368,24 +384,39 @@ const Document = struct {
                     const fun_type_def = ast.nodes.items(.type_def)[node];
 
                     if (comp.test_message == null and fun_type.lambda and fun_type.return_type == null and fun_type_def != null) {
-                        var inlay = std.Io.Writer.Allocating.init(allocator);
-
-                        try inlay.writer.writeAll(" > ");
-                        try fun_type_def.?.resolved_type.?.Function.return_type.toString(&inlay.writer, false);
-
-                        try self.document.inlay_hints.append(
+                        try self.addTypeInlay(
                             allocator,
-                            .{
-                                .position = .{
-                                    .line = @intCast(location.line),
-                                    .character = @intCast(@max(1, location.column + location.lexeme.len) - 1),
-                                },
-                                .label = .{
-                                    .string = try inlay.toOwnedSlice(),
-                                },
-                                .kind = .Type,
-                            },
+                            fun_type_def.?.resolved_type.?.Function.return_type,
+                            location,
+                            " > ",
                         );
+                    }
+                },
+                .ObjectInit => {
+                    const comp = ast.nodes.items(.components)[node].ObjectInit;
+                    const lexemes = ast.tokens.items(.lexeme);
+                    const type_defs = ast.nodes.items(.type_def);
+
+                    for (comp.properties) |property| {
+                        const prop_type = if (comp.object) |object|
+                            if (type_defs[object]) |type_def|
+                                if (type_def.resolved_type.?.Object.fields.get(lexemes[property.name])) |field|
+                                    field.type_def
+                                else
+                                    null
+                            else
+                                null
+                        else
+                            type_defs[property.value];
+
+                        if (prop_type) |type_def| {
+                            try self.addTypeInlay(
+                                allocator,
+                                type_def,
+                                ast.tokens.get(property.name),
+                                ": ",
+                            );
+                        }
                     }
                 },
                 else => {},
