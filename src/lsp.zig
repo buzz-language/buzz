@@ -786,22 +786,26 @@ const Handler = struct {
 
             switch (ast.nodes.items(.tag)[node]) {
                 .VarDeclaration => {
-                    try self.document.symbols.append(
-                        allocator,
-                        .{
-                            .name = lexemes[components.VarDeclaration.name],
-                            .detail = if (type_def) |td|
-                                try td.toStringAlloc(allocator, false)
-                            else
-                                null,
-                            .kind = if (type_def != null and !type_def.?.isMutable() and components.VarDeclaration.final)
-                                .Constant
-                            else
-                                .Variable,
-                            .range = tokenToRange(ast, locations[node], end_locations[node]),
-                            .selectionRange = tokenToRange(ast, locations[node], end_locations[node]),
-                        },
-                    );
+                    const name = lexemes[components.VarDeclaration.name];
+
+                    if (components.VarDeclaration.slot_type == .Global and (name.len > 1 or name[0] != '_')) {
+                        try self.document.symbols.append(
+                            allocator,
+                            .{
+                                .name = lexemes[components.VarDeclaration.name],
+                                .detail = if (type_def) |td|
+                                    try td.toStringAlloc(allocator, false)
+                                else
+                                    null,
+                                .kind = if (type_def != null and !type_def.?.isMutable() and components.VarDeclaration.final)
+                                    .Constant
+                                else
+                                    .Variable,
+                                .range = tokenToRange(ast, locations[node], end_locations[node]),
+                                .selectionRange = tokenToRange(ast, locations[node], end_locations[node]),
+                            },
+                        );
+                    }
                 },
                 .Enum => {
                     var children = std.ArrayList(lsp.types.DocumentSymbol).empty;
