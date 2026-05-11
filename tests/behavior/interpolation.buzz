@@ -2,6 +2,22 @@ import "std";
 
 test "Escape sequences" {
     std\print("\{escaped interpolation}, \nhello\tworld, backslash \\ \"hey\"");
+
+    final escaped = "\0\a\b\f\n\r\t\v\"\'\\\{";
+
+    std\assert(escaped.byte(0) == 0, message: "Could escape null in string");
+    std\assert(escaped.byte(1) == 7, message: "Could escape bell in string");
+    std\assert(escaped.byte(2) == 8, message: "Could escape backspace in string");
+    std\assert(escaped.byte(3) == 12, message: "Could escape form feed in string");
+    std\assert(escaped.byte(4) == 10, message: "Could escape newline in string");
+    std\assert(escaped.byte(5) == 13, message: "Could escape carriage return in string");
+    std\assert(escaped.byte(6) == 9, message: "Could escape tab in string");
+    std\assert(escaped.byte(7) == 11, message: "Could escape vertical tab in string");
+    std\assert(escaped.byte(8) == 34, message: "Could escape double quote in string");
+    std\assert(escaped.byte(9) == 39, message: "Could escape single quote in string");
+    std\assert(escaped.byte(10) == 92, message: "Could escape backslash in string");
+    std\assert(escaped.byte(11) == 123, message: "Could escape interpolation start in string");
+    std\assert("\0".byte(0) == "\000".byte(0), message: "Single digit raw char matches padded raw char");
 }
 
 test "String interpolation" {

@@ -155,15 +155,20 @@ fn interpolation(self: *Self) !void {
 }
 
 fn escape(self: *Self) !void {
-    const char: ?u8 = self.advance();
+    const char = self.advance();
     if (char == null) {
         return;
     }
     switch (char.?) {
+        'a' => try self.current_chunk.append(self.parser.gc.allocator, 0x07),
+        'b' => try self.current_chunk.append(self.parser.gc.allocator, 0x08),
+        'f' => try self.current_chunk.append(self.parser.gc.allocator, 0x0c),
         'n' => try self.current_chunk.append(self.parser.gc.allocator, '\n'),
-        't' => try self.current_chunk.append(self.parser.gc.allocator, '\t'),
         'r' => try self.current_chunk.append(self.parser.gc.allocator, '\r'),
+        't' => try self.current_chunk.append(self.parser.gc.allocator, '\t'),
+        'v' => try self.current_chunk.append(self.parser.gc.allocator, 0x0b),
         '"' => try self.current_chunk.append(self.parser.gc.allocator, '"'),
+        '\'' => try self.current_chunk.append(self.parser.gc.allocator, '\''),
         '\\' => try self.current_chunk.append(self.parser.gc.allocator, '\\'),
         '{' => try self.current_chunk.append(self.parser.gc.allocator, '{'),
         else => try self.rawChar(),
@@ -171,14 +176,13 @@ fn escape(self: *Self) !void {
 }
 
 fn rawChar(self: *Self) !void {
-    const start: usize = self.offset - 1;
-    while (self.offset + 1 < self.source.len and self.source[self.offset + 1] >= '0' and self.source[self.offset + 1] <= '9') {
+    const start = self.offset - 1;
+    while (self.offset < self.source.len and self.source[self.offset] >= '0' and self.source[self.offset] <= '9') {
         _ = self.advance();
     }
 
-    const num_str: []const u8 = self.source[start..@min(self.offset + 1, self.source.len)];
-    _ = self.advance();
-    const number: ?u8 = std.fmt.parseInt(u8, num_str, 10) catch null;
+    const num_str = self.source[start..self.offset];
+    const number = std.fmt.parseInt(u8, num_str, 10) catch null;
 
     if (number) |unumber| {
         try self.current_chunk.append(self.parser.gc.allocator, unumber);

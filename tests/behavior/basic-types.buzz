@@ -37,4 +37,40 @@ test "Char literal" {
     final slash = '\\';
 
     std\assert(slash == 92, message: "Could escape \\ in char literal");
+
+    final line_feed = '\n';
+
+    std\assert(line_feed == 10, message: "Could escape newline in char literal");
+
+    final carriage_return = '\r';
+
+    std\assert(carriage_return == 13, message: "Could escape carriage return in char literal");
+
+    final tab = '\t';
+
+    std\assert(tab == 9, message: "Could escape tab in char literal");
+
+    final null_byte = '\0';
+
+    std\assert(null_byte == 0, message: "Could escape null in char literal");
+
+    final bell = '\a';
+
+    std\assert(bell == 7, message: "Could escape bell in char literal");
+
+    final backspace = '\b';
+
+    std\assert(backspace == 8, message: "Could escape backspace in char literal");
+
+    final form_feed = '\f';
+
+    std\assert(form_feed == 12, message: "Could escape form feed in char literal");
+
+    final vertical_tab = '\v';
+
+    std\assert(vertical_tab == 11, message: "Could escape vertical tab in char literal");
+
+    final double_quote = '\"';
+
+    std\assert(double_quote == 34, message: "Could escape double quote in char literal");
 }

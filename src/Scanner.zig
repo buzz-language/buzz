@@ -355,14 +355,28 @@ fn number(self: *Self) Token {
 
 fn byte(self: *Self) Token {
     const is_escape_sequence = self.match('\\');
-    const literal_integer = if (!self.isEOF())
-        self.advance()
-    else
-        null;
+    const literal_integer: ?u8 = if (!self.isEOF()) literal: {
+        const char = self.advance();
 
-    if (is_escape_sequence and literal_integer != '\\' and literal_integer != '\'') {
-        return self.makeToken(.Error, .{ .String = "Invalid escape sequence in char literal." });
-    }
+        if (!is_escape_sequence) {
+            break :literal char;
+        }
+
+        break :literal switch (char) {
+            '0' => 0,
+            'a' => 0x07,
+            'b' => 0x08,
+            'f' => 0x0c,
+            'n' => '\n',
+            'r' => '\r',
+            't' => '\t',
+            'v' => 0x0b,
+            '\\' => '\\',
+            '\'' => '\'',
+            '"' => '"',
+            else => return self.makeToken(.Error, .{ .String = "Invalid escape sequence in char literal." }),
+        };
+    } else null;
 
     // Skip closing
     if (self.isEOF() or self.peek() != '\'') {
