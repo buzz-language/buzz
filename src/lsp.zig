@@ -360,6 +360,34 @@ const Document = struct {
                         );
                     }
                 },
+                .Function => {
+                    const comp = ast.nodes.items(.components)[node].Function;
+                    const fun_type_node = comp.function_signature orelse return false;
+                    const fun_type = ast.nodes.items(.components)[fun_type_node].FunctionType;
+                    const location = ast.tokens.get(ast.nodes.items(.end_location)[fun_type_node]);
+                    const fun_type_def = ast.nodes.items(.type_def)[node];
+
+                    if (comp.test_message == null and fun_type.lambda and fun_type.return_type == null and fun_type_def != null) {
+                        var inlay = std.Io.Writer.Allocating.init(allocator);
+
+                        try inlay.writer.writeAll(" > ");
+                        try fun_type_def.?.resolved_type.?.Function.return_type.toString(&inlay.writer, false);
+
+                        try self.document.inlay_hints.append(
+                            allocator,
+                            .{
+                                .position = .{
+                                    .line = @intCast(location.line),
+                                    .character = @intCast(@max(1, location.column + location.lexeme.len) - 1),
+                                },
+                                .label = .{
+                                    .string = try inlay.toOwnedSlice(),
+                                },
+                                .kind = .Type,
+                            },
+                        );
+                    }
+                },
                 else => {},
             }
 

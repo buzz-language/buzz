@@ -50,7 +50,7 @@ pub fn scanToken(self: *Self) Allocator.Error!Token {
         return self.makeToken(.Eof, Token.NoLiteral);
     }
 
-    const char: u8 = self.advance();
+    const char = self.advance();
     return switch (char) {
         'a'...'z', 'A'...'Z' => self.identifier(),
         '_' => self.makeToken(
