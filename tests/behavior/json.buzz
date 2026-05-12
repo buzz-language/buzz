@@ -23,9 +23,7 @@ test "Json.decode" {
 test "Boxed.q" {
     final data = {
         "submap": {
-            <str: any>,
             "subsubmap": {
-                <str: any>,
                 "one": 1,
                 "two": 2,
             },
@@ -35,4 +33,18 @@ test "Boxed.q" {
     final boxed = serialize\Boxed.init(data);
 
     std\assert(boxed.q([ "submap", "subsubmap", "one" ]).integer() == 1, message: "Boxed.q");
+}
+
+test "Boxed.q again" {
+    final data = mut {
+        "one": mut {
+            "two": mut {
+                "three": 3,
+            },
+        },
+    };
+
+    final boxed = serialize\Boxed.init(data);
+
+    std\assert(boxed.q([ "one", "two", "three" ]).integer() == 3);
 }

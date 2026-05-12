@@ -35,7 +35,7 @@ export object Boxed {
 
     /// When wrapped data is an object, object property values are themselves wrapped in a `Boxed`
     fun map() > {str: Boxed}? {
-        if (this.data as? {str: any} -> dataMap) {
+        if (this.data as? mut {str: any} -> dataMap) {
             var boxedMap: mut {str: Boxed} = mut {};
 
             foreach (key, value in dataMap) {
@@ -50,7 +50,7 @@ export object Boxed {
 
     /// When wrapped data is a list, list elements are themselves warpped in a `Boxed`
     fun list() > [Boxed]? {
-        if (this.data as? [any] -> dataList) {
+        if (this.data as? mut [any] -> dataList) {
             var boxedList: mut [Boxed] = mut [];
 
             foreach (element in dataList) {
