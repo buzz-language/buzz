@@ -38,40 +38,40 @@ BENCHMARKS = [
     },
     {
         "name": "bench_001_btree_depth14",
-        "path": "tests/bench/001-btree.buzz",
+        "path": "tests/bench/btree.buzz",
         "args": ["14"],
     },
     {
         "name": "bench_002_merkle_depth12",
-        "path": "tests/bench/002-merkle.buzz",
+        "path": "tests/bench/merkle.buzz",
         "args": ["12"],
     },
     {
         "name": "bench_005_k_nucleoide",
-        "path": "tests/bench/005-k-nucleoide.buzz",
+        "path": "tests/bench/k-nucleoide.buzz",
         "stdin": "tests/bench/reference/knucleotide-input.txt",
     },
     {
         "name": "bench_007_fib",
-        "path": "tests/bench/007-fib.buzz",
+        "path": "tests/bench/fib.buzz",
     },
     {
         "name": "bench_008_for",
-        "path": "tests/bench/008-for.buzz",
+        "path": "tests/bench/for.buzz",
     },
     {
         "name": "bench_009_grid_1000x800",
-        "path": "tests/bench/009-grid.buzz",
+        "path": "tests/bench/grid.buzz",
         "args": ["1000", "800"],
     },
     {
         "name": "bench_010_ackermann_3_9",
-        "path": "tests/bench/010-ackermann.buzz",
+        "path": "tests/bench/ackermann.buzz",
         "args": ["3", "9"],
     },
     {
         "name": "bench_011_bubble_sort_3000",
-        "path": "tests/bench/011-bubble-sort.buzz",
+        "path": "tests/bench/bubble-sort.buzz",
         "args": ["3000"],
     },
 ]

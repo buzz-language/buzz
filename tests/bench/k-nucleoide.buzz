@@ -52,7 +52,7 @@ fun frequency(sequence: str, k: int) > void {
     std\print("");
 }
 
-// buzz tests/bench/005-k-nucleoide.buzz < tests/bench/reference/knucleotide-input.txt
+// buzz tests/bench/k-nucleoide.buzz < tests/bench/reference/knucleotide-input.txt
 fun main() > void {
     final sequence = readSequence() catch "";
     frequency(sequence, k: 1);

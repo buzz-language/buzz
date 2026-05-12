@@ -10,10 +10,7 @@ const BuildOptions = @import("build_options");
 const clap = @import("clap");
 
 const black_listed_tests = std.StaticStringMap(void).initComptime(
-    .{
-        .{ "tests/fuzzed/id:000162,src:000030,time:151734520,execs:633310,op:arith8,pos:439,val:+20.buzz", {} },
-        .{ "tests/fuzzed/id:000163,src:000030,time:151877078,execs:633895,op:arith8,pos:1177,val:+27.buzz", {} },
-    },
+    .{},
 );
 
 const Result = struct {
