@@ -7697,6 +7697,8 @@ fn objectDeclaration(self: *Self) Error!Ast.Node.Index {
 
             static_or_method_property_idx += 1;
 
+            self.ast.nodes.items(.docblock)[method_node] = docblock;
+
             try members.append(
                 self.gc.allocator,
                 .{

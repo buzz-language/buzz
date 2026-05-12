@@ -15,10 +15,47 @@ const o = @import("obj.zig");
 
 const log = std.log.scoped(.buzz_lsp);
 
+const MemberDocblockKey = struct {
+    owner: Ast.TokenIndex,
+    member: Ast.TokenIndex,
+
+    pub const Context = struct {
+        ast: Ast.Slice,
+
+        pub fn hash(ctx: Context, key: MemberDocblockKey) u64 {
+            var h = std.hash.Wyhash.init(0);
+            const lexemes = ctx.ast.tokens.items(.lexeme);
+
+            h.update(lexemes[key.owner]);
+            h.update(".");
+            h.update(lexemes[key.member]);
+
+            return h.final();
+        }
+
+        pub fn eql(ctx: Context, a: MemberDocblockKey, b: MemberDocblockKey) bool {
+            const lexemes = ctx.ast.tokens.items(.lexeme);
+
+            return std.mem.eql(u8, lexemes[a.owner], lexemes[b.owner]) and
+                std.mem.eql(u8, lexemes[a.member], lexemes[b.member]);
+        }
+    };
+
+    pub fn HashMap(V: type) type {
+        return std.HashMapUnmanaged(
+            MemberDocblockKey,
+            V,
+            Context,
+            std.hash_map.default_max_load_percentage,
+        );
+    }
+};
+
 const Document = struct {
     pub const Definition = struct {
         location: lsp.types.Location,
         def_node: Ast.Node.Index,
+        docblock: ?Ast.TokenIndex = null,
     };
 
     arena: std.heap.ArenaAllocator,
@@ -40,6 +77,12 @@ const Document = struct {
 
     /// Cache for hover
     node_hover: std.AutoHashMapUnmanaged(Ast.Node.Index, []const u8) = .empty,
+
+    /// Object member docblocks indexed by object and member token lexemes.
+    object_member_docblocks: MemberDocblockKey.HashMap(Ast.TokenIndex) = .empty,
+
+    /// Enum case docblocks indexed by enum and case token lexemes.
+    enum_case_docblocks: MemberDocblockKey.HashMap(Ast.TokenIndex) = .empty,
 
     /// Cache for inlay hints
     inlay_hints: std.ArrayList(lsp.types.InlayHint) = .empty, // I tried to make this a simple slice but the data was lost I don't know why
@@ -103,6 +146,7 @@ const Document = struct {
 
         if (ast.root != null) {
             doc.computeInlayHints() catch return error.OutOfMemory;
+            try doc.collectMemberDocblocks(&imports);
         }
 
         return doc;
@@ -227,25 +271,7 @@ const Document = struct {
                 const def = components[node].NamedVariable.definition;
                 const location = self.ast.nodes.items(.location)[def];
                 const end_location = self.ast.nodes.items(.end_location)[def];
-                const lines = self.ast.tokens.items(.line);
-                const columns = self.ast.tokens.items(.column);
                 const script_names = self.ast.tokens.items(.script_name);
-
-                const tags = self.ast.nodes.items(.tag);
-                log.debug(
-                    "Found definition for node {} {s} at {} {s} in {s}:{}:{}-{}:{}",
-                    .{
-                        node,
-                        @tagName(tags[node]),
-                        def,
-                        @tagName(tags[def]),
-                        script_names[location],
-                        lines[location],
-                        columns[location],
-                        lines[end_location],
-                        columns[end_location],
-                    },
-                );
 
                 try self.definitions.put(
                     allocator,
@@ -270,7 +296,47 @@ const Document = struct {
                 const comp = components[node].Dot;
                 if (ast_slice.nodes.items(.type_def)[comp.callee]) |callee_type_def| {
                     switch (callee_type_def.def_type) {
-                        .EnumInstance => {},
+                        .Enum => {
+                            if (comp.member_kind == .EnumCase) {
+                                const enum_def = callee_type_def.resolved_type.?.Enum;
+                                const case_index = comp.value_or_call_or_enum.EnumCase;
+
+                                if (case_index < enum_def.cases_locations.len) {
+                                    const case_location = enum_def.cases_locations[case_index];
+
+                                    try self.definitions.put(
+                                        allocator,
+                                        node,
+                                        .{
+                                            .location = .{
+                                                .uri = try scriptNameToUri(
+                                                    self.process.io,
+                                                    allocator,
+                                                    Parser.buzzLibPath(self.process.io, self.process.environ_map),
+                                                    ast_slice.tokens.items(.script_name)[case_location],
+                                                ),
+                                                .range = tokenToRange(
+                                                    ast_slice,
+                                                    case_location,
+                                                    case_location,
+                                                ),
+                                            },
+
+                                            .def_node = node,
+                                            .docblock = self.enum_case_docblocks.getContext(
+                                                .{
+                                                    .owner = enum_def.location,
+                                                    .member = case_location,
+                                                },
+                                                .{ .ast = ast_slice },
+                                            ),
+                                        },
+                                    );
+
+                                    return self.definitions.get(node).?.?;
+                                }
+                            }
+                        },
                         .ObjectInstance, .Object => {
                             const object_def = if (callee_type_def.def_type == .ObjectInstance)
                                 callee_type_def.resolved_type.?.ObjectInstance.of.resolved_type.?.Object
@@ -292,7 +358,14 @@ const Document = struct {
                                             .range = tokenToRange(ast_slice, field.location, field.location),
                                         },
 
-                                        .def_node = node, // FIXME: get object fields docblock
+                                        .def_node = node,
+                                        .docblock = self.object_member_docblocks.getContext(
+                                            .{
+                                                .owner = object_def.location,
+                                                .member = field.location,
+                                            },
+                                            .{ .ast = ast_slice },
+                                        ),
                                     },
                                 );
 
@@ -448,6 +521,67 @@ const Document = struct {
         }
     };
 
+    const MemberDocblockContext = struct {
+        document: *Document,
+
+        pub fn processNode(
+            self: *MemberDocblockContext,
+            allocator: std.mem.Allocator,
+            ast: Ast.Slice,
+            node: Ast.Node.Index,
+        ) std.mem.Allocator.Error!bool {
+            switch (ast.nodes.items(.tag)[node]) {
+                .ObjectDeclaration => {
+                    const type_def = ast.nodes.items(.type_def)[node] orelse return false;
+                    if (type_def.def_type != .Object) {
+                        return false;
+                    }
+
+                    const object_def = type_def.resolved_type.?.Object;
+
+                    for (ast.nodes.items(.components)[node].ObjectDeclaration.members) |member| {
+                        if (member.docblock) |docblock| {
+                            try self.document.object_member_docblocks.putContext(
+                                allocator,
+                                .{
+                                    .owner = object_def.location,
+                                    .member = member.name,
+                                },
+                                docblock,
+                                .{ .ast = ast },
+                            );
+                        }
+                    }
+                },
+                .Enum => {
+                    const type_def = ast.nodes.items(.type_def)[node] orelse return false;
+                    if (type_def.def_type != .Enum) {
+                        return false;
+                    }
+
+                    const enum_def = type_def.resolved_type.?.Enum;
+
+                    for (ast.nodes.items(.components)[node].Enum.cases) |case| {
+                        if (case.docblock) |docblock| {
+                            try self.document.enum_case_docblocks.putContext(
+                                allocator,
+                                .{
+                                    .owner = enum_def.location,
+                                    .member = case.name,
+                                },
+                                docblock,
+                                .{ .ast = ast },
+                            );
+                        }
+                    }
+                },
+                else => {},
+            }
+
+            return false;
+        }
+    };
+
     fn computeInlayHints(self: *Document) !void {
         var ctx = InlayHintsContext{
             .document = self,
@@ -459,6 +593,28 @@ const Document = struct {
             &ctx,
             self.ast.root.?,
         );
+    }
+
+    fn collectMemberDocblocks(self: *Document, imports: *const std.StringHashMapUnmanaged(Parser.ScriptImport)) !void {
+        var ctx = MemberDocblockContext{
+            .document = self,
+        };
+        const allocator = self.arena.allocator();
+
+        try self.ast.slice().walk(
+            allocator,
+            &ctx,
+            self.ast.root.?,
+        );
+
+        var imports_it = imports.valueIterator();
+        while (imports_it.next()) |import| {
+            try self.ast.slice().walk(
+                allocator,
+                &ctx,
+                import.function,
+            );
+        }
     }
 };
 
@@ -1049,19 +1205,24 @@ const Handler = struct {
                     if (!markupEntry.found_existing) {
                         var markup = std.Io.Writer.Allocating.init(self.allocator);
 
-                        const def = try document.definition(origin);
-                        if (def) |udef| {
-                            if (document.ast.nodes.items(.docblock)[udef.def_node]) |docblock| {
-                                const doc = document.ast.tokens.items(.lexeme)[docblock];
-
-                                var it = std.mem.tokenizeSequence(u8, doc, "/// ");
-                                while (it.next()) |text| {
-                                    try markup.writer.print("{s}\n", .{text});
-                                }
+                        var docblock = document.ast.nodes.items(.docblock)[origin];
+                        if (docblock == null) {
+                            const def = try document.definition(origin);
+                            if (def) |udef| {
+                                docblock = udef.docblock orelse document.ast.nodes.items(.docblock)[udef.def_node];
                             }
                         }
 
-                        try markup.writer.writeAll("```buzz\n");
+                        if (docblock) |docblock_token| {
+                            const doc = document.ast.tokens.items(.lexeme)[docblock_token];
+
+                            var it = std.mem.tokenizeSequence(u8, doc, "/// ");
+                            while (it.next()) |text| {
+                                try markup.writer.print("{s}", .{text});
+                            }
+                        }
+
+                        try markup.writer.writeAll("\n```buzz\n");
                         td.toString(&markup.writer, false) catch |err| {
                             log.err("textDocument/hover: {any}", .{err});
                         };
