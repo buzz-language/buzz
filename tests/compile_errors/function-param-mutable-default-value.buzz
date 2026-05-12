@@ -1,0 +1,2 @@
+// Default parameters must be constant values.
+fun hey(data: mut [int] = mut []) {}

@@ -1,0 +1,10 @@
+// Default value must be constant
+object Default {
+    list: mut [int] = [],
+}
+
+test "Can't have a mutable default" {
+    final def = Default{};
+
+    _ = def;
+}

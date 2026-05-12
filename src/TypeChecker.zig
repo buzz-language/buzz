@@ -1285,6 +1285,20 @@ fn checkFunction(ast: Ast.Slice, reporter: *Reporter, gc: *GC, _: ?Ast.Node.Inde
                     }
                 }
 
+                if (default_type_def.isMutable()) {
+                    reporter.reportErrorAt(
+                        .constant_default,
+                        ast.tokens.get(
+                            locations[if (argument) |arg| arg.type else node],
+                        ),
+                        ast.tokens.get(
+                            end_locations[if (argument) |arg| arg.type else node],
+                        ),
+                        "Default value must be constant",
+                    );
+                    had_error = true;
+                }
+
                 reporter.reportTypeCheck(
                     .default_value_type,
                     ast.tokens.get(
@@ -1775,6 +1789,16 @@ fn checkObjectDeclaration(ast: Ast.Slice, reporter: *Reporter, gc: *GC, _: ?Ast.
             if (member.method_or_default_value) |default| {
                 populateEmptyCollectionType(ast, default, property_type);
                 const default_type_def = type_defs[default].?;
+
+                if (default_type_def.isMutable()) {
+                    reporter.reportErrorAt(
+                        .constant_default,
+                        ast.tokens.get(locations[default]),
+                        ast.tokens.get(end_locations[default]),
+                        "Default value must be constant",
+                    );
+                    had_error = true;
+                }
 
                 if (!property_type.eql(default_type_def)) {
                     reporter.reportTypeCheck(
