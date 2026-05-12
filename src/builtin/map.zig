@@ -443,3 +443,14 @@ pub fn values(ctx: *o.NativeCtx) callconv(.c) c_int {
 
     return 1;
 }
+
+pub fn hasKey(ctx: *o.NativeCtx) callconv(.c) c_int {
+    const self = o.ObjMap.cast(ctx.vm.peek(1).obj()).?;
+    const key = ctx.vm.peek(0);
+
+    ctx.vm.push(
+        .fromBoolean(self.map.get(key) != null),
+    );
+
+    return 1;
+}

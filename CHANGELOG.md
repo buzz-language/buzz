@@ -10,6 +10,7 @@ This release builds with zig 0.16.0. We will only use tagged version of zig from
 - File polling API: `File.getPoller`, `FilePoller` (see example https://github.com/buzz-language/buzz/blob/main/tests/manual/007-fd-poller.buzz)
 - _Shortcut_ operators: `+=`, `-=`, `*=`, etc. (https://github.com/buzz-language/buzz/issues/78)
 - `rg.contains`
+- `map.hasKey`
 
 ## Changed
 

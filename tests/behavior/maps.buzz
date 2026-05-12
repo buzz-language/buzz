@@ -94,3 +94,9 @@ test "empty map type inferring" {
 
     std\assert(typeof smap == <{str: int}>);
 }
+
+test "map.hasKey" {
+    final map = { "hello" : "world"};
+
+    std\assert(map.hasKey("hello"));
+}

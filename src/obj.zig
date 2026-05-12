@@ -3251,6 +3251,7 @@ pub const ObjMap = struct {
         buzz_builtin.map.cloneImmutable,
         buzz_builtin.map.cloneMutable,
         buzz_builtin.map.cloneImmutable,
+        buzz_builtin.map.hasKey,
     };
 
     pub const members_name = std.StaticStringMap(usize).initComptime(
@@ -3270,6 +3271,7 @@ pub const ObjMap = struct {
             .{ "cloneImmutable", 12 },
             .{ "copyMutable", 13 },
             .{ "copyImmutable", 14 },
+            .{ "hasKey", 15 },
         },
     );
 
@@ -3455,6 +3457,46 @@ pub const ObjMap = struct {
                 try self.methods.put(
                     parser.gc.allocator,
                     "remove",
+                    method_def,
+                );
+
+                return method_def;
+            } else if (mem.eql(u8, method, "hasKey")) {
+                var parameters = std.AutoArrayHashMapUnmanaged(*ObjString, *ObjTypeDef){};
+
+                // We omit first arg: it'll be OP_SWAPed in and we already parsed it
+                // It's always the list.
+
+                try parameters.put(
+                    parser.gc.allocator,
+                    try parser.gc.copyString("key"),
+                    self.key_type,
+                );
+
+                const native_type = try parser.gc.type_registry.getTypeDef(
+                    .{
+                        .def_type = .Function,
+                        .resolved_type = .{
+                            .Function = .{
+                                .id = ObjFunction.FunctionDef.nextId(),
+                                .script_name = try parser.gc.copyString("builtin"),
+                                .name = try parser.gc.copyString("hasKey"),
+                                .parameters = parameters,
+                                .return_type = parser.gc.type_registry.bool_type,
+                                .yield_type = parser.gc.type_registry.void_type,
+                                .function_type = .Extern,
+                            },
+                        },
+                    },
+                );
+
+                const method_def = Method{
+                    .type_def = native_type,
+                    .mutable = false,
+                };
+                try self.methods.put(
+                    parser.gc.allocator,
+                    "hasKey",
                     method_def,
                 );
 
