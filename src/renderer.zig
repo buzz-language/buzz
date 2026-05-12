@@ -2839,7 +2839,10 @@ pub const Renderer = struct {
                 // method
                 try self.renderNode(
                     member.method_or_default_value.?,
-                    .Newline,
+                    if (type_defs[member.method_or_default_value.?].?.resolved_type.?.Function.lambda)
+                        .Semicolon
+                    else
+                        .Newline,
                 );
 
                 token_idx = end_locations[member.method_or_default_value.?];

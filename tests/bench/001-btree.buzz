@@ -39,7 +39,7 @@ fun btree(N: int) > void {
     std\print("stretch tree of depth {stretchdepth},\t check: {itemCheck(stretchtree)}");
 
     final longlivedtree = bottomUpTree(maxdepth);
-    for (depth: int = mindepth; depth < maxdepth; depth = depth + 2) {
+    for (depth = mindepth; depth < maxdepth; depth = depth + 2) {
         final iterations = std\toInt(math\pow(x: 2.0, y: std\toDouble(maxdepth - depth + mindepth)) catch 0.0);
         var check = 0;
         foreach (_ in 0..iterations) {
