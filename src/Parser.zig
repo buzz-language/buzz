@@ -6953,8 +6953,6 @@ fn yield(self: *Self, _: bool) Error!Ast.Node.Index {
 fn range(self: *Self, _: bool, low: Ast.Node.Index) Error!Ast.Node.Index {
     const high = try self.expression(false);
 
-    self.markInitialized();
-
     return try self.ast.appendNode(
         .{
             .tag = .Range,
