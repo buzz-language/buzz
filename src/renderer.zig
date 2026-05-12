@@ -676,7 +676,7 @@ pub const Renderer = struct {
                 assert(fun_def.function_type != .Test);
                 assert(token_idx == locations[body] - 1);
 
-                try self.ais.forcePushIndent(self.allocator, .normal);
+                try self.ais.pushIndent(self.allocator, .normal);
 
                 // =>
                 try self.renderExpectedToken(token_idx, .DoubleArrow, .Space);
