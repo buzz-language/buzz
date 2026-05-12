@@ -177,6 +177,28 @@ pub fn build(b: *Build) !void {
         }
         b.step("lsp", "run buzz lsp").dependOn(&run_lsp_exe.step);
     }
+    const lsp_tests = if (!is_wasm)
+        b.addTest(
+            .{
+                .use_llvm = true,
+                .root_module = b.createModule(
+                    .{
+                        .root_source_file = b.path("src/lsp.zig"),
+                        .target = target,
+                        .optimize = build_mode,
+                        .sanitize_c = .off,
+                    },
+                ),
+            },
+        )
+    else
+        null;
+    if (!is_wasm) {
+        lsp_tests.?.root_module.addImport(
+            "lsp",
+            lsp.module("lsp"),
+        );
+    }
 
     // fuzz
     const fuzz = if (!is_wasm and false) // Turn on manually as we don't want the CI to do this
@@ -274,8 +296,13 @@ pub fn build(b: *Build) !void {
     run_tests.setEnvironmentVariable("BUZZ_PATH", b.graph.environ_map.get("BUZZ_PATH") orelse std.fs.path.dirname(b.exe_dir).?);
     run_tests.step.dependOn(install_step); // wait for libraries to be installed
     test_step.dependOn(&run_tests.step);
+    if (lsp_tests) |lsp_test_exe| {
+        const run_lsp_tests = b.addRunArtifact(lsp_test_exe);
+        run_lsp_tests.cwd = b.path(".");
+        test_step.dependOn(&run_lsp_tests.step);
+    }
 
-    for ([_]?*std.Build.Step.Compile{ pic_static_lib, static_lib, lib, exe, behavior_exe, debugger_exe, lsp_exe, check_exe, tests, fuzz }) |comp| {
+    for ([_]?*std.Build.Step.Compile{ pic_static_lib, static_lib, lib, exe, behavior_exe, debugger_exe, lsp_exe, lsp_tests, check_exe, tests, fuzz }) |comp| {
         if (comp) |c| {
             // BuildOptions
             c.root_module.addImport("build_options", build_option_module);
@@ -302,7 +329,7 @@ pub fn build(b: *Build) !void {
         }
     }
 
-    for ([_]?*std.Build.Step.Compile{ tests, pic_static_lib, static_lib, lib, exe, debugger_exe, lsp_exe, behavior_exe, check_exe, fuzz }) |comp| {
+    for ([_]?*std.Build.Step.Compile{ tests, lsp_tests, pic_static_lib, static_lib, lib, exe, debugger_exe, lsp_exe, behavior_exe, check_exe, fuzz }) |comp| {
         if (comp) |c| {
             c.root_module.addImport(
                 "dap",

@@ -22,6 +22,7 @@ const Document = struct {
     };
 
     arena: std.heap.ArenaAllocator,
+    process: std.process.Init,
     src: [*:0]const u8,
     /// Not owned by this struct
     uri: []const u8,
@@ -88,6 +89,7 @@ const Document = struct {
 
         var doc = Document{
             .arena = arena,
+            .process = process,
             .src = src,
             .uri = owned_uri,
             .ast = ast,
@@ -245,7 +247,7 @@ const Document = struct {
                     node,
                     .{
                         .location = .{
-                            .uri = script_names[location],
+                            .uri = try scriptNameToUri(self.process.io, allocator, script_names[location]),
                             .range = tokenToRange(ast_slice, location, end_location),
                         },
                         .def_node = def,
@@ -271,7 +273,7 @@ const Document = struct {
                                     node,
                                     .{
                                         .location = .{
-                                            .uri = ast_slice.tokens.items(.script_name)[field.location],
+                                            .uri = try scriptNameToUri(self.process.io, allocator, ast_slice.tokens.items(.script_name)[field.location]),
                                             .range = tokenToRange(ast_slice, field.location, field.location),
                                         },
 
@@ -302,7 +304,7 @@ const Document = struct {
                             node,
                             .{
                                 .location = .{
-                                    .uri = ast_slice.tokens.items(.script_name)[location],
+                                    .uri = try scriptNameToUri(self.process.io, allocator, ast_slice.tokens.items(.script_name)[location]),
                                     .range = tokenToRange(ast_slice, location, location),
                                 },
 
@@ -1218,4 +1220,91 @@ fn tokenToRange(ast: Ast.Slice, location: Ast.TokenIndex, end_location: Ast.Toke
             .character = @intCast(@max(1, columns[end_location]) - 1),
         },
     };
+}
+
+fn scriptNameToUri(io: std.Io, allocator: std.mem.Allocator, script_name: []const u8) ![]const u8 {
+    if (isClientUri(script_name)) {
+        return script_name;
+    }
+
+    var allocated_path: ?[]u8 = null;
+    defer if (allocated_path) |path| allocator.free(path);
+
+    const path = if (std.fs.path.isAbsolute(script_name))
+        script_name
+    else path: {
+        var cwd_buffer: [std.Io.Dir.max_path_bytes]u8 = undefined;
+        const cwd_len = try std.process.currentPath(io, &cwd_buffer);
+        allocated_path = try std.fs.path.join(
+            allocator,
+            &.{
+                cwd_buffer[0..cwd_len],
+                script_name,
+            },
+        );
+        break :path allocated_path.?;
+    };
+
+    return std.fmt.allocPrint(
+        allocator,
+        "{f}",
+        .{std.Uri{
+            .scheme = "file",
+            .host = .{ .percent_encoded = "" },
+            .path = .{ .raw = path },
+        }},
+    );
+}
+
+fn isClientUri(text: []const u8) bool {
+    return std.mem.startsWith(u8, text, "file:") or
+        std.mem.startsWith(u8, text, "untitled:") or
+        std.mem.startsWith(u8, text, "vscode-remote:");
+}
+
+test "scriptNameToUri converts paths to LSP URIs" {
+    const allocator = std.heap.page_allocator;
+
+    try expectScriptNameUri(allocator, "file:///tmp/already.buzz", "file:///tmp/already.buzz");
+    try expectScriptNameUri(allocator, "untitled:Untitled-1", "untitled:Untitled-1");
+
+    try expectScriptNameUri(allocator, "/tmp/buzz lsp.buzz", "file:///tmp/buzz%20lsp.buzz");
+
+    const expected_relative_path = try testRelativePath(allocator, "src/lsp.zig");
+    const expected_relative_uri = try fileUri(allocator, expected_relative_path);
+
+    try expectScriptNameUri(allocator, "src/lsp.zig", expected_relative_uri);
+
+    const expected_weird_path = try testRelativePath(allocator, "foo:STUPIDSHIT");
+    const expected_weird_uri = try fileUri(allocator, expected_weird_path);
+
+    try expectScriptNameUri(allocator, "foo:STUPIDSHIT", expected_weird_uri);
+}
+
+fn expectScriptNameUri(allocator: std.mem.Allocator, script_name: []const u8, expected: []const u8) !void {
+    const uri = try scriptNameToUri(std.testing.io, allocator, script_name);
+
+    try std.testing.expectEqualStrings(expected, uri);
+}
+
+fn fileUri(allocator: std.mem.Allocator, path: []const u8) ![]const u8 {
+    return std.fmt.allocPrint(
+        allocator,
+        "{f}",
+        .{std.Uri{
+            .scheme = "file",
+            .host = .{ .percent_encoded = "" },
+            .path = .{ .raw = path },
+        }},
+    );
+}
+
+fn testRelativePath(allocator: std.mem.Allocator, relative: []const u8) ![]u8 {
+    var cwd_buffer: [std.Io.Dir.max_path_bytes]u8 = undefined;
+    const cwd_len = try std.process.currentPath(std.testing.io, &cwd_buffer);
+
+    return std.fs.path.join(
+        allocator,
+        &.{ cwd_buffer[0..cwd_len], relative },
+    );
 }
