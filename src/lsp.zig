@@ -71,9 +71,14 @@ const Document = struct {
         );
 
         const owned_uri = try allocator.dupe(u8, uri);
+        const std_lib_script_name = staticScriptNameFromUri(owned_uri);
 
         // If there's parsing error `parse` does not return the AST, but we can still use it however incomplete
-        const ast = (parser.parse(std.mem.span(src), null, owned_uri) catch parser.ast) orelse
+        const ast = (parser.parse(
+            std.mem.span(src),
+            if (std_lib_script_name != null) owned_uri else null,
+            std_lib_script_name orelse owned_uri,
+        ) catch parser.ast) orelse
             parser.ast;
 
         const codegen_errors = if (parser.reporter.last_error == null and
@@ -247,7 +252,12 @@ const Document = struct {
                     node,
                     .{
                         .location = .{
-                            .uri = try scriptNameToUri(self.process.io, allocator, script_names[location]),
+                            .uri = try scriptNameToUri(
+                                self.process.io,
+                                allocator,
+                                Parser.buzzLibPath(self.process.io, self.process.environ_map),
+                                script_names[location],
+                            ),
                             .range = tokenToRange(ast_slice, location, end_location),
                         },
                         .def_node = def,
@@ -273,7 +283,12 @@ const Document = struct {
                                     node,
                                     .{
                                         .location = .{
-                                            .uri = try scriptNameToUri(self.process.io, allocator, ast_slice.tokens.items(.script_name)[field.location]),
+                                            .uri = try scriptNameToUri(
+                                                self.process.io,
+                                                allocator,
+                                                Parser.buzzLibPath(self.process.io, self.process.environ_map),
+                                                ast_slice.tokens.items(.script_name)[field.location],
+                                            ),
                                             .range = tokenToRange(ast_slice, field.location, field.location),
                                         },
 
@@ -304,7 +319,12 @@ const Document = struct {
                             node,
                             .{
                                 .location = .{
-                                    .uri = try scriptNameToUri(self.process.io, allocator, ast_slice.tokens.items(.script_name)[location]),
+                                    .uri = try scriptNameToUri(
+                                        self.process.io,
+                                        allocator,
+                                        Parser.buzzLibPath(self.process.io, self.process.environ_map),
+                                        ast_slice.tokens.items(.script_name)[location],
+                                    ),
                                     .range = tokenToRange(ast_slice, location, location),
                                 },
 
@@ -1222,7 +1242,7 @@ fn tokenToRange(ast: Ast.Slice, location: Ast.TokenIndex, end_location: Ast.Toke
     };
 }
 
-fn scriptNameToUri(io: std.Io, allocator: std.mem.Allocator, script_name: []const u8) ![]const u8 {
+fn scriptNameToUri(io: std.Io, allocator: std.mem.Allocator, buzz_lib_path: []const u8, script_name: []const u8) ![]const u8 {
     if (isClientUri(script_name)) {
         return script_name;
     }
@@ -1230,7 +1250,13 @@ fn scriptNameToUri(io: std.Io, allocator: std.mem.Allocator, script_name: []cons
     var allocated_path: ?[]u8 = null;
     defer if (allocated_path) |path| allocator.free(path);
 
-    const path = if (std.fs.path.isAbsolute(script_name))
+    const path = if (staticScriptFileName(script_name)) |file_name| path: {
+        allocated_path = try std.fs.path.join(
+            allocator,
+            &.{ buzz_lib_path, file_name },
+        );
+        break :path allocated_path.?;
+    } else if (std.fs.path.isAbsolute(script_name))
         script_name
     else path: {
         var cwd_buffer: [std.Io.Dir.max_path_bytes]u8 = undefined;
@@ -1262,6 +1288,63 @@ fn isClientUri(text: []const u8) bool {
         std.mem.startsWith(u8, text, "vscode-remote:");
 }
 
+fn staticScriptFileName(script_name: []const u8) ?[]const u8 {
+    if (std.mem.eql(u8, script_name, "std")) return "std.buzz";
+    if (std.mem.eql(u8, script_name, "gc")) return "gc.buzz";
+    if (std.mem.eql(u8, script_name, "math")) return "math.buzz";
+    if (std.mem.eql(u8, script_name, "debug")) return "debug.buzz";
+    if (std.mem.eql(u8, script_name, "buffer")) return "buffer.buzz";
+    if (std.mem.eql(u8, script_name, "serialize")) return "serialize.buzz";
+    if (std.mem.eql(u8, script_name, "errors")) return "errors.buzz";
+    if (std.mem.eql(u8, script_name, "test")) return "testing.buzz";
+    if (std.mem.eql(u8, script_name, "crypto")) return "crypto.buzz";
+    if (std.mem.eql(u8, script_name, "ffi")) return "ffi.buzz";
+    if (std.mem.eql(u8, script_name, "fs")) return "fs.buzz";
+    if (std.mem.eql(u8, script_name, "io")) return "io.buzz";
+    if (std.mem.eql(u8, script_name, "os")) return "os.buzz";
+    if (std.mem.eql(u8, script_name, "http")) return "http.buzz";
+
+    return null;
+}
+
+fn staticScriptNameFromUri(uri: []const u8) ?[]const u8 {
+    if (isStaticScriptUri(uri, "std.buzz")) return "std";
+    if (isStaticScriptUri(uri, "gc.buzz")) return "gc";
+    if (isStaticScriptUri(uri, "math.buzz")) return "math";
+    if (isStaticScriptUri(uri, "debug.buzz")) return "debug";
+    if (isStaticScriptUri(uri, "buffer.buzz")) return "buffer";
+    if (isStaticScriptUri(uri, "serialize.buzz")) return "serialize";
+    if (isStaticScriptUri(uri, "errors.buzz")) return "errors";
+    if (isStaticScriptUri(uri, "testing.buzz")) return "test";
+    if (isStaticScriptUri(uri, "crypto.buzz")) return "crypto";
+    if (isStaticScriptUri(uri, "ffi.buzz")) return "ffi";
+    if (isStaticScriptUri(uri, "fs.buzz")) return "fs";
+    if (isStaticScriptUri(uri, "io.buzz")) return "io";
+    if (isStaticScriptUri(uri, "os.buzz")) return "os";
+    if (isStaticScriptUri(uri, "http.buzz")) return "http";
+
+    return null;
+}
+
+fn isStaticScriptUri(uri: []const u8, file_name: []const u8) bool {
+    var src_lib_buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
+    const src_lib = std.fmt.bufPrint(
+        &src_lib_buf,
+        "/src/lib/{s}",
+        .{file_name},
+    ) catch return false;
+
+    var installed_lib_buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
+    const installed_lib = std.fmt.bufPrint(
+        &installed_lib_buf,
+        "/lib/buzz/{s}",
+        .{file_name},
+    ) catch return false;
+
+    return std.mem.endsWith(u8, uri, src_lib) or
+        std.mem.endsWith(u8, uri, installed_lib);
+}
+
 test "scriptNameToUri converts paths to LSP URIs" {
     const allocator = std.heap.page_allocator;
 
@@ -1269,6 +1352,18 @@ test "scriptNameToUri converts paths to LSP URIs" {
     try expectScriptNameUri(allocator, "untitled:Untitled-1", "untitled:Untitled-1");
 
     try expectScriptNameUri(allocator, "/tmp/buzz lsp.buzz", "file:///tmp/buzz%20lsp.buzz");
+
+    try expectScriptNameUri(allocator, "std", "file:///tmp/buzz%20lib/std.buzz");
+    try expectScriptNameUri(allocator, "test", "file:///tmp/buzz%20lib/testing.buzz");
+    try std.testing.expectEqualStrings(
+        "buffer",
+        staticScriptNameFromUri("file:///repo/src/lib/buffer.buzz").?,
+    );
+    try std.testing.expectEqualStrings(
+        "test",
+        staticScriptNameFromUri("file:///repo/src/lib/testing.buzz").?,
+    );
+    try std.testing.expect(staticScriptNameFromUri("file:///repo/not-lib/buffer.buzz") == null);
 
     const expected_relative_path = try testRelativePath(allocator, "src/lsp.zig");
     const expected_relative_uri = try fileUri(allocator, expected_relative_path);
@@ -1282,7 +1377,7 @@ test "scriptNameToUri converts paths to LSP URIs" {
 }
 
 fn expectScriptNameUri(allocator: std.mem.Allocator, script_name: []const u8, expected: []const u8) !void {
-    const uri = try scriptNameToUri(std.testing.io, allocator, script_name);
+    const uri = try scriptNameToUri(std.testing.io, allocator, "/tmp/buzz lib", script_name);
 
     try std.testing.expectEqualStrings(expected, uri);
 }
