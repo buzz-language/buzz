@@ -1,0 +1,10 @@
+// Wrong property type
+object Immutable {
+    data: mut [int]
+}
+
+test "Should not be able to give immutable list to data field" {
+    _ = Immutable{
+        data = [],
+    };
+}

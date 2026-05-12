@@ -88,27 +88,36 @@ pub fn check(ast: Ast.Slice, reporter: *Reporter, gc: *GC, current_function_node
         false;
 }
 
-pub fn populateEmptyCollectionType(ast: Ast.Slice, value: Ast.Node.Index, target_type: *o.ObjTypeDef) void {
+pub fn populateEmptyCollectionType(ast: Ast.Slice, gc: *GC, value: Ast.Node.Index, target_type: *o.ObjTypeDef) error{OutOfMemory}!void {
     const tags = ast.nodes.items(.tag);
     const components = ast.nodes.items(.components);
+    const type_defs = ast.nodes.items(.type_def);
 
-    // variable: [T] = [<any>] -> variable: [T] = [<T>];
+    // variable: [T] = [<any>] -> variable: [T] = [<T>]
+    // variable: mut [T] = [<any>] -> keep immutable [T], do not infer mutability
     if (target_type.def_type == .List and
         tags[value] == .List and
         components[value].List.explicit_item_type == null and
         components[value].List.items.len == 0)
     {
-        ast.nodes.items(.type_def)[value] = target_type;
+        type_defs[value] = target_type.cloneMutable(
+            &gc.type_registry,
+            type_defs[value].?.isMutable(),
+        ) catch return error.OutOfMemory;
     }
 
-    // variable: {K: V} = {<any: any>} -> variable: {K: V} = [<K: V>];
+    // variable: {K: V} = {<any: any>} -> variable: {K: V} = {<K: V>}
+    // variable: mut {K: V} = {<any: any>} -> keep immutable {K: V}, do not infer mutability
     if (target_type.def_type == .Map and
         tags[value] == .Map and
         components[value].Map.explicit_key_type == null and
         components[value].Map.explicit_value_type == null and
         components[value].Map.entries.len == 0)
     {
-        ast.nodes.items(.type_def)[value] = target_type;
+        type_defs[value] = target_type.cloneMutable(
+            &gc.type_registry,
+            type_defs[value].?.isMutable(),
+        ) catch return error.OutOfMemory;
     }
 }
 
@@ -456,7 +465,7 @@ fn checkCall(ast: Ast.Slice, reporter: *Reporter, gc: *GC, _: ?Ast.Node.Index, n
         const def_arg_type = args.get(actual_arg_key);
 
         if (def_arg_type) |arg_type| {
-            populateEmptyCollectionType(ast, argument.value, arg_type);
+            try populateEmptyCollectionType(ast, gc, argument.value, arg_type);
             argument_type_def = type_defs[argument.value].?;
 
             if (!arg_type.eql(argument_type_def)) {
@@ -727,7 +736,7 @@ fn checkDot(ast: Ast.Slice, reporter: *Reporter, gc: *GC, _: ?Ast.Node.Index, no
                                 had_error = true;
                             }
 
-                            populateEmptyCollectionType(ast, value, field.?.type_def);
+                            try populateEmptyCollectionType(ast, gc, value, field.?.type_def);
                             value_type_def = type_defs[value].?;
 
                             if (!field.?.type_def.eql(value_type_def)) {
@@ -1787,7 +1796,7 @@ fn checkObjectDeclaration(ast: Ast.Slice, reporter: *Reporter, gc: *GC, _: ?Ast.
 
             // Create property default value
             if (member.method_or_default_value) |default| {
-                populateEmptyCollectionType(ast, default, property_type);
+                try populateEmptyCollectionType(ast, gc, default, property_type);
                 const default_type_def = type_defs[default].?;
 
                 if (default_type_def.isMutable()) {
@@ -1872,7 +1881,7 @@ fn checkObjectInit(ast: Ast.Slice, reporter: *Reporter, gc: *GC, _: ?Ast.Node.In
     for (components.properties) |property| {
         const property_name = lexemes[property.name];
         if (fields.get(property_name)) |prop| {
-            populateEmptyCollectionType(ast, property.value, prop);
+            try populateEmptyCollectionType(ast, gc, property.value, prop);
             const value_type_def = type_defs[property.value].?;
 
             if (!prop.eql(value_type_def)) {

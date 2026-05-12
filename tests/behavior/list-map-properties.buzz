@@ -5,6 +5,11 @@ object Hey {
     names: {int: str},
 }
 
+object MutableHey {
+    ages: mut [int],
+    names: mut {int: str},
+}
+
 test "List and Map as Object properties" {
     final hey = Hey{
         ages = [ 1, 2, 3 ],
@@ -13,4 +18,14 @@ test "List and Map as Object properties" {
 
     std\assert(hey.ages[0] == 1, message: "list access");
     std\assert(hey.names[1] == "hello", message: "map access");
+}
+
+test "Mutable List and Map as Object properties" {
+    final hey = MutableHey{
+        ages = mut [],
+        names = mut {},
+    };
+
+    std\assert(hey.ages.len() == 0, message: "mutable list access");
+    std\assert(hey.names.size() == 0, message: "mutable map access");
 }
