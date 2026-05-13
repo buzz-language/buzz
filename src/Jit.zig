@@ -5148,7 +5148,79 @@ fn generateHotspotFunction(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t 
         ),
     );
 
+    // Catch any error to forward them as a buzz error (push payload + return -1)
+    // Set it as current jump env
+    const try_ctx = m.MIR_new_reg_op(
+        self.ctx,
+        try self.REG("try_ctx", m.MIR_T_I64),
+    );
+
+    try self.buildExternApiCall(
+        .bz_setTryCtx,
+        try_ctx,
+        &.{
+            m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
+        },
+    );
+
+    const env = m.MIR_new_reg_op(
+        self.ctx,
+        try self.REG("env", m.MIR_T_I64),
+    );
+
+    self.ADD(
+        env,
+        try_ctx,
+        m.MIR_new_uint_op(
+            self.ctx,
+            @offsetOf(TryCtx, "env"),
+        ),
+    );
+
+    // setjmp
+    const status = m.MIR_new_reg_op(
+        self.ctx,
+        try self.REG("status", m.MIR_T_I64),
+    );
+    try self.buildExternApiCall(
+        .setjmp,
+        status,
+        &.{env},
+    );
+
+    const fun_label = m.MIR_new_label(self.ctx);
+
+    // If status is 0, go to body, else go to catch clauses
+    self.BEQ(
+        m.MIR_new_label_op(self.ctx, fun_label),
+        status,
+        m.MIR_new_uint_op(self.ctx, 0),
+    );
+
+    // Unwind TryCtx
+    try self.buildExternApiCall(
+        .bz_popTryCtx,
+        null,
+        &.{
+            m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
+        },
+    );
+
+    // Payload already on stack so juste return -1;
+    self.RET(m.MIR_new_int_op(self.ctx, -1));
+
+    self.append(fun_label);
+
     _ = try self.generateNode(node);
+
+    // Unwind TryCtx
+    try self.buildExternApiCall(
+        .bz_popTryCtx,
+        null,
+        &.{
+            m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
+        },
+    );
 
     // If we reach here, return 0 meaning there was no early return in the hotspot
     self.RET(m.MIR_new_int_op(self.ctx, 0));

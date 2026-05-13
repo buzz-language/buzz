@@ -22,6 +22,7 @@ jobs:
           options:
             - ""
             - "-Djit_always_on"
+            - "-Djit_hotspot_always_on"
     
     steps:
       - name: Checkout project

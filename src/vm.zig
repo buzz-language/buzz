@@ -4616,13 +4616,23 @@ pub const VM = struct {
     fn OP_HOTSPOT_CALL(self: *Self, current_frame: *CallFrame, _: u32, _: Chunk.OpCode, _: u24) void {
         if (is_wasm) unreachable;
 
-        if (self.callHotspot(
+        if ((self.callHotspot(
             @ptrCast(
                 @alignCast(
                     self.pop().obj().access(obj.ObjNative, .Native, self.gc).?.native,
                 ),
             ),
-        ) and self.returnFrame(current_frame)) {
+        ) catch |err| {
+            switch (err) {
+                Error.RuntimeError,
+                Error.DivisionByZero,
+                => return,
+                else => {
+                    self.panic("Out of memory");
+                    unreachable;
+                },
+            }
+        }) and self.returnFrame(current_frame)) {
             return;
         }
 
@@ -5155,7 +5165,7 @@ pub const VM = struct {
         } else null;
     }
 
-    fn callHotspot(self: *Self, native: obj.NativeFn) bool {
+    fn callHotspot(self: *Self, native: obj.NativeFn) Error!bool {
         // if (BuildOptions.jit_debug) {
         //     io.print("Calling hotspot {*}\n", .{native});
         // }
@@ -5175,7 +5185,24 @@ pub const VM = struct {
         };
 
         // If native returns 1 here, we know there was an early return in the hotspot
-        return native(&ctx) == 1;
+        const native_return = native(&ctx);
+
+        if (native_return == -1) {
+            // Error was not handled are we in a try-catch ?
+            if (frame.try_ip != null) {
+                frame.ip = frame.try_ip.?;
+            } else {
+                // No error handler or default value was triggered so forward the error
+                try self.throw(
+                    Error.Custom,
+                    self.peek(0),
+                    null,
+                    null,
+                );
+            }
+        }
+
+        return native_return == 1;
     }
 
     fn callNative(self: *Self, native: obj.NativeFn, arg_count: u8, catch_value: ?Value) !void {
