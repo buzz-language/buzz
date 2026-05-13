@@ -79,14 +79,24 @@ export object Boxed {
     /// Query the json element at `path`, if nothing matches return `Boxed{}`
     /// @param path Path to query
     /// @return Found `Boxed` or `Boxed{}` (which is `null`)
-    fun q(path: [str]) > Boxed {
+    fun q(path: [any]) > Boxed {
         if (this.map() -> map) {
             if (path.len() > 1) {
-                return (map[path[0]] ?? Boxed{}).q(path.sub(1));
+                return (map["{path[0]}"] ?? Boxed{}).q(path.sub(1));
             } else if (path.len() > 0) {
-                return map[path[0]] ?? Boxed{};
+                return map["{path[0]}"] ?? Boxed{};
             } else {
                 return this;
+            }
+        } else if (this.list() -> list) {
+            if (path[0] as? int -> idx) {
+                if (path.len() > 1) {
+                    return (list[?idx] ?? Boxed{}).q(path.sub(1));
+                } else if (path.len() > 0) {
+                    return list[?idx] ?? Boxed{};
+                } else {
+                    return this;
+                }
             }
         }
 

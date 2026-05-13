@@ -48,3 +48,19 @@ test "Boxed.q again" {
 
     std\assert(boxed.q([ "one", "two", "three" ]).integer() == 3);
 }
+
+test "Circular ref?" {
+    final data = mut {
+        "hello": "world",
+        "section": mut [
+            mut {
+                "number": 42,
+            },
+            mut {
+                "number": 43,
+            },
+        ],
+    };
+
+    _ = serialize\Boxed.init(data);
+}

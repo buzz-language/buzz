@@ -89,6 +89,7 @@ pub const Obj = struct {
         }
 
         try seen.put(vm.gc.allocator, self, {});
+        defer _ = seen.remove(self);
 
         switch (self.obj_type) {
             .String => return Value.fromObj(self),
