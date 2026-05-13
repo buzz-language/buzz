@@ -1,0 +1,6 @@
+// Expected `int` index.
+test "nullable list index" {
+    final idx: int? = null;
+
+    _ = [ 1, 2, 3 ][idx];
+}

@@ -2152,7 +2152,7 @@ fn checkSubscript(ast: Ast.Slice, reporter: *Reporter, gc: *GC, _: ?Ast.Node.Ind
     }
 
     switch (subscripted_type_def.def_type) {
-        .String => if (index_type_def.def_type != .Integer) {
+        .String => if (index_type_def.def_type != .Integer or index_type_def.optional) {
             reporter.reportErrorAt(
                 .subscript_key_type,
                 ast.tokens.get(locations[components.index]),
@@ -2162,7 +2162,7 @@ fn checkSubscript(ast: Ast.Slice, reporter: *Reporter, gc: *GC, _: ?Ast.Node.Ind
             had_error = true;
         },
         .List => {
-            if (index_type_def.def_type != .Integer) {
+            if (index_type_def.def_type != .Integer or index_type_def.optional) {
                 reporter.reportErrorAt(
                     .subscript_key_type,
                     ast.tokens.get(locations[components.index]),
