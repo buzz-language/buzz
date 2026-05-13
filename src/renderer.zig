@@ -2474,7 +2474,6 @@ pub const Renderer = struct {
         const locations = self.ast.nodes.items(.location);
         const end_locations = self.ast.nodes.items(.end_location);
         const components = self.ast.nodes.items(.components)[node].If;
-        const tags = self.ast.nodes.items(.tag);
 
         // if
         try self.renderExpectedToken(
@@ -2554,20 +2553,14 @@ pub const Renderer = struct {
             else
                 end_locations[components.condition] + 1,
             .RightParen,
-            if (!components.is_statement)
-                .Newline
-            else
-                .Space,
+            .Space,
         );
 
         // body
         try self.renderNode(
             components.body,
             if (components.else_branch != null)
-                if (!components.is_statement)
-                    .Newline
-                else
-                    .Space
+                .Space
             else
                 space,
         );
@@ -2581,10 +2574,7 @@ pub const Renderer = struct {
             try self.renderExpectedToken(
                 end_locations[components.body] + 1,
                 .Else,
-                if (!components.is_statement and tags[eb] != .If)
-                    .Newline
-                else
-                    .Space,
+                .Space,
             );
 
             // else_branch

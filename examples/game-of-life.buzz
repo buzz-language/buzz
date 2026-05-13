@@ -32,10 +32,7 @@ object World {
             }
         }
 
-        return liveCount - if (this.cells[y * this.width + x])
-            1
-        else
-            0;
+        return liveCount - if (this.cells[y * this.width + x]) 1 else 0;
     }
 
     mut fun step() > void {
@@ -55,10 +52,7 @@ object World {
     fun dump() > void {
         for (y: int = 0; y < this.height; y = y + 1) {
             for (x: int = 0; x < this.width; x = x + 1) {
-                io\stdout.write(if (this.cells[y * this.width + x])
-                    "x"
-                else
-                    ".") catch void;
+                io\stdout.write(if (this.cells[y * this.width + x]) "x" else ".") catch void;
             }
             io\stdout.write("\n") catch void;
         }
@@ -71,14 +65,11 @@ object World {
         for (y: int = 0; y < this.height; y = y + 1) {
             for (x: int = 0; x < this.width; x = x + 1) {
                 renderer.setRenderDrawColor(
-                    if (this.cells[y * this.width + x])
-                        Color{
-                            red = 0x01,
-                            green = 0x9d,
-                            blue = 0xe0,
-                        }
-                    else
-                    Color{
+                    if (this.cells[y * this.width + x]) Color{
+                        red = 0x01,
+                        green = 0x9d,
+                        blue = 0xe0,
+                    } else Color{
                         red = 0xff,
                         green = 0xff,
                         blue = 0xff,
@@ -155,14 +146,8 @@ fun main(args: [str]) > void !> SDLError {
         height: 600,
     );
 
-    final width = if (args.len() > 0)
-        std\parseInt(args[0])
-    else
-        null;
-    final height = if (args.len() > 1)
-        std\parseInt(args[1])
-    else
-        null;
+    final width = if (args.len() > 0) std\parseInt(args[0]) else null;
+    final height = if (args.len() > 1) std\parseInt(args[1]) else null;
 
     final world = World.init(
         width: width ?? 10,
