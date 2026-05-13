@@ -145,7 +145,7 @@ pub fn main(provided_init: Init) u8 {
             return 1;
         };
 
-        runner.runFile(
+        return runner.runFile(
             res.positionals[0][0],
             res.positionals[0][1..],
         ) catch {

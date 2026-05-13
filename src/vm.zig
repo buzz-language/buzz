@@ -456,6 +456,7 @@ pub const VM = struct {
     debugger: ?*Debugger = null,
     paused: bool = false,
     hotspots_count: u128 = 0,
+    exit_code: u8 = 0,
     flavor: RunFlavor,
     reporter: Reporter,
     ffi: FFI,
@@ -2165,6 +2166,10 @@ pub const VM = struct {
     fn returnFrame(self: *Self, current_frame: *CallFrame) bool {
         const result = self.pop();
         const frame = current_frame.*;
+
+        if (frame.closure.function.type_def.resolved_type.?.Function.function_type == .EntryPoint and result.isInteger()) {
+            self.exit_code = @intCast(@mod(result.integer(), std.math.maxInt(u8)));
+        }
 
         self.closeUpValues(&frame.slots[0]);
 

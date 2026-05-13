@@ -80,7 +80,7 @@ fn testBehaviors(process: std.process.Init, allocator: std.mem.Allocator, fail_f
                 try runner.init(process, allocator, .Test, null);
 
                 var failed = false;
-                runner.runFile(
+                _ = runner.runFile(
                     file_name.written(),
                     &[_][:0]u8{},
                 ) catch {

@@ -472,7 +472,7 @@ pub fn launch(self: *Debugger, arguments: Arguments(.launch)) Error!Response(.la
     );
 
     // While debugger is active, the program won't start right away
-    self.session.?.runner.runFile(
+    _ = self.session.?.runner.runFile(
         program,
         &.{}, // TODO
     ) catch return error.LaunchFailed;

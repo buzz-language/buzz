@@ -104,13 +104,13 @@ pub fn runFile(
     runner: *Runner,
     file_name: []const u8,
     args: []const []const u8,
-) !void {
+) !u8 {
     var file = (if (std.fs.path.isAbsolute(file_name))
         std.Io.Dir.openFileAbsolute(runner.process.io, file_name, .{})
     else
         std.Io.Dir.cwd().openFile(runner.process.io, file_name, .{})) catch {
         bz_io.print(runner.process.io, "File not found", .{});
-        return;
+        return 1;
     };
     defer file.close(runner.process.io);
 
@@ -148,6 +148,8 @@ pub fn runFile(
     } else {
         return Parser.CompileError.Recoverable;
     }
+
+    return runner.vm.exit_code;
 }
 
 /// Evaluate source using the current parser and vm state and return the value produced if any
