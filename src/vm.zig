@@ -4536,18 +4536,19 @@ pub const VM = struct {
         var frame = current_frame;
 
         const node = self.readInstruction(frame);
+        const function_ast = frame.closure.function.chunk.ast;
 
-        self.current_ast.nodes.items(.count)[node] += 1;
+        function_ast.nodes.items(.count)[node] += 1;
 
-        if (self.shouldCompileHotspot(node)) {
+        if (self.shouldCompileHotspot(function_ast, node)) {
             self.jit.?.compile(
-                self.current_ast,
+                function_ast,
                 frame.closure,
                 node,
             ) catch {};
         }
 
-        if (self.current_ast.nodes.items(.compiled)[node]) |native| {
+        if (function_ast.nodes.items(.compiled)[node]) |native| {
             const obj_native = self.gc.allocateObject(
                 obj.ObjNative{
                     .native = native,
@@ -4571,7 +4572,7 @@ pub const VM = struct {
                     self.process.io,
                     "Compiled hotspot {s} in function `{s}`\n",
                     .{
-                        @tagName(self.current_ast.nodes.items(.tag)[node]),
+                        @tagName(function_ast.nodes.items(.tag)[node]),
                         frame.closure.function.type_def.resolved_type.?.Function.name.string,
                     },
                 );
@@ -4588,7 +4589,7 @@ pub const VM = struct {
 
             // Patch bytecode to replace hotspot with function call
             self.patchHotspot(
-                self.current_ast.nodes.items(.location)[node],
+                function_ast.nodes.items(.location)[node],
                 frame.closure.function.chunk.constants.items.len - 1,
                 end_ip,
             ) catch {
@@ -5004,7 +5005,7 @@ pub const VM = struct {
             // TODO: figure out threshold strategy
             if (self.shouldCompileFunction(closure)) {
                 var success = true;
-                jit.compile(self.current_ast, closure, null) catch |err| {
+                jit.compile(closure.function.chunk.ast, closure, null) catch |err| {
                     if (err == Error.CantCompile) {
                         success = false;
                     } else {
@@ -5516,6 +5517,7 @@ pub const VM = struct {
 
     fn shouldCompileFunction(self: *Self, closure: *obj.ObjClosure) bool {
         const function_type = closure.function.type_def.resolved_type.?.Function.function_type;
+        const function_ast = closure.function.chunk.ast;
 
         switch (function_type) {
             .Extern,
@@ -5527,8 +5529,8 @@ pub const VM = struct {
             else => {},
         }
 
-        return self.current_ast.nodes.items(.jit_status)[closure.function.node] == .compilable and
-            self.current_ast.nodes.items(.compiled)[closure.function.node] == null and
+        return function_ast.nodes.items(.jit_status)[closure.function.node] == .compilable and
+            function_ast.nodes.items(.compiled)[closure.function.node] == null and
             self.jit != null and
             (
                 // Always on
@@ -5537,13 +5539,13 @@ pub const VM = struct {
                     (closure.function.call_count > 10 and (@as(f128, @floatFromInt(closure.function.call_count)) / @as(f128, @floatFromInt(self.jit.?.call_count))) > BuildOptions.jit_prof_threshold));
     }
 
-    fn shouldCompileHotspot(self: *Self, node: Ast.Node.Index) bool {
-        const count = self.current_ast.nodes.items(.count)[node];
+    fn shouldCompileHotspot(self: *Self, ast: Ast.Slice, node: Ast.Node.Index) bool {
+        const count = ast.nodes.items(.count)[node];
 
         return BuildOptions.jit_hotspot_on and
             // Marked as compilable
-            self.current_ast.nodes.items(.jit_status)[node] == .compilable and
-            self.current_ast.nodes.items(.compiled)[node] == null and
+            ast.nodes.items(.jit_status)[node] == .compilable and
+            ast.nodes.items(.compiled)[node] == null and
             self.jit != null and
             // JIT compile all the thing?
             (

@@ -281,12 +281,16 @@ fn work(self: *Self) Error!void {
 }
 
 fn doJob(self: *Self, job: *const Job) Error!void {
-    // Remember we need to set this functions fields
-    try self.objclosures_queue.put(
-        self.gc.allocator,
-        job.node,
-        job.closure,
-    );
+    // Remember we need to set this function's fields. Hotspot jobs are tied to
+    // a closure for context, but their native code belongs to the AST node, not
+    // to the enclosing function.
+    if (!job.ast.nodes.items(.tag)[job.node].isHotspot()) {
+        try self.objclosures_queue.put(
+            self.gc.allocator,
+            job.node,
+            job.closure,
+        );
+    }
 
     // Build the function
     try self.buildFunction(job.ast, job.closure, job.node);

@@ -49,7 +49,7 @@ test "Boxed.q again" {
     std\assert(boxed.q([ "one", "two", "three" ]).integer() == 3);
 }
 
-test "Circular ref?" {
+test "Old bug with incorrect circular reference error" {
     final data = mut {
         "hello": "world",
         "section": mut [
@@ -63,4 +63,26 @@ test "Circular ref?" {
     };
 
     _ = serialize\Boxed.init(data);
+}
+
+test "Crash of mapNext" {
+    final data = serialize\Boxed.init(
+        mut {
+            "fruit": mut [
+                mut {
+                    "name": "apple",
+                    "variety": mut [
+                        mut {
+                            "name": "red delicious",
+                        },
+                        mut {
+                            "name": "granny smith",
+                        },
+                    ],
+                },
+            ],
+        },
+    );
+
+    std\assert(data.q([ "fruit", 0, "name" ]).string() == "apple");
 }
