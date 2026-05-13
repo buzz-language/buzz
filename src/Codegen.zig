@@ -965,7 +965,7 @@ fn generateCall(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj
 
                 if (self.current.?.function.?.type_def.resolved_type.?.Function.error_types) |handled_types| {
                     for (handled_types) |handled_type| {
-                        if (error_type.eql(handled_type)) {
+                        if (handled_type.eql(error_type)) {
                             handled = true;
                             break;
                         }
@@ -2767,7 +2767,7 @@ fn generateThrow(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*ob
     var found_match = false;
     if (current_error_types != null) {
         for (current_error_types.?) |error_type| {
-            if (error_type.eql(expression_type_def)) {
+            if (expression_type_def.eql(error_type)) {
                 found_match = true;
                 break;
             }
