@@ -4545,12 +4545,10 @@ pub const VM = struct {
 
         function_ast.nodes.items(.count)[node] += 1;
 
-        if (self.shouldCompileHotspot(function_ast, node)) {
-            self.jit.?.compile(
-                function_ast,
-                frame.closure,
-                node,
-            ) catch {};
+        if (BuildOptions.jit and BuildOptions.jit_hotspot and self.jit != null) {
+            self.jit.?.compileHotspotIfNeeded(function_ast, frame.closure, node) catch {
+                // FIXME: what to do?
+            };
         }
 
         if (function_ast.nodes.items(.compiled)[node]) |native| {
@@ -4571,17 +4569,6 @@ pub const VM = struct {
                 unreachable;
             };
             obj_native.mark(self.gc);
-
-            if (BuildOptions.jit_debug) {
-                print(
-                    self.process.io,
-                    "Compiled hotspot {s} in function `{s}`\n",
-                    .{
-                        @tagName(function_ast.nodes.items(.tag)[node]),
-                        frame.closure.function.type_def.resolved_type.?.Function.name.string,
-                    },
-                );
-            }
 
             // The now compile hotspot must be a new constant for the current function
             frame.closure.function.chunk.constants.append(
@@ -5013,54 +5000,15 @@ pub const VM = struct {
     }
 
     fn compileAndCall(self: *Self, closure: *obj.ObjClosure, arg_count: u8, catch_value: ?Value) Error!bool {
-        var native = closure.function.native;
-        if (self.jit) |*jit| {
-            jit.call_count += 1;
-            // Do we need to jit the function?
-            // TODO: figure out threshold strategy
-            if (self.shouldCompileFunction(closure)) {
-                var success = true;
-                jit.compile(closure.function.chunk.ast, closure, null) catch |err| {
-                    if (err == Error.CantCompile) {
-                        success = false;
-                    } else {
-                        return err;
-                    }
-                };
-
-                if (BuildOptions.jit_debug and success) {
-                    print(
-                        self.process.io,
-                        "Compiled function `{s}`\n",
-                        .{
-                            closure.function.type_def.resolved_type.?.Function.name.string,
-                        },
-                    );
-                }
-
-                if (success) {
-                    native = closure.function.native;
-                }
-            }
-        }
-
-        // Is there a compiled version of it?
-        if (native != null) {
-            // if (BuildOptions.jit_debug) {
-            //     print(
-            //         self.process.io,
-            //         "Calling compiled version of function `{s}.{}.n{}`\n",
-            //         .{
-            //             closure.function.type_def.resolved_type.?.Function.name.string,
-            //             self.current_ast.nodes.items(.components)[closure.function.node].Function.id,
-            //             closure.function.node,
-            //         },
-            //     );
-            // }
-
+        if (closure.function.native orelse
+            if (BuildOptions.jit and self.jit != null and try self.jit.?.compileFunctionIfNeeded(closure))
+                closure.function.native
+            else
+                closure.function.native) |native|
+        {
             try self.callCompiled(
                 closure,
-                @ptrCast(@alignCast(native.?)),
+                @ptrCast(@alignCast(native)),
                 arg_count,
                 catch_value,
             );
@@ -5072,7 +5020,7 @@ pub const VM = struct {
     }
 
     fn call(self: *Self, closure: *obj.ObjClosure, arg_count: u8, catch_value: ?Value) Error!void {
-        closure.function.call_count += 1;
+        if (closure.function.native == null) closure.function.call_count += 1;
 
         if (BuildOptions.recursive_call_limit) |recursive_call_limit| {
             // If recursive call, update counter
@@ -5547,48 +5495,6 @@ pub const VM = struct {
         return created_upvalue;
     }
 
-    fn shouldCompileFunction(self: *Self, closure: *obj.ObjClosure) bool {
-        const function_type = closure.function.type_def.resolved_type.?.Function.function_type;
-        const function_ast = closure.function.chunk.ast;
-
-        switch (function_type) {
-            .Extern,
-            .Script,
-            .ScriptEntryPoint,
-            .EntryPoint,
-            .Repl,
-            => return false,
-            else => {},
-        }
-
-        return function_ast.nodes.items(.jit_status)[closure.function.node] == .compilable and
-            function_ast.nodes.items(.compiled)[closure.function.node] == null and
-            self.jit != null and
-            (
-                // Always on
-                BuildOptions.jit_always_on or
-                    // Threshold reached
-                    (closure.function.call_count > 10 and
-                        (@as(f64, @floatFromInt(closure.function.call_count)) / @as(f64, @floatFromInt(self.jit.?.call_count))) > BuildOptions.jit_prof_threshold));
-    }
-
-    fn shouldCompileHotspot(self: *Self, ast: Ast.Slice, node: Ast.Node.Index) bool {
-        const count = ast.nodes.items(.count)[node];
-
-        return BuildOptions.jit_hotspot_on and
-            // Marked as compilable
-            ast.nodes.items(.jit_status)[node] == .compilable and
-            ast.nodes.items(.compiled)[node] == null and
-            self.jit != null and
-            // JIT compile all the thing?
-            (
-                // Always compile
-                BuildOptions.jit_always_on or BuildOptions.jit_hotspot_always_on or
-                    // Threshold reached
-                    (count > 10 and
-                        (@as(f64, @floatFromInt(count)) / @as(f64, @floatFromInt(self.hotspots_count))) > BuildOptions.jit_prof_threshold));
-    }
-
     fn patchHotspot(
         self: *Self,
         location: Ast.TokenIndex,
@@ -5623,6 +5529,7 @@ pub const VM = struct {
         );
 
         const hotspot_call_start = to - hotspot_call.len;
+        try chunk.addCompiledHotspotRange(frame.ip - 1, hotspot_call_start);
 
         // In the event that we are in a nested loop, we put a jump instruction in place of OP_HOTSPOT
         chunk.code.items[frame.ip - 2] = (@as(u32, @intCast(@intFromEnum(Chunk.OpCode.OP_JUMP))) << 24) | @as(

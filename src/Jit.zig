@@ -141,6 +141,8 @@ objclosures_queue: std.AutoHashMapUnmanaged(Ast.Node.Index, *o.ObjClosure) = .em
 required_ext_api: std.AutoHashMapUnmanaged(ExternApi, void) = .empty,
 /// Modules to load when linking/generating
 modules: std.ArrayList(m.MIR_module_t) = .empty,
+/// Amount of time passed in JIT
+duration: std.Io.Duration = .fromMilliseconds(0),
 
 pub fn init(process: Init, gc: *GC) Error!Self {
     return .{
@@ -173,6 +175,97 @@ pub fn deinit(self: *Self) void {
     self.required_ext_api.deinit(self.gc.allocator);
     self.modules.deinit(self.gc.allocator);
     m.MIR_finish(self.ctx);
+}
+
+pub fn compileFunctionIfNeeded(self: *Self, closure: *o.ObjClosure) StartError!bool {
+    self.call_count += 1;
+
+    switch (closure.function.type_def.resolved_type.?.Function.function_type) {
+        .Extern,
+        .Script,
+        .ScriptEntryPoint,
+        .EntryPoint,
+        .Repl,
+        => return false,
+        else => {},
+    }
+
+    const function_ast = closure.function.chunk.ast;
+
+    if (function_ast.nodes.items(.jit_status)[closure.function.node] != .compilable or
+        function_ast.nodes.items(.compiled)[closure.function.node] != null)
+    {
+        return false;
+    }
+
+    if (BuildOptions.jit_always_on or closure.function.call_count > BuildOptions.jit_call_threshold) {
+        const score = closure.function.call_count * closure.function.chunk.score();
+        if (score == 0) {
+            function_ast.nodes.items(.jit_status)[closure.function.node] = .blacklisted;
+
+            if (BuildOptions.jit_debug) {
+                log.info(
+                    "Blacklisted function `{s}` for JIT compilation",
+                    .{
+                        closure.function.type_def.resolved_type.?.Function.name.string,
+                    },
+                );
+            }
+
+            return false;
+        }
+
+        if (BuildOptions.jit_always_on or score > BuildOptions.jit_score_threshold) {
+            self.compile(function_ast, closure, null) catch |err| {
+                if (err == Error.CantCompile) {
+                    return false;
+                } else {
+                    return err;
+                }
+            };
+
+            return true;
+        }
+    }
+
+    return false;
+}
+
+pub fn compileHotspotIfNeeded(self: *Self, ast: Ast.Slice, frame_closure: *o.ObjClosure, node: Ast.Node.Index) StartError!void {
+    if (ast.nodes.items(.jit_status)[node] != .compilable or
+        ast.nodes.items(.compiled)[node] != null)
+    {
+        return;
+    }
+
+    if (BuildOptions.jit_hotspot_always_on or ast.nodes.items(.count)[node] > BuildOptions.jit_hotspot_threshold) {
+        const score = ast.nodes.items(.count)[node] * try ast.score(self.gc.allocator, node);
+        if (score == 0) {
+            ast.nodes.items(.jit_status)[node] = .blacklisted;
+
+            if (BuildOptions.jit_debug) {
+                log.info(
+                    "Blacklisted hotspot {} ({s}) for JIT compilation",
+                    .{
+                        node,
+                        @tagName(ast.nodes.items(.tag)[node]),
+                    },
+                );
+            }
+
+            return;
+        }
+
+        if (BuildOptions.jit_hotspot_always_on or score > BuildOptions.jit_hotspot_score_threshold) {
+            self.compile(ast, frame_closure, node) catch |err| {
+                if (err == Error.CantCompile) {
+                    return;
+                } else {
+                    return err;
+                }
+            };
+        }
+    }
 }
 
 pub fn compile(self: *Self, ast: Ast.Slice, closure: *o.ObjClosure, hotspot_node: ?Ast.Node.Index) StartError!void {
@@ -258,13 +351,24 @@ pub fn start(self: *Self) StartError!void {
 fn work(self: *Self) Error!void {
     while (self.jobs.front()) |job| {
         if (BuildOptions.jit_debug) {
-            log.debug(
-                "Worker starting job for node {} and closure {*}",
-                .{
-                    job.node,
-                    job.closure,
-                },
-            );
+            if (job.node == job.closure.function.node)
+                log.info(
+                    "Worker starting for compiling function `{s}` with score {}",
+                    .{
+                        job.closure.function.type_def.resolved_type.?.Function.name.string,
+                        job.closure.function.call_count * job.closure.function.chunk.complexity_score.?,
+                    },
+                )
+            else
+                log.info(
+                    "Worker starting for hostpot node {} ({s}) witch score {} in function `{s}`",
+                    .{
+                        job.node,
+                        @tagName(job.ast.nodes.items(.tag)[job.node]),
+                        job.ast.nodes.items(.count)[job.node] * job.ast.nodes.items(.complexity_score)[job.node].?,
+                        job.closure.function.type_def.resolved_type.?.Function.name.string,
+                    },
+                );
         }
 
         try self.doJob(job);
@@ -281,6 +385,32 @@ fn work(self: *Self) Error!void {
 }
 
 fn doJob(self: *Self, job: *const Job) Error!void {
+    var start_timestamp = std.Io.Clock.Timestamp.now(self.process.io, .awake);
+    defer if (BuildOptions.jit_debug or BuildOptions.show_perf) {
+        const time = start_timestamp.untilNow(self.process.io).raw.toMilliseconds();
+
+        if (job.node == job.closure.function.node)
+            log.info(
+                "Finished job function `{s}` with score {} in {}ms",
+                .{
+                    job.closure.function.type_def.resolved_type.?.Function.name.string,
+                    job.closure.function.call_count * job.closure.function.chunk.complexity_score.?,
+                    time,
+                },
+            )
+        else
+            log.info(
+                "Finished job for hostpot node {} ({s}) witch score {} in function `{s}` in {}ms",
+                .{
+                    job.node,
+                    @tagName(job.ast.nodes.items(.tag)[job.node]),
+                    job.ast.nodes.items(.count)[job.node] * job.ast.nodes.items(.complexity_score)[job.node].?,
+                    job.closure.function.type_def.resolved_type.?.Function.name.string,
+                    time,
+                },
+            );
+    };
+
     // Remember we need to set this function's fields. Hotspot jobs are tied to
     // a closure for context, but their native code belongs to the AST node, not
     // to the enclosing function.
@@ -481,35 +611,6 @@ fn buildFunction(self: *Self, ast: Ast.Slice, closure: ?*o.ObjClosure, ast_node:
     try self.modules.append(self.gc.allocator, module);
 
     self.state.?.module = module;
-    if (BuildOptions.jit_debug) {
-        if (closure) |uclosure| {
-            log.debug(
-                "Compiling function `{s}` because it was called {}/{} times\n",
-                .{
-                    qualified_name,
-                    uclosure.function.call_count,
-                    self.call_count,
-                },
-            );
-        } else {
-            if (tag.isHotspot()) {
-                log.debug(
-                    "Compiling hotspot for node {s} {}\n",
-                    .{
-                        @tagName(self.state.?.ast.nodes.items(.tag)[ast_node]),
-                        ast_node,
-                    },
-                );
-            } else {
-                log.debug(
-                    "Compiling closure `{s}`\n",
-                    .{
-                        qualified_name,
-                    },
-                );
-            }
-        }
-    }
 
     _ = (if (tag.isHotspot())
         self.generateHotspotFunction(ast_node)
@@ -7293,6 +7394,11 @@ fn REG(self: *Self, name: [*:0]const u8, reg_type: m.MIR_type_t) !m.MIR_reg_t {
 }
 
 fn outputModule(self: *Self, name: []const u8, module: m.MIR_module_t) void {
+    std.Io.Dir.cwd().access(self.process.io, "./dist/gen", .{ .read = true }) catch {
+        std.Io.Dir.cwd().createDirPath(self.process.io, "./dist/gen") catch
+            @panic("Could not create debug path to output MIR modules");
+    };
+
     // Output MIR code to .mir file
     var debug_path = std.Io.Writer.Allocating.init(self.gc.allocator);
     defer debug_path.deinit();
@@ -7302,7 +7408,7 @@ fn outputModule(self: *Self, name: []const u8, module: m.MIR_module_t) void {
         .{
             name,
         },
-    ) catch unreachable;
+    ) catch @panic("Out of memory");
 
     const debug_file = std.c.fopen(
         @ptrCast(debug_path.written().ptr),

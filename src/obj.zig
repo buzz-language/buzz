@@ -1316,21 +1316,21 @@ pub const ObjFunction = struct {
     chunk: Chunk,
     upvalue_count: u8 = 0,
 
-    // So we can JIT the function at runtime
+    // Jit related stuff
+
+    /// So we can JIT the function at runtime
     node: Ast.Node.Index,
-    // How many time the function was called
+    /// How many time the function was called
     call_count: u32 = 0,
-
-    // JIT compiled function
+    /// JIT compiled function
     native_raw: ?*anyopaque = null,
-
-    // JIT compiled function callable by buzz VM
+    /// JIT compiled function callable by buzz VM
     native: ?*anyopaque = null,
 
     pub fn init(allocator: Allocator, ast: Ast.Slice, node: Ast.Node.Index) !Self {
-        return Self{
+        return .{
             .node = node,
-            .chunk = Chunk.init(allocator, ast),
+            .chunk = .init(allocator, ast),
         };
     }
 

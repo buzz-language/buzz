@@ -904,9 +904,9 @@ const BuildOptions = struct {
                     "jit_hotspot_always_on",
                     "JIT compiler will compile any hotspot encountered",
                 ) orelse false,
-                .hotspot_on = !is_wasm and b.option(
+                .hotspot = !is_wasm and b.option(
                     bool,
-                    "jit_hotspot_on",
+                    "jit_hotspot",
                     "JIT compiler will compile hotspot when threshold reached",
                 ) orelse true,
                 .on = !is_wasm and b.option(
@@ -919,11 +919,26 @@ const BuildOptions = struct {
                     "jit_asynchronous",
                     "JIT will work in a dedicated thread",
                 ) orelse false,
-                .prof_threshold = b.option(
-                    f32,
-                    "jit_prof_threshold",
-                    "Threshold to determine if a function is hot. If the numbers of calls to it makes this percentage of all calls, it's considered hot and will be JIT compiled.",
-                ) orelse 0.05,
+                .call_threshold = b.option(
+                    u16,
+                    "jit_call_threshold",
+                    "Call count threshold above which the function is being considered for JIT compilation.",
+                ) orelse 32,
+                .score_threshold = b.option(
+                    u16,
+                    "jit_score_threshold",
+                    "Complexity score threshold above which the function will be JIT compiled.",
+                ) orelse 1024,
+                .hotspot_threshold = b.option(
+                    u16,
+                    "jit_hotspot_threshold",
+                    "Loop count threshold above which aloop is being considered for JIT compilation.",
+                ) orelse 16,
+                .hotspot_score_threshold = b.option(
+                    u16,
+                    "jit_hotspot_score_threshold",
+                    "Complexity score threshold above which a loop node will be JIT compiled.",
+                ) orelse 1024,
             },
         };
     }
@@ -971,9 +986,12 @@ const BuildOptions = struct {
         on: bool,
         always_on: bool,
         hotspot_always_on: bool,
-        hotspot_on: bool,
+        hotspot: bool,
         debug: bool,
-        prof_threshold: f32 = 0.05,
+        call_threshold: u16 = 32,
+        score_threshold: u16 = 1024,
+        hotspot_threshold: u16 = 16,
+        hotspot_score_threshold: u16 = 1024,
         asynchronous: bool,
 
         pub fn step(self: JITOptions, options: *Build.Step.Options) void {
@@ -981,9 +999,12 @@ const BuildOptions = struct {
             options.addOption(@TypeOf(self.always_on), "jit_always_on", self.always_on);
             options.addOption(@TypeOf(self.hotspot_always_on), "jit_hotspot_always_on", self.hotspot_always_on);
             options.addOption(@TypeOf(self.on), "jit", self.on);
-            options.addOption(@TypeOf(self.prof_threshold), "jit_prof_threshold", self.prof_threshold);
-            options.addOption(@TypeOf(self.hotspot_on), "jit_hotspot_on", self.hotspot_on);
+            options.addOption(@TypeOf(self.call_threshold), "jit_call_threshold", self.call_threshold);
+            options.addOption(@TypeOf(self.score_threshold), "jit_score_threshold", self.score_threshold);
+            options.addOption(@TypeOf(self.hotspot), "jit_hotspot", self.hotspot);
             options.addOption(@TypeOf(self.asynchronous), "jit_asynchronous", self.asynchronous);
+            options.addOption(@TypeOf(self.hotspot_threshold), "jit_hotspot_threshold", self.hotspot_threshold);
+            options.addOption(@TypeOf(self.hotspot_score_threshold), "jit_hotspot_score_threshold", self.hotspot_threshold);
         }
     };
 
