@@ -347,7 +347,12 @@ pub const Slice = struct {
     const IsConstantContext = struct {
         result: ?bool = null,
 
-        pub fn processNode(self: *IsConstantContext, _: std.mem.Allocator, ast: Self.Slice, node: Self.Node.Index) (std.mem.Allocator.Error || std.fmt.BufPrintError)!bool {
+        pub fn processNode(
+            self: *IsConstantContext,
+            _: std.mem.Allocator,
+            ast: Self.Slice,
+            node: Self.Node.Index,
+        ) (std.mem.Allocator.Error || std.fmt.BufPrintError)!bool {
             switch (ast.nodes.items(.tag)[node]) {
                 .AnonymousObjectType,
                 .FiberType,
@@ -494,6 +499,58 @@ pub const Slice = struct {
         try self.walk(allocator, &ctx, node);
 
         return ctx.result orelse false;
+    }
+
+    /// Mirrors Chunk.score (even though Chunk.score and Node.score won't be comparable)
+    /// Is use to compute complexity of a hotspot node (which don't have a Chunk available to evaluate)
+    const ComplexityContext = struct {
+        score: usize = 0,
+
+        pub fn processNode(
+            ctx: *ComplexityContext,
+            _: std.mem.Allocator,
+            ast: Self.Slice,
+            node: Self.Node.Index,
+        ) (std.mem.Allocator.Error || std.fmt.BufPrintError)!bool {
+            if (ast.nodes.items(.complexity_score)[node]) |sc| {
+                ctx.score += sc;
+                return true; // Don't go deeper we already computed this node score
+            }
+
+            ctx.score += switch (ast.nodes.items(.tag)[node]) {
+                .AsyncCall,
+                .Resolve,
+                .Resume,
+                => { // Blacklist because of fiber use
+                    ctx.score = 0;
+                    return true;
+                },
+                .Call,
+                .DoUntil,
+                .For,
+                .ForEach,
+                .Throw,
+                .Try,
+                .While,
+                => @as(usize, @intCast(1)),
+                else => @as(usize, @intCast(0)),
+            } + 1; // At least 1 per node
+
+            return false;
+        }
+    };
+
+    pub fn score(self: Self.Slice, allocator: std.mem.Allocator, node: Node.Index) !usize {
+        const complexity_score = &self.nodes.items(.complexity_score)[node];
+        if (complexity_score.* == null) {
+            var ctx = ComplexityContext{};
+
+            try self.walk(allocator, &ctx, node);
+
+            complexity_score.* = ctx.score;
+        }
+
+        return complexity_score.* orelse 0;
     }
 
     fn binaryValue(self: Self.Slice, node: Node.Index, gc: *GC) !?Value {
@@ -990,26 +1047,25 @@ pub const Node = struct {
     end_location: TokenIndex,
     /// Docblock if any
     docblock: ?TokenIndex = null,
-
     /// If null, either its a statement or its a reference to something unknown that should ultimately raise a compile error
     type_def: ?*obj.ObjTypeDef = null,
     /// Wether optional jumps must be patch before generate this node bytecode
     patch_opt_jumps: bool = false,
     /// Does this node closes a scope
     ends_scope: ?[]const Close = null,
-
     /// Data related to this node
     components: Components,
-
     /// To avoid generating a node const value multiple times
     value: ?Value = null,
 
+    // JIT related metdata
+
     /// How many time it was visited at runtime (used to decide wether its a hotspot that needs to be compiled)
     count: usize = 0,
-
-    /// Wether its blacklisted
+    /// Complexity score computed once to help evaluate if the node is worth JIT compiling
+    complexity_score: ?usize = null,
+    /// Node status: blacklisted, queued for compilation, compiled, compilable
     jit_status: JitStatus = .compilable,
-
     /// Once compiled
     compiled: ?*anyopaque = null,
 

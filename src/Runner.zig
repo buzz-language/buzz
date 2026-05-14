@@ -24,6 +24,8 @@ const disassembler = @import("disassembler.zig");
 
 const Runner = @This();
 
+const log = std.log.scoped(.runner);
+
 process: Init,
 vm: VM,
 gc: GC,
@@ -118,6 +120,17 @@ pub fn runFile(
     defer if (runner.vm.debugger == null) runner.gc.allocator.free(source);
 
     _ = try file.readPositionalAll(runner.process.io, source, 0);
+
+    var start_timestamp = std.Io.Clock.Timestamp.now(runner.process.io, .awake);
+    defer if (BuildOptions.show_perf) {
+        log.info(
+            "Ran file {s} in {}ms",
+            .{
+                file_name,
+                start_timestamp.untilNow(runner.process.io).raw.toMilliseconds(),
+            },
+        );
+    };
 
     if (try runner.parser.parse(source, null, file_name)) |ast| {
         if (runner.vm.flavor != .Fmt) {

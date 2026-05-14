@@ -13,6 +13,10 @@ code: std.ArrayList(u32) = .empty,
 locations: std.ArrayList(Ast.TokenIndex) = .empty,
 /// List of constants defined in this chunk
 constants: std.ArrayList(Value) = .empty,
+/// Ranges of bytecode skipped by compiled hotspots
+compiled_hotspot_ranges: std.ArrayList(InstructionRange) = .empty,
+/// Complexity score computed once to help evaluate if the chunk is worth JIT compiling
+complexity_score: ?u32 = null,
 
 pub fn init(allocator: std.mem.Allocator, ast: Ast.Slice) Self {
     return Self{
@@ -25,6 +29,7 @@ pub fn deinit(self: *Self) void {
     self.code.deinit(self.allocator);
     self.constants.deinit(self.allocator);
     self.locations.deinit(self.allocator);
+    self.compiled_hotspot_ranges.deinit(self.allocator);
 }
 
 pub fn write(self: *Self, code: u32, where: Ast.TokenIndex) !void {
@@ -38,6 +43,94 @@ pub fn addConstant(self: *Self, vm: ?*VM, value: Value) !u24 {
     if (vm) |uvm| _ = uvm.pop();
 
     return @intCast(self.constants.items.len - 1);
+}
+
+/// Compute a basic complexity score based on size and presence "costly" opcodes
+pub fn score(self: *Self) u32 {
+    if (self.complexity_score) |sc| return sc;
+
+    var complexity_score: u32 = 0;
+
+    for (self.code.items, 0..) |op, index| {
+        if (self.isInCompiledHotspotRange(index)) {
+            continue;
+        }
+
+        complexity_score += 1;
+
+        switch (VM.getCode(op)) {
+            .OP_HOTSPOT, // Those cover any loop
+            .OP_CALL,
+            .OP_TAIL_CALL,
+            .OP_CALL_INSTANCE_PROPERTY,
+            .OP_TAIL_CALL_INSTANCE_PROPERTY,
+            .OP_INSTANCE_INVOKE,
+            .OP_INSTANCE_TAIL_INVOKE,
+            .OP_PROTOCOL_INVOKE,
+            .OP_PROTOCOL_TAIL_INVOKE,
+            .OP_TRY,
+            .OP_TRY_END,
+            .OP_THROW,
+            => complexity_score += 1,
+            .OP_FIBER_FOREACH,
+            .OP_RESUME,
+            .OP_RESOLVE,
+            => return 0, // A chunk with fiber op codes will not be compiled so the score is 0
+            else => {},
+        }
+    }
+
+    self.complexity_score = complexity_score;
+
+    return complexity_score;
+}
+
+pub fn addCompiledHotspotRange(self: *Self, start: usize, end: usize) !void {
+    if (start >= end) {
+        return;
+    }
+
+    var merged = InstructionRange{
+        .start = start,
+        .end = end,
+    };
+
+    var index: usize = 0;
+    while (index < self.compiled_hotspot_ranges.items.len) {
+        const range = self.compiled_hotspot_ranges.items[index];
+
+        if (merged.end < range.start) {
+            try self.compiled_hotspot_ranges.insert(self.allocator, index, merged);
+            self.complexity_score = null;
+            return;
+        }
+
+        if (merged.start > range.end) {
+            index += 1;
+            continue;
+        }
+
+        merged.start = @min(merged.start, range.start);
+        merged.end = @max(merged.end, range.end);
+        _ = self.compiled_hotspot_ranges.orderedRemove(index);
+    }
+
+    try self.compiled_hotspot_ranges.append(self.allocator, merged);
+    self.complexity_score = null;
+}
+
+fn isInCompiledHotspotRange(self: *const Self, index: usize) bool {
+    for (self.compiled_hotspot_ranges.items) |range| {
+        if (index < range.start) {
+            return false;
+        }
+
+        if (index >= range.start and index < range.end) {
+            return true;
+        }
+    }
+
+    return false;
 }
 
 pub const OpCode = enum(u8) {
@@ -184,6 +277,11 @@ pub const OpCode = enum(u8) {
 const Self = @This();
 
 pub const max_constants = std.math.maxInt(u24);
+
+const InstructionRange = struct {
+    start: usize,
+    end: usize,
+};
 
 const RegistryContext = struct {
     pub fn hash(_: RegistryContext, key: Self) u64 {
