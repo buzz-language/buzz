@@ -5568,7 +5568,8 @@ pub const VM = struct {
                 // Always on
                 BuildOptions.jit_always_on or
                     // Threshold reached
-                    (closure.function.call_count > 10 and (@as(f128, @floatFromInt(closure.function.call_count)) / @as(f128, @floatFromInt(self.jit.?.call_count))) > BuildOptions.jit_prof_threshold));
+                    (closure.function.call_count > 10 and
+                        (@as(f64, @floatFromInt(closure.function.call_count)) / @as(f64, @floatFromInt(self.jit.?.call_count))) > BuildOptions.jit_prof_threshold));
     }
 
     fn shouldCompileHotspot(self: *Self, ast: Ast.Slice, node: Ast.Node.Index) bool {
@@ -5584,7 +5585,8 @@ pub const VM = struct {
                 // Always compile
                 BuildOptions.jit_always_on or BuildOptions.jit_hotspot_always_on or
                     // Threshold reached
-                    (count > 10 and (@as(f128, @floatFromInt(count)) / @as(f128, @floatFromInt(self.hotspots_count))) > BuildOptions.jit_prof_threshold));
+                    (count > 10 and
+                        (@as(f64, @floatFromInt(count)) / @as(f64, @floatFromInt(self.hotspots_count))) > BuildOptions.jit_prof_threshold));
     }
 
     fn patchHotspot(

@@ -11,6 +11,8 @@ const Reporter = @import("Reporter.zig");
 const is_wasm = builtin.cpu.arch.isWasm();
 const TypeRegistry = @import("TypeRegistry.zig");
 
+const log = std.log.scoped(.gc);
+
 // Sticky Mark Bits Generational GC basic idea:
 // 1. First GC: do a normal mark, don't clear `marked` at the end
 // 2. Young GC:
@@ -150,7 +152,7 @@ pub fn allocate(self: *GC, comptime T: type) !*T {
     const allocated = try self.allocator.create(T);
 
     if (BuildOptions.gc_debug) {
-        std.log.info(
+        log.info(
             "Allocated @{} {} for {B} (now {B}/{B})",
             .{
                 @intFromPtr(allocated),
@@ -249,7 +251,7 @@ pub fn copyString(self: *GC, chars: []const u8) !*o.ObjString {
     std.mem.copyForwards(u8, copy, chars);
 
     if (BuildOptions.gc_debug) {
-        std.log.info("Allocated slice {*} `{s}`", .{ copy, copy });
+        log.info("Allocated slice {*} `{s}`", .{ copy, copy });
     }
 
     return try allocateString(self, copy);
@@ -257,14 +259,14 @@ pub fn copyString(self: *GC, chars: []const u8) !*o.ObjString {
 
 fn free(self: *GC, comptime T: type, pointer: *T) void {
     if (BuildOptions.gc_debug) {
-        std.log.info("Going to free {*}", .{pointer});
+        log.info("Going to free {*}", .{pointer});
     }
 
     self.bytes_allocated -= @sizeOf(T);
     self.allocator.destroy(pointer);
 
     if (BuildOptions.gc_debug) {
-        std.log.info(
+        log.info(
             "(from {B}), collected {B}, {B} allocated",
             .{
                 self.bytes_allocated + @sizeOf(T),
@@ -277,7 +279,7 @@ fn free(self: *GC, comptime T: type, pointer: *T) void {
 
 fn freeMany(self: *GC, comptime T: type, pointer: []const T) void {
     if (BuildOptions.gc_debug) {
-        std.log.info("Going to free slice {*} `{s}`", .{ pointer, pointer });
+        log.info("Going to free slice {*} `{s}`", .{ pointer, pointer });
     }
 
     const n: usize = (@sizeOf(T) * pointer.len);
@@ -285,7 +287,7 @@ fn freeMany(self: *GC, comptime T: type, pointer: []const T) void {
     self.allocator.free(pointer);
 
     if (BuildOptions.gc_debug) {
-        std.log.info(
+        log.info(
             "(from {B}), collected {B}, {B} allocated",
             .{
                 self.bytes_allocated + n,
@@ -309,7 +311,7 @@ pub fn markObjDirty(self: *GC, obj: *o.Obj) !void {
 pub fn markObj(self: *GC, obj: *o.Obj) !void {
     if (obj.marked or self.obj_collected == obj) {
         if (BuildOptions.gc_debug) {
-            std.log.info(
+            log.info(
                 "{*} {s} already marked or old",
                 .{
                     obj,
@@ -321,7 +323,7 @@ pub fn markObj(self: *GC, obj: *o.Obj) !void {
     }
 
     if (BuildOptions.gc_debug) {
-        std.log.info(
+        log.info(
             "marking {*}: `{s}`",
             .{
                 obj,
@@ -346,7 +348,7 @@ pub fn markObj(self: *GC, obj: *o.Obj) !void {
 
 fn blackenObject(self: *GC, obj: *o.Obj) !void {
     if (BuildOptions.gc_debug) {
-        std.log.info(
+        log.info(
             "blackening @{} {}",
             .{
                 @intFromPtr(obj),
@@ -375,7 +377,7 @@ fn blackenObject(self: *GC, obj: *o.Obj) !void {
     };
 
     if (BuildOptions.gc_debug) {
-        std.log.info(
+        log.info(
             "done blackening @{} {}",
             .{
                 @intFromPtr(obj),
@@ -387,7 +389,7 @@ fn blackenObject(self: *GC, obj: *o.Obj) !void {
 
 fn freeObj(self: *GC, obj: *o.Obj) (std.mem.Allocator.Error || std.fmt.BufPrintError)!void {
     if (BuildOptions.gc_debug) {
-        std.log.info(
+        log.info(
             ">> freeing {} {}",
             .{
                 @intFromPtr(obj),
@@ -429,7 +431,7 @@ fn freeObj(self: *GC, obj: *o.Obj) (std.mem.Allocator.Error || std.fmt.BufPrintE
                 if (registered_obj == obj_typedef) {
                     _ = self.type_registry.registry.remove(hash);
                     if (BuildOptions.gc_debug) {
-                        std.log.info(
+                        log.info(
                             "Removed registered type @{} #{} `{s}`",
                             .{
                                 @intFromPtr(registered_obj),
@@ -439,7 +441,7 @@ fn freeObj(self: *GC, obj: *o.Obj) (std.mem.Allocator.Error || std.fmt.BufPrintE
                         );
                     }
                 } else {
-                    // std.log.info(
+                    // log.info(
                     //     "ObjTypeDef {*} `{s}` was allocated outside of type registry\n",
                     //     .{
                     //         obj_typedef,
@@ -572,19 +574,19 @@ pub fn markFiber(self: *GC, fiber: *v.Fiber) !void {
         try self.markObj(@constCast(ufiber.type_def.toObj()));
         // Mark main fiber
         if (BuildOptions.gc_debug) {
-            std.log.info("MARKING STACK OF FIBER @{}", .{@intFromPtr(ufiber)});
+            log.info("MARKING STACK OF FIBER @{}", .{@intFromPtr(ufiber)});
         }
         var i: [*]Value = @ptrCast(ufiber.stack);
         while (@intFromPtr(i) < @intFromPtr(ufiber.stack_top)) : (i += 1) {
             try self.markValue(i[0]);
         }
         if (BuildOptions.gc_debug) {
-            std.log.info("DONE MARKING STACK OF FIBER @{}", .{@intFromPtr(ufiber)});
+            log.info("DONE MARKING STACK OF FIBER @{}", .{@intFromPtr(ufiber)});
         }
 
         // Mark closure
         if (BuildOptions.gc_debug) {
-            std.log.info("MARKING FRAMES OF FIBER @{}", .{@intFromPtr(ufiber)});
+            log.info("MARKING FRAMES OF FIBER @{}", .{@intFromPtr(ufiber)});
         }
         for (ufiber.frames.items) |frame| {
             try self.markObj(frame.closure.toObj());
@@ -596,12 +598,12 @@ pub fn markFiber(self: *GC, fiber: *v.Fiber) !void {
             }
         }
         if (BuildOptions.gc_debug) {
-            std.log.info("DONE MARKING FRAMES OF FIBER @{}", .{@intFromPtr(ufiber)});
+            log.info("DONE MARKING FRAMES OF FIBER @{}", .{@intFromPtr(ufiber)});
         }
 
         // Mark opened upvalues
         if (BuildOptions.gc_debug) {
-            std.log.info("MARKING UPVALUES OF FIBER @{}", .{@intFromPtr(ufiber)});
+            log.info("MARKING UPVALUES OF FIBER @{}", .{@intFromPtr(ufiber)});
         }
         if (ufiber.open_upvalues) |open_upvalues| {
             var upvalue: ?*o.ObjUpValue = open_upvalues;
@@ -610,7 +612,7 @@ pub fn markFiber(self: *GC, fiber: *v.Fiber) !void {
             }
         }
         if (BuildOptions.gc_debug) {
-            std.log.info("DONE MARKING UPVALUES OF FIBER @{}", .{@intFromPtr(ufiber)});
+            log.info("DONE MARKING UPVALUES OF FIBER @{}", .{@intFromPtr(ufiber)});
         }
 
         current_fiber = ufiber.parent_fiber;
@@ -619,7 +621,7 @@ pub fn markFiber(self: *GC, fiber: *v.Fiber) !void {
 
 fn markMethods(self: *GC) !void {
     if (BuildOptions.gc_debug) {
-        std.log.info("MARKING BASIC TYPES METHOD", .{});
+        log.info("MARKING BASIC TYPES METHOD", .{});
     }
     // Mark basic types methods
     for (self.objfiber_members) |member| {
@@ -647,7 +649,7 @@ fn markMethods(self: *GC) !void {
     }
 
     if (BuildOptions.gc_debug) {
-        std.log.info("DONE MARKING BASIC TYPES METHOD", .{});
+        log.info("DONE MARKING BASIC TYPES METHOD", .{});
     }
 }
 
@@ -676,13 +678,13 @@ fn markRoots(self: *GC, vm: *v.VM) !void {
 
     // Mark globals
     if (BuildOptions.gc_debug) {
-        std.log.info("MARKING GLOBALS OF VM @{}", .{@intFromPtr(vm)});
+        log.info("MARKING GLOBALS OF VM @{}", .{@intFromPtr(vm)});
     }
     for (vm.globals.items) |global| {
         try self.markValue(global);
     }
     if (BuildOptions.gc_debug) {
-        std.log.info("DONE MARKING GLOBALS OF VM @{}", .{@intFromPtr(vm)});
+        log.info("DONE MARKING GLOBALS OF VM @{}", .{@intFromPtr(vm)});
     }
 
     // Mark ast constant values (some are only referenced by the JIT so might be collected before)
@@ -696,13 +698,13 @@ fn markRoots(self: *GC, vm: *v.VM) !void {
 
 fn traceReference(self: *GC) !void {
     if (BuildOptions.gc_debug) {
-        std.log.info("TRACING REFERENCE", .{});
+        log.info("TRACING REFERENCE", .{});
     }
     while (self.gray_stack.items.len > 0) {
         try blackenObject(self, self.gray_stack.pop().?);
     }
     if (BuildOptions.gc_debug) {
-        std.log.info("DONE TRACING REFERENCE", .{});
+        log.info("DONE TRACING REFERENCE", .{});
     }
 }
 
@@ -717,7 +719,7 @@ fn sweep(self: *GC, mode: Mode) !void {
         const marked = obj.marked;
         if (marked) {
             if (BuildOptions.gc_debug and mode == .Full) {
-                std.log.info(
+                log.info(
                     "UNMARKING @{}",
                     .{
                         @intFromPtr(
@@ -749,10 +751,10 @@ fn sweep(self: *GC, mode: Mode) !void {
 
     if (BuildOptions.gc_debug or BuildOptions.gc_debug_light) {
         if (swept < self.bytes_allocated) {
-            std.log.warn("Sweep gained memory, possibly due to an o.Object collector that takes up memory", .{});
+            log.warn("Sweep gained memory, possibly due to an o.Object collector that takes up memory", .{});
         }
 
-        std.log.info(
+        log.info(
             "Swept {} objects for {B}, now {B}",
             .{
                 obj_count,
@@ -779,7 +781,7 @@ pub fn collectGarbage(self: *GC) !void {
     const mode: Mode = if (self.bytes_allocated > self.next_full_gc and self.last_gc != null) .Full else .Young;
 
     if (BuildOptions.gc_debug or BuildOptions.gc_debug_light) {
-        std.log.info(
+        log.info(
             "-- gc starts mode {s}, {B}, {} objects",
             .{
                 @tagName(mode),
@@ -794,7 +796,7 @@ pub fn collectGarbage(self: *GC) !void {
         var vm = kv.key_ptr.*;
 
         if (BuildOptions.gc_debug) {
-            std.log.info(
+            log.info(
                 "Marking VM @{}, on fiber @{} and closure @{} (function @{} {s})",
                 .{
                     @intFromPtr(vm),
@@ -827,7 +829,7 @@ pub fn collectGarbage(self: *GC) !void {
     self.last_gc = mode;
 
     if (BuildOptions.gc_debug or BuildOptions.gc_debug_light) {
-        std.log.info(
+        log.info(
             "-- gc end, {B}, {} objects, next_gc {B}, next_full_gc {B}",
             .{
                 self.bytes_allocated,
@@ -975,7 +977,7 @@ pub const Debugger = struct {
                     },
                 );
             } else {
-                std.log.warn(
+                log.warn(
                     "Untracked obj {*}",
                     .{
                         ptr,

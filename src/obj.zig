@@ -1319,7 +1319,7 @@ pub const ObjFunction = struct {
     // So we can JIT the function at runtime
     node: Ast.Node.Index,
     // How many time the function was called
-    call_count: u128 = 0,
+    call_count: u32 = 0,
 
     // JIT compiled function
     native_raw: ?*anyopaque = null,

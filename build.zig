@@ -920,7 +920,7 @@ const BuildOptions = struct {
                     "JIT will work in a dedicated thread",
                 ) orelse false,
                 .prof_threshold = b.option(
-                    f128,
+                    f32,
                     "jit_prof_threshold",
                     "Threshold to determine if a function is hot. If the numbers of calls to it makes this percentage of all calls, it's considered hot and will be JIT compiled.",
                 ) orelse 0.05,
@@ -973,7 +973,7 @@ const BuildOptions = struct {
         hotspot_always_on: bool,
         hotspot_on: bool,
         debug: bool,
-        prof_threshold: f128 = 0.05,
+        prof_threshold: f32 = 0.05,
         asynchronous: bool,
 
         pub fn step(self: JITOptions, options: *Build.Step.Options) void {
