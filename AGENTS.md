@@ -32,7 +32,8 @@ FFI, Debugger, and LSP are immature. Treat changes there as higher risk.
 - Before editing, check the working tree.
 - If the working tree is clean, make the requested changes normally.
 - If the working tree only has untracked files, edits are allowed. Do not overwrite or delete unrelated untracked files.
-- If the working tree has tracked modifications or staged changes, continue investigation read-only, then show the diff you would have applied and say that no files were modified because the working copy was not clean.
+- If the working tree has tracked modifications or staged changes that were not initiated by the current agent/session, continue investigation read-only, then show the diff you would have applied and say that no files were modified because the working copy was not clean.
+- If tracked modifications were initiated by the current agent/session for the active task, the agent may continue editing those files and related files needed to finish the same task.
 - Do not overwrite or revert user changes.
 
 Agents may delete files they generated during their own work. Do not delete files that were already tracked by git.

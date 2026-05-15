@@ -122,6 +122,8 @@ ctx: m.MIR_context_t,
 call_count: usize = 0,
 /// Queue of things to compile
 jobs: SpscQueue(Job),
+/// Completed jobs ready to be published by the VM thread
+completed_jobs: SpscQueue(CompletedJob),
 /// Worker thread
 worker: ?std.Thread = null,
 /// To stop the worker,
@@ -150,6 +152,7 @@ pub fn init(process: Init, gc: *GC) Error!Self {
         .ctx = m.MIR_init(),
         .process = process,
         .jobs = try .initCapacity(gc.allocator, 256),
+        .completed_jobs = try .initCapacity(gc.allocator, 256),
     };
 }
 
@@ -166,10 +169,17 @@ fn reset(self: *Self) void {
 }
 
 pub fn deinit(self: *Self) void {
-    if (self.worker != null) {
-        self.worker.?.detach();
+    if (self.worker) |worker| {
+        while (!self.worker_stopped.load(.acquire)) {
+            self.publishCompleted();
+            std.atomic.spinLoopHint();
+        }
+        worker.join();
     }
+    self.publishCompleted();
+
     self.jobs.deinit(self.gc.allocator);
+    self.completed_jobs.deinit(self.gc.allocator);
     self.functions_queue.deinit(self.gc.allocator);
     self.objclosures_queue.deinit(self.gc.allocator);
     self.required_ext_api.deinit(self.gc.allocator);
@@ -178,6 +188,8 @@ pub fn deinit(self: *Self) void {
 }
 
 pub fn compileFunctionIfNeeded(self: *Self, closure: *o.ObjClosure) StartError!bool {
+    self.publishCompleted();
+
     self.call_count += 1;
 
     switch (closure.function.type_def.resolved_type.?.Function.function_type) {
@@ -232,6 +244,8 @@ pub fn compileFunctionIfNeeded(self: *Self, closure: *o.ObjClosure) StartError!b
 }
 
 pub fn compileHotspotIfNeeded(self: *Self, ast: Ast.Slice, frame_closure: *o.ObjClosure, node: Ast.Node.Index) StartError!void {
+    self.publishCompleted();
+
     if (ast.nodes.items(.jit_status)[node] != .compilable or
         ast.nodes.items(.compiled)[node] != null)
     {
@@ -323,7 +337,10 @@ pub fn compile(self: *Self, ast: Ast.Slice, closure: *o.ObjClosure, hotspot_node
         // If the worker is not working, start it again
         try self.start();
     } else {
-        try self.doJob(&job);
+        var completed_job = try self.doJob(&job);
+        defer completed_job.deinit(self.gc.allocator);
+
+        self.publishCompletedJob(&completed_job);
         self.reset();
     }
 }
@@ -349,7 +366,18 @@ pub fn start(self: *Self) StartError!void {
 }
 
 fn work(self: *Self) Error!void {
+    defer self.worker_stopped.store(true, .release);
+
     while (self.jobs.front()) |job| {
+        switch (job.ast.nodes.items(.jit_status)[job.node]) {
+            .blacklisted, .compiled => {
+                self.jobs.pop();
+                self.reset();
+                continue;
+            },
+            .queued, .compilable => {},
+        }
+
         if (BuildOptions.jit_debug) {
             if (job.node == job.closure.function.node)
                 log.info(
@@ -371,8 +399,17 @@ fn work(self: *Self) Error!void {
                 );
         }
 
-        try self.doJob(job);
+        const completed_job = self.doJob(job) catch |err| {
+            if (err != Error.CantCompile) {
+                return err;
+            }
 
+            self.jobs.pop();
+            self.reset();
+            continue;
+        };
+
+        self.completed_jobs.push(completed_job);
         self.jobs.pop();
         self.reset();
     }
@@ -380,11 +417,69 @@ fn work(self: *Self) Error!void {
     if (BuildOptions.jit_debug) {
         log.debug("Worker done", .{});
     }
-
-    self.worker_stopped.store(true, .release);
 }
 
-fn doJob(self: *Self, job: *const Job) Error!void {
+const GeneratedFunction = struct {
+    node: Ast.Node.Index,
+    closure: ?*o.ObjClosure,
+    native: ?*anyopaque,
+    native_raw: ?*anyopaque,
+};
+
+const CompletedJob = struct {
+    root_node: Ast.Node.Index,
+    ast: Ast.Slice,
+    functions: []GeneratedFunction,
+
+    fn deinit(self: *CompletedJob, allocator: std.mem.Allocator) void {
+        allocator.free(self.functions);
+    }
+};
+
+fn publishCompleted(self: *Self) void {
+    while (self.completed_jobs.front()) |completed_job| {
+        self.publishCompletedJob(completed_job);
+        completed_job.deinit(self.gc.allocator);
+        self.completed_jobs.pop();
+    }
+}
+
+fn publishCompletedJob(_: *Self, completed_job: *CompletedJob) void {
+    for (completed_job.functions) |generated| {
+        if (generated.closure) |closure| {
+            closure.function.native_raw = generated.native_raw;
+            closure.function.native = generated.native;
+        } else if (generated.node == completed_job.root_node) {
+            completed_job.ast.nodes.items(.compiled)[generated.node] = generated.native_raw;
+        }
+
+        completed_job.ast.nodes.items(.jit_status)[generated.node] = .compiled;
+    }
+}
+
+fn queueCollateralFunction(self: *Self, node: Ast.Node.Index, closure: ?*o.ObjClosure) Error!void {
+    if (self.state.?.ast.nodes.items(.compiled)[node] != null) {
+        return;
+    }
+
+    switch (self.state.?.ast.nodes.items(.jit_status)[node]) {
+        .blacklisted => return error.CantCompile,
+        .compiled => return,
+        .compilable, .queued => {},
+    }
+
+    if (closure) |uclosure| {
+        try self.objclosures_queue.put(self.gc.allocator, node, uclosure);
+    }
+
+    if (!self.functions_queue.contains(node)) {
+        try self.functions_queue.put(self.gc.allocator, node, null);
+    }
+
+    self.state.?.ast.nodes.items(.jit_status)[node] = .queued;
+}
+
+fn doJob(self: *Self, job: *const Job) Error!CompletedJob {
     var start_timestamp = std.Io.Clock.Timestamp.now(self.process.io, .awake);
     defer if (BuildOptions.jit_debug or BuildOptions.show_perf) {
         const time = start_timestamp.untilNow(self.process.io).raw.toMilliseconds();
@@ -463,24 +558,24 @@ fn doJob(self: *Self, job: *const Job) Error!void {
     m.MIR_gen_init(self.ctx);
     defer m.MIR_gen_finish(self.ctx);
 
-    // Generate all needed functions and set them in corresponding ObjFunctions
+    var generated_functions = std.ArrayList(GeneratedFunction).empty;
+    errdefer generated_functions.deinit(self.gc.allocator);
+
+    // Generate all needed functions before publishing them on the VM thread.
     var it2 = self.functions_queue.iterator();
     while (it2.next()) |kv| {
         const node = kv.key_ptr.*;
         const items = kv.value_ptr.*.?;
 
-        const native = if (items.native) |item| m.MIR_gen(self.ctx, item) else null;
-        const native_raw = if (items.native_raw) |item| m.MIR_gen(self.ctx, item) else null;
-
-        // Find out if we need to set it in closure or hostpot node
-        if (self.objclosures_queue.get(node)) |closure| {
-            closure.function.native = native;
-            closure.function.native_raw = native_raw;
-        } else if (node == job.node) {
-            job.ast.nodes.items(.compiled)[node] = native_raw;
-        }
-
-        job.ast.nodes.items(.jit_status)[node] = .compiled;
+        try generated_functions.append(
+            self.gc.allocator,
+            .{
+                .node = node,
+                .closure = self.objclosures_queue.get(node),
+                .native = if (items.native) |item| m.MIR_gen(self.ctx, item) else null,
+                .native_raw = if (items.native_raw) |item| m.MIR_gen(self.ctx, item) else null,
+            },
+        );
     }
 
     if (BuildOptions.jit_debug) {
@@ -492,13 +587,19 @@ fn doJob(self: *Self, job: *const Job) Error!void {
             },
         );
     }
+
+    return .{
+        .root_node = job.node,
+        .ast = job.ast,
+        .functions = try generated_functions.toOwnedSlice(self.gc.allocator),
+    };
 }
 
 fn getString(self: *Self, string: []const u8) Error!*o.ObjString {
-    return if (BuildOptions.jit_always_on)
+    return self.gc.strings.get(string) orelse if (BuildOptions.jit_always_on)
         try self.gc.copyString(string) // In this case, we did not run bytecode even once so strings are likely not interned
     else
-        self.gc.strings.get(string).?;
+        error.CantCompile;
 }
 
 fn loadRequiredExternalApi(self: *Self) Error!void {
@@ -624,10 +725,8 @@ fn buildFunction(self: *Self, ast: Ast.Slice, closure: ?*o.ObjClosure, ast_node:
             m.MIR_finish_func(self.ctx);
 
             _ = self.functions_queue.remove(ast_node);
-            if (closure) |uclosure| {
-                _ = self.objclosures_queue.remove(uclosure.function.node);
-                ast.nodes.items(.jit_status)[uclosure.function.node] = .blacklisted;
-            }
+            _ = self.objclosures_queue.remove(ast_node);
+            ast.nodes.items(.jit_status)[ast_node] = .blacklisted;
         }
 
         return err;
@@ -2013,20 +2112,7 @@ fn generateNamedVariable(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
                 // Get the actual Value as it is right now (which is correct since a function doesn't change)
                 const closure = o.ObjClosure.cast(self.state.?.closure.globals.items[components.slot].obj()).?;
 
-                // Does it need to be compiled?
-                switch (self.state.?.ast.nodes.items(.jit_status)[closure.function.node]) {
-                    .compilable => if (self.state.?.ast.nodes.items(.compiled)[closure.function.node] == null) {
-                        // Remember we need to set native fields of this ObjFunction later
-                        try self.objclosures_queue.put(self.gc.allocator, closure.function.node, closure);
-
-                        // Remember that we need to compile this function later
-                        try self.functions_queue.put(self.gc.allocator, closure.function.node, null);
-
-                        self.state.?.ast.nodes.items(.jit_status)[closure.function.node] = .queued;
-                    },
-                    .blacklisted => return error.CantCompile,
-                    .queued, .compiled => {},
-                }
+                try self.queueCollateralFunction(closure.function.node, closure);
 
                 return m.MIR_new_uint_op(self.ctx, closure.toValue().val);
             } else {
@@ -5092,13 +5178,7 @@ fn generateFunction(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
         const nativefn_qualified_name = try self.getQualifiedName(node, false);
         defer self.gc.allocator.free(nativefn_qualified_name);
 
-        // Remember that we need to compile this function later
-        if (self.state.?.ast.nodes.items(.compiled)[node] == null and
-            self.state.?.ast.nodes.items(.jit_status)[node] == .compilable)
-        {
-            try self.functions_queue.put(self.gc.allocator, node, null);
-            self.state.?.ast.nodes.items(.jit_status)[node] = .queued;
-        }
+        try self.queueCollateralFunction(node, null);
 
         // For now declare it
         const native_raw = m.MIR_new_import(self.ctx, @ptrCast(qualified_name));

@@ -144,6 +144,7 @@ pub fn main(provided_init: Init) u8 {
         ) catch {
             return 1;
         };
+        defer runner.deinit();
 
         return runner.runFile(
             res.positionals[0][0],
