@@ -17,6 +17,7 @@ const GC = @import("GC.zig");
 const TypeRegistry = @import("TypeRegistry.zig");
 const Runner = @import("Runner.zig");
 const QualifiedNameContext = @import("Ast.zig").QualifiedName.Context;
+const Perf = @import("Perf.zig");
 
 pub const PROMPT = ">>> ";
 pub const MULTILINE_PROMPT = "... ";
@@ -68,7 +69,10 @@ pub fn repl(process: std.process.Init, allocator: std.mem.Allocator) !void {
         false;
 
     var runner: Runner = undefined;
-    try runner.init(process, allocator, .Repl, null);
+    var perf: ?Perf = if (BuildOptions.show_perf) Perf.init(process.io) else null;
+    defer if (perf) |*p| p.report();
+
+    try runner.init(process, allocator, .Repl, null, if (perf) |*p| p else null);
     defer runner.deinit();
 
     var stdout = io.stdoutWriter(process.io);

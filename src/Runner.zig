@@ -21,16 +21,16 @@ const Renderer = @import("renderer.zig").Renderer;
 const Value = @import("value.zig").Value;
 const o = @import("obj.zig");
 const disassembler = @import("disassembler.zig");
+const Perf = @import("Perf.zig");
 
 const Runner = @This();
-
-const log = std.log.scoped(.runner);
 
 process: Init,
 vm: VM,
 gc: GC,
 parser: Parser,
 codegen: CodeGen,
+perf: ?*Perf = null,
 import_registry: ImportRegistry = .empty,
 imports: std.StringHashMapUnmanaged(Parser.ScriptImport) = .empty,
 /// DynLib lookup cache
@@ -60,15 +60,17 @@ pub fn deinit(self: *Runner) void {
 
 /// Runner must, most of the time be on the stack, and it contains several circular references
 /// So the use provides the ptr to it and this function populates it
-pub fn init(runner_ptr: *Runner, process: Init, allocator: std.mem.Allocator, flavor: RunFlavor, debugger: ?*Debugger) !void {
+pub fn init(runner_ptr: *Runner, process: Init, allocator: std.mem.Allocator, flavor: RunFlavor, debugger: ?*Debugger, perf: ?*Perf) !void {
     runner_ptr.* = .{
         .process = process,
         .gc = try GC.init(allocator),
         .vm = undefined,
         .parser = undefined,
         .codegen = undefined,
+        .perf = perf,
     };
 
+    runner_ptr.gc.perf = perf;
     runner_ptr.gc.type_registry = try TypeRegistry.init(&runner_ptr.gc);
     runner_ptr.vm = try VM.init(
         process,
@@ -77,11 +79,15 @@ pub fn init(runner_ptr: *Runner, process: Init, allocator: std.mem.Allocator, fl
         flavor,
         debugger,
     );
+    runner_ptr.vm.perf = perf;
 
     runner_ptr.vm.jit = if (BuildOptions.jit and BuildOptions.cycle_limit == null and debugger == null)
         try JIT.init(process, &runner_ptr.gc)
     else
         null;
+    if (runner_ptr.vm.jit) |*jit| {
+        jit.perf = perf;
+    }
 
     runner_ptr.parser = Parser.init(
         process,
@@ -91,6 +97,7 @@ pub fn init(runner_ptr: *Runner, process: Init, allocator: std.mem.Allocator, fl
         false,
         flavor,
     );
+    runner_ptr.parser.perf = perf;
 
     runner_ptr.codegen = CodeGen.init(
         process,
@@ -100,6 +107,7 @@ pub fn init(runner_ptr: *Runner, process: Init, allocator: std.mem.Allocator, fl
         if (runner_ptr.vm.jit) |*jit| jit else null,
         debugger != null,
     );
+    runner_ptr.codegen.perf = perf;
 }
 
 pub fn runFile(
@@ -107,6 +115,9 @@ pub fn runFile(
     file_name: []const u8,
     args: []const []const u8,
 ) !u8 {
+    var file_io_scope = Perf.start(runner.perf, .file_io);
+    defer file_io_scope.end();
+
     var file = (if (std.fs.path.isAbsolute(file_name))
         std.Io.Dir.openFileAbsolute(runner.process.io, file_name, .{})
     else
@@ -120,17 +131,7 @@ pub fn runFile(
     defer if (runner.vm.debugger == null) runner.gc.allocator.free(source);
 
     _ = try file.readPositionalAll(runner.process.io, source, 0);
-
-    var start_timestamp = std.Io.Clock.Timestamp.now(runner.process.io, .awake);
-    defer if (BuildOptions.show_perf) {
-        log.info(
-            "Ran file {s} in {}ms",
-            .{
-                file_name,
-                start_timestamp.untilNow(runner.process.io).raw.toMilliseconds(),
-            },
-        );
-    };
+    file_io_scope.end();
 
     if (try runner.parser.parse(source, null, file_name)) |ast| {
         if (runner.vm.flavor != .Fmt) {

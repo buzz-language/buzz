@@ -17,6 +17,7 @@ const JIT = if (!is_wasm) @import("Jit.zig") else void;
 const disassembler = @import("disassembler.zig");
 const TypeChecker = @import("TypeChecker.zig");
 const Init = @import("vm.zig").Init;
+const Perf = @import("Perf.zig");
 
 const Self = @This();
 
@@ -72,6 +73,7 @@ opt_jumps: std.ArrayList(std.ArrayList(usize)) = .empty,
 /// Used to generate error messages
 parser: *Parser,
 jit: ?*JIT,
+perf: ?*Perf = null,
 /// Wether we are debugging the program
 debugging: bool,
 
@@ -175,6 +177,9 @@ pub inline fn currentCode(self: *Self) usize {
 }
 
 pub fn generate(self: *Self, ast: Ast.Slice) Error!?*obj.ObjFunction {
+    var perf_scope = Perf.start(self.perf, .codegen);
+    defer perf_scope.end();
+
     self.ast = ast;
     self.reporter.last_error = null;
     self.reporter.panic_mode = false;

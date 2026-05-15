@@ -3,6 +3,7 @@ const mem = std.mem;
 const Allocator = mem.Allocator;
 const Token = @import("Token.zig");
 const v = @import("value.zig");
+const Perf = @import("Perf.zig");
 
 pub const SourceLocation = struct {
     start: usize,
@@ -30,6 +31,7 @@ line_offset: usize = 0,
 column_offset: usize = 0,
 script_name: []const u8,
 token_index: usize = 0,
+perf: ?*Perf = null,
 
 pub fn init(allocator: Allocator, script_name: []const u8, source: []const u8) Self {
     return Self{
@@ -40,6 +42,9 @@ pub fn init(allocator: Allocator, script_name: []const u8, source: []const u8) S
 }
 
 pub fn scanToken(self: *Self) Allocator.Error!Token {
+    var perf_scope = Perf.start(self.perf, .scanner);
+    defer perf_scope.end();
+
     self.skipWhitespaces();
 
     self.current.start = self.current.offset;

@@ -1,6 +1,7 @@
 # Unreleased
 
-This release builds with zig 0.16.0. We will only use tagged version of zig from now on.
+> [!NOTE]
+> This release builds with zig 0.16.0. We will only use tagged version of zig from now on.
 
 ## Added
 
@@ -22,7 +23,10 @@ This release builds with zig 0.16.0. We will only use tagged version of zig from
 
 ## Internal
 
+- JIT compiler works in a separate thread
+- Better JIT thresholds based of functions/hotspots complexity scores
 - The standard libraries are now statically loaded which gives a small speed boost
+- `-Dshow_perf` now show detailed rundown of the time spent in each component of buzz
 
 # 0.5.0 (01-24-2025)
 
