@@ -26,23 +26,25 @@ fun advance(bodies: [mut Body], nbody: int, dt: double) > void {
         var bivy = bi.vy;
         var bivz = bi.vz;
 
-        foreach (j in (i + 1)..nbody) {
-            final bj = bodies[j];
-            final dx = bix - bj.x;
-            final dy = biy - bj.y;
-            final dz = biz - bj.z;
-            final dist2 = dx * dx + dy * dy + dz * dz;
-            var mag = math\sqrt(dist2);
-            mag = dt / (mag * dist2);
-            var bm = bj.mass * mag;
+        if (i + 1 < nbody) {
+            foreach (j in (i + 1)..nbody) {
+                final bj = bodies[j];
+                final dx = bix - bj.x;
+                final dy = biy - bj.y;
+                final dz = biz - bj.z;
+                final dist2 = dx * dx + dy * dy + dz * dz;
+                var mag = math\sqrt(dist2);
+                mag = dt / (mag * dist2);
+                var bm = bj.mass * mag;
 
-            bivx = bivx - (dx * bm);
-            bivy = bivy - (dy * bm);
-            bivz = bivz - (dz * bm);
-            bm = bimass * mag;
-            bj.vx = bj.vx + (dx * bm);
-            bj.vy = bj.vy + (dy * bm);
-            bj.vz = bj.vz + (dz * bm);
+                bivx = bivx - (dx * bm);
+                bivy = bivy - (dy * bm);
+                bivz = bivz - (dz * bm);
+                bm = bimass * mag;
+                bj.vx = bj.vx + (dx * bm);
+                bj.vy = bj.vy + (dy * bm);
+                bj.vz = bj.vz + (dz * bm);
+            }
         }
 
         bi.vx = bivx;
@@ -63,13 +65,15 @@ fun energy(bodies: [Body], nbody: int) > double {
         final vz = bi.vz;
         final bim = bi.mass;
         e = e + (0.5 * bim * (vx * vx + vy * vy + vz * vz));
-        foreach (j in (i + 1)..nbody) {
-            final bj = bodies[j];
-            final dx = bi.x - bj.x;
-            final dy = bi.y - bj.y;
-            final dz = bi.z - bj.z;
-            final distance = math\sqrt(dx * dx + dy * dy + dz * dz);
-            e = e - ((bim * bj.mass) / distance);
+        if (i + 1 < nbody) {
+            foreach (j in (i + 1)..nbody) {
+                final bj = bodies[j];
+                final dx = bi.x - bj.x;
+                final dy = bi.y - bj.y;
+                final dz = bi.z - bj.z;
+                final distance = math\sqrt(dx * dx + dy * dy + dz * dz);
+                e = e - ((bim * bj.mass) / distance);
+            }
         }
     }
 

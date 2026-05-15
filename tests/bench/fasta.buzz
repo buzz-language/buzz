@@ -63,7 +63,7 @@ object Frequency {
         foreach (_ in 0..nRandom) {
             final r = this.random(1.0);
             var skip = false;
-            foreach (_ in 0..len) {
+            foreach (i in 0..len) {
                 if (r < this.probs[i]) {
                     buffer.setAt(bufferIndex, value: this.chars.at(i));
                     bufferIndex = bufferIndex + 1;

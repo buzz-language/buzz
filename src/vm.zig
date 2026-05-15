@@ -4809,6 +4809,18 @@ pub const VM = struct {
             const frame_ptr = self.currentFrame();
             const frame_val = if (frame_ptr) |ptr| ptr.* else null;
             if (self.current_fiber.frame_count > 0) {
+                if (!is_wasm and frame_ptr.?.in_native_call and self.current_fiber.try_context != null) {
+                    self.push(payload);
+
+                    if (builtin.os.tag == .macos or builtin.os.tag == .linux) {
+                        jmp._longjmp(&self.current_fiber.try_context.?.env, 1);
+                    } else {
+                        jmp.longjmp(&self.current_fiber.try_context.?.env, 1);
+                    }
+
+                    unreachable;
+                }
+
                 const function_type = frame_ptr.?.closure.function.type_def.resolved_type.?.Function.function_type;
                 if (function_type != .ScriptEntryPoint and function_type != .Repl) {
                     try stack.append(self.gc.allocator, frame_val.?);
@@ -5135,6 +5147,8 @@ pub const VM = struct {
             .upvalues = frame.closure.upvalues.ptr,
             .base = frame.slots,
             .stack_top = &self.current_fiber.stack_top,
+            .callee = Value.Void,
+            .arg_count = 0,
         };
 
         // If native returns 1 here, we know there was an early return in the hotspot
@@ -5172,6 +5186,8 @@ pub const VM = struct {
             .upvalues = &[_]*obj.ObjUpValue{},
             .base = self.current_fiber.stack_top - arg_count - 1,
             .stack_top = &self.current_fiber.stack_top,
+            .callee = Value.Void,
+            .arg_count = arg_count,
         };
         const native_return = native(&ctx);
 
@@ -5232,6 +5248,8 @@ pub const VM = struct {
             .upvalues = closure.upvalues.ptr,
             .base = self.current_fiber.stack_top - arg_count - 1,
             .stack_top = &self.current_fiber.stack_top,
+            .callee = closure.toValue(),
+            .arg_count = arg_count,
         };
         const native_return = native(&ctx);
 
