@@ -1,0 +1,60 @@
+import "std";
+
+fun dynamicInc(value: int) > int {
+    return value + 1;
+}
+
+fun dynamicIncViaFiber(value: int) > int {
+    return resolve &dynamicInc(value);
+}
+
+fun failDynamic(value: int) > int !> str {
+    throw "failed";
+
+    return value;
+}
+
+fun failDynamicViaFiber(value: int) > int !> str {
+    return resolve &failDynamic(value);
+}
+
+fun callDynamic(fn: fun (value: int) > int, value: int) > int {
+    return fn(value);
+}
+
+fun callDynamicWithCatch(fn: fun (value: int) > int !> str, value: int) > int {
+    return fn(value) catch 42;
+}
+
+test "JIT dynamic closure call" {
+    final callbacks = [ dynamicInc ];
+    var value = 0;
+
+    foreach (_ in 0..1500) {
+        value = callDynamic(callbacks[0], value: value);
+    }
+
+    std\assert(value == 1500, message: "compiled code can call a dynamic closure");
+}
+
+test "JIT dynamic call to blacklisted closure" {
+    final callbacks = [ dynamicIncViaFiber ];
+    var value = 0;
+
+    foreach (_ in 0..1500) {
+        value = callDynamic(callbacks[0], value: value);
+    }
+
+    std\assert(value == 1500, message: "compiled code can call an interpreted dynamic closure");
+}
+
+test "JIT dynamic call to blacklisted throwing closure" {
+    final callbacks = [ failDynamicViaFiber ];
+    var value = 0;
+
+    foreach (_ in 0..1500) {
+        value = callDynamicWithCatch(callbacks[0], value: value);
+    }
+
+    std\assert(value == 42, message: "compiled code can catch an interpreted dynamic closure error");
+}

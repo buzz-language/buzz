@@ -288,7 +288,7 @@ pub fn compile(self: *Self, ast: Ast.Slice, closure: *o.ObjClosure, hotspot_node
     // Is the node already compiled or blacklisted
     switch (ast.nodes.items(.jit_status)[ast_node]) {
         .blacklisted => return error.CantCompile,
-        .queued, .compiled => return,
+        .queued, .generated, .compiled => return,
         .compilable => {},
     }
 
@@ -345,6 +345,51 @@ pub fn compile(self: *Self, ast: Ast.Slice, closure: *o.ObjClosure, hotspot_node
     }
 }
 
+pub fn compileFunctionSynchronously(self: *Self, closure: *o.ObjClosure) Error!void {
+    self.publishCompleted();
+
+    if (closure.function.native_raw != null) {
+        return;
+    }
+
+    if (BuildOptions.jit_asynchronous and !self.worker_stopped.load(.acquire)) {
+        return error.CantCompile;
+    }
+
+    const function_ast = closure.function.chunk.ast;
+    const function_node = closure.function.node;
+    _ = closure.function.chunk.score();
+
+    switch (function_ast.nodes.items(.jit_status)[function_node]) {
+        .blacklisted, .generated, .queued => return error.CantCompile,
+        .compiled => return,
+        .compilable => {},
+    }
+
+    if (try function_ast.usesFiber(
+        self.gc.allocator,
+        function_node,
+    )) {
+        function_ast.nodes.items(.jit_status)[function_node] = .blacklisted;
+
+        return error.CantCompile;
+    }
+
+    const job = Job{
+        .ast = function_ast,
+        .closure = closure,
+        .node = function_node,
+    };
+
+    function_ast.nodes.items(.jit_status)[function_node] = .queued;
+
+    var completed_job = try self.doJob(&job);
+    defer completed_job.deinit(self.gc.allocator);
+
+    self.publishCompletedJob(&completed_job);
+    self.reset();
+}
+
 pub fn start(self: *Self) StartError!void {
     if (BuildOptions.jit_asynchronous and (self.worker == null or self.worker_stopped.load(.acquire))) {
         if (self.worker) |*worker| {
@@ -370,7 +415,7 @@ fn work(self: *Self) Error!void {
 
     while (self.jobs.front()) |job| {
         switch (job.ast.nodes.items(.jit_status)[job.node]) {
-            .blacklisted, .compiled => {
+            .blacklisted, .generated, .compiled => {
                 self.jobs.pop();
                 self.reset();
                 continue;
@@ -464,7 +509,7 @@ fn queueCollateralFunction(self: *Self, node: Ast.Node.Index, closure: ?*o.ObjCl
 
     switch (self.state.?.ast.nodes.items(.jit_status)[node]) {
         .blacklisted => return error.CantCompile,
-        .compiled => return,
+        .generated, .compiled => return,
         .compilable, .queued => {},
     }
 
@@ -479,31 +524,56 @@ fn queueCollateralFunction(self: *Self, node: Ast.Node.Index, closure: ?*o.ObjCl
     self.state.?.ast.nodes.items(.jit_status)[node] = .queued;
 }
 
+fn queueObjectMethodCollateral(self: *Self, object_type: *o.ObjTypeDef, method_index: usize) Error!void {
+    for (self.state.?.closure.globals.items) |global| {
+        if (!global.isObj()) {
+            continue;
+        }
+
+        const object = o.ObjObject.cast(global.obj()) orelse continue;
+        if (object.type_def != object_type) {
+            continue;
+        }
+
+        const method_value = object.fields[method_index];
+        if (!method_value.isObj()) {
+            return;
+        }
+
+        const closure = o.ObjClosure.cast(method_value.obj()) orelse return;
+        try self.queueCollateralFunction(closure.function.node, closure);
+
+        return;
+    }
+}
+
 fn doJob(self: *Self, job: *const Job) Error!CompletedJob {
     var start_timestamp = std.Io.Clock.Timestamp.now(self.process.io, .awake);
     defer if (BuildOptions.jit_debug or BuildOptions.show_perf) {
         const time = start_timestamp.untilNow(self.process.io).raw.toMilliseconds();
 
-        if (job.node == job.closure.function.node)
-            log.info(
-                "Finished job function `{s}` with score {} in {}ms",
-                .{
-                    job.closure.function.type_def.resolved_type.?.Function.name.string,
-                    job.closure.function.call_count * job.closure.function.chunk.complexity_score.?,
-                    time,
-                },
-            )
-        else
-            log.info(
-                "Finished job for hostpot node {} ({s}) witch score {} in function `{s}` in {}ms",
-                .{
-                    job.node,
-                    @tagName(job.ast.nodes.items(.tag)[job.node]),
-                    job.ast.nodes.items(.count)[job.node] * job.ast.nodes.items(.complexity_score)[job.node].?,
-                    job.closure.function.type_def.resolved_type.?.Function.name.string,
-                    time,
-                },
-            );
+        if (BuildOptions.jit_debug) {
+            if (job.node == job.closure.function.node)
+                log.info(
+                    "Finished job function `{s}` with score {} in {}ms",
+                    .{
+                        job.closure.function.type_def.resolved_type.?.Function.name.string,
+                        job.closure.function.call_count * job.closure.function.chunk.complexity_score.?,
+                        time,
+                    },
+                )
+            else
+                log.info(
+                    "Finished job for hostpot node {} ({s}) witch score {} in function `{s}` in {}ms",
+                    .{
+                        job.node,
+                        @tagName(job.ast.nodes.items(.tag)[job.node]),
+                        job.ast.nodes.items(.count)[job.node] * job.ast.nodes.items(.complexity_score)[job.node].?,
+                        job.closure.function.type_def.resolved_type.?.Function.name.string,
+                        time,
+                    },
+                );
+        }
     };
 
     // Remember we need to set this function's fields. Hotspot jobs are tied to
@@ -576,6 +646,8 @@ fn doJob(self: *Self, job: *const Job) Error!CompletedJob {
                 .native_raw = if (items.native_raw) |item| m.MIR_gen(self.ctx, item) else null,
             },
         );
+
+        job.ast.nodes.items(.jit_status)[node] = .generated;
     }
 
     if (BuildOptions.jit_debug) {
@@ -2244,25 +2316,38 @@ fn generateCall(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
         const member_lexeme = lexemes[node_components[components.callee].Dot.identifier];
 
         switch (invoked_on.?) {
-            .Object => try self.buildExternApiCall(
-                .bz_getObjectField,
-                callee,
-                &.{
-                    subject.?,
-                    m.MIR_new_uint_op(
-                        self.ctx,
-                        type_defs[node_components[components.callee].Dot.callee].?
-                            .resolved_type.?.Object
-                            .fields.get(member_lexeme).?
-                            .index,
-                    ),
-                },
-            ),
-            .ObjectInstance => instance: {
-                const field = type_defs[node_components[components.callee].Dot.callee].?
-                    .resolved_type.?.ObjectInstance.of
+            .Object => object: {
+                const object_type = type_defs[node_components[components.callee].Dot.callee].?;
+                const field = object_type
                     .resolved_type.?.Object
                     .fields.get(member_lexeme).?;
+
+                if (field.method) {
+                    try self.queueObjectMethodCollateral(object_type, field.index);
+                }
+
+                break :object try self.buildExternApiCall(
+                    .bz_getObjectField,
+                    callee,
+                    &.{
+                        subject.?,
+                        m.MIR_new_uint_op(
+                            self.ctx,
+                            field.index,
+                        ),
+                    },
+                );
+            },
+            .ObjectInstance => instance: {
+                const object_type = type_defs[node_components[components.callee].Dot.callee].?
+                    .resolved_type.?.ObjectInstance.of;
+                const field = object_type
+                    .resolved_type.?.Object
+                    .fields.get(member_lexeme).?;
+
+                if (field.method) {
+                    try self.queueObjectMethodCollateral(object_type, field.index);
+                }
 
                 break :instance try self.buildExternApiCall(
                     if (field.method)

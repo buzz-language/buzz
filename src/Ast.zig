@@ -502,7 +502,7 @@ pub const Slice = struct {
     }
 
     /// Mirrors Chunk.score (even though Chunk.score and Node.score won't be comparable)
-    /// Is use to compute complexity of a hotspot node (which don't have a Chunk available to evaluate)
+    /// Is used to compute complexity of a hotspot node (which doesn't have a Chunk available to evaluate)
     const ComplexityContext = struct {
         score: usize = 0,
 
@@ -1064,7 +1064,7 @@ pub const Node = struct {
     count: usize = 0,
     /// Complexity score computed once to help evaluate if the node is worth JIT compiling
     complexity_score: ?usize = null,
-    /// Node status: blacklisted, queued for compilation, compiled, compilable
+    /// Node status: blacklisted, queued/generated/compiled by the JIT, compilable
     jit_status: JitStatus = .compilable,
     /// Once compiled
     compiled: ?*anyopaque = null,
@@ -1082,6 +1082,8 @@ pub const Node = struct {
         compilable,
         /// Node is already queued in the jit compiler
         queued,
+        /// Node has generated native code waiting to be published by the VM thread
+        generated,
         /// Node can't be compiled (contains use of fiber)
         blacklisted,
         /// Already compiled

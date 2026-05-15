@@ -147,8 +147,22 @@ Useful build flags include:
 - `-Dgc_debug=true`, `-Dgc_debug_light=true`, and `-Dgc_debug_access=true` for GC debugging.
 - `-Djit_debug=true` for JIT debugging.
 - `-Djit=false` to disable JIT while isolating runtime issues.
+- `-Djit_asynchronous=<bool>` controls whether JIT jobs run on the worker thread. Keep it enabled by default unless isolating an async publication issue.
+- `-Djit_call_threshold=<int>` is the function call count before a function is considered for JIT compilation.
+- `-Djit_score_threshold=<int>` is the function score gate. Function score is call count multiplied by chunk complexity.
+- `-Djit_hotspot_threshold=<int>` is the loop/hotspot execution count before a hotspot is considered for JIT compilation.
+- `-Djit_hotspot_score_threshold=<int>` is the hotspot score gate. Hotspot score is execution count multiplied by AST hotspot complexity.
 - `-Dcycle_limit=<int>` to limit bytecode execution, noting that it disables JIT compilation.
 - `-Dmemory_limit=<int>` to reproduce or bound memory behavior.
+
+Current default JIT thresholds are intentionally conservative: call threshold `1024`, function score threshold `65535`, hotspot threshold `256`, hotspot score threshold `65535`, async enabled. When tuning, compare against the full `tests/bench` matrix instead of optimizing a single benchmark:
+
+```sh
+scripts/jit_bench_matrix.sh quick
+scripts/jit_bench_matrix.sh final nojit current sync-current hotspot-only
+```
+
+The matrix writes timings and output-hash comparisons under `zig-cache/jit-bench/`.
 
 ## Debugging Guidance
 

@@ -1131,6 +1131,27 @@ export fn bz_setUpValue(ctx: *o.NativeCtx, slot: usize, value: v.Value) callconv
     ctx.upvalues[slot].location.* = value;
 }
 
+export fn bz_callFromJit(ctx: *o.NativeCtx) callconv(.c) v.Value {
+    const vm = ctx.vm;
+
+    vm.callValue(
+        ctx.callee,
+        @intCast(ctx.arg_count),
+        null,
+    ) catch @panic("Failed calling function from JIT");
+
+    // If the callee is interpreted, run it until its return reaches the native
+    // caller frame. The VM leaves the result on the stack; RawFn returns it.
+    if (!calleeIsCompiled(ctx.callee)) {
+        vm.run() catch @panic("Failed running function from JIT");
+    }
+
+    const result = vm.pop();
+    vm.current_fiber.stack_top = ctx.base;
+
+    return result;
+}
+
 export fn bz_context(ctx: *o.NativeCtx, closure_value: v.Value, new_ctx: *o.NativeCtx, arg_count: usize) callconv(.c) *anyopaque {
     if (is_wasm) {
         unreachable;
@@ -1182,16 +1203,21 @@ export fn bz_context(ctx: *o.NativeCtx, closure_value: v.Value, new_ctx: *o.Nati
         .upvalues = if (closure) |cls| cls.upvalues.ptr else ctx.upvalues,
         .base = ctx.vm.current_fiber.stack_top - arg_count - 1,
         .stack_top = &ctx.vm.current_fiber.stack_top,
+        .callee = closure_value,
+        .arg_count = arg_count,
     };
 
     if (closure) |cls| {
-        if (cls.function.native_raw == null and cls.function.native == null) {
-            ctx.vm.jit.?.compile(cls.function.chunk.ast, cls, null) catch @panic("Failed compiling function");
+        if (cls.function.native_raw == null) {
+            ctx.vm.jit.?.compileFunctionSynchronously(cls) catch |err| switch (err) {
+                error.CantCompile => return @as(*anyopaque, @ptrFromInt(@intFromPtr(&bz_callFromJit))),
+                else => @panic("Failed compiling function"),
+            };
         }
 
         ctx.vm.current_fiber.current_compiled_function = cls.function;
 
-        return cls.function.native_raw.?;
+        return cls.function.native_raw orelse @as(*anyopaque, @ptrFromInt(@intFromPtr(&bz_callFromJit)));
     }
 
     return native.?.native;

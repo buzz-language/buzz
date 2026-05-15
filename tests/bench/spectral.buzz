@@ -2,8 +2,8 @@ import "std";
 import "math";
 
 fun A(i: double, j: double) > double {
-    final ij = i + j - 1.0;
-    return 1.0 / (ij * (ij - 1.0) * 0.5 + i);
+    final ij = i + j;
+    return 1.0 / (ij * (ij + 1.0) * 0.5 + i + 1.0);
 }
 
 fun Av(x: [double], y: mut [double], N: int) > void {

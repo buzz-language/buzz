@@ -196,6 +196,8 @@ pub const NativeCtx = extern struct {
     // Pointer to the stack_top field of the current fiber
     // !! Needs to change when current fiber changes !!
     stack_top: *[*]Value,
+    callee: Value,
+    arg_count: usize,
 
     pub fn getIo(self: *@This()) Io {
         if (is_wasm) return {};

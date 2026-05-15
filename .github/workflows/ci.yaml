@@ -21,8 +21,8 @@ jobs:
             - "ReleaseSmall"
           options:
             - ""
-            - "-Djit_always_on"
-            - "-Djit_hotspot_always_on"
+            - "-Djit_always_on -Djit_asynchronous=false"
+            - "-Djit_hotspot_always_on -Djit_asynchronous=false"
     
     steps:
       - name: Checkout project

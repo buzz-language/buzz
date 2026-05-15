@@ -1242,6 +1242,8 @@ pub const NativeCtx = extern struct {
     // Pointer to the stack_top field of the current fiber
     // !! Needs to change when current fiber changes !!
     stack_top: *[*]Value,
+    callee: Value,
+    arg_count: usize,
 };
 
 // 1 = return value on stack, 0 = no return value, -1 = error
