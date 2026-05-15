@@ -78,6 +78,7 @@ fn testBehaviors(process: std.process.Init, allocator: std.mem.Allocator, fail_f
                 var had_error: bool = false;
                 var runner: Runner = undefined;
                 try runner.init(process, allocator, .Test, null);
+                defer runner.deinit();
 
                 var failed = false;
                 _ = runner.runFile(

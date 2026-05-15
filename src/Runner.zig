@@ -37,6 +37,10 @@ imports: std.StringHashMapUnmanaged(Parser.ScriptImport) = .empty,
 dlib_symbols: std.StringHashMapUnmanaged(Parser.Dlib) = .empty,
 
 pub fn deinit(self: *Runner) void {
+    if (!is_wasm and self.vm.jit != null) {
+        self.vm.jit.?.deinit();
+        self.vm.jit = null;
+    }
     self.codegen.deinit();
     self.parser.deinit();
     var it = self.dlib_symbols.valueIterator();
@@ -51,10 +55,6 @@ pub fn deinit(self: *Runner) void {
     }
     self.imports.deinit(self.gc.allocator);
     // TODO: free type_registry and its keys which are on the heap
-    if (!is_wasm and self.vm.jit != null) {
-        self.vm.jit.?.deinit();
-        self.vm.jit = null;
-    }
     self.vm.deinit();
 }
 

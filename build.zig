@@ -1004,7 +1004,7 @@ const BuildOptions = struct {
             options.addOption(@TypeOf(self.hotspot), "jit_hotspot", self.hotspot);
             options.addOption(@TypeOf(self.asynchronous), "jit_asynchronous", self.asynchronous);
             options.addOption(@TypeOf(self.hotspot_threshold), "jit_hotspot_threshold", self.hotspot_threshold);
-            options.addOption(@TypeOf(self.hotspot_score_threshold), "jit_hotspot_score_threshold", self.hotspot_threshold);
+            options.addOption(@TypeOf(self.hotspot_score_threshold), "jit_hotspot_score_threshold", self.hotspot_score_threshold);
         }
     };
 
