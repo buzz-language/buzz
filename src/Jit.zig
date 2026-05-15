@@ -18,6 +18,7 @@ const Double = _v.Double;
 const Token = @import("Token.zig");
 const ZigType = @import("zigtypes.zig").Type;
 const api = @import("buzz_api.zig");
+const Perf = @import("Perf.zig");
 
 const log = std.log.scoped(.jit);
 
@@ -111,6 +112,7 @@ const State = struct {
 };
 
 process: Init,
+perf: ?*Perf = null,
 /// We only read the interned strings map, the worker thread can allocate buzz objects since it's not thread safe.
 /// But it does not make sense for the Jit to have to allocate any buzz constant since it must have been done by CodeGen first.
 gc: *GC,
@@ -548,12 +550,17 @@ fn queueObjectMethodCollateral(self: *Self, object_type: *o.ObjTypeDef, method_i
 }
 
 fn doJob(self: *Self, job: *const Job) Error!CompletedJob {
-    var start_timestamp = std.Io.Clock.Timestamp.now(self.process.io, .awake);
-    defer if (BuildOptions.jit_debug or BuildOptions.show_perf) {
-        const time = start_timestamp.untilNow(self.process.io).raw.toMilliseconds();
+    var perf_scope = Perf.start(self.perf, .jit);
+    defer perf_scope.end();
+
+    const start_timestamp = std.Io.Clock.Timestamp.now(self.process.io, .awake);
+    defer {
+        const duration = start_timestamp.untilNow(self.process.io).raw;
 
         if (BuildOptions.jit_debug) {
-            if (job.node == job.closure.function.node)
+            const time = duration.toMilliseconds();
+
+            if (job.node == job.closure.function.node) {
                 log.info(
                     "Finished job function `{s}` with score {} in {}ms",
                     .{
@@ -561,8 +568,8 @@ fn doJob(self: *Self, job: *const Job) Error!CompletedJob {
                         job.closure.function.call_count * job.closure.function.chunk.complexity_score.?,
                         time,
                     },
-                )
-            else
+                );
+            } else {
                 log.info(
                     "Finished job for hostpot node {} ({s}) witch score {} in function `{s}` in {}ms",
                     .{
@@ -573,8 +580,9 @@ fn doJob(self: *Self, job: *const Job) Error!CompletedJob {
                         time,
                     },
                 );
+            }
         }
-    };
+    }
 
     // Remember we need to set this function's fields. Hotspot jobs are tied to
     // a closure for context, but their native code belongs to the AST node, not

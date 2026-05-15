@@ -17,6 +17,7 @@ const dispatch_call_modifier: std.builtin.CallModifier = if (!is_wasm) .always_t
 const print = @import("io.zig").print;
 const Debugger = if (!is_wasm) @import("Debugger.zig") else void;
 const TypeRegistry = @import("TypeRegistry.zig");
+const Perf = @import("Perf.zig");
 
 pub const Init = if (is_wasm) std.process.Init.Minimal else std.process.Init;
 
@@ -453,6 +454,7 @@ pub const VM = struct {
     globals_dbg: std.ArrayList(Value) = .empty,
     import_registry: *ImportRegistry,
     jit: ?JIT = null,
+    perf: ?*Perf = null,
     debugger: ?*Debugger = null,
     paused: bool = false,
     hotspots_count: u128 = 0,
@@ -498,6 +500,7 @@ pub const VM = struct {
         var gc = try other.gc.allocator.create(GC);
         // FIXME: should share strings between gc
         gc.* = try GC.init(other.gc.allocator);
+        gc.perf = other.gc.perf;
         gc.type_registry = try TypeRegistry.init(gc);
         const import_registry = try other.gc.allocator.create(ImportRegistry);
         import_registry.* = .{};
@@ -509,6 +512,7 @@ pub const VM = struct {
             .Run,
             null,
         );
+        vm.perf = other.perf;
 
         return vm;
     }
@@ -593,6 +597,9 @@ pub const VM = struct {
     }
 
     pub fn interpret(self: *Self, ast: Ast.Slice, function: *obj.ObjFunction, args: ?[]const []const u8) Error!void {
+        var perf_scope = Perf.start(self.perf, .vm);
+        defer perf_scope.end();
+
         self.current_ast = ast;
 
         self.current_fiber = try self.gc.allocator.create(Fiber);
@@ -2292,6 +2299,7 @@ pub const VM = struct {
                 self.panic("Out of memory");
                 unreachable;
             };
+            vm.perf = self.perf;
             // TODO: how to free this since we copy things to new vm, also fails anyway
             // {
             //     defer vm.deinit();
@@ -4746,6 +4754,9 @@ pub const VM = struct {
     }
 
     pub fn run(self: *Self) error{RuntimeError}!void {
+        var perf_scope = Perf.start(self.perf, .vm);
+        defer perf_scope.end();
+
         const next_current_frame = self.currentFrame().?;
         const next_full_instruction = self.readInstruction(next_current_frame);
         const next_instruction: Chunk.OpCode = getCode(next_full_instruction);
@@ -5173,6 +5184,9 @@ pub const VM = struct {
     }
 
     fn callNative(self: *Self, native: obj.NativeFn, arg_count: u8, catch_value: ?Value) !void {
+        var perf_scope = Perf.start(self.perf, .native);
+        defer perf_scope.end();
+
         var frame = self.currentFrame().?;
         const was_in_native_call = frame.in_native_call;
         frame.in_native_call = true;

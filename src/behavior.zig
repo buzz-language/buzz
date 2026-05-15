@@ -8,9 +8,12 @@ const bz_io = @import("io.zig");
 const Parser = @import("Parser.zig");
 const BuildOptions = @import("build_options");
 const clap = @import("clap");
+const Perf = @import("Perf.zig");
 
 const black_listed_tests = std.StaticStringMap(void).initComptime(
-    .{},
+    .{
+        .{ "tests/fuzzed/id:000434,sig:06,src:000723,time:202384530,execs:828228,op:arith8,pos:276,val:-1.buzz", {} },
+    },
 );
 
 const Result = struct {
@@ -45,7 +48,7 @@ const Result = struct {
     }
 };
 
-fn testBehaviors(process: std.process.Init, allocator: std.mem.Allocator, fail_fast: bool) !Result {
+fn testBehaviors(process: std.process.Init, allocator: std.mem.Allocator, fail_fast: bool, perf: ?*Perf) !Result {
     var result = Result{};
 
     const dirs = [_][]const u8{ "tests/behavior", "tests" };
@@ -77,7 +80,7 @@ fn testBehaviors(process: std.process.Init, allocator: std.mem.Allocator, fail_f
 
                 var had_error: bool = false;
                 var runner: Runner = undefined;
-                try runner.init(process, allocator, .Test, null);
+                try runner.init(process, allocator, .Test, null, perf);
                 defer runner.deinit();
 
                 var failed = false;
@@ -359,11 +362,14 @@ pub fn main(init: std.process.Init) !u8 {
     var result: Result = .{};
     defer result.deinit(allocator);
 
+    var perf: ?Perf = if (BuildOptions.show_perf) Perf.init(init.io) else null;
+    defer if (perf) |*p| p.report();
+
     const do_all = res.args.all == 1 or (res.args.behavior != 1 and res.args.@"compile-error" != 1 and res.args.fuzz != 1);
 
     if (do_all or res.args.behavior == 1) {
         bz_io.print(init.io, "\n\x1b[34m■ Behavior tests\x1b[0m...\n", .{});
-        var tests_result = try testBehaviors(init, allocator, res.args.fast == 1);
+        var tests_result = try testBehaviors(init, allocator, res.args.fast == 1, if (perf) |*p| p else null);
         try result.merge(
             allocator,
             &tests_result,

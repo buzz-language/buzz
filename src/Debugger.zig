@@ -450,6 +450,7 @@ pub fn launch(self: *Debugger, arguments: Arguments(.launch)) Error!Response(.la
         self.allocator,
         .Run,
         self,
+        null,
     ) catch return error.LaunchFailed;
 
     try self.session.?.variables.append(

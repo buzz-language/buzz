@@ -10,6 +10,7 @@ const buzz_api = @import("buzz_api.zig");
 const Reporter = @import("Reporter.zig");
 const is_wasm = builtin.cpu.arch.isWasm();
 const TypeRegistry = @import("TypeRegistry.zig");
+const Perf = @import("Perf.zig");
 
 const log = std.log.scoped(.gc);
 
@@ -35,6 +36,7 @@ const Mode = enum {
 };
 
 allocator: std.mem.Allocator,
+perf: ?*Perf = null,
 strings: std.StringHashMapUnmanaged(*o.ObjString) = .empty,
 type_registry: TypeRegistry,
 bytes_allocated: usize = 0,
@@ -168,7 +170,7 @@ pub fn allocate(self: *GC, comptime T: type) !*T {
 }
 
 pub fn allocateMany(self: *GC, comptime T: type, count: usize) ![]T {
-    self.bytes_allocated += (@sizeOf(T) * count);
+    self.bytes_allocated += @sizeOf(T) * count;
 
     if (self.bytes_allocated > self.max_allocated) {
         self.max_allocated = self.bytes_allocated;
@@ -278,11 +280,11 @@ fn free(self: *GC, comptime T: type, pointer: *T) void {
 }
 
 fn freeMany(self: *GC, comptime T: type, pointer: []const T) void {
+    const n: usize = (@sizeOf(T) * pointer.len);
     if (BuildOptions.gc_debug) {
         log.info("Going to free slice {*} `{s}`", .{ pointer, pointer });
     }
 
-    const n: usize = (@sizeOf(T) * pointer.len);
     self.bytes_allocated -= n;
     self.allocator.free(pointer);
 
@@ -777,6 +779,9 @@ pub fn collectGarbage(self: *GC) !void {
     if (self.obj_collected != null) {
         return;
     }
+
+    var perf_scope = Perf.start(self.perf, .gc);
+    defer perf_scope.end();
 
     const mode: Mode = if (self.bytes_allocated > self.next_full_gc and self.last_gc != null) .Full else .Young;
 

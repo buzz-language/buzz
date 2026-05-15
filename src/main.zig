@@ -23,6 +23,7 @@ const wasm_repl = @import("wasm_repl.zig");
 const Renderer = @import("renderer.zig").Renderer;
 const io = @import("io.zig");
 const Runner = @import("Runner.zig");
+const Perf = @import("Perf.zig");
 
 pub export const initRepl_export = wasm_repl.initRepl;
 pub export const runLine_export = wasm_repl.runLine;
@@ -135,12 +136,16 @@ pub fn main(provided_init: Init) u8 {
             return 1;
         };
     } else if (!is_wasm and res.positionals[0].len > 0) {
+        var perf: ?Perf = if (BuildOptions.show_perf) Perf.init(init.io) else null;
+        defer if (perf) |*p| p.report();
+
         var runner: Runner = undefined;
         runner.init(
             init,
             allocator,
             flavor,
             null,
+            if (perf) |*p| p else null,
         ) catch {
             return 1;
         };

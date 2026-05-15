@@ -16,6 +16,7 @@ const Scanner = @import("Scanner.zig");
 const RunFlavor = @import("vm.zig").RunFlavor;
 const Reporter = @import("Reporter.zig");
 const StringParser = @import("StringParser.zig");
+const Perf = @import("Perf.zig");
 const pcre = if (!is_wasm) @import("pcre.zig") else void;
 const buzz_api = @import("lib/buzz_api.zig");
 const print = @import("io.zig").print;
@@ -93,6 +94,7 @@ const Self = @This();
 process: Init,
 ast: Ast,
 gc: *GC,
+perf: ?*Perf = null,
 scanner: ?Scanner = null,
 current_token: ?Ast.TokenIndex = null,
 script_name: []const u8 = undefined,
@@ -885,6 +887,9 @@ fn synchronize(self: *Self) !void {
 }
 
 pub fn parse(self: *Self, source: []const u8, file_name: ?[]const u8, name: []const u8) !?Ast {
+    var perf_scope = Perf.start(self.perf, .parser);
+    defer perf_scope.end();
+
     if (self.scanner != null) {
         self.scanner = null;
     }
@@ -914,6 +919,7 @@ pub fn parse(self: *Self, source: []const u8, file_name: ?[]const u8, name: []co
         file_name orelse name,
         source,
     );
+    self.scanner.?.perf = self.perf;
 
     const function_type: obj.ObjFunction.FunctionType = if (!self.imported and self.flavor == .Repl)
         .Repl
@@ -2699,7 +2705,8 @@ fn declarePlaceholder(self: *Self, name: Ast.TokenIndex, placeholder: ?*obj.ObjT
 }
 
 pub fn parseTypeDefFrom(self: *Self, source: []const u8) Error!*obj.ObjTypeDef {
-    const type_scanner = Scanner.init(self.gc.allocator, self.script_name, source);
+    var type_scanner = Scanner.init(self.gc.allocator, self.script_name, source);
+    type_scanner.perf = self.perf;
     // Replace parser scanner with one that only looks at that substring
     const scanner = self.scanner;
     self.scanner = type_scanner;
