@@ -918,27 +918,27 @@ const BuildOptions = struct {
                     bool,
                     "jit_asynchronous",
                     "JIT will work in a dedicated thread",
-                ) orelse false,
+                ) orelse true,
                 .call_threshold = b.option(
                     u16,
                     "jit_call_threshold",
                     "Call count threshold above which the function is being considered for JIT compilation.",
-                ) orelse 32,
+                ) orelse 1024,
                 .score_threshold = b.option(
                     u16,
                     "jit_score_threshold",
                     "Complexity score threshold above which the function will be JIT compiled.",
-                ) orelse 1024,
+                ) orelse 65535,
                 .hotspot_threshold = b.option(
                     u16,
                     "jit_hotspot_threshold",
-                    "Loop count threshold above which aloop is being considered for JIT compilation.",
-                ) orelse 16,
+                    "Loop count threshold above which a loop is being considered for JIT compilation.",
+                ) orelse 256,
                 .hotspot_score_threshold = b.option(
                     u16,
                     "jit_hotspot_score_threshold",
                     "Complexity score threshold above which a loop node will be JIT compiled.",
-                ) orelse 1024,
+                ) orelse 65535,
             },
         };
     }
@@ -988,10 +988,10 @@ const BuildOptions = struct {
         hotspot_always_on: bool,
         hotspot: bool,
         debug: bool,
-        call_threshold: u16 = 32,
-        score_threshold: u16 = 1024,
-        hotspot_threshold: u16 = 16,
-        hotspot_score_threshold: u16 = 1024,
+        call_threshold: u16 = 1024,
+        score_threshold: u16 = 65535,
+        hotspot_threshold: u16 = 256,
+        hotspot_score_threshold: u16 = 65535,
         asynchronous: bool,
 
         pub fn step(self: JITOptions, options: *Build.Step.Options) void {
