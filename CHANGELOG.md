@@ -21,6 +21,7 @@
 - Maximum number of enum cases is now 16 777 215 instead of 255
 - `pattern.match` returns now a list of `obj{ start: int, end: int, capture: str }` and `matchAll` a list of those lists
 - Selective import erases the imported namespace: `import print from "std"; ... print("hello world");`
+- Common part of imported namespace gets erased: il imported file as namesapce `a\b\c` and importing script has namespace `a\b`, only `c\` remains
 
 ## Internal
 

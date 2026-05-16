@@ -9269,8 +9269,29 @@ fn importScript(
                 global.qualified_name.namespace = if ((prefix != null and prefix.?.len == 1 and lexemes[prefix.?[0]].len == 1 and lexemes[prefix.?[0]][0] == '_') or
                     prefix == null and selected)
                     self.namespace orelse &.{}
-                else
-                    prefix orelse global.qualified_name.namespace;
+                else imported: {
+                    // Remove the common part between own namespace and imported namespace
+                    const namespace = prefix orelse global.qualified_name.namespace;
+
+                    if (self.namespace) |own_namespace| {
+                        if (namespace.len > own_namespace.len) {
+                            var common: ?usize = null;
+                            for (own_namespace, 0..) |part, i| {
+                                if (!std.mem.eql(u8, lexemes[part], lexemes[namespace[i]])) {
+                                    break;
+                                }
+
+                                common = i;
+                            }
+
+                            if (common) |c| {
+                                break :imported namespace[c + 1 ..];
+                            }
+                        }
+                    }
+
+                    break :imported namespace;
+                };
             }
 
             global.imported_from = file_name;

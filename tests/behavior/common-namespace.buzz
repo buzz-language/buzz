@@ -1,0 +1,8 @@
+namespace commom\part;
+
+import "tests/utils/common-namespace";
+import "std";
+
+test "Import with common part in namespace" {
+    std\assert(here\message == "hello world");
+}
