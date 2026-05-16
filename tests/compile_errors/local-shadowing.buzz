@@ -1,0 +1,10 @@
+// A local named `local` already exists
+test "Should not be able to shadow upper score locals" {
+    if (true) {
+        final local = "hello";
+
+        if (true) {
+            final local = "bye";
+        }
+    }
+}

@@ -85,8 +85,8 @@ export object Tester {
             afterEach = afterEach,
         };
 
-        if (t.beforeAll -> beforeAll) {
-            beforeAll(t);
+        if (t.beforeAll -> before) {
+            before(t);
         }
 
         return t;
@@ -98,29 +98,23 @@ export object Tester {
         this.elapsed = 0.0;
     }
 
-    fun failedAsserts() > int {
-        return this.asserts.reduce::<int>(
-            fun (_: int, success: bool, accumulator: int)
-                => accumulator + if (success) 0 else 1,
-            initial: 0,
-        );
-    }
+    fun failedAsserts() => this.asserts.reduce::<int>(
+        fun (_: int, success: bool, accumulator: int)
+            => accumulator + if (success) 0 else 1,
+        initial: 0,
+    );
 
-    fun failedTests() > int {
-        return this.tests.reduce::<int>(
-            fun (_: int, success: bool, accumulator: int)
-                => accumulator + if (success) 0 else 1,
-            initial: 0,
-        );
-    }
+    fun failedTests() => this.tests.reduce::<int>(
+        fun (_: int, success: bool, accumulator: int)
+            => accumulator + if (success) 0 else 1,
+        initial: 0,
+    );
 
-    fun succeededTests() > int {
-        return this.tests.reduce::<int>(
-            fun (_: int, success: bool, accumulator: int)
-                => accumulator + if (success) 1 else 0,
-            initial: 0,
-        );
-    }
+    fun succeededTests() => this.tests.reduce::<int>(
+        fun (_: int, success: bool, accumulator: int)
+            => accumulator + if (success) 1 else 0,
+        initial: 0,
+    );
 
     mut fun it(message: str, fn: fun () > void) > void {
         final startTime = os\time();

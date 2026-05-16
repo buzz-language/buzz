@@ -2579,13 +2579,9 @@ fn declareVariable(
     if (self.current.?.scope_depth > 0) {
         // Check a local with the same name doesn't exists
         if (self.current.?.local_count > 0) {
-            var i: usize = self.current.?.local_count - 1;
+            var i = self.current.?.local_count - 1;
             while (i >= 0) : (i -= 1) {
-                const local: *Local = &self.current.?.locals[i];
-
-                if (local.depth != -1 and local.depth < self.current.?.scope_depth) {
-                    break;
-                }
+                const local = &self.current.?.locals[i];
 
                 if (!std.mem.eql(u8, name_lexeme, "_") and
                     !std.mem.startsWith(u8, name_lexeme, "$") and
