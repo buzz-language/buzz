@@ -1,0 +1,6 @@
+// The namespace `duplicated\` already exists
+import "tests/utils/duplicate-namespace-1";
+import "tests/utils/duplicate-namespace-2";
+
+test  "Should not be able to import two scripts with the same neamespace" {
+}

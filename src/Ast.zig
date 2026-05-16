@@ -553,6 +553,32 @@ pub const Slice = struct {
         return complexity_score.* orelse 0;
     }
 
+    const NamespaceContext = struct {
+        namespace: ?[]const TokenIndex = null,
+
+        pub fn processNode(
+            ctx: *NamespaceContext,
+            _: std.mem.Allocator,
+            ast: Self.Slice,
+            node: Self.Node.Index,
+        ) (std.mem.Allocator.Error || std.fmt.BufPrintError)!bool {
+            if (ast.nodes.items(.tag)[node] == .Namespace) {
+                ctx.namespace = ast.nodes.items(.components)[node].Namespace;
+                return true;
+            }
+
+            return false;
+        }
+    };
+
+    pub fn namespace(self: Self.Slice, allocator: std.mem.Allocator, node: Node.Index) !?[]const TokenIndex {
+        var ctx = NamespaceContext{};
+
+        try self.walk(allocator, &ctx, node);
+
+        return ctx.namespace;
+    }
+
     fn binaryValue(self: Self.Slice, node: Node.Index, gc: *GC) !?Value {
         const components = self.nodes.items(.components)[node].Binary;
 

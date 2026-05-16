@@ -1,0 +1,6 @@
+// The namespace `duplicated\` already exists
+namespace duplicated;
+
+import "tests/utils/duplicate-namespace-1";
+
+test "Should not be able to import sames namespace as current one" {}

@@ -9051,6 +9051,74 @@ fn readScript(self: *Self, file_name: []const u8) !?[2][]const u8 {
     };
 }
 
+fn checkImportedNamespaceCollision(self: *Self, namespace: []const Ast.TokenIndex) Error!void {
+    // Does imported namespace collides with our own
+    if (self.namespace) |own_namespace| {
+        if (namespace.len == own_namespace.len) {
+            var matches = true;
+            const lexemes = self.ast.tokens.items(.lexeme);
+            for (namespace, own_namespace) |part, own_part| {
+                if (!std.mem.eql(u8, lexemes[part], lexemes[own_part])) {
+                    matches = false;
+                    break;
+                }
+            }
+
+            if (matches) {
+                var namespace_str = std.ArrayList(u8).empty;
+                defer namespace_str.deinit(self.gc.allocator);
+
+                for (namespace) |part| {
+                    try namespace_str.appendSlice(self.gc.allocator, lexemes[part]);
+                    try namespace_str.append(self.gc.allocator, '\\');
+                }
+
+                self.reporter.reportWithOrigin(
+                    .import_already_exists,
+                    self.ast.tokens.get(namespace[0]),
+                    self.ast.tokens.get(namespace[namespace.len - 1]),
+                    self.ast.tokens.get(own_namespace[0]),
+                    self.ast.tokens.get(own_namespace[own_namespace.len - 1]),
+                    "The namespace `{s} already exists`",
+                    .{
+                        namespace_str.items,
+                    },
+                    "defined here",
+                );
+            }
+        }
+    }
+
+    // Does imported namespace collides we something we already imported?
+    for (self.globals.items) |global| {
+        if (global.matchNamespace(self.ast, namespace)) {
+            var namespace_str = std.ArrayList(u8).empty;
+            defer namespace_str.deinit(self.gc.allocator);
+
+            const lexemes = self.ast.tokens.items(.lexeme);
+            for (namespace) |part| {
+                try namespace_str.appendSlice(self.gc.allocator, lexemes[part]);
+                try namespace_str.append(self.gc.allocator, '\\');
+            }
+
+            self.reporter.reportWithOrigin(
+                .import_already_exists,
+                self.ast.tokens.get(namespace[0]),
+                self.ast.tokens.get(namespace[namespace.len - 1]),
+                self.ast.tokens.get(global.qualified_name.namespace[0]),
+                self.ast.tokens.get(global.qualified_name.namespace[global.qualified_name.namespace.len - 1]),
+                "The namespace `{s} already exists`",
+                .{
+                    namespace_str.items,
+                },
+                "defined here",
+            );
+
+            break;
+        }
+    }
+}
+
 fn importScript(
     self: *Self,
     path_token: Ast.TokenIndex,
@@ -9060,6 +9128,7 @@ fn importScript(
 ) Error!?ScriptImport {
     var import = self.imports.get(file_name);
 
+    var imported_namespace: ?[]const Ast.TokenIndex = null;
     if (import) |*uimport| {
         if (uimport.imported_by.get(self.current.?) != null) {
             const location = self.ast.tokens.get(path_token);
@@ -9118,6 +9187,10 @@ fn importScript(
             self.ast = ast;
             self.ast.nodes.items(.components)[self.ast.root.?].Function.import_root = true;
 
+            if (prefix == null and imported_symbols.count() == 0) {
+                imported_namespace = try ast.slice().namespace(self.gc.allocator, ast.root.?);
+            }
+
             import = ScriptImport{
                 .function = self.ast.root.?,
                 .absolute_path = try self.gc.copyString(source_and_path.?[1]),
@@ -9175,6 +9248,10 @@ fn importScript(
     }
 
     if (import) |imported| {
+        if (imported_namespace) |namespace| {
+            try self.checkImportedNamespaceCollision(namespace);
+        }
+
         const selective_import = imported_symbols.count() > 0;
         const lexemes = self.ast.tokens.items(.lexeme);
         for (imported.globals.items) |imported_global| {

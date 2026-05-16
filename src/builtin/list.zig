@@ -85,7 +85,7 @@ pub fn pop(ctx: *o.NativeCtx) callconv(.c) c_int {
     if (list.items.items.len > 0) {
         ctx.vm.push(list.items.pop().?);
     } else {
-        ctx.vm.push(v.Value.Null);
+        ctx.vm.push(.Null);
     }
 
     return 1;
