@@ -20,6 +20,7 @@
 - `main` signature can omit `args` argument
 - Maximum number of enum cases is now 16 777 215 instead of 255
 - `pattern.match` returns now a list of `obj{ start: int, end: int, capture: str }` and `matchAll` a list of those lists
+- Selective import erases the imported namespace: `import print from "std"; ... print("hello world");`
 
 ## Internal
 

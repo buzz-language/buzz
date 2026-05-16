@@ -346,6 +346,7 @@ pub const ScriptImport = struct {
     function: Ast.Node.Index,
     globals: std.ArrayList(Global) = .empty,
     absolute_path: *obj.ObjString,
+    /// Prevent script from being imported more that once by the same script
     imported_by: std.AutoHashMapUnmanaged(*Frame, void) = .{},
 
     pub fn deinit(self: *ScriptImport, allocator: std.mem.Allocator) void {
@@ -9184,13 +9185,16 @@ fn importScript(
             var global = imported_global;
 
             if (!global.hidden) {
-                if (selective_import and !imported_symbols.remove(lexemes[global.qualified_name.name])) {
+                const selected = imported_symbols.remove(lexemes[global.qualified_name.name]);
+                if (selective_import and !selected) {
                     global.hidden = true;
                 }
 
                 // If requalified, overwrite namespace
                 // If requalified namespace is `_`, means we erase the namespace altogether
-                global.qualified_name.namespace = if (prefix != null and prefix.?.len == 1 and lexemes[prefix.?[0]].len == 1 and lexemes[prefix.?[0]][0] == '_')
+                // If not requalified but selected with `import symbol from "..."`, erase namespace also
+                global.qualified_name.namespace = if ((prefix != null and prefix.?.len == 1 and lexemes[prefix.?[0]].len == 1 and lexemes[prefix.?[0]][0] == '_') or
+                    prefix == null and selected)
                     self.namespace orelse &.{}
                 else
                     prefix orelse global.qualified_name.namespace;
