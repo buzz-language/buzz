@@ -118,6 +118,7 @@ pub const Renderer = struct {
 
     const renderers = [_]RenderNode{
         renderAnonymousObjectType,
+        renderAnonymousEnumCase,
         renderAs,
         renderAsyncCall,
         renderBinary,
@@ -181,6 +182,17 @@ pub const Renderer = struct {
         renderYield,
         renderZdef,
     };
+
+    fn renderAnonymousEnumCase(self: *Self, node: Ast.Node.Index, space: Space) Error!void {
+        const locations = self.ast.nodes.items(.location);
+        const components = self.ast.nodes.items(.components)[node].AnonymousEnumCase;
+
+        // .
+        try self.renderExpectedToken(locations[node], .Dot, .None);
+
+        // case
+        try self.renderExpectedToken(components.case_name, .Identifier, space);
+    }
 
     fn renderExpectedTokenSequence(self: *Self, start_token: Ast.TokenIndex, comptime expected: []const Token.Type, space: Space) Error!void {
         for (expected, 0..) |tag, offset| {

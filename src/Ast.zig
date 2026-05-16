@@ -299,6 +299,7 @@ pub const Slice = struct {
                     try node_queue.append(allocator, comp.While.body);
                 },
                 .Yield => try node_queue.append(allocator, comp.Yield),
+                .AnonymousEnumCase,
                 .Boolean,
                 .Break,
                 .Continue,
@@ -355,6 +356,7 @@ pub const Slice = struct {
         ) (std.mem.Allocator.Error || std.fmt.BufPrintError)!bool {
             switch (ast.nodes.items(.tag)[node]) {
                 .AnonymousObjectType,
+                .AnonymousEnumCase,
                 .FiberType,
                 .FunctionType,
                 .GenericResolveType,
@@ -1120,6 +1122,7 @@ pub const Node = struct {
 
     pub const Tag = enum(u8) {
         AnonymousObjectType,
+        AnonymousEnumCase,
         As,
         AsyncCall,
         Binary,
@@ -1196,6 +1199,7 @@ pub const Node = struct {
 
     pub const Components = union(Tag) {
         AnonymousObjectType: AnonymousObjectType,
+        AnonymousEnumCase: AnonymousEnumCase,
         As: IsAs,
         AsyncCall: Node.Index,
         Binary: Binary,
@@ -1413,6 +1417,11 @@ pub const AnonymousObjectType = struct {
         name: TokenIndex,
         type: Node.Index,
     };
+};
+
+pub const AnonymousEnumCase = struct {
+    case_name: TokenIndex,
+    resolved_case: ?u32 = null,
 };
 
 pub const Binary = struct {

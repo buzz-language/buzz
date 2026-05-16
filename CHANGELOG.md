@@ -23,6 +23,7 @@
 - `pattern.match` returns now a list of `obj{ start: int, end: int, capture: str }` and `matchAll` a list of those lists
 - Selective import erases the imported namespace: `import print from "std"; ... print("hello world");`
 - Common part of imported namespace gets erased: il imported file as namesapce `a\b\c` and importing script has namespace `a\b`, only `c\` remains
+- Enum name can be omitted if it can be inferred (`final list: [Locale] = [ .fr, .it, .en ]`) (https://github.com/buzz-language/buzz/issues/360)
 
 ## Internal
 

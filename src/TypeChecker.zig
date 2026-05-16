@@ -14,70 +14,71 @@ const NodeCheck = *const fn (
     node: Ast.Node.Index,
 ) error{OutOfMemory}!bool;
 
-const checkers = [_]?NodeCheck{
-    null, // AnonymousObjectType,
-    null, // As,
+const checkers = [@typeInfo(Ast.Node.Tag).@"enum".fields.len]?NodeCheck{
+    null, // AnonymousObjectType
+    null, // AnonymousEnumCase
+    null, // As
     checkAsyncCall,
     checkBinary,
-    null, // Block,
-    null, // BlockExpression,
-    null, // Boolean,
-    null, // Break,
+    null, // Block
+    null, // BlockExpression
+    null, // Boolean
+    null, // Break
     checkCall,
-    null, // Continue,
+    null, // Continue
     checkDot,
     checkDoUntil,
     checkEnum,
-    null, // Export,
-    null, // Expression,
-    null, // FiberType,
-    null, // Double,
+    null, // Export
+    null, // Expression
+    null, // FiberType
+    null, // Double
     checkFor,
     checkForceUnwrap,
     checkForEach,
     checkFunction,
-    null, // FunctionType,
-    null, // FunDeclaration,
+    null, // FunctionType
+    null, // FunDeclaration
     checkGenericResolve,
-    null, // GenericResolveType,
-    null, // GenericType,
-    null, // Grouping,
+    null, // GenericResolveType
+    null, // GenericType
+    null, // Grouping
     checkIf,
-    null, // Import,
-    null, // Integer,
-    null, // Is,
+    null, // Import
+    null, // Integer
+    null, // Is
     checkList,
-    null, // ListType,
+    null, // ListType
     checkMap,
-    null, // MapType,
-    null, // Namespace,
+    null, // MapType
+    null, // Namespace
     checkNamedVariable,
-    null, // Null,
+    null, // Null
     checkObjectDeclaration,
     checkObjectInit,
-    null, // Out,
-    null, // Pattern,
-    null, // ProtocolDeclaration,
+    null, // Out
+    null, // Pattern
+    null, // ProtocolDeclaration
     checkRange,
     checkResolve,
     checkResume,
     checkReturn,
-    null, // SimpleType,
-    null, // String,
-    null, // StringLiteral,
+    null, // SimpleType
+    null, // String
+    null, // StringLiteral
     checkSubscript,
-    null, // Throw,
-    null, // Try,
-    null, // TypeExpression,
-    null, // TypeOfExpression,
+    null, // Throw
+    null, // Try
+    null, // TypeExpression
+    null, // TypeOfExpression
     checkUnary,
     checkUnwrap,
-    null, // UserType,
+    null, // UserType
     checkVarDeclaration,
-    null, // Void,
+    null, // Void
     checkWhile,
     checkYield,
-    null, // Zdef,
+    null, // Zdef
 };
 
 /// Typecheck the node (but does not typecheck its leaf)
@@ -88,37 +89,126 @@ pub fn check(ast: Ast.Slice, reporter: *Reporter, gc: *GC, current_function_node
         false;
 }
 
-pub fn populateEmptyCollectionType(ast: Ast.Slice, gc: *GC, value: Ast.Node.Index, target_type: *o.ObjTypeDef) error{OutOfMemory}!void {
+fn inferType(ast: Ast.Slice, reporter: *Reporter, gc: *GC, value_node: Ast.Node.Index, target_type: *o.ObjTypeDef) error{OutOfMemory}!bool {
     const tags = ast.nodes.items(.tag);
+
+    return switch (tags[value_node]) {
+        .AnonymousEnumCase => populateAnonymousEnumCase(ast, reporter, value_node, target_type),
+        .List => try inferListType(ast, reporter, gc, value_node, target_type),
+        .Map => try inferMapType(ast, reporter, gc, value_node, target_type),
+        else => false,
+    };
+}
+
+fn inferListType(ast: Ast.Slice, reporter: *Reporter, gc: *GC, value: Ast.Node.Index, target_type: *o.ObjTypeDef) error{OutOfMemory}!bool {
     const components = ast.nodes.items(.components);
     const type_defs = ast.nodes.items(.type_def);
 
-    // variable: [T] = [<any>] -> variable: [T] = [<T>]
-    // variable: mut [T] = [<any>] -> keep immutable [T], do not infer mutability
-    if (target_type.def_type == .List and
-        tags[value] == .List and
-        components[value].List.explicit_item_type == null and
-        components[value].List.items.len == 0)
-    {
-        type_defs[value] = target_type.cloneMutable(
-            &gc.type_registry,
-            type_defs[value].?.isMutable(),
-        ) catch return error.OutOfMemory;
+    if (target_type.def_type != .List) {
+        return false;
     }
 
-    // variable: {K: V} = {<any: any>} -> variable: {K: V} = {<K: V>}
-    // variable: mut {K: V} = {<any: any>} -> keep immutable {K: V}, do not infer mutability
-    if (target_type.def_type == .Map and
-        tags[value] == .Map and
-        components[value].Map.explicit_key_type == null and
-        components[value].Map.explicit_value_type == null and
-        components[value].Map.entries.len == 0)
+    const list = components[value].List;
+    const item_type = target_type.resolved_type.?.List.item_type;
+    var inferred_item = false;
+
+    for (list.items) |item| {
+        // A contextual list type propagates to nested inferred item expressions.
+        inferred_item = (try inferType(ast, reporter, gc, item, item_type)) or inferred_item;
+    }
+
+    // variable: [T] = [<any>] -> variable: [T] = [<T>].
+    // When contextual inference resolved an item, the literal's own parser-inferred
+    // placeholder type can be replaced with the contextual list type.
+    if (list.explicit_item_type == null and (list.items.len == 0 or inferred_item)) {
+        type_defs[value] = target_type.cloneMutable(
+            &gc.type_registry,
+            type_defs[value].?.isMutable(),
+        ) catch return error.OutOfMemory;
+
+        return true;
+    }
+
+    return false;
+}
+
+fn inferMapType(ast: Ast.Slice, reporter: *Reporter, gc: *GC, value: Ast.Node.Index, target_type: *o.ObjTypeDef) error{OutOfMemory}!bool {
+    const components = ast.nodes.items(.components);
+    const type_defs = ast.nodes.items(.type_def);
+
+    if (target_type.def_type != .Map) {
+        return false;
+    }
+
+    const map = components[value].Map;
+    const key_type = target_type.resolved_type.?.Map.key_type;
+    const value_type = target_type.resolved_type.?.Map.value_type;
+    var inferred_entry = false;
+
+    for (map.entries) |entry| {
+        // A contextual map type propagates to nested inferred key/value expressions.
+        inferred_entry = (try inferType(ast, reporter, gc, entry.key, key_type)) or inferred_entry;
+        inferred_entry = (try inferType(ast, reporter, gc, entry.value, value_type)) or inferred_entry;
+    }
+
+    // variable: {K: V} = {<any: any>} -> variable: {K: V} = {<K: V>}.
+    if (map.explicit_key_type == null and
+        map.explicit_value_type == null and
+        (map.entries.len == 0 or inferred_entry))
     {
         type_defs[value] = target_type.cloneMutable(
             &gc.type_registry,
             type_defs[value].?.isMutable(),
         ) catch return error.OutOfMemory;
+        return true;
     }
+
+    return false;
+}
+
+fn populateAnonymousEnumCase(ast: Ast.Slice, reporter: *Reporter, value: Ast.Node.Index, target_type: *o.ObjTypeDef) bool {
+    const type_defs = ast.nodes.items(.type_def);
+
+    if (target_type.def_type == .EnumInstance) {
+        const locations = ast.nodes.items(.location);
+        const end_locations = ast.nodes.items(.end_location);
+        const components = ast.nodes.items(.components)[value].AnonymousEnumCase;
+        const case_name = ast.tokens.items(.lexeme)[components.case_name];
+        const enum_type_def = target_type.resolved_type.?.EnumInstance.of.resolved_type.?.Enum;
+
+        for (enum_type_def.cases) |case| {
+            if (std.mem.eql(u8, case, case_name)) {
+                type_defs[value] = target_type;
+
+                return true;
+            }
+        }
+
+        reporter.reportErrorFmt(
+            .inferred_type,
+            ast.tokens.get(locations[value]),
+            ast.tokens.get(end_locations[value]),
+            "Could not infer type for enum case `{s}`.",
+            .{case_name},
+        );
+
+        return true;
+    }
+
+    if (type_defs[value].?.def_type == .Placeholder) {
+        const locations = ast.nodes.items(.location);
+        const end_locations = ast.nodes.items(.end_location);
+        reporter.reportErrorAt(
+            .inferred_type,
+            ast.tokens.get(locations[value]),
+            ast.tokens.get(end_locations[value]),
+            "Could not infer type for enum case.",
+        );
+
+        return true;
+    }
+
+    return false;
 }
 
 fn checkBinary(ast: Ast.Slice, reporter: *Reporter, gc: *GC, _: ?Ast.Node.Index, node: Ast.Node.Index) error{OutOfMemory}!bool {
@@ -129,10 +219,34 @@ fn checkBinary(ast: Ast.Slice, reporter: *Reporter, gc: *GC, _: ?Ast.Node.Index,
     const node_location = locations[node];
     const end_locations = ast.nodes.items(.end_location);
     const node_end_location = end_locations[node];
-    const left_type = type_defs[node_components.Binary.left] orelse gc.type_registry.any_type;
-    const right_type = type_defs[node_components.Binary.right] orelse gc.type_registry.any_type;
+    var left_type = type_defs[node_components.Binary.left] orelse gc.type_registry.any_type;
+    var right_type = type_defs[node_components.Binary.right] orelse gc.type_registry.any_type;
 
     var had_error = false;
+
+    if (node_components.Binary.operator == .QuestionQuestion and left_type.def_type != .Placeholder) {
+        const fallback_type = left_type.cloneNonOptional(&gc.type_registry) catch return error.OutOfMemory;
+        // `a ?? b` gives `b` the non-optional type of `a`.
+        if (try inferType(ast, reporter, gc, node_components.Binary.right, fallback_type)) {
+            right_type = type_defs[node_components.Binary.right] orelse gc.type_registry.any_type;
+        }
+
+        type_defs[node] = right_type;
+    } else if (left_type.def_type != .Placeholder) {
+        // A concrete left operand can provide context for an inferred right operand.
+        if (try inferType(ast, reporter, gc, node_components.Binary.right, left_type)) {
+            right_type = type_defs[node_components.Binary.right] orelse gc.type_registry.any_type;
+        }
+    }
+
+    if (node_components.Binary.operator != .QuestionQuestion and
+        right_type.def_type != .Placeholder)
+    {
+        // A concrete right operand can provide context for an inferred left operand.
+        if (try inferType(ast, reporter, gc, node_components.Binary.left, right_type)) {
+            left_type = type_defs[node_components.Binary.left] orelse gc.type_registry.any_type;
+        }
+    }
 
     switch (node_components.Binary.operator) {
         .QuestionQuestion,
@@ -465,7 +579,8 @@ fn checkCall(ast: Ast.Slice, reporter: *Reporter, gc: *GC, _: ?Ast.Node.Index, n
         const def_arg_type = args.get(actual_arg_key);
 
         if (def_arg_type) |arg_type| {
-            try populateEmptyCollectionType(ast, gc, argument.value, arg_type);
+            // Function signatures provide contextual types for inferred arguments.
+            _ = try inferType(ast, reporter, gc, argument.value, arg_type);
             argument_type_def = type_defs[argument.value].?;
 
             if (!arg_type.eql(argument_type_def)) {
@@ -545,6 +660,9 @@ fn checkCall(ast: Ast.Slice, reporter: *Reporter, gc: *GC, _: ?Ast.Node.Index, n
     // Catch clause
     const error_types = callee_type.?.resolved_type.?.Function.error_types;
     if (components.catch_default) |catch_default| {
+        const node_type_def = type_defs[node].?;
+        // Inline catch defaults must produce the same value type as the call.
+        _ = try inferType(ast, reporter, gc, catch_default, node_type_def);
         const catch_default_type_def = type_defs[catch_default].?;
         if (error_types == null or error_types.?.len == 0) {
             reporter.reportErrorAt(
@@ -555,7 +673,6 @@ fn checkCall(ast: Ast.Slice, reporter: *Reporter, gc: *GC, _: ?Ast.Node.Index, n
             );
             had_error = true;
         } else if (error_types != null) {
-            const node_type_def = type_defs[node].?;
             // Expression
             if (!node_type_def.eql(catch_default_type_def) and
                 !(node_type_def.cloneOptional(&gc.type_registry) catch return error.OutOfMemory)
@@ -736,7 +853,8 @@ fn checkDot(ast: Ast.Slice, reporter: *Reporter, gc: *GC, _: ?Ast.Node.Index, no
                                 had_error = true;
                             }
 
-                            try populateEmptyCollectionType(ast, gc, value, field.?.type_def);
+                            // Field assignments provide the declared field type as context.
+                            _ = try inferType(ast, reporter, gc, value, field.?.type_def);
                             value_type_def = type_defs[value].?;
 
                             if (!field.?.type_def.eql(value_type_def)) {
@@ -1502,7 +1620,7 @@ fn checkIf(ast: Ast.Slice, reporter: *Reporter, _: *GC, _: ?Ast.Node.Index, node
     return had_error;
 }
 
-fn checkList(ast: Ast.Slice, reporter: *Reporter, _: *GC, _: ?Ast.Node.Index, node: Ast.Node.Index) error{OutOfMemory}!bool {
+fn checkList(ast: Ast.Slice, reporter: *Reporter, gc: *GC, _: ?Ast.Node.Index, node: Ast.Node.Index) error{OutOfMemory}!bool {
     const locations = ast.nodes.items(.location);
     const end_locations = ast.nodes.items(.end_location);
     const components = ast.nodes.items(.components)[node].List;
@@ -1514,7 +1632,13 @@ fn checkList(ast: Ast.Slice, reporter: *Reporter, _: *GC, _: ?Ast.Node.Index, no
     for (components.items) |item| {
         if (item_type.def_type == .Placeholder) {
             reporter.reportPlaceholder(ast, type_defs[item].?.resolved_type.?.Placeholder);
-        } else if (!item_type.eql(type_defs[item].?)) {
+        } else {
+            // The list item type provides context for inferred item expressions.
+            _ = try inferType(ast, reporter, gc, item, item_type);
+        }
+
+        const actual_item_type = type_defs[item].?;
+        if (item_type.def_type != .Placeholder and !item_type.eql(actual_item_type)) {
             reporter.reportTypeCheck(
                 .list_item_type,
                 ast.tokens.get(locations[node]),
@@ -1522,7 +1646,7 @@ fn checkList(ast: Ast.Slice, reporter: *Reporter, _: *GC, _: ?Ast.Node.Index, no
                 item_type,
                 ast.tokens.get(locations[item]),
                 ast.tokens.get(end_locations[item]),
-                type_defs[item].?,
+                actual_item_type,
                 "Bad list type",
             );
             had_error = true;
@@ -1532,31 +1656,37 @@ fn checkList(ast: Ast.Slice, reporter: *Reporter, _: *GC, _: ?Ast.Node.Index, no
     return had_error;
 }
 
-fn checkMap(ast: Ast.Slice, reporter: *Reporter, _: *GC, _: ?Ast.Node.Index, node: Ast.Node.Index) error{OutOfMemory}!bool {
+fn checkMap(ast: Ast.Slice, reporter: *Reporter, gc: *GC, _: ?Ast.Node.Index, node: Ast.Node.Index) error{OutOfMemory}!bool {
     const locations = ast.nodes.items(.location);
     const end_locations = ast.nodes.items(.end_location);
     const components = ast.nodes.items(.components)[node].Map;
     const type_defs = ast.nodes.items(.type_def);
 
+    const map_type = type_defs[node].?.resolved_type.?.Map;
     const key_type = if (components.explicit_key_type) |kt|
-        type_defs[kt]
+        type_defs[kt].?
     else
-        null;
+        map_type.key_type;
 
     const value_type = if (components.explicit_value_type) |vt|
-        type_defs[vt]
+        type_defs[vt].?
     else
-        null;
+        map_type.value_type;
 
     var had_error = false;
 
     for (components.entries) |entry| {
-        if (key_type != null and !key_type.?.eql(type_defs[entry.key].?)) {
+        if (key_type.def_type != .Placeholder) {
+            // Map key declarations provide context for inferred key expressions.
+            _ = try inferType(ast, reporter, gc, entry.key, key_type);
+        }
+
+        if (!key_type.eql(type_defs[entry.key].?)) {
             reporter.reportTypeCheck(
                 .map_key_type,
                 ast.tokens.get(locations[node]),
                 ast.tokens.get(end_locations[node]),
-                key_type.?,
+                key_type,
                 ast.tokens.get(locations[entry.key]),
                 ast.tokens.get(end_locations[entry.key]),
                 type_defs[entry.key].?,
@@ -1565,12 +1695,17 @@ fn checkMap(ast: Ast.Slice, reporter: *Reporter, _: *GC, _: ?Ast.Node.Index, nod
             had_error = true;
         }
 
-        if (value_type != null and !value_type.?.eql(type_defs[entry.value].?)) {
+        if (value_type.def_type != .Placeholder) {
+            // Map value declarations provide context for inferred value expressions.
+            _ = try inferType(ast, reporter, gc, entry.value, value_type);
+        }
+
+        if (!value_type.eql(type_defs[entry.value].?)) {
             reporter.reportTypeCheck(
                 .map_value_type,
                 ast.tokens.get(locations[node]),
                 ast.tokens.get(end_locations[node]),
-                value_type.?,
+                value_type,
                 ast.tokens.get(locations[entry.value]),
                 ast.tokens.get(end_locations[entry.value]),
                 type_defs[entry.value].?,
@@ -1583,7 +1718,7 @@ fn checkMap(ast: Ast.Slice, reporter: *Reporter, _: *GC, _: ?Ast.Node.Index, nod
     return had_error;
 }
 
-fn checkNamedVariable(ast: Ast.Slice, reporter: *Reporter, _: *GC, _: ?Ast.Node.Index, node: Ast.Node.Index) error{OutOfMemory}!bool {
+fn checkNamedVariable(ast: Ast.Slice, reporter: *Reporter, gc: *GC, _: ?Ast.Node.Index, node: Ast.Node.Index) error{OutOfMemory}!bool {
     const components = ast.nodes.items(.components)[node].NamedVariable;
     const locations = ast.nodes.items(.location);
     const end_locations = ast.nodes.items(.end_location);
@@ -1593,7 +1728,11 @@ fn checkNamedVariable(ast: Ast.Slice, reporter: *Reporter, _: *GC, _: ?Ast.Node.
     var had_error = false;
 
     if (components.value) |value| {
-        if (!type_defs[node].?.eql(type_defs[value].?)) {
+        // Assignment targets provide context for inferred assigned values.
+        _ = try inferType(ast, reporter, gc, value, type_defs[node].?);
+        const value_type_def = type_defs[value].?;
+
+        if (!type_defs[node].?.eql(value_type_def)) {
             reporter.reportTypeCheck(
                 .assignment_value_type,
                 ast.tokens.get(locations[node]),
@@ -1601,7 +1740,7 @@ fn checkNamedVariable(ast: Ast.Slice, reporter: *Reporter, _: *GC, _: ?Ast.Node.
                 type_defs[node].?,
                 ast.tokens.get(locations[value]),
                 ast.tokens.get(end_locations[value]),
-                type_defs[value].?,
+                value_type_def,
                 "Bad value type",
             );
             had_error = true;
@@ -1796,7 +1935,8 @@ fn checkObjectDeclaration(ast: Ast.Slice, reporter: *Reporter, gc: *GC, _: ?Ast.
 
             // Create property default value
             if (member.method_or_default_value) |default| {
-                try populateEmptyCollectionType(ast, gc, default, property_type);
+                // Property declarations provide context for inferred default values.
+                _ = try inferType(ast, reporter, gc, default, property_type);
                 const default_type_def = type_defs[default].?;
 
                 if (default_type_def.isMutable()) {
@@ -1881,7 +2021,8 @@ fn checkObjectInit(ast: Ast.Slice, reporter: *Reporter, gc: *GC, _: ?Ast.Node.In
     for (components.properties) |property| {
         const property_name = lexemes[property.name];
         if (fields.get(property_name)) |prop| {
-            try populateEmptyCollectionType(ast, gc, property.value, prop);
+            // Object initializer fields provide context for inferred property values.
+            _ = try inferType(ast, reporter, gc, property.value, prop);
             const value_type_def = type_defs[property.value].?;
 
             if (!prop.eql(value_type_def)) {
@@ -2073,6 +2214,8 @@ fn checkReturn(ast: Ast.Slice, reporter: *Reporter, gc: *GC, current_function_no
     var had_error = false;
 
     if (components.value) |value| {
+        // Function return types provide context for inferred return values.
+        _ = try inferType(ast, reporter, gc, value, current_function_type_def.return_type);
         const value_type_def = type_defs[value];
         if (value_type_def == null) {
             reporter.reportErrorAt(
@@ -2121,7 +2264,7 @@ fn checkSubscript(ast: Ast.Slice, reporter: *Reporter, gc: *GC, _: ?Ast.Node.Ind
 
     const subscripted_type_def = type_defs[components.subscripted].?;
     const index_type_def = type_defs[components.index].?;
-    const value_type_def = if (components.value) |value| type_defs[value] else null;
+    var value_type_def = if (components.value) |value| type_defs[value] else null;
 
     var had_error = false;
 
@@ -2188,6 +2331,10 @@ fn checkSubscript(ast: Ast.Slice, reporter: *Reporter, gc: *GC, _: ?Ast.Node.Ind
                     had_error = true;
                 }
 
+                // List element assignments provide the list item type as context.
+                _ = try inferType(ast, reporter, gc, value, subscripted_type_def.resolved_type.?.List.item_type);
+                value_type_def = type_defs[value];
+
                 if (!subscripted_type_def.resolved_type.?.List.item_type.eql(value_type_def.?)) {
                     reporter.reportTypeCheck(
                         .subscript_value_type,
@@ -2233,6 +2380,10 @@ fn checkSubscript(ast: Ast.Slice, reporter: *Reporter, gc: *GC, _: ?Ast.Node.Ind
                     );
                     had_error = true;
                 }
+
+                // Map element assignments provide the map value type as context.
+                _ = try inferType(ast, reporter, gc, value, subscripted_type_def.resolved_type.?.Map.value_type);
+                value_type_def = type_defs[value];
 
                 if (!subscripted_type_def.resolved_type.?.Map.value_type.eql(value_type_def.?)) {
                     reporter.reportTypeCheck(
@@ -2337,7 +2488,7 @@ fn checkVarDeclaration(ast: Ast.Slice, reporter: *Reporter, gc: *GC, _: ?Ast.Nod
     const components = ast.nodes.items(.components)[node].VarDeclaration;
     const type_defs = ast.nodes.items(.type_def);
     const type_def = type_defs[node].?;
-    const value_type_def = if (components.value) |value|
+    var value_type_def = if (components.value) |value|
         ast.nodes.items(.type_def)[value]
     else
         null;
@@ -2346,6 +2497,10 @@ fn checkVarDeclaration(ast: Ast.Slice, reporter: *Reporter, gc: *GC, _: ?Ast.Nod
     const location = locations[node];
 
     if (components.value) |value| {
+        // Declared variable types provide context for inferred initializer values.
+        _ = try inferType(ast, reporter, gc, value, type_def);
+        value_type_def = ast.nodes.items(.type_def)[value];
+
         if (!(type_def.toInstance(&gc.type_registry, type_def.isMutable()) catch return error.OutOfMemory)
             .eql(value_type_def.?) and
             !((type_def.toInstance(&gc.type_registry, type_def.isMutable()) catch return error.OutOfMemory)
@@ -2391,9 +2546,9 @@ fn checkWhile(ast: Ast.Slice, reporter: *Reporter, _: *GC, _: ?Ast.Node.Index, n
     return false;
 }
 
-fn checkYield(ast: Ast.Slice, reporter: *Reporter, _: *GC, current_function_node: ?Ast.Node.Index, node: Ast.Node.Index) error{OutOfMemory}!bool {
+fn checkYield(ast: Ast.Slice, reporter: *Reporter, gc: *GC, current_function_node: ?Ast.Node.Index, node: Ast.Node.Index) error{OutOfMemory}!bool {
     const type_defs = ast.nodes.items(.type_def);
-    const type_def = type_defs[node];
+    const components = ast.nodes.items(.components)[node].Yield;
     const locations = ast.nodes.items(.location);
     const end_locations = ast.nodes.items(.end_location);
     const location = locations[node];
@@ -2420,6 +2575,11 @@ fn checkYield(ast: Ast.Slice, reporter: *Reporter, _: *GC, current_function_node
         },
         else => {},
     }
+
+    // Fiber yield types provide context for inferred yielded values.
+    _ = try inferType(ast, reporter, gc, components, current_function_typedef.yield_type);
+    type_defs[node] = type_defs[components];
+    const type_def = type_defs[node];
 
     if (type_def == null) {
         reporter.reportErrorAt(

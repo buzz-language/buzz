@@ -13,7 +13,7 @@ fun writeFile(file: io\File, a: str, b: int, c: bool) > void !> any {
 fun main() > void !> any {
     final file = io\File.open(
         "/Users/giann/git/buzz/ooout.txt",
-        mode: io\FileMode.write,
+        mode: .write,
     );
 
     writeFile(file, a: "hey", b: 12, c: true);

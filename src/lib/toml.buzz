@@ -256,30 +256,30 @@ object Token {
     }
 
     fun literal() > any {
-        if (this.tag == TokenTag.LiteralString) {
+        if (this.tag == .LiteralString) {
             return this.stripStringDelimiters(1);
         }
 
-        if (this.tag == TokenTag.MultilineLiteralString) {
+        if (this.tag == .MultilineLiteralString) {
             return this.trimFirstMultilineNewline(this.stripStringDelimiters(3));
         }
 
-        if (this.tag == TokenTag.BasicString) {
+        if (this.tag == .BasicString) {
             return this.decodeBasicString(this.stripStringDelimiters(1));
         }
 
-        if (this.tag == TokenTag.MultilineBasicString) {
+        if (this.tag == .MultilineBasicString) {
             return this.decodeBasicString(
                 this.trimFirstMultilineNewline(this.stripStringDelimiters(3)),
                 multiline: true,
             );
         }
 
-        if (this.tag == TokenTag.Integer) {
+        if (this.tag == .Integer) {
             return this.integerLiteral();
         }
 
-        if (this.tag == TokenTag.Float) {
+        if (this.tag == .Float) {
             final normalized = this.floatLexeme();
             if (normalized == "inf" or normalized == "+inf" or normalized == "-inf" or normalized == "nan" or normalized == "+nan" or normalized == "-nan") {
                 return 0.0;
@@ -461,7 +461,7 @@ object Scanner {
         return this.tokens[this.tokens.len() - 1];
     }
 
-    fun makeError(error: str) => this.makeToken(TokenTag.Error, error);
+    fun makeError(error: str) => this.makeToken(.Error, error);
 
     mut fun skipComment() > Token? {
         _ = this.advance();
@@ -499,7 +499,7 @@ object Scanner {
         }
 
         if (this.isEOF()) {
-            return this.makeToken(TokenTag.Eof);
+            return this.makeToken(.Eof);
         }
 
         final char = this.advance();
@@ -508,7 +508,7 @@ object Scanner {
             this.current.line += 1;
             this.current.column = 0;
 
-            return this.makeToken(TokenTag.Newline);
+            return this.makeToken(.Newline);
         } else if (char == '\r') {
             if (!this.match('\n')) {
                 return this.makeError("Expected LF after CR");
@@ -517,21 +517,21 @@ object Scanner {
             this.current.line += 1;
             this.current.column = 0;
 
-            return this.makeToken(TokenTag.Newline);
+            return this.makeToken(.Newline);
         } else if (char == '=') {
-            return this.makeToken(TokenTag.Equal);
+            return this.makeToken(.Equal);
         } else if (char == '.') {
-            return this.makeToken(TokenTag.Dot);
+            return this.makeToken(.Dot);
         } else if (char == ',') {
-            return this.makeToken(TokenTag.Comma);
+            return this.makeToken(.Comma);
         } else if (char == '[') {
-            return this.makeToken(TokenTag.LeftBracket);
+            return this.makeToken(.LeftBracket);
         } else if (char == ']') {
-            return this.makeToken(TokenTag.RightBracket);
+            return this.makeToken(.RightBracket);
         } else if (char == '{') {
-            return this.makeToken(TokenTag.LeftBrace);
+            return this.makeToken(.LeftBrace);
         } else if (char == '}') {
-            return this.makeToken(TokenTag.RightBrace);
+            return this.makeToken(.RightBrace);
         } else if (this.isLetter(char) or char == '_' or (char == '-' and !this.isNumber(peeked) and peeked != 'i' and peeked != 'n')) {
             return this.bareKey();
         } else if (this.isNumber(char) or ((char == '+' or char == '-') and (this.isNumber(peeked) or peeked == 'i' or peeked == 'n'))) {
@@ -566,14 +566,14 @@ object Scanner {
         final lexeme = this.source.sub(this.current.start, len: this.current.offset - this.current.start);
 
         if (lexeme == "true" or lexeme == "false") {
-            return this.makeToken(TokenTag.Boolean);
+            return this.makeToken(.Boolean);
         }
 
         if (lexeme == "inf" or lexeme == "nan") {
-            return this.makeToken(TokenTag.Float);
+            return this.makeToken(.Float);
         }
 
-        return this.makeToken(TokenTag.BareKey);
+        return this.makeToken(.BareKey);
     }
 
     fun scannedCanBeBareKey() > bool {
@@ -747,7 +747,7 @@ object Scanner {
 
                 if (timeLength == 0) {
                     if (afterDate == ' ') {
-                        return this.makeTokenWithLength(TokenTag.LocalDate, length: dateLength);
+                        return this.makeTokenWithLength(.LocalDate, length: dateLength);
                     }
 
                     return null;
@@ -767,7 +767,7 @@ object Scanner {
                         return null;
                     }
 
-                    return this.makeTokenWithLength(TokenTag.OffsetDateTime, length: length);
+                    return this.makeTokenWithLength(.OffsetDateTime, length: length);
                 }
 
                 if (afterTime == '+' or afterTime == '-') {
@@ -784,7 +784,7 @@ object Scanner {
                             return null;
                         }
 
-                        return this.makeTokenWithLength(TokenTag.OffsetDateTime, length: length);
+                        return this.makeTokenWithLength(.OffsetDateTime, length: length);
                     }
 
                     return null;
@@ -794,14 +794,14 @@ object Scanner {
                     return null;
                 }
 
-                return this.makeTokenWithLength(TokenTag.LocalDateTime, length: length);
+                return this.makeTokenWithLength(.LocalDateTime, length: length);
             }
 
             if (this.isBareKeyChar(afterDate)) {
                 return null;
             }
 
-            return this.makeTokenWithLength(TokenTag.LocalDate, length: dateLength);
+            return this.makeTokenWithLength(.LocalDate, length: dateLength);
         }
 
         final timeLength = this.partialTimeLength(this.current.start);
@@ -810,7 +810,7 @@ object Scanner {
                 return this.makeError("Invalid time");
             }
 
-            return this.makeTokenWithLength(TokenTag.LocalTime, length: timeLength);
+            return this.makeTokenWithLength(.LocalTime, length: timeLength);
         }
 
         return null;
@@ -831,7 +831,7 @@ object Scanner {
                 return this.makeError("Invalid float");
             }
 
-            return this.makeToken(TokenTag.Float);
+            return this.makeToken(.Float);
         }
 
         return this.makeError("Invalid float");
@@ -873,7 +873,7 @@ object Scanner {
                 return this.bareKey();
             }
 
-            return this.makeToken(TokenTag.Integer);
+            return this.makeToken(.Integer);
         }
 
         var valid = true;
@@ -1061,7 +1061,7 @@ object Scanner {
             if (peeked == '\"') {
                 _ = this.advance();
 
-                return this.makeToken(TokenTag.BasicString);
+                return this.makeToken(.BasicString);
             }
 
             if (peeked == '\n' or peeked == '\r') {
@@ -1091,7 +1091,7 @@ object Scanner {
             final peeked = this.peek();
 
             if (peeked == '\"') {
-                final token = this.consumeMultilineQuoteRun('\"', tag: TokenTag.MultilineBasicString);
+                final token = this.consumeMultilineQuoteRun('\"', tag: .MultilineBasicString);
                 if (token != null) {
                     return token!;
                 }
@@ -1132,7 +1132,7 @@ object Scanner {
             if (peeked == '\'') {
                 _ = this.advance();
 
-                return this.makeToken(TokenTag.LiteralString);
+                return this.makeToken(.LiteralString);
             }
 
             if (peeked == '\n' or peeked == '\r') {
@@ -1157,7 +1157,7 @@ object Scanner {
             final next = this.peek(1);
 
             if (peeked == '\'') {
-                final token = this.consumeMultilineQuoteRun('\'', tag: TokenTag.MultilineLiteralString);
+                final token = this.consumeMultilineQuoteRun('\'', tag: .MultilineLiteralString);
                 if (token != null) {
                     return token!;
                 }
@@ -1207,23 +1207,23 @@ object PathPart {
     index: int?,
 
     static fun keyPart(key: str) => PathPart{
-        tag = PathPartTag.Key,
+        tag = .Key,
         key,
     };
 
     static fun indexPart(index: int) => PathPart{
-        tag = PathPartTag.Index,
+        tag = .Index,
         index,
     };
 
-    fun display() => if (this.tag == PathPartTag.Index) "{this.index!}" else this.key!;
+    fun display() => if (this.tag == .Index) "{this.index!}" else this.key!;
 
     fun same(other: PathPart) > bool {
         if (this.tag != other.tag) {
             return false;
         }
 
-        if (this.tag == PathPartTag.Key) {
+        if (this.tag == .Key) {
             return this.key! == other.key!;
         }
 
@@ -1299,11 +1299,11 @@ object Path {
 
         while (true) {
             if (logical) {
-                while (left < this.parts.len() and this.parts[left].tag == PathPartTag.Index) {
+                while (left < this.parts.len() and this.parts[left].tag == .Index) {
                     left += 1;
                 }
 
-                while (right < other.parts.len() and other.parts[right].tag == PathPartTag.Index) {
+                while (right < other.parts.len() and other.parts[right].tag == .Index) {
                     right += 1;
                 }
             }
@@ -1373,7 +1373,7 @@ object PathSet {
 }
 
 fun scalarFromToken(token: Token) > any {
-    if (token.tag == TokenTag.Boolean) {
+    if (token.tag == .Boolean) {
         return token.lexeme == "true";
     }
 
@@ -1419,8 +1419,8 @@ object Parser {
         parser.advance();
         parser.skipLineIgnorable();
 
-        while (!parser.match(TokenTag.Eof)) {
-            if (parser.match(TokenTag.LeftBracket)) {
+        while (!parser.match(.Eof)) {
+            if (parser.match(.LeftBracket)) {
                 final firstLeft = parser.scanner.tokens[parser.currentToken! - 1];
                 // pop previous section
                 if (parser.section -> section) {
@@ -1429,7 +1429,7 @@ object Parser {
 
                 parser.section = parser.currentPath.len();
 
-                if (parser.check(TokenTag.LeftBracket) and parser.scanner.tokens[parser.currentToken!].offset == firstLeft.offset + 1) {
+                if (parser.check(.LeftBracket) and parser.scanner.tokens[parser.currentToken!].offset == firstLeft.offset + 1) {
                     parser.advance();
                     // [[section]]
                     parser.currentPath.appendKeys(parser.parseKey());
@@ -1439,9 +1439,9 @@ object Parser {
                         throw Error.Invalid;
                     }
 
-                    parser.consume(TokenTag.RightBracket, message: "Expected `]`");
+                    parser.consume(.RightBracket, message: "Expected `]`");
                     final firstRight = parser.scanner.tokens[parser.currentToken! - 1];
-                    if (!parser.check(TokenTag.RightBracket) or parser.scanner.tokens[parser.currentToken!].offset != firstRight.offset + 1) {
+                    if (!parser.check(.RightBracket) or parser.scanner.tokens[parser.currentToken!].offset != firstRight.offset + 1) {
                         parser.report("Expected adjacent `]`");
 
                         throw Error.Invalid;
@@ -1456,7 +1456,7 @@ object Parser {
                     }
                 }
 
-                parser.consume(TokenTag.RightBracket, message: "Expected `]`");
+                parser.consume(.RightBracket, message: "Expected `]`");
             } else {
                 if (!parser.parseKeyValue()) {
                     parser.report("Invalid key/value");
@@ -1475,19 +1475,19 @@ object Parser {
     }
 
     mut fun skipLineIgnorable() !> Error {
-        while (this.match(TokenTag.Newline)) {}
+        while (this.match(.Newline)) {}
     }
 
     mut fun skipNewlines() !> Error {
-        while (this.match(TokenTag.Newline)) {}
+        while (this.match(.Newline)) {}
     }
 
     mut fun consumeLineEnd() !> Error {
-        if (this.match(TokenTag.Eof)) {
+        if (this.match(.Eof)) {
             return;
         }
 
-        this.consume(TokenTag.Newline, message: "Expected new line");
+        this.consume(.Newline, message: "Expected new line");
     }
 
     mut fun resolveTablePath() > bool {
@@ -1500,7 +1500,7 @@ object Parser {
             final last = i == this.currentPath.len() - 1;
 
             if (current as? mut {str: any} -> map) {
-                if (part.tag != PathPartTag.Key) {
+                if (part.tag != .Key) {
                     return false;
                 }
 
@@ -1571,7 +1571,7 @@ object Parser {
             final last = i == this.currentPath.len() - 1;
 
             if (current as? mut {str: any} -> map) {
-                if (part.tag != PathPartTag.Key) {
+                if (part.tag != .Key) {
                     return false;
                 }
 
@@ -1652,7 +1652,7 @@ object Parser {
         var current: any = this.parsed;
         foreach (i, part in this.currentPath.parts) {
             if (current as? mut {str: any} -> map) {
-                if (part.tag != PathPartTag.Key) {
+                if (part.tag != .Key) {
                     return false;
                 }
 
@@ -1672,7 +1672,7 @@ object Parser {
                     current = map[key];
                 }
             } else if (current as? mut [any] -> list) {
-                if (part.tag == PathPartTag.Index) {
+                if (part.tag == .Index) {
                     if (i == this.currentPath.len() - 1) {
                         list.append(value);
                     } else {
@@ -1712,7 +1712,7 @@ object Parser {
         var current: any = this.parsed;
         foreach (i, part in this.currentPath.parts) {
             if (current as? mut {str: any} -> map) {
-                if (part.tag != PathPartTag.Key) {
+                if (part.tag != .Key) {
                     return null;
                 }
 
@@ -1727,7 +1727,7 @@ object Parser {
                     current = map[key];
                 }
             } else if (current as? [any] -> list) {
-                if (part.tag == PathPartTag.Index) {
+                if (part.tag == .Index) {
                     if (i == this.currentPath.len() - 1) {
                         return list[?part.index!];
                     } else {
@@ -1750,7 +1750,7 @@ object Parser {
     }
 
     mut fun advance() !> Error {
-        if (this.currentToken != null and this.scanner.tokens[this.currentToken!].tag == TokenTag.Eof) {
+        if (this.currentToken != null and this.scanner.tokens[this.currentToken!].tag == .Eof) {
             return;
         }
 
@@ -1763,7 +1763,7 @@ object Parser {
         if (this.currentToken! >= this.scanner.tokens.len()) {
             final newToken = this.scanner.scan();
 
-            if (newToken.tag == TokenTag.Error) {
+            if (newToken.tag == .Error) {
                 this.report("Syntax error: {newToken.error ?? "unexpected character"}");
 
                 throw Error.Invalid;
@@ -1797,7 +1797,7 @@ object Parser {
 
     fun check(tag: TokenTag) => this.currentToken != null and this.scanner.tokens[this.currentToken!].tag == tag;
 
-    fun isKeyStartTag(tag: TokenTag) => tag == TokenTag.LeftBracket or tag == TokenTag.BareKey or tag == TokenTag.LiteralString or tag == TokenTag.BasicString or tag == TokenTag.Boolean or tag == TokenTag.Integer or tag == TokenTag.Float or tag == TokenTag.LocalDate;
+    fun isKeyStartTag(tag: TokenTag) => tag == .LeftBracket or tag == .BareKey or tag == .LiteralString or tag == .BasicString or tag == .Boolean or tag == .Integer or tag == .Float or tag == .LocalDate;
 
     mut fun match(tag: TokenTag) > bool !> Error {
         if (!this.check(tag)) {
@@ -1824,7 +1824,7 @@ object Parser {
         this.panic_mode = false;
 
         // Advance until we see a token from which we can recover
-        while (this.currentToken != null and this.scanner.tokens[this.currentToken!].tag != TokenTag.Eof) {
+        while (this.currentToken != null and this.scanner.tokens[this.currentToken!].tag != .Eof) {
             if (this.currentToken == 0) {
                 return;
             }
@@ -1859,22 +1859,22 @@ object Parser {
     mut fun parseKey() > [str] !> Error {
         final result = mut [<str>];
 
-        while (!this.match(TokenTag.Eof)) {
+        while (!this.match(.Eof)) {
             this.consumeAnyOf(
                 [
-                    TokenTag.BareKey,
-                    TokenTag.LiteralString,
-                    TokenTag.BasicString,
-                    TokenTag.Boolean,
-                    TokenTag.Integer,
-                    TokenTag.Float,
-                    TokenTag.LocalDate,
+                    .BareKey,
+                    .LiteralString,
+                    .BasicString,
+                    .Boolean,
+                    .Integer,
+                    .Float,
+                    .LocalDate,
                 ],
                 message: "Expected bare key",
             );
 
             final token = this.scanner.tokens[this.currentToken! - 1];
-            if (token.tag == TokenTag.LiteralString or token.tag == TokenTag.BasicString) {
+            if (token.tag == .LiteralString or token.tag == .BasicString) {
                 final literal = token.literal();
                 if (literal as? str -> key) {
                     result.append(key);
@@ -1888,7 +1888,7 @@ object Parser {
             }
 
 
-            if (!this.match(TokenTag.Dot)) {
+            if (!this.match(.Dot)) {
                 break;
             }
         }
@@ -1897,7 +1897,7 @@ object Parser {
     }
 
     mut fun parseValue() > bool !> Error {
-        if (this.match(TokenTag.Boolean)) {
+        if (this.match(.Boolean)) {
             final token = this.scanner.tokens[this.currentToken! - 1];
             final scalar = scalarFromToken(token);
 
@@ -1910,19 +1910,19 @@ object Parser {
             return this.setValue(scalar);
         }
 
-        if (this.match(TokenTag.LeftBrace)) {
+        if (this.match(.LeftBrace)) {
             return this.parseInlineTable();
         }
 
         if (this.matchAnyOf([
-            TokenTag.LiteralString,
-            TokenTag.MultilineLiteralString,
-            TokenTag.BasicString,
-            TokenTag.MultilineBasicString,
-            TokenTag.OffsetDateTime,
-            TokenTag.LocalDateTime,
-            TokenTag.LocalTime,
-            TokenTag.LocalDate,
+            .LiteralString,
+            .MultilineLiteralString,
+            .BasicString,
+            .MultilineBasicString,
+            .OffsetDateTime,
+            .LocalDateTime,
+            .LocalTime,
+            .LocalDate,
         ])) {
             final token = this.scanner.tokens[this.currentToken! - 1];
             final scalar = scalarFromToken(token);
@@ -1936,7 +1936,7 @@ object Parser {
             return this.setValue(scalar);
         }
 
-        if (this.match(TokenTag.Integer)) {
+        if (this.match(.Integer)) {
             final token = this.scanner.tokens[this.currentToken! - 1];
             final value = scalarFromToken(token);
 
@@ -1949,7 +1949,7 @@ object Parser {
             return this.setValue(value);
         }
 
-        if (this.match(TokenTag.Float)) {
+        if (this.match(.Float)) {
             final token = this.scanner.tokens[this.currentToken! - 1];
             final value = scalarFromToken(token);
 
@@ -1962,7 +1962,7 @@ object Parser {
             return this.setValue(value);
         }
 
-        if (this.match(TokenTag.LeftBracket)) {
+        if (this.match(.LeftBracket)) {
             return this.parseArray();
         }
 
@@ -1976,11 +1976,11 @@ object Parser {
         }
 
         while (true) {
-            if (this.match(TokenTag.RightBrace)) {
+            if (this.match(.RightBrace)) {
                 break;
             }
 
-            if (this.match(TokenTag.Eof)) {
+            if (this.match(.Eof)) {
                 this.report("Unfinished inline table");
 
                 throw Error.Invalid;
@@ -1990,12 +1990,12 @@ object Parser {
                 return false;
             }
 
-            if (!this.match(TokenTag.Comma)) {
-                this.consume(TokenTag.RightBrace, message: "Expected `}`");
+            if (!this.match(.Comma)) {
+                this.consume(.RightBrace, message: "Expected `}`");
                 break;
             }
 
-            if (this.check(TokenTag.RightBrace)) {
+            if (this.check(.RightBrace)) {
                 this.report("Trailing comma in inline table");
 
                 throw Error.Invalid;
@@ -2015,11 +2015,11 @@ object Parser {
 
         var i = 0;
         while (true) {
-            if (this.match(TokenTag.RightBracket)) {
+            if (this.match(.RightBracket)) {
                 break;
             }
 
-            if (this.match(TokenTag.Eof)) {
+            if (this.match(.Eof)) {
                 this.report("Unfinished array");
 
                 throw Error.Invalid;
@@ -2036,9 +2036,9 @@ object Parser {
 
             this.skipNewlines();
 
-            if (!this.match(TokenTag.Comma)) {
+            if (!this.match(.Comma)) {
                 this.skipNewlines();
-                this.consume(TokenTag.RightBracket, message: "Expected `]`");
+                this.consume(.RightBracket, message: "Expected `]`");
                 break;
             }
 
@@ -2056,7 +2056,7 @@ object Parser {
         this.currentKeyBaseLen = baseLen;
         this.currentPath.appendKeys(key);
 
-        this.consume(TokenTag.Equal, message: "Expected `=`");
+        this.consume(.Equal, message: "Expected `=`");
 
         final ok = this.parseValue();
 

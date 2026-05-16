@@ -71,23 +71,23 @@ fun main() > void !> SDLError {
     final height = 400;
     final numCells = 50;
 
-    final sdl = SDL.init([ Subsystem.Video ]);
+    final sdl = SDL.init([ .Video ]);
 
     final window = Window.init(
         "buzz example: Voronoi Diagram",
         width,
         height,
-        flags: [ WindowFlag.OpenGL, WindowFlag.AllowHighDPI ],
+        flags: [ .OpenGL, .AllowHighDPI ],
     );
 
     final renderer = window.createRenderer(
         index: -1,
-        flags: [ RendererFlag.Accelerated, RendererFlag.TargetTexture ],
+        flags: [ .Accelerated, .TargetTexture ],
     );
 
     final texture = renderer.createTexture(
-        format: PixelFormat.RGBA8888,
-        access: TextureAccess.Target,
+        format: .RGBA8888,
+        access: .Target,
         width,
         height,
     );
