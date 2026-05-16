@@ -4246,19 +4246,29 @@ fn generateDot(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
         },
 
         .Enum => {
+            const enum_value = (try self.generateNode(components.callee)).?;
+            const case_name = m.MIR_new_uint_op(self.ctx, (try self.getString(member_lexeme)).toValue().val);
             const res = m.MIR_new_reg_op(
                 self.ctx,
                 try self.REG("res", m.MIR_T_I64),
             );
+
+            // Enum case lookup allocates the case instance; keep lookup inputs alive across the call.
+            try self.buildPush(enum_value);
+            try self.buildPush(case_name);
+
             try self.buildExternApiCall(
                 .bz_getEnumCase,
                 res,
                 &.{
-                    (try self.generateNode(components.callee)).?,
-                    m.MIR_new_uint_op(self.ctx, (try self.getString(member_lexeme)).toValue().val),
+                    enum_value,
+                    case_name,
                     m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
                 },
             );
+
+            try self.buildPop(null);
+            try self.buildPop(null);
 
             return res;
         },

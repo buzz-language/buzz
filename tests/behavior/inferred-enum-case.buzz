@@ -32,6 +32,16 @@ fun localeFiber() > void *> Locale? {
     _ = yield .en;
 }
 
+fun acceptsLocaleList(locales: [Locale]) > bool {
+    foreach (locale in locales) {
+        if (locale == .en) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
 test "Can infer enum type" {
     final value: Locale = .fr;
 
@@ -87,4 +97,9 @@ test "Can infer enum type" {
     final fiber = &localeFiber();
 
     std\assert(resume fiber == Locale.en, message: "Infer yield value");
+
+    std\assert(
+        acceptsLocaleList([ .fr, .en ]),
+        message: "Infer enum case in constant-foldable list argument",
+    );
 }
