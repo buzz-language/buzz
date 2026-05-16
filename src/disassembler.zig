@@ -450,6 +450,12 @@ pub const DumpState = struct {
         self.seen.deinit(allocator);
     }
 
+    fn writeIndent(state: *DumpState, out: anytype) void {
+        for (0..state.tab) |_| {
+            out.writeAll("    ") catch unreachable;
+        }
+    }
+
     pub fn valueDump(state: *DumpState, value: Value, out: anytype, same_line: bool) void {
         if (state.depth > 50) {
             out.print("...", .{}) catch unreachable;
@@ -459,9 +465,7 @@ pub const DumpState = struct {
         state.depth += 1;
 
         if (!same_line) {
-            for (0..state.tab) |_| {
-                out.writeAll("    ") catch unreachable;
-            }
+            state.writeIndent(out);
         }
 
         if (value.isNull()) {
@@ -523,6 +527,7 @@ pub const DumpState = struct {
 
                 .List => {
                     const list = obj.ObjList.cast(value.obj()).?;
+                    const has_items = list.items.items.len > 0;
 
                     out.print(
                         "{s}[{s}",
@@ -531,7 +536,7 @@ pub const DumpState = struct {
                                 "mut "
                             else
                                 "",
-                            if (list.items.items.len > 0)
+                            if (has_items)
                                 "\n"
                             else
                                 "",
@@ -547,11 +552,15 @@ pub const DumpState = struct {
                         out.print(",\n", .{}) catch unreachable;
                     }
                     state.tab -= 1;
+                    if (has_items) {
+                        state.writeIndent(out);
+                    }
                     out.print("]", .{}) catch unreachable;
                 },
 
                 .Map => {
                     const map = obj.ObjMap.cast(value.obj()).?;
+                    const has_items = map.map.count() > 0;
 
                     out.print(
                         "{s}{{{s}",
@@ -560,7 +569,7 @@ pub const DumpState = struct {
                                 "mut "
                             else
                                 "",
-                            if (map.map.count() > 0)
+                            if (has_items)
                                 "\n"
                             else
                                 "",
@@ -585,6 +594,9 @@ pub const DumpState = struct {
                         out.writeAll(",\n") catch unreachable;
                     }
                     state.tab -= 1;
+                    if (has_items) {
+                        state.writeIndent(out);
+                    }
                     out.print("}}", .{}) catch unreachable;
                 },
 

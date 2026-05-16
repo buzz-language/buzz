@@ -12,6 +12,7 @@
 - _Shortcut_ operators: `+=`, `-=`, `*=`, etc. (https://github.com/buzz-language/buzz/issues/78)
 - `rg.contains`
 - `map.hasKey`
+- `toml` std lib
 
 ## Changed
 

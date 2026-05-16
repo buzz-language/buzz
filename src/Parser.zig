@@ -8955,6 +8955,11 @@ fn readStaticScript(self: *Self, file_name: []const u8) ?[2][]const u8 {
             @embedFile("lib/http.buzz"),
             file_name,
         }
+    else if (std.mem.eql(u8, file_name, "toml"))
+        [_][]const u8{
+            @embedFile("lib/toml.buzz"),
+            file_name,
+        }
     else none: {
         // If wasm it will not fallback to importing actual files
         if (is_wasm) {

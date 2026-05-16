@@ -1,0 +1,2073 @@
+namespace toml;
+
+import "std";
+
+enum TokenTag {
+    BareKey,
+    BasicString,
+    Boolean,
+    Comma,
+    Dot,
+    Eof,
+    Equal,
+    Error,
+    Float,
+    Integer,
+    LeftBrace,
+    LeftBracket,
+    LiteralString,
+    LocalDate,
+    LocalDateTime,
+    LocalTime,
+    MultilineBasicString,
+    MultilineLiteralString,
+    Newline,
+    OffsetDateTime,
+    RightBrace,
+    RightBracket,
+}
+
+object Token {
+    tag: TokenTag,
+    lexeme: str,
+    offset: int,
+    line: int,
+    column: int,
+    error: str?,
+
+    fun stripStringDelimiters(delimiterLength: int) => this.lexeme.sub(
+        delimiterLength,
+        len: this.lexeme.len() - delimiterLength * 2,
+    );
+
+    fun trimFirstMultilineNewline(content: str) > str {
+        if (content.len() == 0) {
+            return content;
+        }
+
+        if (content.byte(0) == '\n') {
+            return content.sub(1);
+        }
+
+        if (content.len() > 1 and content.byte(0) == '\r' and content.byte(1) == '\n') {
+            return content.sub(2);
+        }
+
+        return content;
+    }
+
+    fun digitValue(char: int) > int? {
+        if (char >= '0' and char <= '9') {
+            return char - '0';
+        }
+
+        if (char >= 'a' and char <= 'f') {
+            return char - 'a' + 10;
+        }
+
+        if (char >= 'A' and char <= 'F') {
+            return char - 'A' + 10;
+        }
+
+        return null;
+    }
+
+    fun hexEscapeValue(source: str, offset: int, len: int) > int? {
+        var value = 0;
+        var i = 0;
+
+        while (i < len) {
+            final digit = this.digitValue(source.byte(offset + i));
+            if (digit == null) {
+                return null;
+            }
+
+            value = value * 16 + digit!;
+            i = i + 1;
+        }
+
+        return value;
+    }
+
+    fun utf8Codepoint(codepoint: int) > str? {
+        if (codepoint < 0 or codepoint > 0x10ffff or (codepoint >= 0xd800 and codepoint <= 0xdfff)) {
+            return null;
+        }
+
+        if (codepoint <= 0x7f) {
+            return std\char(codepoint);
+        }
+
+        if (codepoint <= 0x7ff) {
+            return std\char(0xc0 | (codepoint >> 6)) + std\char(0x80 | (codepoint & 0x3f));
+        }
+
+        if (codepoint <= 0xffff) {
+            return std\char(0xe0 | (codepoint >> 12)) + std\char(0x80 | ((codepoint >> 6) & 0x3f)) + std\char(0x80 | (codepoint & 0x3f));
+        }
+
+        return std\char(0xf0 | (codepoint >> 18)) + std\char(0x80 | ((codepoint >> 12) & 0x3f)) + std\char(0x80 | ((codepoint >> 6) & 0x3f)) + std\char(0x80 | (codepoint & 0x3f));
+    }
+
+    fun decodeBasicString(content: str, multiline: bool = false) > str? {
+        var result = "";
+        var offset = 0;
+
+        while (offset < content.len()) {
+            final char = content.byte(offset);
+
+            if (char != '\\') {
+                result = result + std\char(char);
+                offset = offset + 1;
+                continue;
+            }
+
+            if (multiline) {
+                var continuationOffset = offset + 1;
+                while (continuationOffset < content.len() and (content.byte(continuationOffset) == ' ' or content.byte(continuationOffset) == '\t')) {
+                    continuationOffset = continuationOffset + 1;
+                }
+
+                if (continuationOffset < content.len() and (content.byte(continuationOffset) == '\n' or (continuationOffset + 1 < content.len() and content.byte(continuationOffset) == '\r' and content.byte(continuationOffset + 1) == '\n'))) {
+                    offset = if (content.byte(continuationOffset) == '\r') continuationOffset + 2 else continuationOffset + 1;
+
+                    while (offset < content.len()) {
+                        final peeked = content.byte(offset);
+                        if (peeked == ' ' or peeked == '\t' or peeked == '\n') {
+                            offset = offset + 1;
+                        } else if (peeked == '\r' and offset + 1 < content.len() and content.byte(offset + 1) == '\n') {
+                            offset = offset + 2;
+                        } else {
+                            break;
+                        }
+                    }
+
+                    continue;
+                }
+            }
+
+            offset = offset + 1;
+            final escaped = content.byte(offset);
+
+            if (escaped == 'b') {
+                result = result + std\char('\b');
+                offset = offset + 1;
+            } else if (escaped == 'e') {
+                result = result + std\char(27);
+                offset = offset + 1;
+            } else if (escaped == 'f') {
+                result = result + std\char('\f');
+                offset = offset + 1;
+            } else if (escaped == 'n') {
+                result = result + std\char('\n');
+                offset = offset + 1;
+            } else if (escaped == 'r') {
+                result = result + std\char('\r');
+                offset = offset + 1;
+            } else if (escaped == 't') {
+                result = result + std\char('\t');
+                offset = offset + 1;
+            } else if (escaped == '\"' or escaped == '\\') {
+                result = result + std\char(escaped);
+                offset = offset + 1;
+            } else if (escaped == 'u' or escaped == 'U') {
+                final len = if (escaped == 'u') 4 else 8;
+                final codepoint = this.hexEscapeValue(content, offset: offset + 1, len: len);
+                if (codepoint == null) {
+                    return null;
+                }
+
+                final encoded = this.utf8Codepoint(codepoint!);
+                if (encoded == null) {
+                    return null;
+                }
+
+                result = result + encoded!;
+                offset = offset + 1 + len;
+            } else {
+                return null;
+            }
+        }
+
+        return result;
+    }
+
+    fun integerLiteral() > int? {
+        var offset = 0;
+        var sign = 1;
+
+        if (this.lexeme.byte(offset) == '-') {
+            sign = -1;
+            offset = offset + 1;
+        } else if (this.lexeme.byte(offset) == '+') {
+            offset = offset + 1;
+        }
+
+        var base = 10;
+        if (offset + 1 < this.lexeme.len() and this.lexeme.byte(offset) == '0') {
+            final prefix = this.lexeme.byte(offset + 1);
+
+            if (prefix == 'x' or prefix == 'X') {
+                base = 16;
+                offset = offset + 2;
+            } else if (prefix == 'o' or prefix == 'O') {
+                base = 8;
+                offset = offset + 2;
+            } else if (prefix == 'b' or prefix == 'B') {
+                base = 2;
+                offset = offset + 2;
+            }
+        }
+
+        var value = 0;
+        while (offset < this.lexeme.len()) {
+            final char = this.lexeme.byte(offset);
+
+            if (char != '_') {
+                final digit = this.digitValue(char);
+
+                if (digit == null or digit! >= base) {
+                    return null;
+                }
+
+                value = value * base + digit!;
+            }
+
+            offset = offset + 1;
+        }
+
+        return value * sign;
+    }
+
+    fun floatLexeme() > str {
+        var result = "";
+        var offset = 0;
+
+        while (offset < this.lexeme.len()) {
+            final char = this.lexeme.byte(offset);
+            if (char != '_') {
+                result = result + std\char(char);
+            }
+
+            offset = offset + 1;
+        }
+
+        return result;
+    }
+
+    fun literal() > any {
+        if (this.tag == TokenTag.LiteralString) {
+            return this.stripStringDelimiters(1);
+        }
+
+        if (this.tag == TokenTag.MultilineLiteralString) {
+            return this.trimFirstMultilineNewline(this.stripStringDelimiters(3));
+        }
+
+        if (this.tag == TokenTag.BasicString) {
+            return this.decodeBasicString(this.stripStringDelimiters(1));
+        }
+
+        if (this.tag == TokenTag.MultilineBasicString) {
+            return this.decodeBasicString(
+                this.trimFirstMultilineNewline(this.stripStringDelimiters(3)),
+                multiline: true,
+            );
+        }
+
+        if (this.tag == TokenTag.Integer) {
+            return this.integerLiteral();
+        }
+
+        if (this.tag == TokenTag.Float) {
+            final normalized = this.floatLexeme();
+            if (normalized == "inf" or normalized == "+inf" or normalized == "-inf" or normalized == "nan" or normalized == "+nan" or normalized == "-nan") {
+                return 0.0;
+            }
+
+            return std\parseDouble(this.floatLexeme());
+        }
+
+        return this.lexeme;
+    }
+}
+
+object Location {
+    start: int = 0,
+    startLine: int = 0,
+    startColumn: int = 0,
+    line: int = 0,
+    column: int = 0,
+    offset: int = 0,
+}
+
+object Scanner {
+    source: str,
+    lineOffset: int = 0,
+    columnOffset: int = 0,
+    current: mut Location,
+    tokens: mut [Token],
+
+    static fun init(source: str) => mut Scanner{
+        source,
+        tokens = mut [],
+        current = mut Location{},
+    };
+
+    fun isEOF() => this.current.offset >= this.source.len();
+
+    fun peek(n: int = 0) => if (this.current.offset + n >= this.source.len()) 0 else this.source.byte(this.current.offset + n);
+
+    fun byteAt(offset: int) => if (offset >= this.source.len()) 0 else this.source.byte(offset);
+
+    mut fun advance() > int {
+        final char = this.source.byte(this.current.offset);
+
+        this.current.offset += 1;
+        this.current.column += 1;
+
+        return char;
+    }
+
+    fun match(expected: int) > bool {
+        if (this.isEOF()) {
+            return false;
+        }
+
+        if (this.source.byte(this.current.offset) != expected) {
+            return false;
+        }
+
+        this.current.offset += 1;
+        this.current.column += 1;
+        return true;
+    }
+
+    fun isNumber(char: int) => char >= '0' and char <= '9';
+
+    fun isHexDigit(char: int) => this.isNumber(char) or (char >= 'a' and char <= 'f') or (char >= 'A' and char <= 'F');
+
+    fun isOctalDigit(char: int) => char >= '0' and char <= '7';
+
+    fun isBinaryDigit(char: int) => char == '0' or char == '1';
+
+    fun isLetter(char: int) => (char >= 'a' and char <= 'z') or (char >= 'A' and char <= 'Z');
+
+    fun isBareKeyChar(char: int) => this.isLetter(char) or this.isNumber(char) or char == '_' or char == '-';
+
+    fun isDisallowedLiteralStringChar(char: int) => (char >= '\0' and char <= '\b') or (char >= '\n' and char <= 31) or char == 127;
+
+    fun isDisallowedBasicStringChar(char: int) => (char >= '\0' and char <= '\b') or (char >= '\n' and char <= 31) or char == 127;
+
+    fun digitValue(char: int) > int? {
+        if (char >= '0' and char <= '9') {
+            return char - '0';
+        }
+
+        if (char >= 'a' and char <= 'f') {
+            return char - 'a' + 10;
+        }
+
+        if (char >= 'A' and char <= 'F') {
+            return char - 'A' + 10;
+        }
+
+        return null;
+    }
+
+    fun escapeCodepoint(offset: int, len: int) > int? {
+        var value = 0;
+        var i = 0;
+
+        while (i < len) {
+            final digit = this.digitValue(this.byteAt(offset + i));
+            if (digit == null) {
+                return null;
+            }
+
+            value = value * 16 + digit!;
+            i = i + 1;
+        }
+
+        return value;
+    }
+
+    fun isValidUnicodeScalar(codepoint: int) => codepoint >= 0 and codepoint <= 0x10ffff and (codepoint < 0xd800 or codepoint > 0xdfff);
+
+    fun isStringNewlineStart(offset: int) > bool {
+        final char = this.byteAt(offset);
+        final next = this.byteAt(offset + 1);
+
+        return char == '\n' or (char == '\r' and next == '\n');
+    }
+
+    mut fun advanceNewline() > bool {
+        final char = this.peek();
+        final next = this.peek(1);
+
+        if (char == '\r' and next == '\n') {
+            _ = this.advance();
+            _ = this.advance();
+            this.current.line += 1;
+            this.current.column = 0;
+
+            return true;
+        }
+
+        if (char == '\n') {
+            _ = this.advance();
+            this.current.line += 1;
+            this.current.column = 0;
+
+            return true;
+        }
+
+        return false;
+    }
+
+    mut fun skipWhitespaces() {
+        while (true) {
+            final char = this.peek();
+
+            if (char == ' ' or char == '\t') {
+                _ = this.advance();
+            } else {
+                return;
+            }
+        }
+    }
+
+    mut fun skipInlineWhitespace() > void {
+        var peeked = this.peek();
+        while (peeked == ' ' or peeked == '\t') {
+            _ = this.advance();
+
+            peeked = this.peek();
+        }
+    }
+
+    fun makeToken(tag: TokenTag, error: str? = null) > Token {
+        this.tokens.append(
+            Token{
+                tag,
+                lexeme = this.source.sub(this.current.start, len: this.current.offset - this.current.start),
+                offset = this.current.start,
+                line = this.lineOffset + this.current.startLine,
+                column = this.columnOffset + this.current.startColumn,
+                error,
+            },
+        );
+
+        return this.tokens[this.tokens.len() - 1];
+    }
+
+    fun makeError(error: str) => this.makeToken(TokenTag.Error, error);
+
+    mut fun skipComment() > Token? {
+        _ = this.advance();
+
+        var peeked = this.peek();
+        while (!this.isEOF() and peeked != '\n' and peeked != '\r') {
+            if (this.isDisallowedBasicStringChar(peeked)) {
+                return this.makeError("Control character in comment");
+            }
+
+            _ = this.advance();
+
+            peeked = this.peek();
+        }
+
+        return null;
+    }
+
+    mut fun scan() > Token {
+        while (true) {
+            this.skipWhitespaces();
+
+            this.current.start = this.current.offset;
+            this.current.startLine = this.current.line;
+            this.current.startColumn = this.current.column;
+
+            if (this.peek() != '#') {
+                break;
+            }
+
+            final error = this.skipComment();
+            if (error != null) {
+                return error!;
+            }
+        }
+
+        if (this.isEOF()) {
+            return this.makeToken(TokenTag.Eof);
+        }
+
+        final char = this.advance();
+        final peeked = this.peek();
+        if (char == '\n') {
+            this.current.line += 1;
+            this.current.column = 0;
+
+            return this.makeToken(TokenTag.Newline);
+        } else if (char == '\r') {
+            if (!this.match('\n')) {
+                return this.makeError("Expected LF after CR");
+            }
+
+            this.current.line += 1;
+            this.current.column = 0;
+
+            return this.makeToken(TokenTag.Newline);
+        } else if (char == '=') {
+            return this.makeToken(TokenTag.Equal);
+        } else if (char == '.') {
+            return this.makeToken(TokenTag.Dot);
+        } else if (char == ',') {
+            return this.makeToken(TokenTag.Comma);
+        } else if (char == '[') {
+            return this.makeToken(TokenTag.LeftBracket);
+        } else if (char == ']') {
+            return this.makeToken(TokenTag.RightBracket);
+        } else if (char == '{') {
+            return this.makeToken(TokenTag.LeftBrace);
+        } else if (char == '}') {
+            return this.makeToken(TokenTag.RightBrace);
+        } else if (this.isLetter(char) or char == '_' or (char == '-' and !this.isNumber(peeked) and peeked != 'i' and peeked != 'n')) {
+            return this.bareKey();
+        } else if (this.isNumber(char) or ((char == '+' or char == '-') and (this.isNumber(peeked) or peeked == 'i' or peeked == 'n'))) {
+            if ((char == '+' or char == '-') and this.isNumber(peeked)) {
+                _ = this.advance();
+            }
+
+            return this.number();
+        } else if (char == '\'') {
+            return this.literalString();
+        } else if (char == '"') {
+            return this.basicString();
+        }
+
+        return this.makeError("Unexpected character `{char}`");
+    }
+
+    mut fun bareKey() > Token {
+        while (true) {
+            final peeked = this.peek();
+            if (this.isBareKeyChar(peeked)) {
+                _ = this.advance();
+            } else {
+                break;
+            }
+        }
+
+        return this.keywordOrBareKey();
+    }
+
+    fun keywordOrBareKey() > Token {
+        final lexeme = this.source.sub(this.current.start, len: this.current.offset - this.current.start);
+
+        if (lexeme == "true" or lexeme == "false") {
+            return this.makeToken(TokenTag.Boolean);
+        }
+
+        if (lexeme == "inf" or lexeme == "nan") {
+            return this.makeToken(TokenTag.Float);
+        }
+
+        return this.makeToken(TokenTag.BareKey);
+    }
+
+    fun scannedCanBeBareKey() > bool {
+        var offset = this.current.start;
+
+        while (offset < this.current.offset) {
+            if (!this.isBareKeyChar(this.source.byte(offset))) {
+                return false;
+            }
+
+            offset = offset + 1;
+        }
+
+        return true;
+    }
+
+    mut fun bareKeyOrError(error: str) > Token {
+        if (this.scannedCanBeBareKey()) {
+            return this.bareKey();
+        }
+
+        return this.makeError(error);
+    }
+
+    mut fun consumeNumberDigits(base: str, required: bool = false, consumedAlready: bool = false) > bool {
+        var consumed = consumedAlready;
+        var valid = true;
+
+        while (true) {
+            final peeked = this.peek();
+            final isDigit = if (base == "hex") this.isHexDigit(peeked) else if (base == "octal") this.isOctalDigit(peeked) else if (base == "binary") this.isBinaryDigit(peeked) else this.isNumber(peeked);
+
+            if (isDigit) {
+                consumed = true;
+                _ = this.advance();
+            } else if (peeked == '_') {
+                if (!consumed) {
+                    valid = false;
+                }
+
+                _ = this.advance();
+
+                final afterUnderscore = this.peek();
+                final hasDigitAfterUnderscore = if (base == "hex") this.isHexDigit(afterUnderscore) else if (base == "octal") this.isOctalDigit(afterUnderscore) else if (base == "binary") this.isBinaryDigit(afterUnderscore) else this.isNumber(afterUnderscore);
+
+                if (!hasDigitAfterUnderscore) {
+                    valid = false;
+                }
+            } else {
+                break;
+            }
+        }
+
+        return (!required or consumed) and valid;
+    }
+
+    fun hasDigits(offset: int, count: int) > bool {
+        var i = 0;
+        while (i < count) {
+            if (!this.isNumber(this.byteAt(offset + i))) {
+                return false;
+            }
+
+            i = i + 1;
+        }
+
+        return true;
+    }
+
+    fun twoDigits(offset: int) => (this.byteAt(offset) - '0') * 10 + this.byteAt(offset + 1) - '0';
+
+    fun fourDigits(offset: int) => (this.byteAt(offset) - '0') * 1000 + (this.byteAt(offset + 1) - '0') * 100 + (this.byteAt(offset + 2) - '0') * 10 + this.byteAt(offset + 3) - '0';
+
+    fun isLeapYear(year: int) => (year % 4 == 0 and year % 100 != 0) or year % 400 == 0;
+
+    fun daysInMonth(year: int, month: int) > int {
+        if (month == 2) {
+            return if (this.isLeapYear(year)) 29 else 28;
+        }
+
+        if (month == 4 or month == 6 or month == 9 or month == 11) {
+            return 30;
+        }
+
+        return 31;
+    }
+
+    fun validDate(offset: int) > bool {
+        final year = this.fourDigits(offset);
+        final month = this.twoDigits(offset + 5);
+        final day = this.twoDigits(offset + 8);
+
+        return month >= 1 and month <= 12 and day >= 1 and day <= this.daysInMonth(year, month: month);
+    }
+
+    fun validTime(offset: int, length: int) > bool {
+        final hour = this.twoDigits(offset);
+        final minute = this.twoDigits(offset + 3);
+
+        if (hour > 23 or minute > 59) {
+            return false;
+        }
+
+        if (length >= 8) {
+            final second = this.twoDigits(offset + 6);
+
+            if (second > 60) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    fun validOffsetTime(offset: int) > bool {
+        final hour = this.twoDigits(offset);
+        final minute = this.twoDigits(offset + 3);
+
+        return hour <= 23 and minute <= 59;
+    }
+
+    fun partialTimeLength(offset: int) > int {
+        if (!this.hasDigits(offset, count: 2) or this.byteAt(offset + 2) != ':' or !this.hasDigits(offset + 3, count: 2) or this.byteAt(offset + 5) != ':' or !this.hasDigits(offset + 6, count: 2)) {
+            return 0;
+        }
+
+        var length = 8;
+
+        if (this.byteAt(offset + length) == '.') {
+            if (!this.isNumber(this.byteAt(offset + length + 1))) {
+                return 0;
+            }
+
+            length = length + 2;
+            while (this.isNumber(this.byteAt(offset + length))) {
+                length = length + 1;
+            }
+        }
+
+        return length;
+    }
+
+    fun fullDateLength(offset: int) > int {
+        if (this.hasDigits(offset, count: 4) and this.byteAt(offset + 4) == '-' and this.hasDigits(offset + 5, count: 2) and this.byteAt(offset + 7) == '-' and this.hasDigits(offset + 8, count: 2)) {
+            return 10;
+        }
+
+        return 0;
+    }
+
+    mut fun makeTokenWithLength(tag: TokenTag, length: int) > Token {
+        this.current.offset = this.current.start + length;
+        this.current.column = this.current.startColumn + length;
+
+        return this.makeToken(tag);
+    }
+
+    mut fun dateTime() > Token? {
+        final dateLength = this.fullDateLength(this.current.start);
+
+        if (dateLength > 0) {
+            final afterDate = this.byteAt(this.current.start + dateLength);
+
+            if (!this.validDate(this.current.start)) {
+                return this.makeError("Invalid date");
+            }
+
+            if (afterDate == 'T' or afterDate == 't' or afterDate == ' ') {
+                final timeOffset = this.current.start + dateLength + 1;
+                final timeLength = this.partialTimeLength(timeOffset);
+
+                if (timeLength == 0) {
+                    if (afterDate == ' ') {
+                        return this.makeTokenWithLength(TokenTag.LocalDate, length: dateLength);
+                    }
+
+                    return null;
+                }
+
+                if (!this.validTime(timeOffset, length: timeLength)) {
+                    return this.makeError("Invalid time");
+                }
+
+                var length = dateLength + 1 + timeLength;
+                final afterTime = this.byteAt(this.current.start + length);
+
+                if (afterTime == 'Z' or afterTime == 'z') {
+                    length = length + 1;
+
+                    if (this.isBareKeyChar(this.byteAt(this.current.start + length))) {
+                        return null;
+                    }
+
+                    return this.makeTokenWithLength(TokenTag.OffsetDateTime, length: length);
+                }
+
+                if (afterTime == '+' or afterTime == '-') {
+                    final offsetStart = this.current.start + length + 1;
+
+                    if (this.hasDigits(offsetStart, count: 2) and this.byteAt(offsetStart + 2) == ':' and this.hasDigits(offsetStart + 3, count: 2)) {
+                        if (!this.validOffsetTime(offsetStart)) {
+                            return this.makeError("Invalid offset time");
+                        }
+
+                        length = length + 6;
+
+                        if (this.isBareKeyChar(this.byteAt(this.current.start + length))) {
+                            return null;
+                        }
+
+                        return this.makeTokenWithLength(TokenTag.OffsetDateTime, length: length);
+                    }
+
+                    return null;
+                }
+
+                if (this.isBareKeyChar(afterTime)) {
+                    return null;
+                }
+
+                return this.makeTokenWithLength(TokenTag.LocalDateTime, length: length);
+            }
+
+            if (this.isBareKeyChar(afterDate)) {
+                return null;
+            }
+
+            return this.makeTokenWithLength(TokenTag.LocalDate, length: dateLength);
+        }
+
+        final timeLength = this.partialTimeLength(this.current.start);
+        if (timeLength > 0) {
+            if (!this.validTime(this.current.start, length: timeLength)) {
+                return this.makeError("Invalid time");
+            }
+
+            return this.makeTokenWithLength(TokenTag.LocalTime, length: timeLength);
+        }
+
+        return null;
+    }
+
+    mut fun specialFloat() > Token {
+        final start = this.current.offset;
+        final first = this.byteAt(start);
+        final second = this.byteAt(start + 1);
+        final third = this.byteAt(start + 2);
+
+        if ((first == 'i' and second == 'n' and third == 'f') or (first == 'n' and second == 'a' and third == 'n')) {
+            _ = this.advance();
+            _ = this.advance();
+            _ = this.advance();
+
+            if (this.isBareKeyChar(this.peek())) {
+                return this.makeError("Invalid float");
+            }
+
+            return this.makeToken(TokenTag.Float);
+        }
+
+        return this.makeError("Invalid float");
+    }
+
+    mut fun number() > Token {
+        final signed = this.source.byte(this.current.start) == '+' or this.source.byte(this.current.start) == '-';
+        final afterSign = this.peek();
+
+        if (signed and (afterSign == 'i' or afterSign == 'n')) {
+            return this.specialFloat();
+        }
+
+        if (!signed) {
+            final dateTime = this.dateTime();
+            if (dateTime != null) {
+                return dateTime!;
+            }
+        }
+
+        final firstDigitOffset = if (signed) this.current.start + 1 else this.current.start;
+        final firstDigit = this.source.byte(firstDigitOffset);
+        final afterFirstDigit = this.peek();
+
+        if (!signed and firstDigit == '0' and (afterFirstDigit == 'X' or afterFirstDigit == 'O' or afterFirstDigit == 'B')) {
+            return this.makeError("Invalid integer");
+        }
+
+        if (!signed and firstDigit == '0' and (afterFirstDigit == 'x' or afterFirstDigit == 'o' or afterFirstDigit == 'b')) {
+            final prefix = this.advance();
+            final base = if (prefix == 'x') "hex" else if (prefix == 'o') "octal" else "binary";
+
+            if (!this.consumeNumberDigits(base, required: true)) {
+                return this.bareKeyOrError("Invalid integer");
+            }
+
+            final afterInteger = this.peek();
+            if (this.isBareKeyChar(afterInteger)) {
+                return this.bareKey();
+            }
+
+            return this.makeToken(TokenTag.Integer);
+        }
+
+        var valid = true;
+        var isFloat = false;
+
+        if (firstDigit == '0' and (this.isNumber(afterFirstDigit) or afterFirstDigit == '_')) {
+            valid = false;
+        }
+
+        if (!this.consumeNumberDigits("decimal", consumedAlready: true)) {
+            valid = false;
+        }
+
+        if (!valid) {
+            return this.bareKey();
+        }
+
+        var next = this.peek();
+        final afterNext = this.peek(1);
+        if (next == '.' and this.isNumber(afterNext)) {
+            isFloat = true;
+            _ = this.advance();
+
+            if (!this.consumeNumberDigits("decimal", required: true)) {
+                return this.bareKeyOrError("Invalid float");
+            }
+        }
+
+        next = this.peek();
+        if (next == 'e' or next == 'E') {
+            isFloat = true;
+            _ = this.advance();
+
+            next = this.peek();
+            if (next == '+' or next == '-') {
+                _ = this.advance();
+            }
+
+            if (!this.consumeNumberDigits("decimal", required: true)) {
+                return this.bareKeyOrError("Invalid float exponent");
+            }
+        }
+
+        next = this.peek();
+        if (this.isBareKeyChar(next)) {
+            if (isFloat and !this.scannedCanBeBareKey()) {
+                return this.makeError("Invalid float");
+            }
+
+            return this.bareKey();
+        }
+
+        return this.makeToken(if (isFloat) TokenTag.Float else TokenTag.Integer);
+    }
+
+    mut fun consumeHexDigits(count: int) > bool {
+        var i = 0;
+
+        while (i < count) {
+            if (!this.isHexDigit(this.peek())) {
+                return false;
+            }
+
+            _ = this.advance();
+            i = i + 1;
+        }
+
+        return true;
+    }
+
+    mut fun consumeBasicEscape(multiline: bool) > bool {
+        _ = this.advance();
+
+        if (multiline) {
+            var offset = this.current.offset;
+            while (this.byteAt(offset) == ' ' or this.byteAt(offset) == '\t') {
+                offset = offset + 1;
+            }
+
+            if (this.isStringNewlineStart(offset)) {
+                var peeked = this.peek();
+                while (peeked == ' ' or peeked == '\t') {
+                    _ = this.advance();
+
+                    peeked = this.peek();
+                }
+
+                if (!this.advanceNewline()) {
+                    return false;
+                }
+
+                while (true) {
+                    peeked = this.peek();
+                    if (peeked == ' ' or peeked == '\t') {
+                        _ = this.advance();
+                    } else if (!this.advanceNewline()) {
+                        return true;
+                    }
+                }
+            }
+        }
+
+        final escaped = this.peek();
+
+        if (escaped == '\"' or escaped == '\\' or escaped == 'b' or escaped == 'e' or escaped == 'f' or escaped == 'n' or escaped == 'r' or escaped == 't') {
+            _ = this.advance();
+
+            return true;
+        }
+
+        if (escaped == 'u') {
+            _ = this.advance();
+
+            final offset = this.current.offset;
+            if (!this.consumeHexDigits(4)) {
+                return false;
+            }
+
+            final codepoint = this.escapeCodepoint(offset, len: 4);
+
+            return codepoint != null and this.isValidUnicodeScalar(codepoint!);
+        }
+
+        if (escaped == 'U') {
+            _ = this.advance();
+
+            final offset = this.current.offset;
+            if (!this.consumeHexDigits(8)) {
+                return false;
+            }
+
+            final codepoint = this.escapeCodepoint(offset, len: 8);
+
+            return codepoint != null and this.isValidUnicodeScalar(codepoint!);
+        }
+
+        return false;
+    }
+
+    mut fun consumeMultilineQuoteRun(quote: int, tag: TokenTag) > Token? {
+        var count = 0;
+
+        while (this.byteAt(this.current.offset + count) == quote) {
+            count = count + 1;
+        }
+
+        if (count > 5) {
+            while (count > 0) {
+                _ = this.advance();
+                count = count - 1;
+            }
+
+            return this.makeError("Too many quotes in multiline string");
+        }
+
+        if (count >= 3) {
+            while (count > 0) {
+                _ = this.advance();
+                count = count - 1;
+            }
+
+            return this.makeToken(tag);
+        }
+
+        while (count > 0) {
+            _ = this.advance();
+            count = count - 1;
+        }
+
+        return null;
+    }
+
+    mut fun basicString() > Token {
+        final second = this.peek();
+        final third = this.peek(1);
+        if (second == '\"' and third == '\"') {
+            _ = this.advance();
+            _ = this.advance();
+
+            return this.multilineBasicString();
+        }
+
+        var peeked = this.peek();
+        while (!this.isEOF()) {
+            if (peeked == '\"') {
+                _ = this.advance();
+
+                return this.makeToken(TokenTag.BasicString);
+            }
+
+            if (peeked == '\n' or peeked == '\r') {
+                return this.makeError("Unfinished basic string");
+            }
+
+            if (peeked == '\\') {
+                if (!this.consumeBasicEscape(false)) {
+                    return this.makeError("Invalid escape sequence");
+                }
+            } else {
+                if (this.isDisallowedBasicStringChar(peeked)) {
+                    return this.makeError("Control character in basic string");
+                }
+
+                _ = this.advance();
+            }
+
+            peeked = this.peek();
+        }
+
+        return this.makeError("Unfinished basic string");
+    }
+
+    mut fun multilineBasicString() > Token {
+        while (!this.isEOF()) {
+            final peeked = this.peek();
+
+            if (peeked == '\"') {
+                final token = this.consumeMultilineQuoteRun('\"', tag: TokenTag.MultilineBasicString);
+                if (token != null) {
+                    return token!;
+                }
+            } else if (peeked == '\r') {
+                if (!this.advanceNewline()) {
+                    return this.makeError("Control character in basic string");
+                }
+            } else if (peeked == '\n') {
+                _ = this.advanceNewline();
+            } else if (peeked == '\\') {
+                if (!this.consumeBasicEscape(true)) {
+                    return this.makeError("Invalid escape sequence");
+                }
+            } else {
+                if (this.isDisallowedBasicStringChar(peeked)) {
+                    return this.makeError("Control character in basic string");
+                }
+
+                _ = this.advance();
+            }
+        }
+
+        return this.makeError("Unfinished basic string");
+    }
+
+    mut fun literalString() > Token {
+        final second = this.peek();
+        final third = this.peek(1);
+        if (second == '\'' and third == '\'') {
+            _ = this.advance();
+            _ = this.advance();
+
+            return this.multilineLiteralString();
+        }
+
+        var peeked = this.peek();
+        while (!this.isEOF()) {
+            if (peeked == '\'') {
+                _ = this.advance();
+
+                return this.makeToken(TokenTag.LiteralString);
+            }
+
+            if (peeked == '\n' or peeked == '\r') {
+                return this.makeError("Unfinished literal string");
+            }
+
+            if (this.isDisallowedLiteralStringChar(peeked)) {
+                return this.makeError("Control character in literal string");
+            }
+
+            _ = this.advance();
+
+            peeked = this.peek();
+        }
+
+        return this.makeError("Unfinished literal string");
+    }
+
+    mut fun multilineLiteralString() > Token {
+        while (!this.isEOF()) {
+            final peeked = this.peek();
+            final next = this.peek(1);
+
+            if (peeked == '\'') {
+                final token = this.consumeMultilineQuoteRun('\'', tag: TokenTag.MultilineLiteralString);
+                if (token != null) {
+                    return token!;
+                }
+            } else if (peeked == '\r') {
+                if (next != '\n') {
+                    return this.makeError("Control character in literal string");
+                }
+
+                _ = this.advance();
+                _ = this.advance();
+                this.current.line += 1;
+                this.current.column = 0;
+            } else if (peeked == '\n') {
+                _ = this.advance();
+                this.current.line += 1;
+                this.current.column = 0;
+            } else {
+                if (this.isDisallowedLiteralStringChar(peeked)) {
+                    return this.makeError("Control character in literal string");
+                }
+
+                _ = this.advance();
+            }
+        }
+
+        return this.makeError("Unfinished literal string");
+    }
+}
+
+fun scanToken(source: str) => Scanner.init(source).scan();
+
+export enum Error {
+    /// Source is not valid utf8
+    NotValidUtf8,
+    /// Source is not valid TOML
+    Invalid,
+}
+
+enum PathPartTag {
+    Key,
+    Index,
+}
+
+object PathPart {
+    tag: PathPartTag,
+    key: str?,
+    index: int?,
+
+    static fun keyPart(key: str) => PathPart{
+        tag = PathPartTag.Key,
+        key,
+    };
+
+    static fun indexPart(index: int) => PathPart{
+        tag = PathPartTag.Index,
+        index,
+    };
+
+    fun display() => if (this.tag == PathPartTag.Index) "{this.index!}" else this.key!;
+
+    fun same(other: PathPart) > bool {
+        if (this.tag != other.tag) {
+            return false;
+        }
+
+        if (this.tag == PathPartTag.Key) {
+            return this.key! == other.key!;
+        }
+
+        return this.index! == other.index!;
+    }
+}
+
+object Path {
+    parts: mut [PathPart],
+
+    static fun init() => mut Path{
+        parts = mut [],
+    };
+
+    static fun fromParts(parts: [PathPart]) > mut Path {
+        final path = Path.init();
+        foreach (part in parts) {
+            path.appendPart(part);
+        }
+
+        return path;
+    }
+
+    fun len() => this.parts.len();
+
+    fun join(separator: str) > str {
+        var result = "";
+
+        foreach (i, part in this.parts) {
+            if (i > 0) {
+                result = result + separator;
+            }
+
+            result = result + part.display();
+        }
+
+        return result;
+    }
+
+    mut fun appendPart(part: PathPart) > void {
+        this.parts.append(part);
+    }
+
+    mut fun appendKey(key: str) > void {
+        this.appendPart(PathPart.keyPart(key));
+    }
+
+    mut fun appendIndex(index: int) > void {
+        this.appendPart(PathPart.indexPart(index));
+    }
+
+    mut fun appendKeys(keys: [str]) > void {
+        foreach (key in keys) {
+            this.appendKey(key);
+        }
+    }
+
+    mut fun pop() > PathPart {
+        final part = this.parts.pop();
+
+        return part!;
+    }
+
+    mut fun truncate(len: int) > void {
+        this.parts = this.parts.sub(0, len: len);
+    }
+
+    fun clone() => Path.fromParts(this.parts);
+
+    fun equals(other: Path, logical: bool) > bool {
+        var left = 0;
+        var right = 0;
+
+        while (true) {
+            if (logical) {
+                while (left < this.parts.len() and this.parts[left].tag == PathPartTag.Index) {
+                    left += 1;
+                }
+
+                while (right < other.parts.len() and other.parts[right].tag == PathPartTag.Index) {
+                    right += 1;
+                }
+            }
+
+            final leftDone = left >= this.parts.len();
+            final rightDone = right >= other.parts.len();
+
+            if (leftDone or rightDone) {
+                return leftDone and rightDone;
+            }
+
+            if (!this.parts[left].same(other.parts[right])) {
+                return false;
+            }
+
+            left += 1;
+            right += 1;
+        }
+
+        return true;
+    }
+
+    fun hasInlineParent(inlineTables: PathSet) > bool {
+        final prefix = Path.init();
+
+        foreach (i, part in this.parts) {
+            if (i == this.parts.len() - 1) {
+                break;
+            }
+
+            prefix.appendPart(part);
+            if (inlineTables.has(prefix)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+}
+
+object PathSet {
+    paths: mut [Path],
+    compareLogical: bool = false,
+
+    static fun concrete() => mut PathSet{
+        paths = mut [],
+    };
+
+    static fun logicalSet() => mut PathSet{
+        paths = mut [],
+        compareLogical = true,
+    };
+
+    fun has(path: Path) > bool {
+        foreach (known in this.paths) {
+            if (known.equals(path, logical: this.compareLogical)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    mut fun add(path: Path) > void {
+        this.paths.append(path.clone());
+    }
+}
+
+fun scalarFromToken(token: Token) > any {
+    if (token.tag == TokenTag.Boolean) {
+        return token.lexeme == "true";
+    }
+
+    return token.literal();
+}
+
+object Parser {
+    source: str,
+    /// Result of the parsing
+    parsed: mut {str: any},
+    scanner: mut Scanner,
+    /// Index into scanner's token list
+    currentToken: int?,
+    panic_mode: bool = false,
+    currentPath: mut Path,
+    section: int?,
+    currentKeyBaseLen: int = 0,
+    definedValues: mut PathSet,
+    explicitTables: mut PathSet,
+    arrayTables: mut PathSet,
+    inlineTables: mut PathSet,
+    dottedKeyTables: mut PathSet,
+
+    static fun init(source: str) => mut Parser{
+        source,
+        parsed = mut {},
+        scanner = Scanner.init(source),
+        currentPath = Path.init(),
+        definedValues = PathSet.concrete(),
+        explicitTables = PathSet.concrete(),
+        arrayTables = PathSet.logicalSet(),
+        inlineTables = PathSet.concrete(),
+        dottedKeyTables = PathSet.concrete(),
+    };
+
+    static fun parse(source: str) > any !> Error {
+        if (!source.utf8Valid()) {
+            throw Error.NotValidUtf8;
+        }
+
+        final parser = Parser.init(source);
+
+        parser.advance();
+        parser.skipLineIgnorable();
+
+        while (!parser.match(TokenTag.Eof)) {
+            if (parser.match(TokenTag.LeftBracket)) {
+                final firstLeft = parser.scanner.tokens[parser.currentToken! - 1];
+                // pop previous section
+                if (parser.section -> section) {
+                    parser.currentPath.truncate(section);
+                }
+
+                parser.section = parser.currentPath.len();
+
+                if (parser.check(TokenTag.LeftBracket) and parser.scanner.tokens[parser.currentToken!].offset == firstLeft.offset + 1) {
+                    parser.advance();
+                    // [[section]]
+                    parser.currentPath.appendKeys(parser.parseKey());
+                    if (!parser.declareArrayTable() or !parser.appendArrayTable()) {
+                        parser.report("Invalid array table");
+
+                        throw Error.Invalid;
+                    }
+
+                    parser.consume(TokenTag.RightBracket, message: "Expected `]`");
+                    final firstRight = parser.scanner.tokens[parser.currentToken! - 1];
+                    if (!parser.check(TokenTag.RightBracket) or parser.scanner.tokens[parser.currentToken!].offset != firstRight.offset + 1) {
+                        parser.report("Expected adjacent `]`");
+
+                        throw Error.Invalid;
+                    }
+                } else {
+                    // [section]
+                    parser.currentPath.appendKeys(parser.parseKey());
+                    if (!parser.resolveTablePath() or !parser.declareTable()) {
+                        parser.report("Invalid table");
+
+                        throw Error.Invalid;
+                    }
+                }
+
+                parser.consume(TokenTag.RightBracket, message: "Expected `]`");
+            } else {
+                if (!parser.parseKeyValue()) {
+                    parser.report("Invalid key/value");
+
+                    throw Error.Invalid;
+                }
+            }
+
+            parser.consumeLineEnd();
+            parser.skipLineIgnorable();
+
+            parser.sync();
+        }
+
+        return parser.parsed;
+    }
+
+    mut fun skipLineIgnorable() !> Error {
+        while (this.match(TokenTag.Newline)) {}
+    }
+
+    mut fun skipNewlines() !> Error {
+        while (this.match(TokenTag.Newline)) {}
+    }
+
+    mut fun consumeLineEnd() !> Error {
+        if (this.match(TokenTag.Eof)) {
+            return;
+        }
+
+        this.consume(TokenTag.Newline, message: "Expected new line");
+    }
+
+    mut fun resolveTablePath() > bool {
+        var current: any = this.parsed;
+        final resolvedPath = Path.init();
+        var i = 0;
+
+        while (i < this.currentPath.len()) {
+            final part = this.currentPath.parts[i];
+            final last = i == this.currentPath.len() - 1;
+
+            if (current as? mut {str: any} -> map) {
+                if (part.tag != PathPartTag.Key) {
+                    return false;
+                }
+
+                resolvedPath.appendPart(part);
+
+                final key = part.key!;
+                if (!map.hasKey(key)) {
+                    map[key] = mut {<str: any>};
+                }
+
+                if (last) {
+                    if (map[key] as? mut {str: any} -> table) {
+                        _ = table;
+                    } else {
+                        return false;
+                    }
+                } else {
+                    current = map[key];
+                }
+
+                i += 1;
+            } else if (current as? mut [any] -> list) {
+                if (!this.arrayTables.has(resolvedPath)) {
+                    return false;
+                }
+
+                if (list.len() == 0) {
+                    list.append(mut {<str: any>});
+                }
+
+                final idx = list.len() - 1;
+                resolvedPath.appendIndex(idx);
+                current = list[idx];
+            } else {
+                return false;
+            }
+        }
+
+        this.currentPath = resolvedPath;
+        return true;
+    }
+
+    fun declareTable() > bool {
+        if (this.explicitTables.has(this.currentPath) or this.definedValues.has(this.currentPath) or this.arrayTables.has(this.currentPath) or this.inlineTables.has(this.currentPath) or this.dottedKeyTables.has(this.currentPath) or this.currentPath.hasInlineParent(this.inlineTables)) {
+            return false;
+        }
+
+        this.explicitTables.add(this.currentPath);
+        return true;
+    }
+
+    fun declareArrayTable() > bool {
+        if (this.definedValues.has(this.currentPath) or this.explicitTables.has(this.currentPath) or this.inlineTables.has(this.currentPath)) {
+            return false;
+        }
+
+        this.arrayTables.add(this.currentPath);
+        return true;
+    }
+
+    mut fun appendArrayTable() > bool {
+        var current: any = this.parsed;
+        final resolvedPath = Path.init();
+        var i = 0;
+
+        while (i < this.currentPath.len()) {
+            final part = this.currentPath.parts[i];
+            final last = i == this.currentPath.len() - 1;
+
+            if (current as? mut {str: any} -> map) {
+                if (part.tag != PathPartTag.Key) {
+                    return false;
+                }
+
+                resolvedPath.appendPart(part);
+
+                if (last) {
+                    final key = part.key!;
+                    if (!map.hasKey(key)) {
+                        map[key] = mut [];
+                    }
+
+                    if (map[key] as? mut [any] -> list) {
+                        list.append(mut {<str: any>});
+                        resolvedPath.appendIndex(list.len() - 1);
+                    } else {
+                        return false;
+                    }
+                } else {
+                    final key = part.key!;
+                    if (!map.hasKey(key)) {
+                        map[key] = mut {<str: any>};
+                    }
+
+                    current = map[key];
+                }
+
+                i += 1;
+            } else if (current as? mut [any] -> list) {
+                if (!this.arrayTables.has(resolvedPath)) {
+                    return false;
+                }
+
+                if (list.len() == 0) {
+                    list.append(mut {<str: any>});
+                }
+
+                final idx = list.len() - 1;
+                resolvedPath.appendIndex(idx);
+                current = list[idx];
+            } else {
+                return false;
+            }
+        }
+
+        this.currentPath = resolvedPath;
+        return true;
+    }
+
+    fun setValue(value: any) > bool {
+        if (this.definedValues.has(this.currentPath)) {
+            return false;
+        }
+
+        if (this.explicitTables.has(this.currentPath)) {
+            return false;
+        }
+
+        if (this.arrayTables.has(this.currentPath)) {
+            return false;
+        }
+
+        if (this.currentPath.hasInlineParent(this.inlineTables)) {
+            return false;
+        }
+
+        final prefix = Path.init();
+        foreach (i, part in this.currentPath.parts) {
+            if (i == this.currentPath.len() - 1) {
+                break;
+            }
+
+            prefix.appendPart(part);
+            if (i + 1 > this.currentKeyBaseLen and this.explicitTables.has(prefix)) {
+                return false;
+            }
+        }
+
+        var current: any = this.parsed;
+        foreach (i, part in this.currentPath.parts) {
+            if (current as? mut {str: any} -> map) {
+                if (part.tag != PathPartTag.Key) {
+                    return false;
+                }
+
+                final key = part.key!;
+                final existed = map.hasKey(key);
+                if (!existed) {
+                    map[key] = mut {<str: any>};
+                }
+
+                if (i == this.currentPath.len() - 1) {
+                    if (existed) {
+                        return false;
+                    }
+
+                    map[key] = value;
+                } else {
+                    current = map[key];
+                }
+            } else if (current as? mut [any] -> list) {
+                if (part.tag == PathPartTag.Index) {
+                    if (i == this.currentPath.len() - 1) {
+                        list.append(value);
+                    } else {
+                        if (list.len() == 0) {
+                            list.append(mut {<str: any>});
+                        }
+
+                        current = list[part.index!];
+                    }
+                } else {
+                    return false;
+                }
+            } else {
+                return false;
+            }
+        }
+
+        this.definedValues.add(this.currentPath);
+        if (this.currentPath.len() - this.currentKeyBaseLen > 1) {
+            final dottedTable = Path.init();
+            foreach (i, part in this.currentPath.parts) {
+                if (i == this.currentPath.len() - 1) {
+                    break;
+                }
+
+                dottedTable.appendPart(part);
+                if (i + 1 > this.currentKeyBaseLen) {
+                    this.dottedKeyTables.add(dottedTable);
+                }
+            }
+        }
+
+        return true;
+    }
+
+    fun getValue() > any !> Error {
+        var current: any = this.parsed;
+        foreach (i, part in this.currentPath.parts) {
+            if (current as? mut {str: any} -> map) {
+                if (part.tag != PathPartTag.Key) {
+                    return null;
+                }
+
+                final key = part.key!;
+                if (!map.hasKey(key)) {
+                    return null;
+                }
+
+                if (i == this.currentPath.len() - 1) {
+                    return map[key];
+                } else {
+                    current = map[key];
+                }
+            } else if (current as? [any] -> list) {
+                if (part.tag == PathPartTag.Index) {
+                    if (i == this.currentPath.len() - 1) {
+                        return list[?part.index!];
+                    } else {
+                        current = list[?part.index!];
+                    }
+                } else {
+                    return null;
+                }
+            } else {
+                return null;
+            }
+        }
+
+        return null;
+    }
+
+    mut fun report(_: str) > void {
+        this.panic_mode = true;
+        // std\print("{error} at {if (this.currentPath.len() > 0) this.currentPath.join("") else "root"}");
+    }
+
+    mut fun advance() !> Error {
+        if (this.currentToken != null and this.scanner.tokens[this.currentToken!].tag == TokenTag.Eof) {
+            return;
+        }
+
+        if (this.currentToken -> ct) {
+            this.currentToken += 1;
+        } else {
+            this.currentToken = 0;
+        }
+
+        if (this.currentToken! >= this.scanner.tokens.len()) {
+            final newToken = this.scanner.scan();
+
+            if (newToken.tag == TokenTag.Error) {
+                this.report("Syntax error: {newToken.error ?? "unexpected character"}");
+
+                throw Error.Invalid;
+            }
+        }
+    }
+
+    mut fun consume(tag: TokenTag, message: str) !> Error {
+        if (this.currentToken != null and this.scanner.tokens[this.currentToken!].tag == tag) {
+            this.advance();
+            return;
+        }
+
+        this.report("Syntax error: {message}");
+
+        throw Error.Invalid;
+    }
+
+    mut fun consumeAnyOf(tags: [TokenTag], message: str) !> Error {
+        foreach (tag in tags) {
+            if (this.currentToken != null and this.scanner.tokens[this.currentToken!].tag == tag) {
+                this.advance();
+                return;
+            }
+        }
+
+        this.report("Syntax error: {message} got {this.scanner.tokens[this.currentToken!].tag}");
+
+        throw Error.Invalid;
+    }
+
+    fun check(tag: TokenTag) => this.currentToken != null and this.scanner.tokens[this.currentToken!].tag == tag;
+
+    fun isKeyStartTag(tag: TokenTag) => tag == TokenTag.LeftBracket or tag == TokenTag.BareKey or tag == TokenTag.LiteralString or tag == TokenTag.BasicString or tag == TokenTag.Boolean or tag == TokenTag.Integer or tag == TokenTag.Float or tag == TokenTag.LocalDate;
+
+    mut fun match(tag: TokenTag) > bool !> Error {
+        if (!this.check(tag)) {
+            return false;
+        }
+
+        this.advance();
+
+        return true;
+    }
+
+    mut fun matchAnyOf(tags: [TokenTag]) > bool !> Error {
+        foreach (tag in tags) {
+            if (this.check(tag)) {
+                this.advance();
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    mut fun sync() !> Error {
+        this.panic_mode = false;
+
+        // Advance until we see a token from which we can recover
+        while (this.currentToken != null and this.scanner.tokens[this.currentToken!].tag != TokenTag.Eof) {
+            if (this.currentToken == 0) {
+                return;
+            }
+
+            final tag = this.scanner.tokens[this.currentToken!].tag;
+            if (this.isKeyStartTag(tag)) {
+                return;
+            }
+
+            this.advance();
+        }
+    }
+
+    /// Parse a key. Returns list so that we understand dotted parts
+    /// Assumes we already parsed one valid bare key part
+    fun appendKeyLexeme(result: mut [str], lexeme: str) > void {
+        var start = 0;
+        var offset = 0;
+
+        while (offset < lexeme.len()) {
+            if (lexeme.byte(offset) == '.') {
+                result.append(lexeme.sub(start, len: offset - start));
+                start = offset + 1;
+            }
+
+            offset = offset + 1;
+        }
+
+        result.append(lexeme.sub(start));
+    }
+
+    mut fun parseKey() > [str] !> Error {
+        final result = mut [<str>];
+
+        while (!this.match(TokenTag.Eof)) {
+            this.consumeAnyOf(
+                [
+                    TokenTag.BareKey,
+                    TokenTag.LiteralString,
+                    TokenTag.BasicString,
+                    TokenTag.Boolean,
+                    TokenTag.Integer,
+                    TokenTag.Float,
+                    TokenTag.LocalDate,
+                ],
+                message: "Expected bare key",
+            );
+
+            final token = this.scanner.tokens[this.currentToken! - 1];
+            if (token.tag == TokenTag.LiteralString or token.tag == TokenTag.BasicString) {
+                final literal = token.literal();
+                if (literal as? str -> key) {
+                    result.append(key);
+                } else {
+                    this.report("Invalid key");
+
+                    throw Error.Invalid;
+                }
+            } else {
+                this.appendKeyLexeme(result, lexeme: token.lexeme);
+            }
+
+
+            if (!this.match(TokenTag.Dot)) {
+                break;
+            }
+        }
+
+        return result;
+    }
+
+    mut fun parseValue() > bool !> Error {
+        if (this.match(TokenTag.Boolean)) {
+            final token = this.scanner.tokens[this.currentToken! - 1];
+            final scalar = scalarFromToken(token);
+
+            if (scalar == null) {
+                this.report("Invalid boolean value");
+
+                throw Error.Invalid;
+            }
+
+            return this.setValue(scalar);
+        }
+
+        if (this.match(TokenTag.LeftBrace)) {
+            return this.parseInlineTable();
+        }
+
+        if (this.matchAnyOf([
+            TokenTag.LiteralString,
+            TokenTag.MultilineLiteralString,
+            TokenTag.BasicString,
+            TokenTag.MultilineBasicString,
+            TokenTag.OffsetDateTime,
+            TokenTag.LocalDateTime,
+            TokenTag.LocalTime,
+            TokenTag.LocalDate,
+        ])) {
+            final token = this.scanner.tokens[this.currentToken! - 1];
+            final scalar = scalarFromToken(token);
+
+            if (scalar == null) {
+                this.report("Invalid value");
+
+                throw Error.Invalid;
+            }
+
+            return this.setValue(scalar);
+        }
+
+        if (this.match(TokenTag.Integer)) {
+            final token = this.scanner.tokens[this.currentToken! - 1];
+            final value = scalarFromToken(token);
+
+            if (value == null) {
+                this.report("Invalid integer value");
+
+                throw Error.Invalid;
+            }
+
+            return this.setValue(value);
+        }
+
+        if (this.match(TokenTag.Float)) {
+            final token = this.scanner.tokens[this.currentToken! - 1];
+            final value = scalarFromToken(token);
+
+            if (value == null) {
+                this.report("Invalid float value");
+
+                throw Error.Invalid;
+            }
+
+            return this.setValue(value);
+        }
+
+        if (this.match(TokenTag.LeftBracket)) {
+            return this.parseArray();
+        }
+
+        throw Error.Invalid;
+    }
+
+    mut fun parseInlineTable() > bool !> Error {
+        final tablePath = this.currentPath.clone();
+        if (!this.setValue(mut {<str: any>})) {
+            return false;
+        }
+
+        while (true) {
+            if (this.match(TokenTag.RightBrace)) {
+                break;
+            }
+
+            if (this.match(TokenTag.Eof)) {
+                this.report("Unfinished inline table");
+
+                throw Error.Invalid;
+            }
+
+            if (!this.parseKeyValue()) {
+                return false;
+            }
+
+            if (!this.match(TokenTag.Comma)) {
+                this.consume(TokenTag.RightBrace, message: "Expected `}`");
+                break;
+            }
+
+            if (this.check(TokenTag.RightBrace)) {
+                this.report("Trailing comma in inline table");
+
+                throw Error.Invalid;
+            }
+        }
+
+        this.inlineTables.add(tablePath);
+        return true;
+    }
+
+    mut fun parseArray() > bool !> Error {
+        if (!this.setValue(mut [])) {
+            return false;
+        }
+
+        this.skipNewlines();
+
+        var i = 0;
+        while (true) {
+            if (this.match(TokenTag.RightBracket)) {
+                break;
+            }
+
+            if (this.match(TokenTag.Eof)) {
+                this.report("Unfinished array");
+
+                throw Error.Invalid;
+            }
+
+            this.currentPath.appendIndex(i);
+
+            final ok = this.parseValue();
+
+            _ = this.currentPath.pop();
+            if (!ok) {
+                return false;
+            }
+
+            this.skipNewlines();
+
+            if (!this.match(TokenTag.Comma)) {
+                this.skipNewlines();
+                this.consume(TokenTag.RightBracket, message: "Expected `]`");
+                break;
+            }
+
+            i += 1;
+            this.skipNewlines();
+        }
+
+        return true;
+    }
+
+    mut fun parseKeyValue() > bool !> Error {
+        final baseLen = this.currentPath.len();
+        final key = this.parseKey();
+
+        this.currentKeyBaseLen = baseLen;
+        this.currentPath.appendKeys(key);
+
+        this.consume(TokenTag.Equal, message: "Expected `=`");
+
+        final ok = this.parseValue();
+
+        foreach (_ in 0..key.len()) {
+            _ = this.currentPath.pop();
+        }
+
+        this.currentKeyBaseLen = 0;
+
+        return ok;
+    }
+}
+
+export fun decode(source: str) !> Error => Parser.parse(source);

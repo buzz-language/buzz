@@ -355,21 +355,21 @@ pub fn build(b: *Build) !void {
 
     // Building std libraries
     for ([_][]const u8{
-        "std",
-        "io",
-        "gc",
-        "os",
-        "fs",
-        "math",
-        "debug",
         "buffer",
         "crypto",
-        // FIXME: API has changed
-        // "http",
-        "ffi",
-        "serialize",
-        "testing",
+        "debug",
         "errors",
+        "ffi",
+        "fs",
+        "gc",
+        "http",
+        "io",
+        "math",
+        "os",
+        "serialize",
+        "std",
+        "testing",
+        "toml",
     }) |library| {
         const step = b.addInstallLibFile(
             b.path(
