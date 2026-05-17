@@ -299,6 +299,7 @@ pub const Slice = struct {
                     try node_queue.append(allocator, comp.While.body);
                 },
                 .Yield => try node_queue.append(allocator, comp.Yield),
+                .AnonymousEnumCase,
                 .Boolean,
                 .Break,
                 .Continue,
@@ -355,6 +356,7 @@ pub const Slice = struct {
         ) (std.mem.Allocator.Error || std.fmt.BufPrintError)!bool {
             switch (ast.nodes.items(.tag)[node]) {
                 .AnonymousObjectType,
+                .AnonymousEnumCase,
                 .FiberType,
                 .FunctionType,
                 .GenericResolveType,
@@ -848,6 +850,29 @@ pub const Slice = struct {
                 .Double => Value.fromDouble(components[node].Double),
                 .Integer => Value.fromInteger(components[node].Integer),
                 .Boolean => Value.fromBoolean(components[node].Boolean),
+                .AnonymousEnumCase => enum_case: {
+                    const components_ptr = &components[node].AnonymousEnumCase;
+                    const type_def = self.nodes.items(.type_def)[node].?;
+                    const case_name = self.tokens.items(.lexeme)[components_ptr.case_name];
+                    const enum_type_def = type_def.resolved_type.?.EnumInstance
+                        .of
+                        .resolved_type.?.Enum;
+
+                    for (enum_type_def.cases, 0..) |case, idx| {
+                        if (std.mem.eql(u8, case, case_name)) {
+                            components_ptr.resolved_case = @intCast(idx);
+
+                            break :enum_case (try gc.allocateObject(
+                                obj.ObjEnumInstance{
+                                    .enum_ref = enum_type_def.value.?,
+                                    .case = @intCast(idx),
+                                },
+                            )).toValue();
+                        }
+                    }
+
+                    @panic("Could not constant fold anonymous enum case");
+                },
                 .As => try self.toValue(components[node].As.left, gc),
                 .Is => is: {
                     const is_components = components[node].Is;
@@ -1120,6 +1145,7 @@ pub const Node = struct {
 
     pub const Tag = enum(u8) {
         AnonymousObjectType,
+        AnonymousEnumCase,
         As,
         AsyncCall,
         Binary,
@@ -1196,6 +1222,7 @@ pub const Node = struct {
 
     pub const Components = union(Tag) {
         AnonymousObjectType: AnonymousObjectType,
+        AnonymousEnumCase: AnonymousEnumCase,
         As: IsAs,
         AsyncCall: Node.Index,
         Binary: Binary,
@@ -1413,6 +1440,11 @@ pub const AnonymousObjectType = struct {
         name: TokenIndex,
         type: Node.Index,
     };
+};
+
+pub const AnonymousEnumCase = struct {
+    case_name: TokenIndex,
+    resolved_case: ?u32 = null,
 };
 
 pub const Binary = struct {

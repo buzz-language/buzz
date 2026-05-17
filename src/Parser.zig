@@ -508,7 +508,7 @@ const rules = [_]ParseRule{
     .{}, // RightParen
     .{ .prefix = map, .infix = objectInit, .precedence = .Primary }, // LeftBrace
     .{}, // RightBrace
-    .{ .prefix = anonymousObjectInit, .infix = dot, .precedence = .Call }, // Dot
+    .{ .prefix = anonymousEnumCaseOrObjectInit, .infix = dot, .precedence = .Call }, // Dot
     .{}, // Comma
     .{}, // Semicolon
     .{ .infix = binary, .precedence = .Comparison }, // Greater
@@ -4650,9 +4650,47 @@ fn objectInit(self: *Self, _: bool, object: Ast.Node.Index) Error!Ast.Node.Index
     );
 }
 
-fn anonymousObjectInit(self: *Self, _: bool) Error!Ast.Node.Index {
+fn anonymousEnumCaseOrObjectInit(self: *Self, can_assign: bool) Error!Ast.Node.Index {
+    if (try self.match(.LeftBrace)) {
+        return self.anonymousObjectInit(can_assign);
+    }
+
+    return self.anonymousEnumCase(can_assign);
+}
+
+fn anonymousEnumCase(self: *Self, _: bool) Error!Ast.Node.Index {
     const start_location = self.current_token.? - 1;
-    try self.consume(.LeftBrace, "Expected `{` after `.`");
+    try self.consume(.Identifier, "Expected enum case identifier");
+    const case = self.current_token.? - 1;
+
+    return self.ast.appendNode(
+        .{
+            .tag = .AnonymousEnumCase,
+            .location = start_location,
+            .end_location = case,
+            .type_def = try self.gc.type_registry.getTypeDef(
+                .{
+                    .def_type = .Placeholder,
+                    .resolved_type = .{
+                        .Placeholder = .init(
+                            case,
+                            case,
+                            false,
+                        ),
+                    },
+                },
+            ),
+            .components = .{
+                .AnonymousEnumCase = .{
+                    .case_name = case,
+                },
+            },
+        },
+    );
+}
+
+fn anonymousObjectInit(self: *Self, _: bool) Error!Ast.Node.Index {
+    const start_location = self.current_token.? - 2;
 
     const qualifier = try std.mem.replaceOwned(
         u8,
@@ -7105,6 +7143,14 @@ fn binary(self: *Self, _: bool, left: Ast.Node.Index) Error!Ast.Node.Index {
     const type_defs = self.ast.nodes.items(.type_def);
     const right_type_def = type_defs[right];
     const left_type_def = type_defs[left];
+    // `a ?? b` evaluates to the fallback type, but an inferred fallback may
+    // need the non-optional left type as context before typechecking runs.
+    const null_coalescing_type_def = if (right_type_def != null and right_type_def.?.def_type != .Placeholder)
+        right_type_def
+    else if (left_type_def != null and left_type_def.?.def_type != .Placeholder)
+        try left_type_def.?.cloneNonOptional(&self.gc.type_registry)
+    else
+        right_type_def;
 
     return try self.ast.appendNode(
         .{
@@ -7112,7 +7158,7 @@ fn binary(self: *Self, _: bool, left: Ast.Node.Index) Error!Ast.Node.Index {
             .location = start_location,
             .end_location = self.current_token.? - 1,
             .type_def = switch (operator) {
-                .QuestionQuestion => right_type_def,
+                .QuestionQuestion => null_coalescing_type_def,
 
                 .Greater,
                 .Less,

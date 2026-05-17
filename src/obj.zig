@@ -5672,7 +5672,7 @@ pub const PlaceholderDef = struct {
     /// What's the relation with the parent?
     parent_relation: ?Relation = null,
     /// Children adds themselves here
-    children: std.ArrayList(*ObjTypeDef),
+    children: std.ArrayList(*ObjTypeDef) = .empty,
     mutable: ?bool,
 
     /// If the placeholder is a function return, we need to remember eventual generic types defined in that call
@@ -5682,7 +5682,6 @@ pub const PlaceholderDef = struct {
         return Self{
             .where = where,
             .where_end = where_end,
-            .children = std.ArrayList(*ObjTypeDef).empty,
             .mutable = mutable,
         };
     }

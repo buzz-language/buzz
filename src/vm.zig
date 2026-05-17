@@ -5279,6 +5279,7 @@ pub const VM = struct {
                 _ = self.pop();
 
                 // Default value in case of error
+                self.current_fiber.stack_top = self.current_fiber.stack_top - arg_count - 1;
                 self.push(catch_value.?);
                 return;
             }

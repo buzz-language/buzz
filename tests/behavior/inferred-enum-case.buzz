@@ -1,0 +1,105 @@
+import "std";
+
+enum Locale {
+    fr,
+    en,
+    it,
+}
+
+object HasLocalField {
+    locale: Locale,
+    defaultLocale: Locale = .it,
+}
+
+fun identity(locale: Locale) > Locale {
+    return locale;
+}
+
+fun defaultLocale() > Locale {
+    return .it;
+}
+
+fun maybeLocale() > Locale? {
+    return null;
+}
+
+fun failLocale() > Locale !> str {
+    throw "no locale";
+    return .fr;
+}
+
+fun localeFiber() > void *> Locale? {
+    _ = yield .en;
+}
+
+fun acceptsLocaleList(locales: [Locale]) > bool {
+    foreach (locale in locales) {
+        if (locale == .en) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+test "Can infer enum type" {
+    final value: Locale = .fr;
+
+    std\assert(value == Locale.fr, message: "Infer var declaration");
+    std\assert(.fr == Locale.fr, message: "Infer in reversed comparison");
+    std\assert(identity(.en) == Locale.en, message: "Infer call argument");
+    std\assert(defaultLocale() == Locale.it, message: "Infer return value");
+    std\assert((maybeLocale() ?? .en) == Locale.en, message: "Infer null coalescing fallback");
+    std\assert((failLocale() catch .en) == Locale.en, message: "Infer inline catch default");
+
+    final coalesced = maybeLocale() ?? .it;
+
+    std\assert(coalesced == Locale.it, message: "Infer null coalescing variable");
+
+    final instance = HasLocalField{
+        locale = .en,
+    };
+
+    std\assert(instance.locale == Locale.en, message: "Infer object field");
+    std\assert(instance.defaultLocale == Locale.it, message: "Infer object default value");
+
+    std\assert(Locale.fr == .fr, message: "Infer in comparison");
+
+    final list: [Locale] = [ .fr, .en ];
+
+    std\assert(list[0] == Locale.fr, message: "Infer in list");
+    std\assert(list[1] == Locale.en, message: "Infer in list");
+
+    final explicitList = [<Locale>, .it ];
+
+    std\assert(explicitList[0] == Locale.it, message: "Infer in explicit list");
+
+    final mutableList: mut [Locale] = mut [ .fr ];
+    mutableList[0] = .it;
+
+    std\assert(mutableList[0] == Locale.it, message: "Infer list subscript assignment");
+
+    final map: {str: Locale} = {
+        "fr": .fr,
+    };
+
+    std\assert(map["fr"] == Locale.fr, message: "Infer in map");
+
+    final explicitMap = {<str: Locale>, "it": .it };
+
+    std\assert(explicitMap["it"] == Locale.it, message: "Infer in explicit map");
+
+    var assigned: Locale = Locale.fr;
+    assigned = .en;
+
+    std\assert(assigned == Locale.en, message: "Infer named assignment");
+
+    final fiber = &localeFiber();
+
+    std\assert(resume fiber == Locale.en, message: "Infer yield value");
+
+    std\assert(
+        acceptsLocaleList([ .fr, .en ]),
+        message: "Infer enum case in constant-foldable list argument",
+    );
+}

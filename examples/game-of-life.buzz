@@ -125,23 +125,23 @@ fun loop(world: mut World, sdl: SDL, renderer: Renderer, texture: Texture) > voi
 }
 
 fun main(args: [str]) > void !> SDLError {
-    final sdl = SDL.init([ Subsystem.Video ]);
+    final sdl = SDL.init([ .Video ]);
 
     final window = Window.init(
         "buzz example: Game of Life",
         width: 800,
         height: 600,
-        flags: [ WindowFlag.OpenGL, WindowFlag.AllowHighDPI ],
+        flags: [ .OpenGL, .AllowHighDPI ],
     );
 
     final renderer = window.createRenderer(
         index: -1,
-        flags: [ RendererFlag.Accelerated, RendererFlag.TargetTexture ],
+        flags: [ .Accelerated, .TargetTexture ],
     );
 
     final texture = renderer.createTexture(
-        format: PixelFormat.RGBA8888,
-        access: TextureAccess.Target,
+        format: .RGBA8888,
+        access: .Target,
         width: 800,
         height: 600,
     );

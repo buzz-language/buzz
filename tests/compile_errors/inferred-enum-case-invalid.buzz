@@ -1,0 +1,8 @@
+// Could not infer type for enum case `es`.
+enum Locale {
+    fr,
+}
+
+test "invalid inferred enum case" {
+    final value: Locale = .es;
+}

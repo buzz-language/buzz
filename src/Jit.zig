@@ -906,6 +906,7 @@ fn generateNode(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
         .ForEach => try self.generateForEach(node),
         .TypeExpression => try self.generateTypeExpression(node),
         .TypeOfExpression => try self.generateTypeOfExpression(node),
+        .AnonymousEnumCase => try self.generateAnonymousEnumCase(node),
         .AsyncCall,
         .Resume,
         .Resolve,
@@ -4245,19 +4246,29 @@ fn generateDot(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
         },
 
         .Enum => {
+            const enum_value = (try self.generateNode(components.callee)).?;
+            const case_name = m.MIR_new_uint_op(self.ctx, (try self.getString(member_lexeme)).toValue().val);
             const res = m.MIR_new_reg_op(
                 self.ctx,
                 try self.REG("res", m.MIR_T_I64),
             );
+
+            // Enum case lookup allocates the case instance; keep lookup inputs alive across the call.
+            try self.buildPush(enum_value);
+            try self.buildPush(case_name);
+
             try self.buildExternApiCall(
                 .bz_getEnumCase,
                 res,
                 &.{
-                    (try self.generateNode(components.callee)).?,
-                    m.MIR_new_uint_op(self.ctx, (try self.getString(member_lexeme)).toValue().val),
+                    enum_value,
+                    case_name,
                     m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
                 },
             );
+
+            try self.buildPop(null);
+            try self.buildPop(null);
 
             return res;
         },
@@ -4328,6 +4339,36 @@ fn generateDot(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
 
         else => unreachable,
     }
+}
+
+fn generateAnonymousEnumCase(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
+    const components = self.state.?.ast.nodes.items(.components)[node].AnonymousEnumCase;
+    const member_lexeme = self.state.?.ast.tokens.items(.lexeme)[components.case_name];
+    const type_defs = self.state.?.ast.nodes.items(.type_def);
+    if (type_defs[node] == null or type_defs[node].?.def_type != .EnumInstance) {
+        return error.CantCompile;
+    }
+
+    const enum_value = type_defs[node].?.resolved_type.?.EnumInstance
+        .of
+        .resolved_type.?.Enum
+        .value.?;
+
+    const res = m.MIR_new_reg_op(
+        self.ctx,
+        try self.REG("res", m.MIR_T_I64),
+    );
+    try self.buildExternApiCall(
+        .bz_getEnumCase,
+        res,
+        &.{
+            m.MIR_new_uint_op(self.ctx, enum_value.toValue().val),
+            m.MIR_new_uint_op(self.ctx, (try self.getString(member_lexeme)).toValue().val),
+            m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
+        },
+    );
+
+    return res;
 }
 
 fn generateSubscript(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {

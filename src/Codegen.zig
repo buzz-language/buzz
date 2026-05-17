@@ -79,8 +79,9 @@ debugging: bool,
 
 reporter: Reporter,
 
-const generators = [_]?NodeGen{
+const generators = [@typeInfo(Ast.Node.Tag).@"enum".fields.len]?NodeGen{
     null, // AnonymousObjectType,
+    generateAnonymousEnumCase, // AnonymousEnumCase
     generateAs, // As,
     generateAsyncCall, // AsyncCall,
     generateBinary, // Binary,
@@ -1393,6 +1394,67 @@ fn generateEnum(self: *Self, node: Ast.Node.Index, _: ?*Breaks) Error!?*obj.ObjF
         @intCast(components.slot),
         (try self.gc.copyString(self.ast.tokens.items(.lexeme)[components.name])).toValue(),
     );
+
+    try self.patchOptJumps(node);
+    try self.endScope(node);
+
+    return null;
+}
+
+fn generateAnonymousEnumCase(self: *Self, node: Ast.Node.Index, _: ?*Breaks) Error!?*obj.ObjFunction {
+    const locations = self.ast.nodes.items(.location);
+    const components = &self.ast.nodes.items(.components)[node].AnonymousEnumCase;
+    const expected_case = self.ast.tokens.items(.lexeme)[components.case_name];
+    const type_def = self.ast.nodes.items(.type_def)[node];
+    if (type_def == null or type_def.?.def_type != .EnumInstance) {
+        self.reporter.reportErrorAt(
+            .inferred_type,
+            self.ast.tokens.get(locations[node]),
+            self.ast.tokens.get(locations[node]),
+            "Could not infer type for enum case.",
+        );
+
+        return null;
+    }
+
+    const enum_type_def = type_def.?.resolved_type.?.EnumInstance
+        .of
+        .resolved_type.?.Enum;
+    const enum_value = enum_type_def.value.?;
+
+    const enum_case = case: {
+        for (enum_type_def.cases, 0..) |case, idx| {
+            if (std.mem.eql(u8, case, expected_case)) {
+                break :case idx;
+            }
+        }
+
+        break :case null;
+    };
+
+    if (enum_case) |resolved_case| {
+        components.resolved_case = @intCast(resolved_case);
+
+        try self.emitConstant(
+            locations[node],
+            enum_value.toValue(),
+        );
+
+        try self.OP_GET_ENUM_CASE(
+            locations[node],
+            @intCast(resolved_case),
+        );
+    } else {
+        self.reporter.reportErrorFmt(
+            .inferred_type,
+            self.ast.tokens.get(locations[node]),
+            self.ast.tokens.get(locations[node]),
+            "Could not infer type for enum case `{s}`.",
+            .{
+                expected_case,
+            },
+        );
+    }
 
     try self.patchOptJumps(node);
     try self.endScope(node);

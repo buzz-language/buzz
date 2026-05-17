@@ -6,7 +6,7 @@ fun main() > void !> any {
     final client = Client.init();
 
     final request = mut Request{
-        method = Method.GET,
+        method = .GET,
         headers = {
             "accept": "*/*",
         },
