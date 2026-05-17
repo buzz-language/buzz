@@ -224,6 +224,24 @@ pub fn build(b: *Build) !void {
     const check = b.step("check", "Check if buzz compiles");
     check.dependOn(&check_exe.step);
 
+    const update_std_docs_exe = b.addExecutable(
+        .{
+            .name = "update_std_docs",
+            .root_module = b.createModule(
+                .{
+                    .root_source_file = b.path("src/update_std_docs.zig"),
+                    .target = target,
+                    .optimize = build_mode,
+                },
+            ),
+        },
+    );
+    const run_update_std_docs = b.addRunArtifact(update_std_docs_exe);
+    if (b.args) |args| {
+        run_update_std_docs.addArgs(args);
+    }
+    b.step("update-std-docs", "Regenerate standard library reference docs").dependOn(&run_update_std_docs.step);
+
     // Building buzz api library
     const lib = if (!is_wasm) b.addLibrary(
         .{
@@ -302,7 +320,7 @@ pub fn build(b: *Build) !void {
         test_step.dependOn(&run_lsp_tests.step);
     }
 
-    for ([_]?*std.Build.Step.Compile{ pic_static_lib, static_lib, lib, exe, behavior_exe, debugger_exe, lsp_exe, lsp_tests, check_exe, tests, fuzz }) |comp| {
+    for ([_]?*std.Build.Step.Compile{ pic_static_lib, static_lib, lib, exe, behavior_exe, debugger_exe, lsp_exe, lsp_tests, check_exe, tests, update_std_docs_exe, fuzz }) |comp| {
         if (comp) |c| {
             // BuildOptions
             c.root_module.addImport("build_options", build_option_module);
@@ -329,7 +347,7 @@ pub fn build(b: *Build) !void {
         }
     }
 
-    for ([_]?*std.Build.Step.Compile{ tests, lsp_tests, pic_static_lib, static_lib, lib, exe, debugger_exe, lsp_exe, behavior_exe, check_exe, fuzz }) |comp| {
+    for ([_]?*std.Build.Step.Compile{ tests, lsp_tests, pic_static_lib, static_lib, lib, exe, debugger_exe, lsp_exe, behavior_exe, check_exe, update_std_docs_exe, fuzz }) |comp| {
         if (comp) |c| {
             c.root_module.addImport(
                 "dap",
@@ -338,7 +356,7 @@ pub fn build(b: *Build) !void {
         }
     }
 
-    for ([_]?*std.Build.Step.Compile{ behavior_exe, exe, debugger_exe, lsp_exe, check_exe, fuzz }) |comp| {
+    for ([_]?*std.Build.Step.Compile{ behavior_exe, exe, debugger_exe, lsp_exe, check_exe, update_std_docs_exe, fuzz }) |comp| {
         if (comp) |c| {
             c.root_module.addImport(
                 "clap",

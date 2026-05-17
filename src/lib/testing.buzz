@@ -3,7 +3,7 @@ namespace testing;
 import "os";
 import "io";
 
-export enum<int> Color {
+enum<int> Color {
     // attributes
     reset      = 0,
     bright     = 1,
@@ -34,32 +34,32 @@ export enum<int> Color {
     onwhite   = 47,
 }
 
-export fun color(text: str, color: Color, reset: bool = true) > str {
+fun color(text: str, color: Color, reset: bool = true) > str {
     return "\27[{color.value}m{text}{if (reset) "\27[0m" else ""}";
 }
 
-export fun bright(text: str) => color(text, color: Color.bright);
-export fun dim(text: str) => color(text, color: Color.dim);
-export fun underscore(text: str) => color(text, color: Color.underscore);
-export fun blink(text: str) => color(text, color: Color.blink);
-export fun reverse(text: str) => color(text, color: Color.reverse);
-export fun hidden(text: str) => color(text, color: Color.hidden);
-export fun black(text: str) => color(text, color: Color.black);
-export fun red(text: str) => color(text, color: Color.red);
-export fun green(text: str) => color(text, color: Color.green);
-export fun yellow(text: str) => color(text, color: Color.yellow);
-export fun blue(text: str) => color(text, color: Color.blue);
-export fun magenta(text: str) => color(text, color: Color.magenta);
-export fun cyan(text: str) => color(text, color: Color.cyan);
-export fun white(text: str) => color(text, color: Color.white);
-export fun onblack(text: str) => color(text, color: Color.onblack);
-export fun onred(text: str) => color(text, color: Color.onred);
-export fun ongreen(text: str) => color(text, color: Color.ongreen);
-export fun onyellow(text: str) => color(text, color: Color.onyellow);
-export fun onblue(text: str) => color(text, color: Color.onblue);
-export fun onmagenta(text: str) => color(text, color: Color.onmagenta);
-export fun oncyan(text: str) => color(text, color: Color.oncyan);
-export fun onwhite(text: str) => color(text, color: Color.onwhite);
+fun bright(text: str) => color(text, color: Color.bright);
+fun dim(text: str) => color(text, color: Color.dim);
+fun underscore(text: str) => color(text, color: Color.underscore);
+fun blink(text: str) => color(text, color: Color.blink);
+fun reverse(text: str) => color(text, color: Color.reverse);
+fun hidden(text: str) => color(text, color: Color.hidden);
+fun black(text: str) => color(text, color: Color.black);
+fun red(text: str) => color(text, color: Color.red);
+fun green(text: str) => color(text, color: Color.green);
+fun yellow(text: str) => color(text, color: Color.yellow);
+fun blue(text: str) => color(text, color: Color.blue);
+fun magenta(text: str) => color(text, color: Color.magenta);
+fun cyan(text: str) => color(text, color: Color.cyan);
+fun white(text: str) => color(text, color: Color.white);
+fun onblack(text: str) => color(text, color: Color.onblack);
+fun onred(text: str) => color(text, color: Color.onred);
+fun ongreen(text: str) => color(text, color: Color.ongreen);
+fun onyellow(text: str) => color(text, color: Color.onyellow);
+fun onblue(text: str) => color(text, color: Color.onblue);
+fun onmagenta(text: str) => color(text, color: Color.onmagenta);
+fun oncyan(text: str) => color(text, color: Color.oncyan);
+fun onwhite(text: str) => color(text, color: Color.onwhite);
 
 export object Tester {
     tests: mut [bool],

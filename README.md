@@ -15,7 +15,7 @@ A small/lightweight statically typed scripting language written in Zig
 </p>
 
 > [!WARNING]
-> buzz is in alpha and is **not** ready any professional or production use
+> buzz is in alpha and is **not** ready for any professional or production use
 
 ## Features
 
