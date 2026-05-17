@@ -195,10 +195,9 @@ const Document = struct {
             const location = ast.tokens.get(locations[node]);
             const end_locations = ast.nodes.items(.end_location);
             const end_location = ast.tokens.get(end_locations[node]);
-            const tags = ast.nodes.items(.tag);
 
             // Ignore root node and imports
-            if (locations[node] == 0 or tags[node] == .Import) {
+            if (locations[node] == 0) {
                 return false;
             }
 
@@ -267,6 +266,36 @@ const Document = struct {
         const ast_slice = self.ast.slice();
 
         switch (self.ast.nodes.items(.tag)[node]) {
+            .Import => {
+                if (components[node].Import.import) |script_import| {
+                    const location = ast_slice.nodes.items(.location)[script_import.function];
+
+                    try self.definitions.put(
+                        allocator,
+                        node,
+                        .{
+                            .location = .{
+                                .uri = try scriptNameToUri(
+                                    self.process.io,
+                                    allocator,
+                                    Parser.buzzLibPath(self.process.io, self.process.environ_map),
+                                    script_import.absolute_path.string,
+                                ),
+                                .range = tokenToRange(
+                                    ast_slice,
+                                    location,
+                                    location,
+                                ),
+                            },
+                            .def_node = script_import.function,
+                        },
+                    );
+
+                    return self.definitions.get(node).?.?;
+                }
+
+                return null;
+            },
             .NamedVariable => {
                 const def = components[node].NamedVariable.definition;
                 const location = self.ast.nodes.items(.location)[def];
