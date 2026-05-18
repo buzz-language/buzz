@@ -116,6 +116,7 @@ const generators = [@typeInfo(Ast.Node.Tag).@"enum".fields.len]?NodeGen{
     null, // ListType,
     generateMap, // Map,
     null, // MapType,
+    generateMatch,
     null, // Namespace,
     generateNamedVariable, // NamedVariable,
     generateNull, // Null,
@@ -2091,6 +2092,212 @@ fn generateIf(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.O
     }
 
     self.patchJump(out_jump);
+
+    try self.patchOptJumps(node);
+    try self.endScope(node);
+
+    return null;
+}
+
+fn matchSimpleEquality(self: *Self, condition: Ast.Node.Index, breaks: ?*Breaks) Error!void {
+    const location = self.ast.nodes.items(.location)[condition];
+
+    try self.OP_COPY(location);
+    _ = try self.generateNode(condition, breaks);
+    try self.OP_EQUAL(location);
+    try self.OP_NOT(location);
+}
+
+fn matchNumberInRange(self: *Self, condition: Ast.Node.Index, breaks: ?*Breaks) Error!void {
+    std.debug.assert(self.ast.nodes.items(.tag)[condition] == .Range);
+    const location = self.ast.nodes.items(.location)[condition];
+
+    try self.OP_COPY(location);
+    _ = try self.generateNode(condition, breaks); // The range
+    try self.OP_SWAP(location, 0, 1);
+
+    // Invoke rg.contains
+    try self.emitCodeArg(
+        location,
+        .OP_RANGE_INVOKE,
+        @intCast(obj.ObjRange.members_name.get("contains").?),
+    );
+    try self.emitTwo(
+        location,
+        1, // arg is match value
+        0, // no catch value
+    );
+
+    try self.OP_NOT(location);
+}
+
+fn matchStringMatchesPattern(self: *Self, condition: Ast.Node.Index, breaks: ?*Breaks) Error!void {
+    std.debug.assert(self.ast.nodes.items(.tag)[condition] == .Pattern);
+    const location = self.ast.nodes.items(.location)[condition];
+
+    try self.OP_COPY(location);
+    _ = try self.generateNode(condition, breaks); // The pattern
+    try self.OP_SWAP(location, 0, 1);
+
+    // Invoke pat.match
+    try self.emitCodeArg(
+        location,
+        .OP_PATTERN_INVOKE,
+        @intCast(obj.ObjPattern.members_name.get("match").?),
+    );
+    try self.emitTwo(
+        location,
+        1, // arg is match value
+        0, // no catch value
+    );
+
+    // Result must be != null
+    try self.OP_NULL(location);
+    try self.OP_EQUAL(location);
+    try self.OP_NOT(location);
+}
+
+fn generateMatch(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.ObjFunction {
+    const type_defs = self.ast.nodes.items(.type_def);
+    const locations = self.ast.nodes.items(.location);
+    const lexemes = self.ast.tokens.items(.lexeme);
+    const components = self.ast.nodes.items(.components)[node].Match;
+    const value_type_def = type_defs[components.value].?;
+    const tags = self.ast.nodes.items(.tag);
+
+    _ = try self.generateNode(components.value, breaks);
+
+    var out_jumps = try std.ArrayList(usize).initCapacity(self.gc.allocator, components.branches.len);
+    defer out_jumps.deinit(self.gc.allocator);
+
+    // Keep tracks of covered enum cases
+    var enum_cases = if (components.else_branch == null and
+        !value_type_def.optional and
+        value_type_def.def_type == .EnumInstance)
+    cases: {
+        var cases = std.StringArrayHashMapUnmanaged(usize).empty;
+        for (value_type_def.resolved_type.?.EnumInstance.of.resolved_type.?.Enum.cases, 0..) |case, idx| {
+            try cases.put(self.gc.allocator, case, idx);
+        }
+        break :cases cases;
+    } else null;
+    defer if (enum_cases) |*cases|
+        cases.deinit(self.gc.allocator);
+
+    for (components.branches, 0..) |branch, bidx| {
+        var jumps = try std.ArrayList(usize).initCapacity(self.gc.allocator, branch.conditions.len);
+        defer jumps.deinit(self.gc.allocator);
+        var branch_out_jump: usize = undefined;
+
+        for (branch.conditions, 0..) |condition, idx| {
+            const condition_location = locations[condition];
+            const condition_type_def = type_defs[condition].?;
+
+            // Depending on the value and condition type we might wanna do more than simple `==`
+            if (!condition_type_def.optional and condition_type_def.def_type == .Range and
+                (value_type_def.def_type == .Integer or value_type_def.def_type == .Double))
+            {
+                try self.matchNumberInRange(condition, breaks);
+            } else if (!condition_type_def.optional and condition_type_def.def_type == .Pattern and
+                value_type_def.def_type == .String)
+            {
+                try self.matchStringMatchesPattern(condition, breaks);
+            } else {
+                try self.matchSimpleEquality(condition, breaks);
+            }
+
+            // Exhaustiveness
+            if (enum_cases) |*cases| {
+                const condition_components = self.ast.nodes.items(.components)[condition];
+
+                if (tags[condition] == .Dot and condition_components.Dot.member_kind == .EnumCase) {
+                    var it = cases.iterator();
+                    while (it.next()) |entry| {
+                        if (entry.value_ptr.* == condition_components.Dot.value_or_call_or_enum.EnumCase) {
+                            _ = cases.orderedRemove(entry.key_ptr.*);
+                            break;
+                        }
+                    }
+                } else if (tags[condition] == .AnonymousEnumCase) {
+                    _ = cases.orderedRemove(lexemes[condition_components.AnonymousEnumCase.case_name]);
+                }
+            }
+
+            // Jump to branch expression if equal
+            try jumps.append(self.gc.allocator, try self.OP_JUMP_IF_FALSE(condition_location));
+
+            try self.OP_POP(condition_location); // Pop comparison
+
+            // Last condition of the branch and still no match, jump over resolution of the branch
+            if (idx == branch.conditions.len - 1) {
+                branch_out_jump = try self.OP_JUMP(condition_location);
+            }
+        }
+
+        for (jumps.items) |jump| {
+            self.patchJump(jump);
+        }
+        try self.OP_POP(branch.expression); // Pop comparison
+        try self.OP_POP(branch.expression); // Pop value
+        _ = try self.generateNode(branch.expression, breaks);
+
+        // Jump out of the match statement/expression
+        try out_jumps.append(
+            self.gc.allocator,
+            try self.OP_JUMP(locations[branch.expression]),
+        );
+
+        // Patch of jump when no condition matched
+        self.patchJump(branch_out_jump);
+
+        // If last branch, no else branch, and still no match, pop the value
+        if (bidx == components.branches.len - 1 and components.else_branch == null) {
+            try self.OP_POP(locations[components.value]);
+        }
+    }
+
+    if (components.else_branch) |eb| {
+        _ = try self.generateNode(eb, breaks);
+    } else {
+        // FIXME: check exhaustiveness
+    }
+
+    for (out_jumps.items) |out_jump| {
+        self.patchJump(out_jump);
+    }
+
+    // Missing enum cases
+    if (enum_cases != null and enum_cases.?.count() > 0) {
+        const keys = enum_cases.?.keys();
+
+        var missing_cases = std.ArrayList(u8).empty;
+        defer missing_cases.deinit(self.gc.allocator);
+
+        for (keys, 0..) |key, idx| {
+            try missing_cases.appendSlice(self.gc.allocator, key);
+
+            if (idx < keys.len - 1) {
+                try missing_cases.appendSlice(self.gc.allocator, ", ");
+            }
+        }
+
+        self.reporter.reportErrorFmt(
+            .unexhaustive_match,
+            self.ast.tokens.get(locations[node]),
+            self.ast.tokens.get(self.ast.nodes.items(.end_location)[node]),
+            "Non-exhaustive `match` over enum value, missing enum cases are: {s}",
+            .{
+                missing_cases.items,
+            },
+        );
+    } else if (components.else_branch == null) {
+        self.reporter.reportErrorAt(
+            .unexhaustive_match,
+            self.ast.tokens.get(locations[node]),
+            self.ast.tokens.get(self.ast.nodes.items(.end_location)[node]),
+            "Non-exhaustive `match`, `else` branch required",
+        );
+    }
 
     try self.patchOptJumps(node);
     try self.endScope(node);

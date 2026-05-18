@@ -844,7 +844,7 @@ fn generateNode(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
 
     var value = if (constant != null)
         m.MIR_new_uint_op(self.ctx, constant.?.val)
-    else switch (tag) {
+    else switch (tag) { // FIXME: should be an array like we do in CodeGen and TypeChecker
         .Boolean => m.MIR_new_uint_op(
             self.ctx,
             Value.fromBoolean(components[node].Boolean).val,
@@ -894,6 +894,7 @@ fn generateNode(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
         .Dot => try self.generateDot(node),
         .Subscript => try self.generateSubscript(node),
         .Map => try self.generateMap(node),
+        .Match => try self.generateMatch(node),
         .Is => try self.generateIs(node),
         .As => try self.generateAs(node),
         .Try => try self.generateTry(node),
@@ -2965,6 +2966,8 @@ fn generateIf(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
         m.MIR_new_reg_op(self.ctx, resolved.?);
 }
 
+fn generateMatch(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {}
+
 fn generateTypeExpression(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
     const type_expression = self.state.?.ast.nodes.items(.components)[node].TypeExpression;
     return m.MIR_new_uint_op(
@@ -2994,7 +2997,7 @@ fn generateTypeOfExpression(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t
 
 fn buildBinary(
     self: *Self,
-    operator: Token.Type,
+    operator: Token.Tag,
     def_type: o.ObjTypeDef.Type,
     left_value: m.MIR_op_t,
     right_value: m.MIR_op_t,

@@ -7,7 +7,7 @@ const Token = @import("Token.zig");
 pub const Renderer = struct {
     const Self = @This();
 
-    const equals: []const Token.Type = &.{
+    const equals: []const Token.Tag = &.{
         .Equal,
         .PlusEqual,
         .MinusEqual,
@@ -116,7 +116,7 @@ pub const Renderer = struct {
         return Self.renderers[@intFromEnum(self.ast.nodes.items(.tag)[node])](self, node, space);
     }
 
-    const renderers = [_]RenderNode{
+    const renderers = [@typeInfo(Ast.Node.Tag).@"enum".fields.len]RenderNode{
         renderAnonymousObjectType,
         renderAnonymousEnumCase,
         renderAs,
@@ -153,6 +153,7 @@ pub const Renderer = struct {
         renderListType,
         renderMap,
         renderMapType,
+        renderMatch,
         renderNamespace,
         renderNamedVariable,
         renderNull,
@@ -194,7 +195,7 @@ pub const Renderer = struct {
         try self.renderExpectedToken(components.case_name, .Identifier, space);
     }
 
-    fn renderExpectedTokenSequence(self: *Self, start_token: Ast.TokenIndex, comptime expected: []const Token.Type, space: Space) Error!void {
+    fn renderExpectedTokenSequence(self: *Self, start_token: Ast.TokenIndex, comptime expected: []const Token.Tag, space: Space) Error!void {
         for (expected, 0..) |tag, offset| {
             try self.renderExpectedToken(
                 start_token + @as(Ast.TokenIndex, @intCast(offset)),
@@ -233,8 +234,8 @@ pub const Renderer = struct {
         std.debug.print("\n", .{});
     }
 
-    fn renderOneOfExpectedToken(self: *Self, token: Ast.TokenIndex, comptime expected: []const Token.Type, space: Space) Error!void {
-        if (std.mem.indexOf(Token.Type, expected, &.{self.ast.tokens.items(.tag)[token]}) == null) {
+    fn renderOneOfExpectedToken(self: *Self, token: Ast.TokenIndex, comptime expected: []const Token.Tag, space: Space) Error!void {
+        if (std.mem.indexOf(Token.Tag, expected, &.{self.ast.tokens.items(.tag)[token]}) == null) {
             std.debug.print(
                 "\nGot {s} at {} `{s}`\n",
                 .{
@@ -247,11 +248,11 @@ pub const Renderer = struct {
             self.dumpTokens(token - 1, token + 5);
         }
 
-        assert(std.mem.indexOf(Token.Type, expected, &.{self.ast.tokens.items(.tag)[token]}) != null);
+        assert(std.mem.indexOf(Token.Tag, expected, &.{self.ast.tokens.items(.tag)[token]}) != null);
         return self.renderToken(token, space);
     }
 
-    fn renderExpectedToken(self: *Self, token: Ast.TokenIndex, expected: Token.Type, space: Space) Error!void {
+    fn renderExpectedToken(self: *Self, token: Ast.TokenIndex, expected: Token.Tag, space: Space) Error!void {
         if (builtin.mode == .Debug and self.ast.tokens.items(.tag)[token] != expected) {
             std.debug.print(
                 "\nExpected {s} got {s} at {} `{s}`\n",
@@ -2593,6 +2594,8 @@ pub const Renderer = struct {
             try self.renderNode(eb, space);
         }
     }
+
+    fn renderMatch(self: *Self, node: Ast.Node.Index, space: Space) Error!void {}
 
     fn renderImport(self: *Self, node: Ast.Node.Index, space: Space) Error!void {
         const locations = self.ast.nodes.items(.location);

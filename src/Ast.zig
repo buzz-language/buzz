@@ -1180,6 +1180,7 @@ pub const Node = struct {
         ListType,
         Map,
         MapType,
+        Match,
         Namespace,
         NamedVariable,
         Null,
@@ -1257,6 +1258,7 @@ pub const Node = struct {
         ListType: Node.Index,
         Map: Map,
         MapType: MapType,
+        Match: Match,
         Namespace: []const TokenIndex,
         NamedVariable: NamedVariable,
         Null: void,
@@ -1450,7 +1452,7 @@ pub const AnonymousEnumCase = struct {
 pub const Binary = struct {
     left: Node.Index,
     right: Node.Index,
-    operator: Token.Type,
+    operator: Token.Tag,
 };
 
 pub const BreakContinue = struct {
@@ -1621,6 +1623,18 @@ pub const If = struct {
     is_statement: bool,
 };
 
+pub const Match = struct {
+    is_statement: bool,
+    value: Node.Index,
+    branches: []const Branch,
+    else_branch: ?Node.Index,
+
+    pub const Branch = struct {
+        conditions: []const Node.Index,
+        expression: Node.Index,
+    };
+};
+
 pub const Import = struct {
     imported_symbols: []const TokenIndex,
     prefix: ?[]const TokenIndex,
@@ -1753,7 +1767,7 @@ pub const Try = struct {
 };
 
 pub const Unary = struct {
-    operator: Token.Type,
+    operator: Token.Tag,
     expression: Node.Index,
 };
 

@@ -51,6 +51,7 @@ const checkers = [@typeInfo(Ast.Node.Tag).@"enum".fields.len]?NodeCheck{
     null, // ListType
     checkMap,
     null, // MapType
+    checkMatch,
     null, // Namespace
     checkNamedVariable,
     null, // Null
@@ -1614,6 +1615,75 @@ fn checkIf(ast: Ast.Slice, reporter: *Reporter, _: *GC, _: ?Ast.Node.Index, node
                 "Expected optional",
             );
             had_error = true;
+        }
+    }
+
+    return had_error;
+}
+
+fn checkMatch(ast: Ast.Slice, reporter: *Reporter, _: *GC, _: ?Ast.Node.Index, node: Ast.Node.Index) error{OutOfMemory}!bool {
+    const type_defs = ast.nodes.items(.type_def);
+    const locations = ast.nodes.items(.location);
+    const end_locations = ast.nodes.items(.end_location);
+    const components = ast.nodes.items(.components);
+    const node_components = components[node].Match;
+    const value_type_def = type_defs[node_components.value].?;
+
+    var had_error = false;
+    if (!value_type_def.optional) {
+        switch (value_type_def.def_type) {
+            // match on string accepts str and pat as condition types
+            .String => for (node_components.branches) |branch| {
+                for (branch.conditions) |condition| {
+                    const condition_type_def = type_defs[condition];
+                    if (condition_type_def == null or condition_type_def.?.optional or
+                        (condition_type_def.?.def_type != .String or condition_type_def.?.def_type != .Pattern))
+                    {
+                        reporter.reportErrorAt(
+                            .match_condition_type,
+                            ast.tokens.get(locations[condition]),
+                            ast.tokens.get(end_locations[condition]),
+                            "`match` condition must be of type `str` or `pat`",
+                        );
+                        had_error = true;
+                    }
+                }
+            },
+            // match on number accepts int, double or rg
+            .Integer, .Double => for (node_components.branches) |branch| {
+                for (branch.conditions) |condition| {
+                    const condition_type_def = type_defs[condition];
+                    if (condition_type_def == null or condition_type_def.?.optional or
+                        (condition_type_def.?.def_type != .Integer or condition_type_def.?.def_type != .Range or condition_type_def.?.def_type != .Double))
+                    {
+                        reporter.reportErrorAt(
+                            .match_condition_type,
+                            ast.tokens.get(locations[condition]),
+                            ast.tokens.get(end_locations[condition]),
+                            "`match` condition must be of type `int`, `double` or `pat`",
+                        );
+                        had_error = true;
+                    }
+                }
+            },
+            // The rest expects the same type
+            else => for (node_components.branches) |branch| {
+                for (branch.conditions) |condition| {
+                    const condition_type_def = type_defs[condition];
+                    if (condition_type_def == null or !value_type_def.eql(condition_type_def.?)) {
+                        reporter.reportTypeCheck(
+                            .match_condition_type,
+                            ast.tokens.get(locations[node_components.value]),
+                            ast.tokens.get(end_locations[node_components.value]),
+                            value_type_def,
+                            ast.tokens.get(locations[condition]),
+                            ast.tokens.get(end_locations[condition]),
+                            condition_type_def.?,
+                            "Bad `match` condition type",
+                        );
+                    }
+                }
+            },
         }
     }
 
