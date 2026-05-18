@@ -1,0 +1,171 @@
+import "std";
+
+object MatchBox {
+    value: int = 1,
+}
+
+enum MatchEnum {
+    one,
+    two,
+}
+
+fun statementMatch(value: int) > void {
+    match (value) {
+        1, 2 -> std\assert(value < 3, message: "selected numbered branch"),
+        else -> std\assert(value >= 3, message: "selected else branch"),
+    }
+}
+
+test "match expression and statement" {
+    final value = 2;
+
+    std\assert(
+        match (value) {
+            1 -> "one",
+            2 -> "two",
+            else -> "other",
+        } == "two",
+        message: "match expression returns selected branch",
+    );
+
+    statementMatch(1);
+    statementMatch(3);
+}
+
+test "match string and pattern" {
+    final string_value = "hello joe";
+    final pattern_value = $"hello [a-z]+";
+
+    std\assert(
+        match (string_value) {
+            "hello ann" -> "string equality",
+            $"hello [a-z]+" -> "pattern match",
+            else -> "none",
+        } == "pattern match",
+        message: "string value can match pattern condition",
+    );
+
+    std\assert(
+        match (pattern_value) {
+            $"hello [a-z]+" -> "pattern equality",
+            else -> "none",
+        } == "pattern equality",
+        message: "pattern value can match pattern condition by equality",
+    );
+
+    std\assert(
+        match (pattern_value) {
+            $"bye [a-z]+" -> "pattern equality",
+            "hello joe" -> "string match",
+            else -> "none",
+        } == "string match",
+        message: "pattern value can match string condition",
+    );
+}
+
+test "match numbers and ranges" {
+    final int_value = 7;
+    final double_value = 3.14;
+
+    std\assert(
+        match (int_value) {
+            0..5 -> "low",
+            5..10 -> "middle",
+            else -> "high",
+        } == "middle",
+        message: "integer value can match range condition",
+    );
+
+    std\assert(
+        match (double_value) {
+            0..3 -> "low",
+            3..4 -> "range",
+            else -> "none",
+        } == "range",
+        message: "double value can match range condition",
+    );
+
+    std\assert(
+        match (double_value) {
+            1 -> "int",
+            3.14 -> "double",
+            else -> "none",
+        } == "double",
+        message: "double value can match double condition",
+    );
+}
+
+test "match types" {
+    final string_type = <str>;
+    final int_type = <int>;
+    final box = MatchBox{};
+
+    std\assert(
+        match (string_type) {
+            <int> -> "type equality",
+            "hello" -> "condition is matched type",
+            else -> "none",
+        } == "condition is matched type",
+        message: "type value can match condition using is",
+    );
+
+    std\assert(
+        match (int_type) {
+            <int> -> "type equality",
+            "hello" -> "condition is matched type",
+            else -> "none",
+        } == "type equality",
+        message: "type value can match another type by equality",
+    );
+
+    std\assert(
+        match (box) {
+            <str> -> "str",
+            <MatchBox> -> "box",
+            else -> "none",
+        } == "box",
+        message: "value can match type condition using is",
+    );
+}
+
+test "match fallback equality and inference" {
+    final boolean_value = true;
+    final enum_value = MatchEnum.two;
+    final one = 1;
+    final zero = 0;
+
+    std\assert(
+        match (boolean_value) {
+            true -> "yes",
+            false -> "no",
+        } == "yes",
+        message: "boolean match can be exhaustive without else",
+    );
+
+    std\assert(
+        match (enum_value) {
+            MatchEnum.one -> "one",
+            MatchEnum.two -> "two",
+            else -> "other",
+        } == "two",
+        message: "enum values match by equality",
+    );
+
+    final same_type = match (one) {
+        1 -> "one",
+        else -> "other",
+    };
+    std\assert(same_type is str, message: "same branch types infer same type");
+
+    final nullable = match (zero) {
+        1 -> "one",
+        else -> null,
+    };
+    std\assert(nullable is str?, message: "null branch infers optional type");
+
+    final mixed = match (one) {
+        1 -> "one",
+        else -> 2,
+    };
+    std\assert(mixed is str, message: "mixed branch types produce selected value");
+}

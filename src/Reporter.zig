@@ -137,6 +137,8 @@ pub const Error = enum(u8) {
     unassigned_final_local = 102,
     source_not_utf8 = 103,
     default_value_type = 104,
+    unexhaustive_match = 105,
+    match_condition_type = 106,
 };
 
 // Inspired by https://github.com/zesterer/ariadne

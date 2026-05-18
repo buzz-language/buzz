@@ -51,6 +51,7 @@ const checkers = [@typeInfo(Ast.Node.Tag).@"enum".fields.len]?NodeCheck{
     null, // ListType
     checkMap,
     null, // MapType
+    checkMatch,
     null, // Namespace
     checkNamedVariable,
     null, // Null
@@ -411,7 +412,7 @@ fn checkBinary(ast: Ast.Slice, reporter: *Reporter, gc: *GC, _: ?Ast.Node.Index,
         .And,
         .Or,
         => {
-            if (left_type.def_type != .Bool) {
+            if (left_type.def_type != .Boolean) {
                 reporter.reportErrorAt(
                     .logical_operand_type,
                     ast.tokens.get(locations[node_components.Binary.left]),
@@ -1073,7 +1074,7 @@ fn checkDoUntil(ast: Ast.Slice, reporter: *Reporter, gc: *GC, _: ?Ast.Node.Index
 
     const condition_type_def = type_defs[components.condition] orelse gc.type_registry.any_type;
 
-    if (condition_type_def.def_type != .Bool) {
+    if (condition_type_def.def_type != .Boolean) {
         reporter.reportErrorAt(
             .do_condition_type,
             ast.tokens.get(locations[components.condition]),
@@ -1156,7 +1157,7 @@ fn checkFor(ast: Ast.Slice, reporter: *Reporter, gc: *GC, _: ?Ast.Node.Index, no
     const components = node_components[node].For;
 
     const condition_type_def = type_defs[components.condition] orelse gc.type_registry.any_type;
-    if (condition_type_def.def_type != .Bool) {
+    if (condition_type_def.def_type != .Boolean) {
         reporter.reportErrorAt(
             .for_condition_type,
             ast.tokens.get(locations[components.condition]),
@@ -1596,7 +1597,7 @@ fn checkIf(ast: Ast.Slice, reporter: *Reporter, _: *GC, _: ?Ast.Node.Index, node
     }
 
     if (components.casted_type == null and components.unwrapped_identifier == null) {
-        if (type_defs[components.condition].?.def_type != .Bool) {
+        if (type_defs[components.condition].?.def_type != .Boolean) {
             reporter.reportErrorAt(
                 .if_condition_type,
                 ast.tokens.get(locations[components.condition]),
@@ -1614,6 +1615,102 @@ fn checkIf(ast: Ast.Slice, reporter: *Reporter, _: *GC, _: ?Ast.Node.Index, node
                 "Expected optional",
             );
             had_error = true;
+        }
+    }
+
+    return had_error;
+}
+
+fn checkMatch(ast: Ast.Slice, reporter: *Reporter, _: *GC, _: ?Ast.Node.Index, node: Ast.Node.Index) error{OutOfMemory}!bool {
+    const type_defs = ast.nodes.items(.type_def);
+    const locations = ast.nodes.items(.location);
+    const end_locations = ast.nodes.items(.end_location);
+    const components = ast.nodes.items(.components);
+    const node_components = components[node].Match;
+    const value_type_def = type_defs[node_components.value].?;
+
+    var had_error = false;
+    if (!value_type_def.optional) {
+        switch (value_type_def.def_type) {
+            // match on string accepts str, pat and type as condition types
+            .String => for (node_components.branches) |branch| {
+                for (branch.conditions) |condition| {
+                    const condition_type_def = type_defs[condition];
+                    if (condition_type_def == null or condition_type_def.?.optional or
+                        (condition_type_def.?.def_type != .String and
+                            condition_type_def.?.def_type != .Pattern and
+                            condition_type_def.?.def_type != .Type))
+                    {
+                        reporter.reportErrorAt(
+                            .match_condition_type,
+                            ast.tokens.get(locations[condition]),
+                            ast.tokens.get(end_locations[condition]),
+                            "`match` condition must be of type `str`, `pat` or `type`",
+                        );
+                        had_error = true;
+                    }
+                }
+            },
+            // match on pattern accepts str, pat and type as condition types
+            .Pattern => for (node_components.branches) |branch| {
+                for (branch.conditions) |condition| {
+                    const condition_type_def = type_defs[condition];
+                    if (condition_type_def == null or condition_type_def.?.optional or
+                        (condition_type_def.?.def_type != .String and
+                            condition_type_def.?.def_type != .Pattern and
+                            condition_type_def.?.def_type != .Type))
+                    {
+                        reporter.reportErrorAt(
+                            .match_condition_type,
+                            ast.tokens.get(locations[condition]),
+                            ast.tokens.get(end_locations[condition]),
+                            "`match` condition must be of type `str`, `pat` or `type`",
+                        );
+                        had_error = true;
+                    }
+                }
+            },
+            // match on number accepts int, double, rg or type
+            .Integer, .Double => for (node_components.branches) |branch| {
+                for (branch.conditions) |condition| {
+                    const condition_type_def = type_defs[condition];
+                    if (condition_type_def == null or condition_type_def.?.optional or
+                        (condition_type_def.?.def_type != .Integer and
+                            condition_type_def.?.def_type != .Range and
+                            condition_type_def.?.def_type != .Double and
+                            condition_type_def.?.def_type != .Type))
+                    {
+                        reporter.reportErrorAt(
+                            .match_condition_type,
+                            ast.tokens.get(locations[condition]),
+                            ast.tokens.get(end_locations[condition]),
+                            "`match` condition must be of type `int`, `double`, `rg` or `type`",
+                        );
+                        had_error = true;
+                    }
+                }
+            },
+            // Anything goes: any matches against anything and type will result in equality against another type and `is` or anything else
+            .Type, .Any => {},
+            else => for (node_components.branches) |branch| {
+                for (branch.conditions) |condition| {
+                    const condition_type_def = type_defs[condition];
+                    if (condition_type_def == null or
+                        (!value_type_def.eql(condition_type_def.?) and condition_type_def.?.def_type != .Type))
+                    {
+                        reporter.reportTypeCheck(
+                            .match_condition_type,
+                            ast.tokens.get(locations[node_components.value]),
+                            ast.tokens.get(end_locations[node_components.value]),
+                            value_type_def,
+                            ast.tokens.get(locations[condition]),
+                            ast.tokens.get(end_locations[condition]),
+                            condition_type_def.?,
+                            "Bad `match` condition type",
+                        );
+                    }
+                }
+            },
         }
     }
 
@@ -2435,7 +2532,7 @@ fn checkUnary(ast: Ast.Slice, reporter: *Reporter, gc: *GC, _: ?Ast.Node.Index, 
             );
             had_error = true;
         },
-        .Bang => if (expression_type_def.def_type != .Bool) {
+        .Bang => if (expression_type_def.def_type != .Boolean) {
             reporter.reportErrorFmt(
                 .bitwise_operand_type,
                 ast.tokens.get(expression_location),
@@ -2532,7 +2629,7 @@ fn checkWhile(ast: Ast.Slice, reporter: *Reporter, _: *GC, _: ?Ast.Node.Index, n
     const end_locations = ast.nodes.items(.end_location);
     const condition_type_def = type_defs[components.condition].?;
 
-    if (condition_type_def.def_type != .Bool) {
+    if (condition_type_def.def_type != .Boolean) {
         reporter.reportErrorAt(
             .while_condition_type,
             ast.tokens.get(locations[components.condition]),

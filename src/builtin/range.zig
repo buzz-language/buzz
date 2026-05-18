@@ -172,12 +172,17 @@ pub fn low(ctx: *obj.NativeCtx) callconv(.c) c_int {
 
 pub fn contains(ctx: *obj.NativeCtx) callconv(.c) c_int {
     const range = ctx.vm.peek(1).obj().access(obj.ObjRange, .Range, ctx.vm.gc).?;
-    const value = ctx.vm.peek(0).integer();
+    const value = if (ctx.vm.peek(0).isInteger())
+        @as(v.Double, @floatFromInt(ctx.vm.peek(0).integer()))
+    else
+        ctx.vm.peek(0).double();
+    const low_value: v.Double = @floatFromInt(range.low);
+    const high_value: v.Double = @floatFromInt(range.high);
 
     ctx.vm.push(
         v.Value.fromBoolean(
-            (range.high >= range.low and value >= range.low and value < range.high) or
-                (range.low >= range.high and value >= range.high and value < range.low),
+            (high_value >= low_value and value >= low_value and value < high_value) or
+                (low_value >= high_value and value >= high_value and value < low_value),
         ),
     );
 

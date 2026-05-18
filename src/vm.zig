@@ -701,7 +701,7 @@ pub const VM = struct {
     const OpFn = *const fn (*Self, *CallFrame, u32, Chunk.OpCode, u24) void;
 
     // WARNING: same order as Chunk.OpCode enum
-    const op_table = [_]OpFn{
+    const op_table = [@typeInfo(Chunk.OpCode).@"enum".fields.len]OpFn{
         OP_CONSTANT,
         OP_NULL,
         OP_VOID,

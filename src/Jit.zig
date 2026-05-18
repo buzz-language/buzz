@@ -844,7 +844,7 @@ fn generateNode(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
 
     var value = if (constant != null)
         m.MIR_new_uint_op(self.ctx, constant.?.val)
-    else switch (tag) {
+    else switch (tag) { // FIXME: should be an array like we do in CodeGen and TypeChecker
         .Boolean => m.MIR_new_uint_op(
             self.ctx,
             Value.fromBoolean(components[node].Boolean).val,
@@ -894,6 +894,7 @@ fn generateNode(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
         .Dot => try self.generateDot(node),
         .Subscript => try self.generateSubscript(node),
         .Map => try self.generateMap(node),
+        .Match => try self.generateMatch(node),
         .Is => try self.generateIs(node),
         .As => try self.generateAs(node),
         .Try => try self.generateTry(node),
@@ -2005,7 +2006,7 @@ fn buildReturn(self: *Self, value: m.MIR_op_t) !void {
 // Unwrap buzz value to its raw mir Value
 fn unwrap(self: *Self, def_type: o.ObjTypeDef.Type, value: m.MIR_op_t, dest: m.MIR_op_t) !void {
     return switch (def_type) {
-        .Bool => self.buildValueToBoolean(value, dest),
+        .Boolean => self.buildValueToBoolean(value, dest),
         .Integer => self.buildValueToInteger(value, dest),
         .Double => try self.buildValueToDouble(value, dest),
         .Void => self.MOV(dest, value),
@@ -2036,7 +2037,7 @@ fn unwrap(self: *Self, def_type: o.ObjTypeDef.Type, value: m.MIR_op_t, dest: m.M
 // Wrap mir value to buzz Value
 fn wrap(self: *Self, def_type: o.ObjTypeDef.Type, value: m.MIR_op_t, dest: m.MIR_op_t) !void {
     return switch (def_type) {
-        .Bool => self.buildValueFromBoolean(value, dest),
+        .Boolean => self.buildValueFromBoolean(value, dest),
         .Integer => self.buildValueFromInteger(value, dest),
         .Double => try self.buildValueFromDouble(value, dest),
         .Void => self.MOV(dest, m.MIR_new_uint_op(self.ctx, Value.Void.val)),
@@ -2839,7 +2840,7 @@ fn generateIf(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
         );
 
         try self.unwrap(
-            .Bool,
+            .Boolean,
             condition,
             condition,
         );
@@ -2880,7 +2881,7 @@ fn generateIf(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
         self.append(out_label);
     } else if (constant_condition == null) {
         try self.unwrap(
-            .Bool,
+            .Boolean,
             condition_value.?,
             condition,
         );
@@ -2965,6 +2966,182 @@ fn generateIf(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
         m.MIR_new_reg_op(self.ctx, resolved.?);
 }
 
+fn generateMatchCondition(
+    self: *Self,
+    match_value: m.MIR_op_t,
+    value_type_def: *o.ObjTypeDef,
+    condition: Ast.Node.Index,
+) Error!m.MIR_op_t {
+    const type_defs = self.state.?.ast.nodes.items(.type_def);
+    const condition_type_def = type_defs[condition].?;
+    const condition_value = (try self.generateNode(condition)).?;
+    const result_value = m.MIR_new_reg_op(
+        self.ctx,
+        try self.REG("match_condition_value", m.MIR_T_I64),
+    );
+
+    if (!condition_type_def.optional and condition_type_def.def_type == .Range and
+        (value_type_def.def_type == .Integer or value_type_def.def_type == .Double) and
+        !value_type_def.optional)
+    {
+        try self.buildExternApiCall(
+            .bz_rangeContains,
+            result_value,
+            &.{
+                condition_value,
+                match_value,
+            },
+        );
+    } else if (!condition_type_def.optional and condition_type_def.def_type == .Pattern and
+        value_type_def.def_type == .String and !value_type_def.optional)
+    {
+        try self.buildPush(condition_value);
+        try self.buildExternApiCall(
+            .bz_patternMatches,
+            result_value,
+            &.{
+                m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
+                condition_value,
+                match_value,
+            },
+        );
+        try self.buildPop(null);
+    } else if (!condition_type_def.optional and condition_type_def.def_type == .String and
+        value_type_def.def_type == .Pattern and !value_type_def.optional)
+    {
+        try self.buildPush(condition_value);
+        try self.buildExternApiCall(
+            .bz_patternMatches,
+            result_value,
+            &.{
+                m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
+                match_value,
+                condition_value,
+            },
+        );
+        try self.buildPop(null);
+    } else if (!condition_type_def.optional and condition_type_def.def_type == .Type and
+        (value_type_def.optional or value_type_def.def_type != .Type))
+    {
+        try self.buildExternApiCall(
+            .bz_valueIs,
+            result_value,
+            &.{
+                match_value,
+                condition_value,
+            },
+        );
+    } else if (!value_type_def.optional and value_type_def.def_type == .Type and
+        (condition_type_def.optional or condition_type_def.def_type != .Type))
+    {
+        try self.buildExternApiCall(
+            .bz_valueIs,
+            result_value,
+            &.{
+                condition_value,
+                match_value,
+            },
+        );
+    } else {
+        try self.buildExternApiCall(
+            .bz_valueEqual,
+            result_value,
+            &.{
+                match_value,
+                condition_value,
+            },
+        );
+    }
+
+    const result = m.MIR_new_reg_op(
+        self.ctx,
+        try self.REG("match_condition", m.MIR_T_I64),
+    );
+    try self.unwrap(.Boolean, result_value, result);
+
+    return result;
+}
+
+fn generateMatch(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
+    const type_defs = self.state.?.ast.nodes.items(.type_def);
+    const components = self.state.?.ast.nodes.items(.components)[node].Match;
+    const value_type_def = type_defs[components.value].?;
+    const out_label = m.MIR_new_label(self.ctx);
+    const match_value = m.MIR_new_reg_op(
+        self.ctx,
+        try self.REG("match_value", m.MIR_T_I64),
+    );
+    const resolved = if (!components.is_statement)
+        m.MIR_new_reg_op(
+            self.ctx,
+            try self.REG("match_resolved", m.MIR_T_I64),
+        )
+    else
+        null;
+
+    self.MOV(
+        match_value,
+        (try self.generateNode(components.value)).?,
+    );
+    try self.buildPush(match_value);
+
+    for (components.branches) |branch| {
+        const branch_label = m.MIR_new_label(self.ctx);
+        const next_branch_label = m.MIR_new_label(self.ctx);
+
+        for (branch.conditions) |condition| {
+            const matches = try self.generateMatchCondition(
+                match_value,
+                value_type_def,
+                condition,
+            );
+
+            self.BEQ(
+                m.MIR_new_label_op(self.ctx, branch_label),
+                matches,
+                m.MIR_new_uint_op(self.ctx, 1),
+            );
+        }
+
+        self.JMP(next_branch_label);
+        self.append(branch_label);
+
+        try self.buildPop(null);
+        if (components.is_statement) {
+            _ = try self.generateNode(branch.expression);
+        } else {
+            self.MOV(
+                resolved.?,
+                (try self.generateNode(branch.expression)).?,
+            );
+        }
+        self.JMP(out_label);
+
+        self.append(next_branch_label);
+    }
+
+    try self.buildPop(null);
+    if (components.else_branch) |else_branch| {
+        if (components.is_statement) {
+            _ = try self.generateNode(else_branch);
+        } else {
+            self.MOV(
+                resolved.?,
+                (try self.generateNode(else_branch)).?,
+            );
+        }
+    } else if (!components.is_statement) {
+        self.MOV(
+            resolved.?,
+            m.MIR_new_uint_op(self.ctx, Value.Void.val),
+        );
+    }
+
+    self.append(out_label);
+
+    return resolved;
+}
+
 fn generateTypeExpression(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
     const type_expression = self.state.?.ast.nodes.items(.components)[node].TypeExpression;
     return m.MIR_new_uint_op(
@@ -2994,7 +3171,7 @@ fn generateTypeOfExpression(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t
 
 fn buildBinary(
     self: *Self,
-    operator: Token.Type,
+    operator: Token.Tag,
     def_type: o.ObjTypeDef.Type,
     left_value: m.MIR_op_t,
     right_value: m.MIR_op_t,
@@ -3368,7 +3545,7 @@ fn generateComparison(self: *Self, components: Ast.Binary) Error!?m.MIR_op_t {
                 },
             );
 
-            try self.unwrap(.Bool, res, res);
+            try self.unwrap(.Boolean, res, res);
 
             const true_label = m.MIR_new_label(self.ctx);
             const out_label = m.MIR_new_label(self.ctx);
@@ -3423,7 +3600,7 @@ fn generateComparison(self: *Self, components: Ast.Binary) Error!?m.MIR_op_t {
                     else => unreachable,
                 }
 
-                try self.wrap(.Bool, res, res);
+                try self.wrap(.Boolean, res, res);
             } else {
                 switch (components.operator) {
                     .Greater => self.GT(res, left, right),
@@ -3433,7 +3610,7 @@ fn generateComparison(self: *Self, components: Ast.Binary) Error!?m.MIR_op_t {
                     else => unreachable,
                 }
 
-                try self.wrap(.Bool, res, res);
+                try self.wrap(.Boolean, res, res);
             }
         },
         else => {},
@@ -4743,7 +4920,7 @@ fn generateTry(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
         );
 
         try self.unwrap(
-            .Bool,
+            .Boolean,
             m.MIR_new_reg_op(self.ctx, matches),
             m.MIR_new_reg_op(self.ctx, matches),
         );
@@ -5035,7 +5212,7 @@ fn generateUnary(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
             try self.wrap(.Integer, result, result);
         },
         .Bang => {
-            try self.unwrap(.Bool, left, result);
+            try self.unwrap(.Boolean, left, result);
 
             const true_label = m.MIR_new_label(self.ctx);
             const out_label = m.MIR_new_label(self.ctx);

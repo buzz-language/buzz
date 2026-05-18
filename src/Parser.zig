@@ -501,7 +501,7 @@ else
         "/usr/local/lib/lib?.!",
     };
 
-const rules = [_]ParseRule{
+const rules = [@typeInfo(Token.Tag).@"enum".fields.len]ParseRule{
     .{ .prefix = list, .infix = subscript, .precedence = .Call }, // LeftBracket
     .{}, // RightBracket
     .{ .prefix = grouping, .infix = call, .precedence = .Call }, // LeftParen
@@ -613,6 +613,7 @@ const rules = [_]ParseRule{
     .{}, // BnotEqual
     .{}, // AmpersandEqual
     .{}, // PercentEqual
+    .{ .prefix = matchExpression }, // Match
 };
 
 pub fn reportErrorAtNode(self: *Self, error_type: Reporter.Error, node: Ast.Node.Index, comptime fmt: []const u8, args: anytype) void {
@@ -697,7 +698,7 @@ fn advancePastEof(self: *Self) !void {
     }
 }
 
-pub fn consume(self: *Self, tag: Token.Type, comptime message: []const u8) !void {
+pub fn consume(self: *Self, tag: Token.Tag, comptime message: []const u8) !void {
     if (self.ast.tokens.items(.tag)[self.current_token.?] == tag) {
         try self.advance();
         return;
@@ -754,12 +755,12 @@ pub fn consume(self: *Self, tag: Token.Type, comptime message: []const u8) !void
 }
 
 // Check next token
-fn check(self: *Self, tag: Token.Type) bool {
+fn check(self: *Self, tag: Token.Tag) bool {
     return self.ast.tokens.items(.tag)[self.current_token.?] == tag;
 }
 
 // Check `n` tokens ahead
-fn checkAhead(self: *Self, tag: Token.Type, n: usize) !bool {
+fn checkAhead(self: *Self, tag: Token.Tag, n: usize) !bool {
     // Parse tokens if we didn't already look that far ahead
     while (n + 1 > self.ast.tokens.len - self.current_token.? - 1) {
         while (true) {
@@ -793,7 +794,7 @@ fn checkAhead(self: *Self, tag: Token.Type, n: usize) !bool {
     return self.ast.tokens.items(.tag)[self.current_token.? + n + 1] == tag;
 }
 
-fn match(self: *Self, tag: Token.Type) !bool {
+fn match(self: *Self, tag: Token.Tag) !bool {
     if (!self.check(tag)) {
         return false;
     }
@@ -1344,7 +1345,7 @@ fn closeScope(self: *Self, upto_depth: usize) ![]Ast.Close {
     return try closing.toOwnedSlice(self.gc.allocator);
 }
 
-inline fn getRule(token: Token.Type) ParseRule {
+inline fn getRule(token: Token.Tag) ParseRule {
     return rules[@intFromEnum(token)];
 }
 
@@ -1498,14 +1499,14 @@ fn simpleType(self: *Self, def_type: obj.ObjTypeDef.Type) Error!Ast.Node.Index {
     );
 }
 
-fn simpleTypeFromToken(token: Token.Type) ?obj.ObjTypeDef.Type {
+fn simpleTypeFromToken(token: Token.Tag) ?obj.ObjTypeDef.Type {
     return switch (token) {
         .Pat => .Pattern,
         .Ud => .UserData,
         .Str => .String,
         .Int => .Integer,
         .Double => .Double,
-        .Bool => .Bool,
+        .Bool => .Boolean,
         .Range => .Range,
         .Type => .Type,
         .Any => .Any,
@@ -1552,7 +1553,7 @@ fn declaration(self: *Self, docblock: ?Ast.TokenIndex) Error!?Ast.Node.Index {
         // FIXME: shouldn't we call parseTypeDef??
 
         // Simple types
-        for ([_]Token.Type{ .Pat, .Ud, .Str, .Int, .Double, .Bool, .Range, .Type, .Any }) |token| {
+        for ([_]Token.Tag{ .Pat, .Ud, .Str, .Int, .Double, .Bool, .Range, .Type, .Any }) |token| {
             if (try self.match(token)) {
                 break :variable try self.varDeclaration(
                     identifier,
@@ -1668,6 +1669,9 @@ fn statement(self: *Self, docblock: ?Ast.TokenIndex, hanging: bool, loop_scope: 
         if (try self.match(.If)) {
             std.debug.assert(!hanging);
             return try self.ifStatement(loop_scope);
+        } else if (try self.match(.Match)) {
+            std.debug.assert(!hanging);
+            return try self.matchStatement();
         } else if (try self.match(.For)) {
             std.debug.assert(!hanging);
             return try self.forStatement();
@@ -2946,7 +2950,7 @@ fn parseTypeDef(
                 .type_def = try self.gc.type_registry.getTypeDef(
                     .{
                         .optional = optional,
-                        .def_type = .Bool,
+                        .def_type = .Boolean,
                     },
                 ),
                 .components = .{
@@ -5918,6 +5922,143 @@ fn inlineIf(self: *Self, _: bool) Error!Ast.Node.Index {
     return try self.@"if"(false, null);
 }
 
+fn matchStatementOrExpression(self: *Self, is_statement: bool) Error!Ast.Node.Index {
+    const start_location = self.current_token.? - 1;
+
+    try self.consume(.LeftParen, "Expected `(` after `match`");
+    const value = try self.expression(false);
+    try self.consume(.RightParen, "Expected `)` after `match`");
+
+    try self.consume(.LeftBrace, "Expected `{`");
+
+    var branches = std.ArrayList(Ast.Match.Branch).empty;
+    while (!self.check(.Eof) and !self.check(.RightBrace) and !self.check(.Else)) {
+        var conditions = std.ArrayList(Ast.Node.Index).empty;
+
+        while (!self.check(.Eof)) {
+            try conditions.append(self.gc.allocator, try self.expression(false));
+
+            if (!try self.match(.Comma) or self.check(.Arrow)) {
+                break;
+            }
+        }
+
+        try self.consume(.Arrow, "Expected `->`");
+
+        try branches.append(
+            self.gc.allocator,
+            .{
+                .conditions = try conditions.toOwnedSlice(self.gc.allocator),
+                .expression = try self.expression(false),
+            },
+        );
+
+        if (!try self.match(.Comma) or self.check(.RightBrace)) {
+            break;
+        }
+    }
+
+    const else_branch = if (try self.match(.Else)) else_branch: {
+        try self.consume(.Arrow, "Expected `->` after `else`");
+        break :else_branch try self.expression(false);
+    } else null;
+
+    if (else_branch != null) {
+        _ = try self.match(.Comma);
+    }
+
+    try self.consume(.RightBrace, "Expected `}`");
+
+    if (branches.items.len == 0 and else_branch == null) {
+        self.reporter.report(
+            .syntax,
+            self.ast.tokens.get(start_location),
+            self.ast.tokens.get(self.current_token.? - 1),
+            if (is_statement)
+                "`match` statement requires at least one branch"
+            else
+                "`match` expression requires at least one branch",
+        );
+    }
+
+    return try self.ast.appendNode(
+        .{
+            .tag = .Match,
+            .location = start_location,
+            .end_location = self.current_token.? - 1,
+            .type_def = type_def: {
+                const type_defs = self.ast.nodes.items(.type_def);
+
+                var type_def: ?*obj.ObjTypeDef = null;
+                var is_optional = false;
+                for (branches.items) |branch| {
+                    const branch_type_def = type_defs[branch.expression];
+
+                    if (branch_type_def) |btd| {
+                        is_optional = is_optional or btd.optional or btd.def_type == .Void;
+
+                        if (btd.def_type == .Void) {
+                            if (type_def == null) {
+                                type_def = btd;
+                            }
+                        } else if (type_def) |previous| {
+                            if (previous.def_type == .Void) {
+                                type_def = btd;
+                            } else if (!previous.eql(btd)) {
+                                type_def = self.gc.type_registry.any_type;
+                                break;
+                            }
+                        } else {
+                            type_def = btd;
+                        }
+                    }
+                }
+
+                if (else_branch) |eb| {
+                    if (type_defs[eb]) |btd| {
+                        is_optional = is_optional or btd.def_type == .Void or btd.optional;
+
+                        if (btd.def_type == .Void) {
+                            if (type_def == null) {
+                                type_def = btd;
+                            }
+                        } else if (type_def) |previous| {
+                            if (previous.def_type == .Void) {
+                                type_def = btd;
+                            } else if (!previous.eql(btd)) {
+                                type_def = self.gc.type_registry.any_type;
+                            }
+                        } else {
+                            type_def = btd;
+                        }
+                    }
+                }
+
+                break :type_def if (type_def != null and is_optional and !type_def.?.optional and type_def.?.def_type != .Void)
+                    try type_def.?.cloneOptional(&self.gc.type_registry)
+                else
+                    type_def;
+            },
+            .components = .{
+                .Match = .{
+                    .is_statement = is_statement,
+                    .value = value,
+                    .branches = try branches.toOwnedSlice(self.gc.allocator),
+                    .else_branch = else_branch,
+                },
+            },
+        },
+    );
+}
+
+fn matchStatement(self: *Self) Error!Ast.Node.Index {
+    return self.matchStatementOrExpression(true);
+}
+
+fn matchExpression(self: *Self, _: bool) Error!Ast.Node.Index {
+    return self.matchStatementOrExpression(false);
+}
+
 fn isAs(self: *Self, left: Ast.Node.Index, is_expr: bool) Error!Ast.Node.Index {
     const start_location = self.ast.nodes.items(.location)[left];
     const constant = try self.parseTypeDef(null, true);
@@ -6494,7 +6635,7 @@ fn function(
     if (function_type.canHaveErrorSet() and (try self.match(.BangGreater))) {
         var error_typedefs = std.ArrayList(*obj.ObjTypeDef).empty;
 
-        const end_token: Token.Type = if (function_type.canOmitBody()) .Semicolon else .LeftBrace;
+        const end_token: Token.Tag = if (function_type.canOmitBody()) .Semicolon else .LeftBrace;
 
         while (!self.check(end_token) and !self.check(.DoubleArrow) and !self.check(.Eof)) {
             const error_type_node = try self.parseTypeDef(

@@ -591,7 +591,7 @@ fn match(self: *Self, expected: u8) bool {
     return true;
 }
 
-fn makeToken(self: *Self, tag: Token.Type, literal: Token.Literal) Token {
+fn makeToken(self: *Self, tag: Token.Tag, literal: Token.Literal) Token {
     self.token_index += 1;
     return Token{
         .tag = tag,
@@ -726,6 +726,7 @@ pub fn highlight(self: *Self, out: *std.Io.Writer, true_color: bool) void {
                     .BnotEqual,
                     .PercentEqual,
                     .AmpersandEqual,
+                    .Match,
                     => if (true_color) Color.keyword else Color.magenta,
                     // Punctuation
                     .LeftBracket,

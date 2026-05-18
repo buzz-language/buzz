@@ -1026,6 +1026,39 @@ export fn bz_valueEqual(self: v.Value, other: v.Value) callconv(.c) v.Value {
     return v.Value.fromBoolean(self.eql(other));
 }
 
+export fn bz_rangeContains(range_value: v.Value, value: v.Value) callconv(.c) v.Value {
+    const range = o.ObjRange.cast(range_value.obj()).?;
+    const number = if (value.isInteger())
+        @as(v.Double, @floatFromInt(value.integer()))
+    else
+        value.double();
+    const low: v.Double = @floatFromInt(range.low);
+    const high: v.Double = @floatFromInt(range.high);
+
+    return v.Value.fromBoolean(
+        (high >= low and number >= low and number < high) or
+            (low >= high and number >= high and number < low),
+    );
+}
+
+export fn bz_patternMatches(vm: *VM, pattern_value: v.Value, subject_value: v.Value) callconv(.c) v.Value {
+    const pattern = o.ObjPattern.cast(pattern_value.obj()).?;
+    const subject = o.ObjString.cast(subject_value.obj()).?;
+
+    var offset: usize = 0;
+    return v.Value.fromBoolean(
+        (buzz_builtin.pattern.rawMatch(
+            pattern,
+            vm,
+            subject,
+            &offset,
+        ) catch {
+            vm.panic("Out of memory");
+            unreachable;
+        }) != null,
+    );
+}
+
 export fn bz_valueTypeOf(self: v.Value, vm: *VM) callconv(.c) v.Value {
     return (self.typeOf(vm.gc) catch {
         vm.panic("Out of memory");

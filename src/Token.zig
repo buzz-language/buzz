@@ -22,7 +22,7 @@ pub const NoLiteral = Literal{
     .None = {},
 };
 
-tag: Type,
+tag: Tag,
 /// When true, token inserted by the parser
 utility_token: bool = false,
 source: []const u8,
@@ -91,7 +91,7 @@ pub fn getLines(self: Self, allocator: mem.Allocator, before: usize, after: usiz
 }
 
 // WARNING: don't reorder without reordering `rules` in parser.zig
-pub const Type = enum {
+pub const Tag = enum {
     LeftBracket, // [
     RightBracket, // ]
     LeftParen, // (
@@ -205,6 +205,7 @@ pub const Type = enum {
     BnotEqual, // ~=
     AmpersandEqual, // &=
     PercentEqual, // %=
+    Match, // match
 
     pub fn isAssignShortcut(self: @This()) bool {
         return switch (self) {
@@ -226,36 +227,37 @@ pub const Type = enum {
 };
 
 // FIXME if case had the same name as the actual token we could simply use @tagName
-pub const keywords = std.StaticStringMap(Type).initComptime(
+pub const keywords = std.StaticStringMap(Tag).initComptime(
     .{
+        .{ "Function", .Function },
         .{ "and", .And },
         .{ "any", .Any },
         .{ "as", .As },
         .{ "bool", .Bool },
         .{ "break", .Break },
         .{ "catch", .Catch },
-        .{ "final", .Final },
         .{ "continue", .Continue },
         .{ "do", .Do },
+        .{ "double", .Double },
         .{ "else", .Else },
         .{ "enum", .Enum },
         .{ "export", .Export },
         .{ "extern", .Extern },
         .{ "false", .False },
         .{ "fib", .Fib },
-        .{ "double", .Double },
+        .{ "final", .Final },
         .{ "for", .For },
         .{ "foreach", .ForEach },
         .{ "from", .From },
         .{ "fun", .Fun },
-        .{ "Function", .Function },
         .{ "if", .If },
         .{ "import", .Import },
         .{ "in", .In },
         .{ "int", .Int },
         .{ "is", .Is },
-        .{ "namespace", .Namespace },
+        .{ "match", .Match },
         .{ "mut", .Mut },
+        .{ "namespace", .Namespace },
         .{ "null", .Null },
         .{ "obj", .Obj },
         .{ "object", .Object },
@@ -263,10 +265,10 @@ pub const keywords = std.StaticStringMap(Type).initComptime(
         .{ "out", .Out },
         .{ "pat", .Pat },
         .{ "protocol", .Protocol },
-        .{ "rg", .Range },
         .{ "resolve", .Resolve },
         .{ "resume", .Resume },
         .{ "return", .Return },
+        .{ "rg", .Range },
         .{ "static", .Static },
         .{ "str", .Str },
         .{ "test", .Test },

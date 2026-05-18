@@ -39,7 +39,7 @@ const basic_types = std.StaticStringMap(o.ObjTypeDef).initComptime(
         .{ "u64", o.ObjTypeDef{ .def_type = .UserData } },
         .{ "usize", o.ObjTypeDef{ .def_type = .UserData } },
 
-        .{ "bool", o.ObjTypeDef{ .def_type = .Bool } },
+        .{ "bool", o.ObjTypeDef{ .def_type = .Boolean } },
 
         .{ "void", o.ObjTypeDef{ .def_type = .Void } },
         .{ "anyopaque", o.ObjTypeDef{ .def_type = .Void } },

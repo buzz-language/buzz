@@ -1,0 +1,11 @@
+// Bad `match` condition type
+import "std";
+
+test "match value condition type" {
+    std\assert(
+        match (true) {
+            "true" -> "string",
+            else -> "bool",
+        } == "bool",
+    );
+}

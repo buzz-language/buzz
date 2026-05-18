@@ -50,7 +50,7 @@ pub fn init(gc: *GC) !TypeRegistry {
     self.str_type = try self.getTypeDef(.{ .def_type = .String });
     self.int_type = try self.getTypeDef(.{ .def_type = .Integer });
     self.double_type = try self.getTypeDef(.{ .def_type = .Double });
-    self.bool_type = try self.getTypeDef(.{ .def_type = .Bool });
+    self.bool_type = try self.getTypeDef(.{ .def_type = .Boolean });
     self.any_type = try self.getTypeDef(
         .{
             .def_type = .Any,
@@ -164,7 +164,7 @@ fn hashHelper(hasher: *std.hash.Wyhash, type_def: *const o.ObjTypeDef) void {
             // in that case we wan't to use the pointer (real this time) as hash value
             .Placeholder => std.hash.autoHash(hasher, type_def),
 
-            .Bool,
+            .Boolean,
             .Double,
             .Integer,
             .Pattern,
