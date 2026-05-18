@@ -23,6 +23,8 @@ pub const ExternApi = enum {
     bz_listGet,
     bz_listSet,
     bz_valueEqual,
+    bz_rangeContains,
+    bz_patternMatches,
     bz_listConcat,
     bz_newMap,
     bz_mapSet,
@@ -297,7 +299,9 @@ pub const ExternApi = enum {
                     },
                 },
             ),
-            .bz_valueEqual => m.MIR_new_proto_arr(
+            .bz_valueEqual,
+            .bz_rangeContains,
+            => m.MIR_new_proto_arr(
                 ctx,
                 self.pname(),
                 1,
@@ -312,6 +316,30 @@ pub const ExternApi = enum {
                     .{
                         .type = m.MIR_T_U64,
                         .name = "other",
+                        .size = undefined,
+                    },
+                },
+            ),
+            .bz_patternMatches => m.MIR_new_proto_arr(
+                ctx,
+                self.pname(),
+                1,
+                &.{m.MIR_T_U64},
+                3,
+                &.{
+                    .{
+                        .type = m.MIR_T_P,
+                        .name = "vm",
+                        .size = undefined,
+                    },
+                    .{
+                        .type = m.MIR_T_U64,
+                        .name = "pattern",
+                        .size = undefined,
+                    },
+                    .{
+                        .type = m.MIR_T_U64,
+                        .name = "subject",
                         .size = undefined,
                     },
                 },
@@ -1130,6 +1158,8 @@ pub const ExternApi = enum {
             .bz_mapNext => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.Value.bz_mapNext))),
             .bz_mapConcat => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.Value.bz_mapConcat))),
             .bz_valueEqual => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.Value.bz_valueEqual))),
+            .bz_rangeContains => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.Value.bz_rangeContains))),
+            .bz_patternMatches => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.Value.bz_patternMatches))),
             .bz_valueIs => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.Value.bz_valueIs))),
             .bz_closure => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.VM.bz_closure))),
             .bz_context => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.VM.bz_context))),

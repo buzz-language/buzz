@@ -1,0 +1,11 @@
+// Expected `->` after `else`
+import "std";
+
+test "match else missing arrow" {
+    std\assert(
+        match (1) {
+            1 -> "one",
+            else "other",
+        } == "one",
+    );
+}

@@ -1,0 +1,11 @@
+// `match` condition must be of type `int`, `double`, `rg` or `type`
+import "std";
+
+test "match number condition type" {
+    std\assert(
+        match (1) {
+            "one" -> "string",
+            else -> "number",
+        } == "number",
+    );
+}

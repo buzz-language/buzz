@@ -258,7 +258,7 @@ pub const Value = extern struct {
         }
 
         return switch (value.getTag()) {
-            TagBoolean => type_def.def_type == .Bool,
+            TagBoolean => type_def.def_type == .Boolean,
             // TODO: this one is ambiguous at runtime, is it the `null` constant? or an optional local with a null value?
             TagNull => type_def.def_type == .Void or type_def.optional,
             TagVoid => type_def.def_type == .Void,
@@ -280,7 +280,7 @@ pub const Value = extern struct {
         }
 
         return switch (value.getTag()) {
-            TagBoolean => type_def.def_type == .Bool,
+            TagBoolean => type_def.def_type == .Boolean,
             // TODO: this one is ambiguous at runtime, is it the `null` constant? or an optional local with a null value?
             TagNull => type_def.def_type == .Void or type_def.optional,
             TagVoid => type_def.def_type == .Void,

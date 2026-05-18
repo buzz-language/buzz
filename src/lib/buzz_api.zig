@@ -142,6 +142,8 @@ pub const Value = extern struct {
     pub extern fn bz_valueIsForeignContainer(value: Value) callconv(.c) bool;
     pub extern fn bz_valueDump(value: Value, vm: *VM) callconv(.c) void;
     pub extern fn bz_valueEqual(self: Value, other: Value) callconv(.c) Value;
+    pub extern fn bz_rangeContains(range: Value, value: Value) callconv(.c) Value;
+    pub extern fn bz_patternMatches(vm: *VM, pattern: Value, subject: Value) callconv(.c) Value;
     pub extern fn bz_valueIs(self: Value, type_def: Value) callconv(.c) Value;
     pub extern fn bz_valueTypeOf(self: Value, vm: *VM) callconv(.c) Value;
     pub extern fn bz_getUserDataPtr(userdata: Value) callconv(.c) u64;

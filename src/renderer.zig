@@ -7,7 +7,7 @@ const Token = @import("Token.zig");
 pub const Renderer = struct {
     const Self = @This();
 
-    const equals: []const Token.Type = &.{
+    const equals: []const Token.Tag = &.{
         .Equal,
         .PlusEqual,
         .MinusEqual,
@@ -116,7 +116,7 @@ pub const Renderer = struct {
         return Self.renderers[@intFromEnum(self.ast.nodes.items(.tag)[node])](self, node, space);
     }
 
-    const renderers = [_]RenderNode{
+    const renderers = [@typeInfo(Ast.Node.Tag).@"enum".fields.len]RenderNode{
         renderAnonymousObjectType,
         renderAnonymousEnumCase,
         renderAs,
@@ -153,6 +153,7 @@ pub const Renderer = struct {
         renderListType,
         renderMap,
         renderMapType,
+        renderMatch,
         renderNamespace,
         renderNamedVariable,
         renderNull,
@@ -194,7 +195,7 @@ pub const Renderer = struct {
         try self.renderExpectedToken(components.case_name, .Identifier, space);
     }
 
-    fn renderExpectedTokenSequence(self: *Self, start_token: Ast.TokenIndex, comptime expected: []const Token.Type, space: Space) Error!void {
+    fn renderExpectedTokenSequence(self: *Self, start_token: Ast.TokenIndex, comptime expected: []const Token.Tag, space: Space) Error!void {
         for (expected, 0..) |tag, offset| {
             try self.renderExpectedToken(
                 start_token + @as(Ast.TokenIndex, @intCast(offset)),
@@ -233,8 +234,8 @@ pub const Renderer = struct {
         std.debug.print("\n", .{});
     }
 
-    fn renderOneOfExpectedToken(self: *Self, token: Ast.TokenIndex, comptime expected: []const Token.Type, space: Space) Error!void {
-        if (std.mem.indexOf(Token.Type, expected, &.{self.ast.tokens.items(.tag)[token]}) == null) {
+    fn renderOneOfExpectedToken(self: *Self, token: Ast.TokenIndex, comptime expected: []const Token.Tag, space: Space) Error!void {
+        if (std.mem.indexOf(Token.Tag, expected, &.{self.ast.tokens.items(.tag)[token]}) == null) {
             std.debug.print(
                 "\nGot {s} at {} `{s}`\n",
                 .{
@@ -247,11 +248,11 @@ pub const Renderer = struct {
             self.dumpTokens(token - 1, token + 5);
         }
 
-        assert(std.mem.indexOf(Token.Type, expected, &.{self.ast.tokens.items(.tag)[token]}) != null);
+        assert(std.mem.indexOf(Token.Tag, expected, &.{self.ast.tokens.items(.tag)[token]}) != null);
         return self.renderToken(token, space);
     }
 
-    fn renderExpectedToken(self: *Self, token: Ast.TokenIndex, expected: Token.Type, space: Space) Error!void {
+    fn renderExpectedToken(self: *Self, token: Ast.TokenIndex, expected: Token.Tag, space: Space) Error!void {
         if (builtin.mode == .Debug and self.ast.tokens.items(.tag)[token] != expected) {
             std.debug.print(
                 "\nExpected {s} got {s} at {} `{s}`\n",
@@ -2592,6 +2593,124 @@ pub const Renderer = struct {
             // else_branch
             try self.renderNode(eb, space);
         }
+    }
+
+    fn renderMatch(self: *Self, node: Ast.Node.Index, space: Space) Error!void {
+        const locations = self.ast.nodes.items(.location);
+        const end_locations = self.ast.nodes.items(.end_location);
+        const components = self.ast.nodes.items(.components)[node].Match;
+        const tags = self.ast.tokens.items(.tag);
+
+        // match
+        try self.renderExpectedToken(
+            locations[node],
+            .Match,
+            .Space,
+        );
+
+        try self.ais.pushIndent(self.allocator, .normal);
+
+        // (
+        try self.renderExpectedToken(
+            locations[node] + 1,
+            .LeftParen,
+            .None,
+        );
+
+        // value
+        try self.renderNode(
+            components.value,
+            .None,
+        );
+
+        // )
+        try self.renderExpectedToken(
+            end_locations[components.value] + 1,
+            .RightParen,
+            .Space,
+        );
+
+        // {
+        try self.renderExpectedToken(
+            locations[node],
+            .LeftBrace,
+            .Newline,
+        );
+
+        for (components.branches, 0..) |branch, bidx| {
+            const last_token = end_locations[branch.conditions[branch.conditions.len - 1]] + 1;
+            const conditions_ends_with_comma = tags[last_token] == .Comma;
+
+            // expr, expr, ... (if ends with a comma we get one per line)
+            for (branch.conditions, 0..) |condition, idx| {
+                try self.renderNode(
+                    condition,
+                    if (conditions_ends_with_comma) .Newline else .Space,
+                );
+
+                if (idx == branch.conditions.len - 1) {
+                    if (conditions_ends_with_comma) {
+                        try self.renderExpectedToken(
+                            end_locations[condition] + 1,
+                            .Comma,
+                            .Newline,
+                        );
+                    }
+                } else {
+                    try self.renderExpectedToken(
+                        end_locations[condition] + 1,
+                        .Comma,
+                        .Space,
+                    );
+                }
+            }
+
+            // ->
+            try self.renderExpectedToken(
+                if (conditions_ends_with_comma) last_token + 1 else last_token,
+                .Arrow,
+                .Space,
+            );
+
+            // expr
+            try self.renderNode(branch.expression, .None);
+
+            // ,
+            const last_branch_token = end_locations[branch.expression] + 1;
+            if (bidx < components.branches.len - 1 or tags[last_branch_token] == .Comma) {
+                try self.renderExpectedToken(
+                    last_branch_token,
+                    .Comma,
+                    .Newline,
+                );
+            }
+        }
+
+        if (components.else_branch) |eb| {
+            try self.renderExpectedToken(
+                locations[eb] - 2,
+                .Else,
+                .Space,
+            );
+            try self.renderExpectedToken(
+                locations[eb] - 1,
+                .Arrow,
+                .Space,
+            );
+            try self.renderNode(eb, .None);
+        }
+
+        self.ais.popIndent();
+
+        // }
+        try self.renderExpectedToken(
+            if (components.else_branch) |eb|
+                end_locations[eb] + 1
+            else
+                end_locations[components.branches[components.branches.len - 1].expression],
+            .RightBrace,
+            space,
+        );
     }
 
     fn renderImport(self: *Self, node: Ast.Node.Index, space: Space) Error!void {

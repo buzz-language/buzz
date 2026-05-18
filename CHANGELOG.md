@@ -13,6 +13,7 @@
 - `rg.contains`
 - `map.hasKey`
 - `toml` std lib
+- `match` statement/expression for value matching with type-specific condition semantics (https://github.com/buzz-language/buzz/issues/80)
 
 ## Changed
 
@@ -20,7 +21,7 @@
 - `int` are now `i48` instead of `i32` (https://github.com/buzz-language/buzz/issues/306). If you're wondering why, it's because all buzz values live in a NaN boxed f64 and the maximum bits available for an integer in there is 48. However, C ABI does not understand `i48` so we're still stuck with `i32` in FFI for now.
 - `main` signature can omit `args` argument
 - Maximum number of enum cases is now 16 777 215 instead of 255
-- `pattern.match` returns now a list of `obj{ start: int, end: int, capture: str }` and `matchAll` a list of those lists
+- `pattern.matchAgainst` returns now a list of `obj{ start: int, end: int, capture: str }` and `matchAllAgainst` a list of those lists
 - Selective import erases the imported namespace: `import print from "std"; ... print("hello world");`
 - Common part of imported namespace gets erased: il imported file as namesapce `a\b\c` and importing script has namespace `a\b`, only `c\` remains
 - Enum name can be omitted if it can be inferred (`final list: [Locale] = [ .fr, .it, .en ]`) (https://github.com/buzz-language/buzz/issues/360)

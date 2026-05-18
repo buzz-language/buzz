@@ -85,6 +85,14 @@ pub const Slice = struct {
                 },
                 .Block => try node_queue.appendSlice(allocator, comp.Block),
                 .BlockExpression => try node_queue.appendSlice(allocator, comp.BlockExpression),
+                .Match => {
+                    try node_queue.append(allocator, comp.Match.value);
+
+                    for (comp.Match.branches) |branch| {
+                        try node_queue.appendSlice(allocator, branch.conditions);
+                        try node_queue.append(allocator, branch.expression);
+                    }
+                },
                 .Call => {
                     // Avoid loop between Call and Dot nodes
                     if (tags[comp.Call.callee] != .Dot or
@@ -422,6 +430,31 @@ pub const Slice = struct {
                     if (components.is_statement or components.casted_type != null) {
                         self.result = false;
                         return true;
+                    }
+                },
+                .Match => {
+                    const components = ast.nodes.items(.components)[node].Match;
+                    const type_defs = ast.nodes.items(.type_def);
+                    const value_type_def = type_defs[components.value].?;
+
+                    if (components.is_statement) {
+                        self.result = false;
+                        return true;
+                    }
+
+                    for (components.branches) |branch| {
+                        for (branch.conditions) |condition| {
+                            const condition_type_def = type_defs[condition].?;
+
+                            if ((!condition_type_def.optional and condition_type_def.def_type == .Pattern and
+                                value_type_def.def_type == .String and !value_type_def.optional) or
+                                (!condition_type_def.optional and condition_type_def.def_type == .String and
+                                    value_type_def.def_type == .Pattern and !value_type_def.optional))
+                            {
+                                self.result = false;
+                                return true;
+                            }
+                        }
                     }
                 },
                 .List => {
@@ -801,6 +834,43 @@ pub const Slice = struct {
         }
     }
 
+    fn matchConditionValue(
+        self: Self.Slice,
+        gc: *GC,
+        value_type_def: *obj.ObjTypeDef,
+        match_value: Value,
+        condition: Node.Index,
+    ) !bool {
+        const condition_type_def = self.nodes.items(.type_def)[condition].?;
+        const condition_value = try self.toValue(condition, gc);
+
+        if (!condition_type_def.optional and condition_type_def.def_type == .Range and
+            (value_type_def.def_type == .Integer or value_type_def.def_type == .Double) and
+            !value_type_def.optional)
+        {
+            const range = obj.ObjRange.cast(condition_value.obj()).?;
+            const number = if (match_value.isInteger())
+                @as(v.Double, @floatFromInt(match_value.integer()))
+            else
+                match_value.double();
+            const low: v.Double = @floatFromInt(range.low);
+            const high: v.Double = @floatFromInt(range.high);
+
+            return (high >= low and number >= low and number < high) or
+                (low >= high and number >= high and number < low);
+        } else if (!condition_type_def.optional and condition_type_def.def_type == .Type and
+            (value_type_def.optional or value_type_def.def_type != .Type))
+        {
+            return condition_value.is(match_value);
+        } else if (!value_type_def.optional and value_type_def.def_type == .Type and
+            (condition_type_def.optional or condition_type_def.def_type != .Type))
+        {
+            return match_value.is(condition_value);
+        } else {
+            return match_value.eql(condition_value);
+        }
+    }
+
     pub fn typeCheckAndToValue(
         self: Self.Slice,
         node: Node.Index,
@@ -912,6 +982,29 @@ pub const Slice = struct {
                         try self.toValue(if_components.body, gc)
                     else
                         try self.toValue(if_components.else_branch.?, gc);
+                },
+                .Match => match: {
+                    const match_components = components[node].Match;
+                    const value_type_def = self.nodes.items(.type_def)[match_components.value].?;
+                    const match_value = try self.toValue(match_components.value, gc);
+
+                    for (match_components.branches) |branch| {
+                        for (branch.conditions) |condition| {
+                            if (try self.matchConditionValue(
+                                gc,
+                                value_type_def,
+                                match_value,
+                                condition,
+                            )) {
+                                break :match try self.toValue(branch.expression, gc);
+                            }
+                        }
+                    }
+
+                    break :match if (match_components.else_branch) |else_branch|
+                        try self.toValue(else_branch, gc)
+                    else
+                        Value.Void;
                 },
                 .Range => range: {
                     const rg_components = components[node].Range;
@@ -1180,6 +1273,7 @@ pub const Node = struct {
         ListType,
         Map,
         MapType,
+        Match,
         Namespace,
         NamedVariable,
         Null,
@@ -1257,6 +1351,7 @@ pub const Node = struct {
         ListType: Node.Index,
         Map: Map,
         MapType: MapType,
+        Match: Match,
         Namespace: []const TokenIndex,
         NamedVariable: NamedVariable,
         Null: void,
@@ -1450,7 +1545,7 @@ pub const AnonymousEnumCase = struct {
 pub const Binary = struct {
     left: Node.Index,
     right: Node.Index,
-    operator: Token.Type,
+    operator: Token.Tag,
 };
 
 pub const BreakContinue = struct {
@@ -1621,6 +1716,18 @@ pub const If = struct {
     is_statement: bool,
 };
 
+pub const Match = struct {
+    is_statement: bool,
+    value: Node.Index,
+    branches: []const Branch,
+    else_branch: ?Node.Index,
+
+    pub const Branch = struct {
+        conditions: []const Node.Index,
+        expression: Node.Index,
+    };
+};
+
 pub const Import = struct {
     imported_symbols: []const TokenIndex,
     prefix: ?[]const TokenIndex,
@@ -1753,7 +1860,7 @@ pub const Try = struct {
 };
 
 pub const Unary = struct {
-    operator: Token.Type,
+    operator: Token.Tag,
     expression: Node.Index,
 };
 

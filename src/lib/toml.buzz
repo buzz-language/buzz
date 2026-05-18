@@ -329,7 +329,7 @@ object Scanner {
         return char;
     }
 
-    fun match(expected: int) > bool {
+    fun matchChar(expected: int) > bool {
         if (this.isEOF()) {
             return false;
         }
@@ -510,7 +510,7 @@ object Scanner {
 
             return this.makeToken(.Newline);
         } else if (char == '\r') {
-            if (!this.match('\n')) {
+            if (!this.matchChar('\n')) {
                 return this.makeError("Expected LF after CR");
             }
 
@@ -1419,8 +1419,8 @@ object Parser {
         parser.advance();
         parser.skipLineIgnorable();
 
-        while (!parser.match(.Eof)) {
-            if (parser.match(.LeftBracket)) {
+        while (!parser.matchToken(.Eof)) {
+            if (parser.matchToken(.LeftBracket)) {
                 final firstLeft = parser.scanner.tokens[parser.currentToken! - 1];
                 // pop previous section
                 if (parser.section -> section) {
@@ -1475,15 +1475,15 @@ object Parser {
     }
 
     mut fun skipLineIgnorable() !> Error {
-        while (this.match(.Newline)) {}
+        while (this.matchToken(.Newline)) {}
     }
 
     mut fun skipNewlines() !> Error {
-        while (this.match(.Newline)) {}
+        while (this.matchToken(.Newline)) {}
     }
 
     mut fun consumeLineEnd() !> Error {
-        if (this.match(.Eof)) {
+        if (this.matchToken(.Eof)) {
             return;
         }
 
@@ -1799,7 +1799,7 @@ object Parser {
 
     fun isKeyStartTag(tag: TokenTag) => tag == .LeftBracket or tag == .BareKey or tag == .LiteralString or tag == .BasicString or tag == .Boolean or tag == .Integer or tag == .Float or tag == .LocalDate;
 
-    mut fun match(tag: TokenTag) > bool !> Error {
+    mut fun matchToken(tag: TokenTag) > bool !> Error {
         if (!this.check(tag)) {
             return false;
         }
@@ -1859,7 +1859,7 @@ object Parser {
     mut fun parseKey() > [str] !> Error {
         final result = mut [<str>];
 
-        while (!this.match(.Eof)) {
+        while (!this.matchToken(.Eof)) {
             this.consumeAnyOf(
                 [
                     .BareKey,
@@ -1888,7 +1888,7 @@ object Parser {
             }
 
 
-            if (!this.match(.Dot)) {
+            if (!this.matchToken(.Dot)) {
                 break;
             }
         }
@@ -1897,7 +1897,7 @@ object Parser {
     }
 
     mut fun parseValue() > bool !> Error {
-        if (this.match(.Boolean)) {
+        if (this.matchToken(.Boolean)) {
             final token = this.scanner.tokens[this.currentToken! - 1];
             final scalar = scalarFromToken(token);
 
@@ -1910,7 +1910,7 @@ object Parser {
             return this.setValue(scalar);
         }
 
-        if (this.match(.LeftBrace)) {
+        if (this.matchToken(.LeftBrace)) {
             return this.parseInlineTable();
         }
 
@@ -1936,7 +1936,7 @@ object Parser {
             return this.setValue(scalar);
         }
 
-        if (this.match(.Integer)) {
+        if (this.matchToken(.Integer)) {
             final token = this.scanner.tokens[this.currentToken! - 1];
             final value = scalarFromToken(token);
 
@@ -1949,7 +1949,7 @@ object Parser {
             return this.setValue(value);
         }
 
-        if (this.match(.Float)) {
+        if (this.matchToken(.Float)) {
             final token = this.scanner.tokens[this.currentToken! - 1];
             final value = scalarFromToken(token);
 
@@ -1962,7 +1962,7 @@ object Parser {
             return this.setValue(value);
         }
 
-        if (this.match(.LeftBracket)) {
+        if (this.matchToken(.LeftBracket)) {
             return this.parseArray();
         }
 
@@ -1976,11 +1976,11 @@ object Parser {
         }
 
         while (true) {
-            if (this.match(.RightBrace)) {
+            if (this.matchToken(.RightBrace)) {
                 break;
             }
 
-            if (this.match(.Eof)) {
+            if (this.matchToken(.Eof)) {
                 this.report("Unfinished inline table");
 
                 throw Error.Invalid;
@@ -1990,7 +1990,7 @@ object Parser {
                 return false;
             }
 
-            if (!this.match(.Comma)) {
+            if (!this.matchToken(.Comma)) {
                 this.consume(.RightBrace, message: "Expected `}`");
                 break;
             }
@@ -2015,11 +2015,11 @@ object Parser {
 
         var i = 0;
         while (true) {
-            if (this.match(.RightBracket)) {
+            if (this.matchToken(.RightBracket)) {
                 break;
             }
 
-            if (this.match(.Eof)) {
+            if (this.matchToken(.Eof)) {
                 this.report("Unfinished array");
 
                 throw Error.Invalid;
@@ -2036,7 +2036,7 @@ object Parser {
 
             this.skipNewlines();
 
-            if (!this.match(.Comma)) {
+            if (!this.matchToken(.Comma)) {
                 this.skipNewlines();
                 this.consume(.RightBracket, message: "Expected `]`");
                 break;

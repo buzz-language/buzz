@@ -870,8 +870,8 @@ pub const ObjPattern = struct {
 
     pub const members = if (!is_wasm)
         [_]NativeFn{
-            buzz_builtin.pattern.match,
-            buzz_builtin.pattern.matchAll,
+            buzz_builtin.pattern.matchAgainst,
+            buzz_builtin.pattern.matchAllAgainst,
             buzz_builtin.pattern.replace,
             buzz_builtin.pattern.replaceAll,
         }
@@ -883,8 +883,8 @@ pub const ObjPattern = struct {
 
     const members_typedef = if (!is_wasm)
         [_][]const u8{
-            "extern fun match(subject: str) > [obj{ capture: str, start: int, end: int }]?",
-            "extern fun matchAll(subject: str) > [[obj{ capture: str, start: int, end: int }]]?",
+            "extern fun matchAgainst(subject: str) > [obj{ capture: str, start: int, end: int }]?",
+            "extern fun matchAllAgainst(subject: str) > [[obj{ capture: str, start: int, end: int }]]?",
             "extern fun replace(subject: str, with: str) > str",
             "extern fun replaceAll(subject: str, with: str) > str",
         }
@@ -897,8 +897,8 @@ pub const ObjPattern = struct {
     pub const members_name = std.StaticStringMap(usize).initComptime(
         if (!is_wasm)
             .{
-                .{ "match", 0 },
-                .{ "matchAll", 1 },
+                .{ "matchAgainst", 0 },
+                .{ "matchAllAgainst", 1 },
                 .{ "replace", 2 },
                 .{ "replaceAll", 3 },
             }
@@ -4331,7 +4331,7 @@ pub const ObjTypeDef = struct {
     // WARN: order is important
     pub const Type = enum(u8) {
         Any,
-        Bool,
+        Boolean,
         Double,
         Integer,
         Pattern,
@@ -4365,7 +4365,7 @@ pub const ObjTypeDef = struct {
     // Always keep types with void value first.
     pub const TypeUnion = union(Type) {
         Any: bool, // true if mutable
-        Bool: void,
+        Boolean: void,
         Double: void,
         Integer: void,
         Pattern: void,
@@ -4465,7 +4465,7 @@ pub const ObjTypeDef = struct {
         }
 
         const result = switch (self.def_type) {
-            .Bool,
+            .Boolean,
             .Integer,
             .Double,
             .String,
@@ -4990,7 +4990,7 @@ pub const ObjTypeDef = struct {
                 },
             ),
             .UserData => try writer.writeAll("ud"),
-            .Bool => try writer.writeAll("bool"),
+            .Boolean => try writer.writeAll("bool"),
             .Integer => try writer.writeAll("int"),
             .Double => try writer.writeAll("double"),
             .String => try writer.writeAll("str"),
@@ -5427,7 +5427,7 @@ pub const ObjTypeDef = struct {
         }
 
         return switch (expected) {
-            .Bool,
+            .Boolean,
             .Integer,
             .Double,
             .String,
@@ -5560,7 +5560,7 @@ pub const ObjTypeDef = struct {
 
     pub fn isConstant(self: *Self) bool {
         return switch (self.def_type) {
-            .Bool,
+            .Boolean,
             .Double,
             .Integer,
             .Pattern,
