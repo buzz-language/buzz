@@ -92,11 +92,16 @@ pub fn check(ast: Ast.Slice, reporter: *Reporter, gc: *GC, current_function_node
 
 fn inferType(ast: Ast.Slice, reporter: *Reporter, gc: *GC, value_node: Ast.Node.Index, target_type: *o.ObjTypeDef) error{OutOfMemory}!bool {
     const tags = ast.nodes.items(.tag);
+    const inferred_target_type = if (target_type.optional)
+        target_type.cloneNonOptional(&gc.type_registry) catch return error.OutOfMemory
+    else
+        target_type;
 
     return switch (tags[value_node]) {
-        .AnonymousEnumCase => populateAnonymousEnumCase(ast, reporter, value_node, target_type),
-        .List => try inferListType(ast, reporter, gc, value_node, target_type),
-        .Map => try inferMapType(ast, reporter, gc, value_node, target_type),
+        .AnonymousEnumCase => populateAnonymousEnumCase(ast, reporter, value_node, inferred_target_type),
+        .List => try inferListType(ast, reporter, gc, value_node, inferred_target_type),
+        .Map => try inferMapType(ast, reporter, gc, value_node, inferred_target_type),
+        .Match => try inferMatchType(ast, reporter, gc, value_node, inferred_target_type),
         else => false,
     };
 }
@@ -165,6 +170,80 @@ fn inferMapType(ast: Ast.Slice, reporter: *Reporter, gc: *GC, value: Ast.Node.In
     }
 
     return false;
+}
+
+fn matchTypeFromBranches(ast: Ast.Slice, gc: *GC, match: Ast.Node.Index) error{OutOfMemory}!?*o.ObjTypeDef {
+    const components = ast.nodes.items(.components)[match].Match;
+    const type_defs = ast.nodes.items(.type_def);
+
+    var type_def: ?*o.ObjTypeDef = null;
+    var is_optional = false;
+
+    for (components.branches) |branch| {
+        if (type_defs[branch.expression]) |branch_type_def| {
+            is_optional = is_optional or branch_type_def.optional or branch_type_def.def_type == .Void;
+
+            if (branch_type_def.def_type == .Void) {
+                if (type_def == null) {
+                    type_def = branch_type_def;
+                }
+            } else if (type_def) |previous| {
+                if (previous.def_type == .Void) {
+                    type_def = branch_type_def;
+                } else if (!previous.eql(branch_type_def)) {
+                    type_def = gc.type_registry.any_type;
+                    break;
+                }
+            } else {
+                type_def = branch_type_def;
+            }
+        }
+    }
+
+    if (components.else_branch) |else_branch| {
+        if (type_defs[else_branch]) |else_type_def| {
+            is_optional = is_optional or else_type_def.def_type == .Void or else_type_def.optional;
+
+            if (else_type_def.def_type == .Void) {
+                if (type_def == null) {
+                    type_def = else_type_def;
+                }
+            } else if (type_def) |previous| {
+                if (previous.def_type == .Void) {
+                    type_def = else_type_def;
+                } else if (!previous.eql(else_type_def)) {
+                    type_def = gc.type_registry.any_type;
+                }
+            } else {
+                type_def = else_type_def;
+            }
+        }
+    }
+
+    return if (type_def != null and is_optional and !type_def.?.optional and type_def.?.def_type != .Void)
+        type_def.?.cloneOptional(&gc.type_registry) catch return error.OutOfMemory
+    else
+        type_def;
+}
+
+fn inferMatchType(ast: Ast.Slice, reporter: *Reporter, gc: *GC, value: Ast.Node.Index, target_type: *o.ObjTypeDef) error{OutOfMemory}!bool {
+    const components = ast.nodes.items(.components)[value].Match;
+    const type_defs = ast.nodes.items(.type_def);
+    var inferred_branch = false;
+
+    for (components.branches) |branch| {
+        inferred_branch = (try inferType(ast, reporter, gc, branch.expression, target_type,)) or inferred_branch;
+    }
+
+    if (components.else_branch) |else_branch| {
+        inferred_branch = (try inferType(ast, reporter, gc, else_branch, target_type,)) or inferred_branch;
+    }
+
+    if (inferred_branch) {
+        type_defs[value] = try matchTypeFromBranches(ast, gc, value,);
+    }
+
+    return inferred_branch;
 }
 
 fn populateAnonymousEnumCase(ast: Ast.Slice, reporter: *Reporter, value: Ast.Node.Index, target_type: *o.ObjTypeDef) bool {
@@ -1621,7 +1700,7 @@ fn checkIf(ast: Ast.Slice, reporter: *Reporter, _: *GC, _: ?Ast.Node.Index, node
     return had_error;
 }
 
-fn checkMatch(ast: Ast.Slice, reporter: *Reporter, _: *GC, _: ?Ast.Node.Index, node: Ast.Node.Index) error{OutOfMemory}!bool {
+fn checkMatch(ast: Ast.Slice, reporter: *Reporter, gc: *GC, _: ?Ast.Node.Index, node: Ast.Node.Index) error{OutOfMemory}!bool {
     const type_defs = ast.nodes.items(.type_def);
     const locations = ast.nodes.items(.location);
     const end_locations = ast.nodes.items(.end_location);
@@ -1631,6 +1710,14 @@ fn checkMatch(ast: Ast.Slice, reporter: *Reporter, _: *GC, _: ?Ast.Node.Index, n
 
     var had_error = false;
     if (!value_type_def.optional) {
+        if (value_type_def.def_type == .EnumInstance) {
+            for (node_components.branches) |branch| {
+                for (branch.conditions) |condition| {
+                    _ = try inferType(ast, reporter, gc, condition, value_type_def);
+                }
+            }
+        }
+
         switch (value_type_def.def_type) {
             // match on string accepts str, pat and type as condition types
             .String => for (node_components.branches) |branch| {

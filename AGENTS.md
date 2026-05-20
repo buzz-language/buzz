@@ -123,6 +123,7 @@ Only Zig files need formatting checks for now.
 
 - Keep patches minimal and localized.
 - Preserve existing naming and conventions, even if they look inconsistent, unless the task is specifically cleanup.
+- Do not break logic into small functions unless those small functions are used more than once.
 - Zig variables use snake_case.
 - Zig types and functions use camelCase.
 - Comments are encouraged for compiler/runtime logic, but keep them concise and useful.

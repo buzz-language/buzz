@@ -19,6 +19,10 @@ fun defaultLocale() > Locale {
     return .it;
 }
 
+fun optionalLocale() > Locale? {
+    return .fr;
+}
+
 fun maybeLocale() > Locale? {
     return null;
 }
@@ -49,12 +53,15 @@ test "Can infer enum type" {
     std\assert(.fr == Locale.fr, message: "Infer in reversed comparison");
     std\assert(identity(.en) == Locale.en, message: "Infer call argument");
     std\assert(defaultLocale() == Locale.it, message: "Infer return value");
+    std\assert(optionalLocale() == Locale.fr, message: "Infer optional return value");
     std\assert((maybeLocale() ?? .en) == Locale.en, message: "Infer null coalescing fallback");
     std\assert((failLocale() catch .en) == Locale.en, message: "Infer inline catch default");
 
     final coalesced = maybeLocale() ?? .it;
+    final optionalValue: Locale? = .en;
 
     std\assert(coalesced == Locale.it, message: "Infer null coalescing variable");
+    std\assert(optionalValue == Locale.en, message: "Infer optional var declaration");
 
     final instance = HasLocalField{
         locale = .en,
@@ -66,9 +73,12 @@ test "Can infer enum type" {
     std\assert(Locale.fr == .fr, message: "Infer in comparison");
 
     final list: [Locale] = [ .fr, .en ];
+    final optionalList: [Locale]? = [ .en, .it ];
 
     std\assert(list[0] == Locale.fr, message: "Infer in list");
     std\assert(list[1] == Locale.en, message: "Infer in list");
+    std\assert(optionalList![0] == Locale.en, message: "Infer in optional list");
+    std\assert(optionalList![1] == Locale.it, message: "Infer in optional list");
 
     final explicitList = [<Locale>, .it ];
 
@@ -82,8 +92,12 @@ test "Can infer enum type" {
     final map: {str: Locale} = {
         "fr": .fr,
     };
+    final optionalMap: {str: Locale}? = {
+        "it": .it,
+    };
 
     std\assert(map["fr"] == Locale.fr, message: "Infer in map");
+    std\assert(optionalMap!["it"] == Locale.it, message: "Infer in optional map");
 
     final explicitMap = {<str: Locale>, "it": .it };
 
@@ -102,4 +116,11 @@ test "Can infer enum type" {
         acceptsLocaleList([ .fr, .en ]),
         message: "Infer enum case in constant-foldable list argument",
     );
+
+    final optionalMatch: Locale? = match (1) {
+        1 -> .fr,
+        else -> null,
+    };
+
+    std\assert(optionalMatch == Locale.fr, message: "Infer match branch into optional type");
 }

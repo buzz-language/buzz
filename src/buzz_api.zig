@@ -1042,6 +1042,18 @@ export fn bz_rangeContains(range_value: v.Value, value: v.Value) callconv(.c) v.
 }
 
 export fn bz_patternMatches(vm: *VM, pattern_value: v.Value, subject_value: v.Value) callconv(.c) v.Value {
+    if (comptime is_wasm) {
+        return bz_patternMatchesWasm(vm, pattern_value, subject_value);
+    } else {
+        return bz_patternMatchesNative(vm, pattern_value, subject_value);
+    }
+}
+
+fn bz_patternMatchesWasm(_: *VM, _: v.Value, _: v.Value) v.Value {
+    return v.Value.False;
+}
+
+fn bz_patternMatchesNative(vm: *VM, pattern_value: v.Value, subject_value: v.Value) v.Value {
     const pattern = o.ObjPattern.cast(pattern_value.obj()).?;
     const subject = o.ObjString.cast(subject_value.obj()).?;
 

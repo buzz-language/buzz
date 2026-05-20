@@ -1,0 +1,8 @@
+// Non-exhaustive `match`, `else` branch required
+test "match non exhaustive" {
+    final value = 1;
+
+    _ = match (value) {
+        1 -> "one",
+    };
+}

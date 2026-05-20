@@ -151,6 +151,22 @@ test "match fallback equality and inference" {
         message: "enum values match by equality",
     );
 
+    std\assert(
+        match (enum_value) {
+            MatchEnum.one -> "one",
+            MatchEnum.two -> "two",
+        } == "two",
+        message: "qualified enum cases can be exhaustive without else",
+    );
+
+    std\assert(
+        match (enum_value) {
+            .one -> "one",
+            .two -> "two",
+        } == "two",
+        message: "anonymous enum cases infer match value type",
+    );
+
     final same_type = match (one) {
         1 -> "one",
         else -> "other",

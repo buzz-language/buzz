@@ -2358,7 +2358,7 @@ fn generateMatch(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*ob
                 missing_cases.items,
             },
         );
-    } else if (bool_exhaustive == null or bool_exhaustive.?.count() < 2) {
+    } else if (enum_cases == null and (bool_exhaustive == null or bool_exhaustive.?.count() < 2)) {
         self.reporter.reportErrorAt(
             .unexhaustive_match,
             self.ast.tokens.get(locations[node]),

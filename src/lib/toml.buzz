@@ -45,31 +45,20 @@ object Token {
             return content;
         }
 
-        if (content.byte(0) == '\n') {
-            return content.sub(1);
-        }
-
-        if (content.len() > 1 and content.byte(0) == '\r' and content.byte(1) == '\n') {
-            return content.sub(2);
-        }
-
-        return content;
+        return match (content.byte(0)) {
+            '\n' -> content.sub(1),
+            '\r' -> if (content.len() > 1 and content.byte(1) == '\n') content.sub(2) else content,
+            else -> content,
+        };
     }
 
     fun digitValue(char: int) > int? {
-        if (char >= '0' and char <= '9') {
-            return char - '0';
-        }
-
-        if (char >= 'a' and char <= 'f') {
-            return char - 'a' + 10;
-        }
-
-        if (char >= 'A' and char <= 'F') {
-            return char - 'A' + 10;
-        }
-
-        return null;
+        return match (char) {
+            '0'..'9' -> char - '0',
+            'a'..'f' -> char - 'a' + 10,
+            'A'..'F' -> char - 'A' + 10,
+            else -> null,
+        };
     }
 
     fun hexEscapeValue(source: str, offset: int, len: int) > int? {
@@ -148,45 +137,44 @@ object Token {
 
             offset = offset + 1;
             final escaped = content.byte(offset);
+            final escapedByte = match (escaped) {
+                'b' -> '\b',
+                'e' -> 27,
+                'f' -> '\f',
+                'n' -> '\n',
+                'r' -> '\r',
+                't' -> '\t',
+                '\"', '\\' -> escaped,
+                else -> null,
+            };
 
-            if (escaped == 'b') {
-                result = result + std\char('\b');
+            if (escapedByte != null) {
+                result = result + std\char(escapedByte!);
                 offset = offset + 1;
-            } else if (escaped == 'e') {
-                result = result + std\char(27);
-                offset = offset + 1;
-            } else if (escaped == 'f') {
-                result = result + std\char('\f');
-                offset = offset + 1;
-            } else if (escaped == 'n') {
-                result = result + std\char('\n');
-                offset = offset + 1;
-            } else if (escaped == 'r') {
-                result = result + std\char('\r');
-                offset = offset + 1;
-            } else if (escaped == 't') {
-                result = result + std\char('\t');
-                offset = offset + 1;
-            } else if (escaped == '\"' or escaped == '\\') {
-                result = result + std\char(escaped);
-                offset = offset + 1;
-            } else if (escaped == 'u' or escaped == 'U') {
-                final len = if (escaped == 'u') 4 else 8;
-                final codepoint = this.hexEscapeValue(content, offset: offset + 1, len: len);
-                if (codepoint == null) {
-                    return null;
-                }
+                continue;
+            }
 
-                final encoded = this.utf8Codepoint(codepoint!);
-                if (encoded == null) {
-                    return null;
-                }
-
-                result = result + encoded!;
-                offset = offset + 1 + len;
-            } else {
+            final len = match (escaped) {
+                'u' -> 4,
+                'U' -> 8,
+                else -> null,
+            };
+            if (len == null) {
                 return null;
             }
+
+            final codepoint = this.hexEscapeValue(content, offset: offset + 1, len: len!);
+            if (codepoint == null) {
+                return null;
+            }
+
+            final encoded = this.utf8Codepoint(codepoint!);
+            if (encoded == null) {
+                return null;
+            }
+
+            result = result + encoded!;
+            offset = offset + 1 + len!;
         }
 
         return result;
@@ -206,15 +194,15 @@ object Token {
         var base = 10;
         if (offset + 1 < this.lexeme.len() and this.lexeme.byte(offset) == '0') {
             final prefix = this.lexeme.byte(offset + 1);
+            final prefixedBase = match (prefix) {
+                'x', 'X' -> 16,
+                'o', 'O' -> 8,
+                'b', 'B' -> 2,
+                else -> null,
+            };
 
-            if (prefix == 'x' or prefix == 'X') {
-                base = 16;
-                offset = offset + 2;
-            } else if (prefix == 'o' or prefix == 'O') {
-                base = 8;
-                offset = offset + 2;
-            } else if (prefix == 'b' or prefix == 'B') {
-                base = 2;
+            if (prefixedBase != null) {
+                base = prefixedBase!;
                 offset = offset + 2;
             }
         }
@@ -255,40 +243,33 @@ object Token {
         return result;
     }
 
+    fun floatLiteral() > double? {
+        final normalized = this.floatLexeme();
+        final special = match (normalized) {
+            "inf", "+inf", "-inf", "nan", "+nan", "-nan" -> true,
+            else -> false,
+        };
+
+        if (special) {
+            return 0.0;
+        }
+
+        return std\parseDouble(this.floatLexeme());
+    }
+
     fun literal() > any {
-        if (this.tag == .LiteralString) {
-            return this.stripStringDelimiters(1);
-        }
-
-        if (this.tag == .MultilineLiteralString) {
-            return this.trimFirstMultilineNewline(this.stripStringDelimiters(3));
-        }
-
-        if (this.tag == .BasicString) {
-            return this.decodeBasicString(this.stripStringDelimiters(1));
-        }
-
-        if (this.tag == .MultilineBasicString) {
-            return this.decodeBasicString(
+        return match (this.tag) {
+            .LiteralString -> this.stripStringDelimiters(1),
+            .MultilineLiteralString -> this.trimFirstMultilineNewline(this.stripStringDelimiters(3)),
+            .BasicString -> this.decodeBasicString(this.stripStringDelimiters(1)),
+            .MultilineBasicString -> this.decodeBasicString(
                 this.trimFirstMultilineNewline(this.stripStringDelimiters(3)),
                 multiline: true,
-            );
-        }
-
-        if (this.tag == .Integer) {
-            return this.integerLiteral();
-        }
-
-        if (this.tag == .Float) {
-            final normalized = this.floatLexeme();
-            if (normalized == "inf" or normalized == "+inf" or normalized == "-inf" or normalized == "nan" or normalized == "+nan" or normalized == "-nan") {
-                return 0.0;
-            }
-
-            return std\parseDouble(this.floatLexeme());
-        }
-
-        return this.lexeme;
+            ),
+            .Integer -> this.integerLiteral(),
+            .Float -> this.floatLiteral(),
+            else -> this.lexeme,
+        };
     }
 }
 
@@ -360,19 +341,12 @@ object Scanner {
     fun isDisallowedBasicStringChar(char: int) => (char >= '\0' and char <= '\b') or (char >= '\n' and char <= 31) or char == 127;
 
     fun digitValue(char: int) > int? {
-        if (char >= '0' and char <= '9') {
-            return char - '0';
-        }
-
-        if (char >= 'a' and char <= 'f') {
-            return char - 'a' + 10;
-        }
-
-        if (char >= 'A' and char <= 'F') {
-            return char - 'A' + 10;
-        }
-
-        return null;
+        return match (char) {
+            '0'..'9' -> char - '0',
+            'a'..'f' -> char - 'a' + 10,
+            'A'..'F' -> char - 'A' + 10,
+            else -> null,
+        };
     }
 
     fun escapeCodepoint(offset: int, len: int) > int? {
@@ -518,21 +492,23 @@ object Scanner {
             this.current.column = 0;
 
             return this.makeToken(.Newline);
-        } else if (char == '=') {
-            return this.makeToken(.Equal);
-        } else if (char == '.') {
-            return this.makeToken(.Dot);
-        } else if (char == ',') {
-            return this.makeToken(.Comma);
-        } else if (char == '[') {
-            return this.makeToken(.LeftBracket);
-        } else if (char == ']') {
-            return this.makeToken(.RightBracket);
-        } else if (char == '{') {
-            return this.makeToken(.LeftBrace);
-        } else if (char == '}') {
-            return this.makeToken(.RightBrace);
-        } else if (this.isLetter(char) or char == '_' or (char == '-' and !this.isNumber(peeked) and peeked != 'i' and peeked != 'n')) {
+        }
+
+        final simpleTag: TokenTag? = match (char) {
+            '=' -> .Equal,
+            '.' -> .Dot,
+            ',' -> .Comma,
+            '[' -> .LeftBracket,
+            ']' -> .RightBracket,
+            '{' -> .LeftBrace,
+            '}' -> .RightBrace,
+            else -> null,
+        };
+        if (simpleTag != null) {
+            return this.makeToken(simpleTag!);
+        }
+
+        if (this.isLetter(char) or char == '_' or (char == '-' and !this.isNumber(peeked) and peeked != 'i' and peeked != 'n')) {
             return this.bareKey();
         } else if (this.isNumber(char) or ((char == '+' or char == '-') and (this.isNumber(peeked) or peeked == 'i' or peeked == 'n'))) {
             if ((char == '+' or char == '-') and this.isNumber(peeked)) {
@@ -565,15 +541,13 @@ object Scanner {
     fun keywordOrBareKey() > Token {
         final lexeme = this.source.sub(this.current.start, len: this.current.offset - this.current.start);
 
-        if (lexeme == "true" or lexeme == "false") {
-            return this.makeToken(.Boolean);
-        }
-
-        if (lexeme == "inf" or lexeme == "nan") {
-            return this.makeToken(.Float);
-        }
-
-        return this.makeToken(.BareKey);
+        return this.makeToken(
+            match (lexeme) {
+                "true", "false" -> TokenTag.Boolean,
+                "inf", "nan" -> TokenTag.Float,
+                else -> TokenTag.BareKey,
+            },
+        );
     }
 
     fun scannedCanBeBareKey() > bool {
@@ -604,7 +578,12 @@ object Scanner {
 
         while (true) {
             final peeked = this.peek();
-            final isDigit = if (base == "hex") this.isHexDigit(peeked) else if (base == "octal") this.isOctalDigit(peeked) else if (base == "binary") this.isBinaryDigit(peeked) else this.isNumber(peeked);
+            final isDigit = match (base) {
+                "hex" -> this.isHexDigit(peeked),
+                "octal" -> this.isOctalDigit(peeked),
+                "binary" -> this.isBinaryDigit(peeked),
+                else -> this.isNumber(peeked),
+            };
 
             if (isDigit) {
                 consumed = true;
@@ -617,7 +596,12 @@ object Scanner {
                 _ = this.advance();
 
                 final afterUnderscore = this.peek();
-                final hasDigitAfterUnderscore = if (base == "hex") this.isHexDigit(afterUnderscore) else if (base == "octal") this.isOctalDigit(afterUnderscore) else if (base == "binary") this.isBinaryDigit(afterUnderscore) else this.isNumber(afterUnderscore);
+                final hasDigitAfterUnderscore = match (base) {
+                    "hex" -> this.isHexDigit(afterUnderscore),
+                    "octal" -> this.isOctalDigit(afterUnderscore),
+                    "binary" -> this.isBinaryDigit(afterUnderscore),
+                    else -> this.isNumber(afterUnderscore),
+                };
 
                 if (!hasDigitAfterUnderscore) {
                     valid = false;
@@ -650,15 +634,11 @@ object Scanner {
     fun isLeapYear(year: int) => (year % 4 == 0 and year % 100 != 0) or year % 400 == 0;
 
     fun daysInMonth(year: int, month: int) > int {
-        if (month == 2) {
-            return if (this.isLeapYear(year)) 29 else 28;
-        }
-
-        if (month == 4 or month == 6 or month == 9 or month == 11) {
-            return 30;
-        }
-
-        return 31;
+        return match (month) {
+            2 -> if (this.isLeapYear(year)) 29 else 28,
+            4, 6, 9, 11 -> 30,
+            else -> 31,
+        };
     }
 
     fun validDate(offset: int) > bool {
@@ -821,8 +801,13 @@ object Scanner {
         final first = this.byteAt(start);
         final second = this.byteAt(start + 1);
         final third = this.byteAt(start + 2);
+        final valid = match (first) {
+            'i' -> second == 'n' and third == 'f',
+            'n' -> second == 'a' and third == 'n',
+            else -> false,
+        };
 
-        if ((first == 'i' and second == 'n' and third == 'f') or (first == 'n' and second == 'a' and third == 'n')) {
+        if (valid) {
             _ = this.advance();
             _ = this.advance();
             _ = this.advance();
@@ -841,7 +826,10 @@ object Scanner {
         final signed = this.source.byte(this.current.start) == '+' or this.source.byte(this.current.start) == '-';
         final afterSign = this.peek();
 
-        if (signed and (afterSign == 'i' or afterSign == 'n')) {
+        if (signed and match (afterSign) {
+            'i', 'n' -> true,
+            else -> false,
+        }) {
             return this.specialFloat();
         }
 
@@ -856,13 +844,23 @@ object Scanner {
         final firstDigit = this.source.byte(firstDigitOffset);
         final afterFirstDigit = this.peek();
 
-        if (!signed and firstDigit == '0' and (afterFirstDigit == 'X' or afterFirstDigit == 'O' or afterFirstDigit == 'B')) {
+        if (!signed and firstDigit == '0' and match (afterFirstDigit) {
+            'X', 'O', 'B' -> true,
+            else -> false,
+        }) {
             return this.makeError("Invalid integer");
         }
 
-        if (!signed and firstDigit == '0' and (afterFirstDigit == 'x' or afterFirstDigit == 'o' or afterFirstDigit == 'b')) {
+        if (!signed and firstDigit == '0' and match (afterFirstDigit) {
+            'x', 'o', 'b' -> true,
+            else -> false,
+        }) {
             final prefix = this.advance();
-            final base = if (prefix == 'x') "hex" else if (prefix == 'o') "octal" else "binary";
+            final base = match (prefix) {
+                'x' -> "hex",
+                'o' -> "octal",
+                else -> "binary",
+            };
 
             if (!this.consumeNumberDigits(base, required: true)) {
                 return this.bareKeyOrError("Invalid integer");
@@ -978,34 +976,29 @@ object Scanner {
 
         final escaped = this.peek();
 
-        if (escaped == '\"' or escaped == '\\' or escaped == 'b' or escaped == 'e' or escaped == 'f' or escaped == 'n' or escaped == 'r' or escaped == 't') {
+        if (match (escaped) {
+            '\"', '\\', 'b', 'e', 'f', 'n', 'r', 't' -> true,
+            else -> false,
+        }) {
             _ = this.advance();
 
             return true;
         }
 
-        if (escaped == 'u') {
+        final len = match (escaped) {
+            'u' -> 4,
+            'U' -> 8,
+            else -> null,
+        };
+        if (len != null) {
             _ = this.advance();
 
             final offset = this.current.offset;
-            if (!this.consumeHexDigits(4)) {
+            if (!this.consumeHexDigits(len!)) {
                 return false;
             }
 
-            final codepoint = this.escapeCodepoint(offset, len: 4);
-
-            return codepoint != null and this.isValidUnicodeScalar(codepoint!);
-        }
-
-        if (escaped == 'U') {
-            _ = this.advance();
-
-            final offset = this.current.offset;
-            if (!this.consumeHexDigits(8)) {
-                return false;
-            }
-
-            final codepoint = this.escapeCodepoint(offset, len: 8);
+            final codepoint = this.escapeCodepoint(offset, len: len!);
 
             return codepoint != null and this.isValidUnicodeScalar(codepoint!);
         }
@@ -1216,18 +1209,20 @@ object PathPart {
         index,
     };
 
-    fun display() => if (this.tag == .Index) "{this.index!}" else this.key!;
+    fun display() => match (this.tag) {
+        .Key -> this.key!,
+        .Index -> "{this.index!}",
+    };
 
     fun same(other: PathPart) > bool {
         if (this.tag != other.tag) {
             return false;
         }
 
-        if (this.tag == .Key) {
-            return this.key! == other.key!;
-        }
-
-        return this.index! == other.index!;
+        return match (this.tag) {
+            .Key -> this.key! == other.key!,
+            .Index -> this.index! == other.index!,
+        };
     }
 }
 
@@ -1373,11 +1368,10 @@ object PathSet {
 }
 
 fun scalarFromToken(token: Token) > any {
-    if (token.tag == .Boolean) {
-        return token.lexeme == "true";
-    }
-
-    return token.literal();
+    return match (token.tag) {
+        .Boolean -> token.lexeme == "true",
+        else -> token.literal(),
+    };
 }
 
 object Parser {
@@ -1797,7 +1791,18 @@ object Parser {
 
     fun check(tag: TokenTag) => this.currentToken != null and this.scanner.tokens[this.currentToken!].tag == tag;
 
-    fun isKeyStartTag(tag: TokenTag) => tag == .LeftBracket or tag == .BareKey or tag == .LiteralString or tag == .BasicString or tag == .Boolean or tag == .Integer or tag == .Float or tag == .LocalDate;
+    fun isKeyStartTag(tag: TokenTag) => match (tag) {
+        .LeftBracket,
+        .BareKey,
+        .LiteralString,
+        .BasicString,
+        .Boolean,
+        .Integer,
+        .Float,
+        .LocalDate,
+        -> true,
+        else -> false,
+    };
 
     mut fun matchToken(tag: TokenTag) > bool !> Error {
         if (!this.check(tag)) {
