@@ -5969,7 +5969,7 @@ fn matchStatementOrExpression(self: *Self, is_statement: bool) Error!Ast.Node.In
 
     try self.consume(.RightBrace, "Expected `}`");
 
-    if (branches.items.len == 0 and else_branch == null) {
+    if (branches.items.len == 0 and else_branch == null and self.reporter.last_error != .unclosed) {
         self.reporter.report(
             .syntax,
             self.ast.tokens.get(start_location),
