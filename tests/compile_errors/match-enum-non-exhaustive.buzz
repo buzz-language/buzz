@@ -1,0 +1,14 @@
+// Non-exhaustive `match` over enum value, missing enum cases are: two, three
+enum MatchExhaustive {
+    one,
+    two,
+    three,
+}
+
+test "match enum non exhaustive" {
+    final value = MatchExhaustive.one;
+
+    _ = match (value) {
+        MatchExhaustive.one -> "one",
+    };
+}
