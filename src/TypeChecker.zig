@@ -232,15 +232,31 @@ fn inferMatchType(ast: Ast.Slice, reporter: *Reporter, gc: *GC, value: Ast.Node.
     var inferred_branch = false;
 
     for (components.branches) |branch| {
-        inferred_branch = (try inferType(ast, reporter, gc, branch.expression, target_type,)) or inferred_branch;
+        inferred_branch = (try inferType(
+            ast,
+            reporter,
+            gc,
+            branch.expression,
+            target_type,
+        )) or inferred_branch;
     }
 
     if (components.else_branch) |else_branch| {
-        inferred_branch = (try inferType(ast, reporter, gc, else_branch, target_type,)) or inferred_branch;
+        inferred_branch = (try inferType(
+            ast,
+            reporter,
+            gc,
+            else_branch,
+            target_type,
+        )) or inferred_branch;
     }
 
     if (inferred_branch) {
-        type_defs[value] = try matchTypeFromBranches(ast, gc, value,);
+        type_defs[value] = try matchTypeFromBranches(
+            ast,
+            gc,
+            value,
+        );
     }
 
     return inferred_branch;

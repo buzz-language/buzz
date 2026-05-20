@@ -2028,6 +2028,7 @@ pub const Renderer = struct {
         const locations = self.ast.nodes.items(.location);
         const end_locations = self.ast.nodes.items(.end_location);
         const components = self.ast.nodes.items(.components)[node].Enum;
+        const tags = self.ast.tokens.items(.tag);
 
         // enum
         try self.renderExpectedToken(
@@ -2096,7 +2097,10 @@ pub const Renderer = struct {
                     .Comma,
             );
 
-            token_idx = case.name + 1;
+            token_idx = if (tags[case.name + 1] == .Comma)
+                case.name + 1
+            else
+                case.name;
 
             if (!components.values_omitted) {
                 if (case.value) |value| {
@@ -2110,7 +2114,10 @@ pub const Renderer = struct {
                     // value
                     try self.renderNode(value, .Comma);
 
-                    token_idx = locations[value] + 1;
+                    token_idx = if (tags[end_locations[value] + 1] == .Comma)
+                        end_locations[value] + 1
+                    else
+                        end_locations[value];
                 }
             }
         }
@@ -2632,7 +2639,7 @@ pub const Renderer = struct {
 
         // {
         try self.renderExpectedToken(
-            locations[node],
+            end_locations[components.value] + 2,
             .LeftBrace,
             .Newline,
         );
@@ -2673,17 +2680,15 @@ pub const Renderer = struct {
             );
 
             // expr
-            try self.renderNode(branch.expression, .None);
-
-            // ,
             const last_branch_token = end_locations[branch.expression] + 1;
-            if (bidx < components.branches.len - 1 or tags[last_branch_token] == .Comma) {
-                try self.renderExpectedToken(
-                    last_branch_token,
-                    .Comma,
-                    .Newline,
-                );
-            }
+            const branch_needs_comma = bidx < components.branches.len - 1 or
+                components.else_branch != null or
+                tags[last_branch_token] == .Comma;
+
+            try self.renderNode(
+                branch.expression,
+                if (branch_needs_comma) .Comma else .Newline,
+            );
         }
 
         if (components.else_branch) |eb| {
@@ -2697,17 +2702,27 @@ pub const Renderer = struct {
                 .Arrow,
                 .Space,
             );
-            try self.renderNode(eb, .None);
+
+            const else_has_comma = tags[end_locations[eb] + 1] == .Comma;
+            try self.renderNode(
+                eb,
+                if (else_has_comma) .Comma else .Newline,
+            );
         }
+
+        const right_brace = if (components.else_branch) |eb| right_brace: {
+            const next_token = end_locations[eb] + 1;
+            break :right_brace if (tags[next_token] == .Comma) next_token + 1 else next_token;
+        } else right_brace: {
+            const next_token = end_locations[components.branches[components.branches.len - 1].expression] + 1;
+            break :right_brace if (tags[next_token] == .Comma) next_token + 1 else next_token;
+        };
 
         self.ais.popIndent();
 
         // }
         try self.renderExpectedToken(
-            if (components.else_branch) |eb|
-                end_locations[eb] + 1
-            else
-                end_locations[components.branches[components.branches.len - 1].expression],
+            right_brace,
             .RightBrace,
             space,
         );
