@@ -236,15 +236,18 @@ pub fn repl(process: std.process.Init, allocator: std.mem.Allocator) !void {
                 // We might have declared new globals, types, etc. and encounter an error
                 // FIXME: why can't I deinit those?
                 // parser.globals.deinit();
-                runner.parser.globals = previous_parser_globals;
-                runner.parser.globals_lookup = previous_globals_lookup;
+                runner.parser.globals = try previous_parser_globals.clone(allocator);
+                runner.parser.globals_lookup = try previous_globals_lookup.cloneContext(
+                    allocator,
+                    QualifiedNameContext{ .ast = &runner.parser.ast },
+                );
 
                 // vm.globals.deinit();
-                runner.vm.globals = previous_globals;
+                runner.vm.globals = try previous_globals.clone(allocator);
                 runner.vm.globals_count = previous_global_top;
 
                 // gc.type_registry.registry.deinit();
-                runner.gc.type_registry.registry = previous_type_registry;
+                runner.gc.type_registry.registry = try previous_type_registry.clone(allocator);
 
                 // If syntax error was unclosed block, keep previous input
                 if (runner.parser.reporter.last_error == .unclosed) {
