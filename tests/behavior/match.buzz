@@ -37,6 +37,11 @@ test "match string and pattern" {
     final pattern_value = $"hello [a-z]+";
 
     std\assert(
+        pattern_value == $"hello [a-z]+",
+        message: "pattern equality compares sources",
+    );
+
+    std\assert(
         match (string_value) {
             "hello ann" -> "string equality",
             $"hello [a-z]+" -> "pattern match",

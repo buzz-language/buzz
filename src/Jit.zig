@@ -2968,17 +2968,22 @@ fn generateIf(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
 
 fn generateMatchCondition(
     self: *Self,
-    match_value: m.MIR_op_t,
     value_type_def: *o.ObjTypeDef,
     condition: Ast.Node.Index,
 ) Error!m.MIR_op_t {
     const type_defs = self.state.?.ast.nodes.items(.type_def);
     const condition_type_def = type_defs[condition].?;
     const condition_value = (try self.generateNode(condition)).?;
+    const match_value = m.MIR_new_reg_op(
+        self.ctx,
+        try self.REG("match_value", m.MIR_T_I64),
+    );
     const result_value = m.MIR_new_reg_op(
         self.ctx,
         try self.REG("match_condition_value", m.MIR_T_I64),
     );
+
+    try self.buildPeek(0, match_value);
 
     if (!condition_type_def.optional and condition_type_def.def_type == .Range and
         (value_type_def.def_type == .Integer or value_type_def.def_type == .Double) and
@@ -3091,7 +3096,6 @@ fn generateMatch(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
 
         for (branch.conditions) |condition| {
             const matches = try self.generateMatchCondition(
-                match_value,
                 value_type_def,
                 condition,
             );
@@ -5263,9 +5267,31 @@ fn generateUnary(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
 }
 
 fn generatePattern(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
+    const value = self.state.?.ast.nodes.items(.components)[node].Pattern.toValue();
+
+    for (self.state.?.closure.function.chunk.constants.items) |constant| {
+        if (constant.eql(value)) {
+            return m.MIR_new_uint_op(
+                self.ctx,
+                constant.val,
+            );
+        }
+    }
+
+    // Pattern literals must be rooted by the owning function chunk before JIT can embed them.
+    // Async JIT cannot mutate chunk constants from the worker thread.
+    if (BuildOptions.jit_asynchronous) {
+        return error.CantCompile;
+    }
+
+    try self.state.?.closure.function.chunk.constants.append(
+        self.gc.allocator,
+        value,
+    );
+
     return m.MIR_new_uint_op(
         self.ctx,
-        self.state.?.ast.nodes.items(.components)[node].Pattern.toValue().val,
+        value.val,
     );
 }
 

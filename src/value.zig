@@ -198,15 +198,14 @@ pub const Value = extern struct {
     }
 
     pub fn eql(a: Value, b: Value) bool {
-        if (a.isObj() != b.isObj() or
-            a.isNumber() != b.isNumber() or
+        if (a.isObj() or b.isObj()) {
+            return a.isObj() and b.isObj() and a.obj().eql(b.obj());
+        }
+
+        if (a.isNumber() != b.isNumber() or
             (!a.isNumber() and !b.isNumber() and a.getTag() != b.getTag()))
         {
             return false;
-        }
-
-        if (a.isObj()) {
-            return a.obj().eql(b.obj());
         }
 
         if (a.isInteger() or a.isDouble()) {
