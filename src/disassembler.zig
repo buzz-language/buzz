@@ -615,7 +615,7 @@ pub const DumpState = struct {
                     ) catch unreachable;
                     state.tab += 1;
                     for (enum_type_def.cases, 0..) |case, i| {
-                        out.print("    {s} -> ", .{case}) catch unreachable;
+                        out.print("    {s} = ", .{case}) catch unreachable;
                         state.valueDump(
                             enumeration.cases[i],
                             out,
