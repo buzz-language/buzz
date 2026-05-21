@@ -3,7 +3,9 @@ namespace buffer;
 import "ffi";
 import "errors";
 
+/// Error raised when a buffer is written after reading has started.
 export object WriteWhileReadingError {}
+/// Error raised when a buffer index is out of bounds.
 export object OutOfBoundError {}
 
 /// @private
@@ -75,6 +77,9 @@ export object Buffer {
         };
     }
 
+    /// Creates a buffer initialized with `string`.
+    /// @param string Bytes to write into the new buffer
+    /// @return A new `Buffer`
     static fun fromStr(string: str) > Buffer {
         final buffer = Buffer.init();
         
@@ -105,34 +110,62 @@ export object Buffer {
         BufferWrite(this.buffer, bytes: bytes);
     }
 
+    /// Writes values using a Zig type layout.
+    /// @param zigType Zig type expression
+    /// @param values Values to write
     fun writeZ::<T>(zigType: str, values: [T]) > void !> ffi\FFITypeMismatchError {
         BufferWriteZ(this.buffer, zigType: zigType, values: values);
     }
 
+    /// Writes values at `at` using a Zig type layout.
+    /// @param at Offset at which to write
+    /// @param zigType Zig type expression
+    /// @param values Values to write
     fun writeZAt::<T>(at: int, zigType: str, values: [T]) > void !> ffi\FFITypeMismatchError {
         BufferWriteZAt(this.buffer, at: at, zigType: zigType, values: values);
     }
 
+    /// Reads a value using a Zig type layout.
+    /// @param zigType Zig type expression
+    /// @return Read value
     fun readZ::<T>(zigType: str) > T !> ffi\FFITypeMismatchError {
         return BufferReadZ::<T>(this.buffer, zigType: zigType);
     }
 
+    /// Reads a value at `at` using a Zig type layout.
+    /// @param at Offset from which to read
+    /// @param zigType Zig type expression
+    /// @return Read value
     fun readZAt::<T>(at: int, zigType: str) > T !> ffi\FFITypeMismatchError {
         return BufferReadZAt::<T>(this.buffer, at: at, zigType: zigType);
     }
 
+    /// Writes values using a Buzz object type as a Zig struct layout.
+    /// @param structType Buzz object type to use as struct layout
+    /// @param values Values to write
     fun writeStruct::<T>(structType: type, values: [T]) > void !> ffi\FFITypeMismatchError {
         BufferWriteStruct::<T>(this.buffer, structType: structType, values: values);
     }
 
+    /// Writes values at `at` using a Buzz object type as a Zig struct layout.
+    /// @param structType Buzz object type to use as struct layout
+    /// @param at Offset at which to write
+    /// @param values Values to write
     fun writeStructAt::<T>(structType: type, at: int, values: [T]) > void !> ffi\FFITypeMismatchError {
         BufferWriteStructAt::<T>(this.buffer, structType: structType, at: at, values: values);
     }
 
+    /// Reads a value using a Buzz object type as a Zig struct layout.
+    /// @param structType Buzz object type to use as struct layout
+    /// @return Read value
     fun readStruct::<T>(structType: type) > T {
         return BufferReadStruct::<T>(this.buffer, structType: structType);
     }
 
+    /// Reads a value at `at` using a Buzz object type as a Zig struct layout.
+    /// @param structType Buzz object type to use as struct layout
+    /// @param at Offset from which to read
+    /// @return Read value
     fun readStructAt::<T>(structType: type, at: int) > T {
         return BufferReadStructAt::<T>(this.buffer, structType: structType, at: at);
     }

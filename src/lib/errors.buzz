@@ -1,5 +1,6 @@
 namespace errors;
 
+/// Errors raised by filesystem operations.
 export enum FileSystemError {
     AccessDenied,
     AntivirusInterference,
@@ -49,6 +50,7 @@ export enum FileSystemError {
     WouldBlock,
 }
 
+/// Errors raised while spawning or waiting for child processes.
 export enum ExecError {
     AccessDenied,
     ChildExecFailed,
@@ -71,6 +73,7 @@ export enum ExecError {
     WaitTimeOut,
 }
 
+/// Errors raised by socket and networking operations.
 export enum SocketError {
     AccessDenied,
     AddressFamilyUnsupported,
@@ -135,6 +138,7 @@ export enum SocketError {
     WouldBlock,
 }
 
+/// Errors raised while reading from or writing to streams.
 export enum ReadWriteError {
     BrokenPipe,
     ConnectionResetByPeer,
@@ -149,24 +153,31 @@ export enum ReadWriteError {
     WriteFailed,
 }
 
+/// Error raised when Buzz source cannot be compiled.
 export object CompileError {
     message: str = "CompileError",
 }
+/// Error raised when Buzz bytecode cannot be interpreted.
 export object InterpretError {
     message: str = "InterpretError",
 }
+/// Error raised when an argument is invalid for an operation.
 export object InvalidArgumentError {
     message: str = "InvalidArgumentError",
 }
+/// Error raised for functionality that is not implemented yet.
 export object NotYetImplementedError {
     message: str = "NotYetImplementedError",
 }
+/// Error raised when an operation overflows.
 export object OverflowError {
     message: str = "OverflowError",
 }
+/// Error raised when an operation underflows.
 export object UnderflowError {
     message: str = "UnderflowError",
 }
+/// Error raised when an unexpected failure occurs.
 export object UnexpectedError {
     message: str = "UnexpectedError",
 }

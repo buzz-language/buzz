@@ -61,15 +61,29 @@ fun onmagenta(text: str) => color(text, color: Color.onmagenta);
 fun oncyan(text: str) => color(text, color: Color.oncyan);
 fun onwhite(text: str) => color(text, color: Color.onwhite);
 
+/// Test runner with assertion helpers.
 export object Tester {
+    /// Test results.
     tests: mut [bool],
+    /// Assertion results.
     asserts: mut [bool],
+    /// Elapsed test time in milliseconds.
     elapsed: double = 0.0,
+    /// Hook run once before all tests.
     beforeAll: fun (t: Tester) > void?,
+    /// Hook run before each test.
     beforeEach: fun (t: Tester) > void?,
+    /// Hook run once after all tests.
     afterAll: fun (t: Tester) > void?,
+    /// Hook run after each test.
     afterEach: fun (t: Tester) > void?,
 
+    /// Creates a new tester and runs the `beforeAll` hook when provided.
+    /// @param beforeAll Hook run once before all tests
+    /// @param beforeEach Hook run before each test
+    /// @param afterAll Hook run once after all tests
+    /// @param afterEach Hook run after each test
+    /// @return A new `Tester`
     static fun init(
         beforeAll: fun (t: Tester) > void?,
         beforeEach: fun (t: Tester) > void?,
@@ -92,30 +106,37 @@ export object Tester {
         return t;
     }
 
+    /// Clears test results and elapsed time.
     mut fun reset() > void {
         this.tests = mut [];
         this.asserts = mut [];
         this.elapsed = 0.0;
     }
 
+    /// @return number of failed assertions
     fun failedAsserts() => this.asserts.reduce::<int>(
         fun (_: int, success: bool, accumulator: int)
             => accumulator + if (success) 0 else 1,
         initial: 0,
     );
 
+    /// @return number of failed tests
     fun failedTests() => this.tests.reduce::<int>(
         fun (_: int, success: bool, accumulator: int)
             => accumulator + if (success) 0 else 1,
         initial: 0,
     );
 
+    /// @return number of succeeded tests
     fun succeededTests() => this.tests.reduce::<int>(
         fun (_: int, success: bool, accumulator: int)
             => accumulator + if (success) 1 else 0,
         initial: 0,
     );
 
+    /// Runs a test case.
+    /// @param message Test description
+    /// @param fn Test body
     mut fun it(message: str, fn: fun () > void) > void {
         final startTime = os\time();
 
@@ -137,6 +158,7 @@ export object Tester {
         this.elapsed = this.elapsed + (os\time() - startTime);
     }
 
+    /// Prints a test summary and exits with a failure code when any test failed.
     fun summary() > void {
         if (this.afterAll -> afterAll) {
             afterAll(this);
@@ -168,10 +190,17 @@ export object Tester {
         }
     }
 
+    /// Reports an assertion failure.
+    /// @param error Error details
+    /// @param message Assertion message
     fun report(error: str?, message: str?) > void {
         io\stderr.write(red("  Assert failed: {message ?? ""}") + dim("\n    {error}\n")) catch void;
     }
 
+    /// Records whether an assertion condition succeeded.
+    /// @param condition Condition that must be true
+    /// @param error Error details printed when false
+    /// @param message Assertion message
     fun assert(condition: bool, error: str?, message: str?) > void {
         if (!condition) {
             this.report(error, message: message);
@@ -182,6 +211,10 @@ export object Tester {
         }
     }
 
+    /// Asserts that two values are equal.
+    /// @param actual Actual value
+    /// @param expected Expected value
+    /// @param message Assertion message
     fun assertEqual(actual: any, expected: any, message: str?) > void {
         this.assert(
             actual == expected,
@@ -190,6 +223,10 @@ export object Tester {
         );
     }
 
+    /// Asserts that two values are not equal.
+    /// @param actual Actual value
+    /// @param expected Value that should differ
+    /// @param message Assertion message
     fun assertNotEqual(actual: any, expected: any, message: str?) > void {
         this.assert(
             actual != expected,
@@ -198,6 +235,9 @@ export object Tester {
         );
     }
 
+    /// Asserts that all values are equal.
+    /// @param values Values to compare
+    /// @param message Assertion message
     fun assertAreEqual(values: [any], message: str?) > void {
         if (values.len() < 2) {
             return;
@@ -221,6 +261,9 @@ export object Tester {
         );
     }
 
+    /// Asserts that adjacent values are not equal.
+    /// @param values Values to compare
+    /// @param message Assertion message
     fun assertAreNotEqual(values: [any], message: str?) > void {
         if (values.len() < 2) {
             return;
@@ -244,6 +287,9 @@ export object Tester {
         );
     }
 
+    /// Asserts that a value has type `T`.
+    /// @param value Value to check
+    /// @param message Assertion message
     fun assertOfType::<T>(value: any, message: str?) > void {
         this.assert(
             !(value is T),
@@ -252,6 +298,9 @@ export object Tester {
         );
     }
 
+    /// Asserts that a function throws an error of type `T`.
+    /// @param fn Function expected to throw
+    /// @param message Assertion message
     fun assertThrows::<T>(fn: fun () > void !> T, message: str?) > void {
         try {
             fn();
@@ -263,6 +312,9 @@ export object Tester {
         this.assert(false, error: "Did not throw", message: message);
     }
 
+    /// Asserts that a function does not throw an error of type `T`.
+    /// @param fn Function expected not to throw
+    /// @param message Assertion message
     fun assertDoesNotThrow::<T>(fn: fun () > void, message: str?) > void {
         try {
             fn();

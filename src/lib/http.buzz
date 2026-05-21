@@ -3,6 +3,7 @@ namespace http;
 import "buffer";
 import "errors";
 
+/// Errors raised by HTTP client operations.
 export enum HttpError {
     CertificateBundleLoadFailure,
     ClientCollected,
@@ -56,6 +57,7 @@ export enum HttpError {
     UriMissingHost,
 }
 
+/// HTTP request method.
 export enum<str> Method {
     GET,
     HEAD,
@@ -79,6 +81,7 @@ extern fun HttpRequestWait(request: ud) > Response !> HttpError, errors\SocketEr
 /// @private
 extern fun HttpRequestDeinit(request: ud) > void;
 
+/// Error raised when an HTTP response cannot be parsed.
 export object HttpParseError{
     message: str? = null,
 }
@@ -88,18 +91,24 @@ object Connection {
     connection: ud,
 }
 
+/// HTTP client used to send requests.
 export object Client {
     /// @private
     client: ud,
     /// @private
     collected: bool = false,
 
+    /// Creates a new HTTP client.
+    /// @return A new `Client`
     static fun init() > Client !> HttpError {
         return Client{
             client = HttpClientNew(),
         };
     }
 
+    /// Sends a request and waits asynchronously for the response.
+    /// @param request Request to send
+    /// @return Response from the server
     fun send(request: mut Request) > Response *> void !> HttpError, errors\SocketError, errors\ReadWriteError, errors\UnexpectedError, errors\InvalidArgumentError, HttpParseError {
         _ = this.start(request);
 
@@ -108,6 +117,9 @@ export object Client {
         return request.wait();
     }
 
+    /// Starts a request without waiting for the response.
+    /// @param request Request to start
+    /// @return The started request
     fun start(request: mut Request) > mut Request !> HttpError, errors\SocketError, errors\ReadWriteError, errors\UnexpectedError {
         if (this.collected) {
             throw HttpError.ClientCollected;
@@ -126,6 +138,7 @@ export object Client {
         return request;
     }
 
+    /// Releases resources owned by the client.
     mut fun collect() > void {
         if (!this.collected) {
             this.collected = true;
@@ -135,14 +148,23 @@ export object Client {
     }
 }
 
+/// HTTP request data.
 export object Request {
+    /// Optional request body.
     body: str? = null,
+    /// @private
     collected: bool = false,
+    /// Request headers.
     headers: {str: str}  = {},
+    /// Request method.
     method: Method,
+    /// @private
     request: ud? = null,
+    /// Request URI.
     uri: str = "/",
 
+    /// Waits for a started request to complete.
+    /// @return Response from the server
     fun wait() > Response !> HttpError, errors\SocketError, errors\ReadWriteError, errors\UnexpectedError, errors\InvalidArgumentError, HttpParseError {
         if (this.collected) {
             throw HttpError.RequestCollected;
@@ -155,6 +177,8 @@ export object Request {
         throw errors\InvalidArgumentError{};
     }
 
+    /// Render this request as an HTTP/1.1 request string.
+    /// @return request string
     fun toString() > str {
         try {
             var result = buffer\Buffer.init();
@@ -172,6 +196,7 @@ export object Request {
         return "";
     }
 
+    /// Releases resources owned by the request.
     mut fun collect() > void {
         if (this.collected) {
             return;
@@ -184,9 +209,14 @@ export object Request {
     }
 }
 
+/// HTTP response data.
 export object Response {
+    /// Optional response body.
     body: str? = null,
+    /// @private
     collected: bool = false,
+    /// Response headers.
     headers: {str: str} = {},
+    /// HTTP status code.
     status: int = 200,
 }

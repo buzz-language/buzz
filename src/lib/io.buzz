@@ -54,6 +54,7 @@ export object File {
         };
     }
 
+    /// Close file when it is collected.
     mut fun collect() > void {
         this.close();
     }
@@ -96,7 +97,7 @@ export object File {
         return FileIsTTY(this.file);
     }
 
-    // @return FilePoller that can be used to poll incoming data on that file
+    /// @return FilePoller that can be used to poll incoming data on that file
     fun getPoller() > mut FilePoller {
         return mut FilePoller{
             poller = FileGetPoller(this.file),
@@ -104,17 +105,21 @@ export object File {
     }
 }
 
+/// Object used to poll incoming data on a file.
 export object FilePoller {
     /// Underlying zig poller
     poller: ud,
+    /// @private
     collected: bool = false,
 
-    // Poll file, blocking for at most `timeout` before returning
-    // @returns The string read if any, `null` otherwise
+    /// Poll file, blocking for at most `timeout` before returning.
+    /// @param timeout Maximum time to block, or null to block indefinitely
+    /// @returns The string read if any, `null` otherwise
     fun poll(timeout: int?) > str? !> errors\FileSystemError, errors\UnexpectedError {
         return PollerPoll(this.poller, timeout);
     }
 
+    /// Deinitialize poller when it is collected.
     mut fun collect() > void {
        if (!this.collected) {
            this.collected = true;
@@ -122,6 +127,7 @@ export object FilePoller {
        }
     }
 
+    /// Frees the poller.
     fun deinit() > void {
         PollerDeinit(this.poller);
     }

@@ -1,25 +1,46 @@
 namespace ffi;
 
+/// Convert a Buzz string to a null-terminated C string.
+/// @param string string to terminate
+/// @return null-terminated string
 export fun cstr(string: str) => "{string}\000";
 
+/// Error raised when a Buzz value does not match the expected FFI type.
 export object FFITypeMismatchError {
     message: str = "Provided buzz value type does not match expected FFI type",
 }
 
+/// Error raised when a Zig type string cannot be parsed.
 export object FFIZigTypeParseError {
     message: str = "Could not parse zig type",
 }
 
+/// Error raised when raw foreign data is requested from a non-foreign value.
 export object ValueNotForeignContainer {
     message: str = "Value is not a foreign container",
 }
 
+/// Returns the ABI alignment of a Zig type.
+/// @param zigType Zig type expression
+/// @return alignment in bytes
 export extern fun alignOf(zigType: str) > int !> FFIZigTypeParseError;
 
+/// Returns the ABI size of a Zig type.
+/// @param zigType Zig type expression
+/// @return size in bytes
 export extern fun sizeOf(zigType: str) > int !> FFIZigTypeParseError;
 
+/// Returns the ABI size of a Buzz object laid out as a Zig struct.
+/// @param structType Buzz object type to measure
+/// @return size in bytes
 export extern fun sizeOfStruct(structType: type) > int;
 
+/// Returns the ABI alignment of a Buzz object laid out as a Zig struct.
+/// @param structType Buzz object type to measure
+/// @return alignment in bytes
 export extern fun alignOfStruct(structType: type) > int;
 
+/// Returns the raw foreign data bytes stored in a foreign container.
+/// @param data foreign container value
+/// @return raw bytes
 export extern fun rawData(data: any) > str !> ValueNotForeignContainer;

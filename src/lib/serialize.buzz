@@ -5,8 +5,12 @@ import "std";
 
 /// Utility object to manage deserialized data from, for example, decoded JSON
 export object Boxed {
+    /// Wrapped data.
     data: any = null,
 
+    /// Creates a `Boxed` wrapper around serializable data.
+    /// @param data Data to wrap
+    /// @return A new `Boxed`
     static fun init(data: any) > Boxed !> CircularReference, NotSerializable {
         return Boxed{
             data = serializeValue(data),
@@ -104,16 +108,22 @@ export object Boxed {
     }
 }
 
+/// Error raised when serialization detects a circular reference.
 export object CircularReference {
     message: str = "Circular reference",
 }
 
+/// Error raised when a value cannot be serialized.
 export object NotSerializable {
     message: str = "Not serializable",
 }
 
+/// Converts any serializable Buzz value into JSON-compatible data.
+/// @param value Value to serialize
+/// @return Serialized data
 export extern fun serializeValue(value: any) > any !> CircularReference, NotSerializable;
 
+/// Error raised when JSON parsing fails.
 export object JsonParseError {
     message: str? = null,
 }

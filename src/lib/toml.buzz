@@ -1182,6 +1182,7 @@ object Scanner {
 
 fun scanToken(source: str) => Scanner.init(source).scan();
 
+/// Errors raised while decoding TOML.
 export enum Error {
     /// Source is not valid utf8
     NotValidUtf8,
@@ -2075,4 +2076,7 @@ object Parser {
     }
 }
 
+/// Decode TOML source into Buzz maps and lists.
+/// @param source TOML source to decode
+/// @return decoded TOML data
 export fun decode(source: str) !> Error => Parser.parse(source);
