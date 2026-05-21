@@ -52,12 +52,7 @@ pub fn init(gc: *GC) !TypeRegistry {
     self.double_type = try self.getTypeDef(.{ .def_type = .Double });
     self.bool_type = try self.getTypeDef(.{ .def_type = .Boolean });
     self.any_type = try self.getTypeDef(
-        .{
-            .def_type = .Any,
-            .resolved_type = .{
-                .Any = false,
-            },
-        },
+        .{ .def_type = .Any },
     );
     self.pat_type = try self.getTypeDef(.{ .def_type = .Pattern });
     self.ud_type = try self.getTypeDef(.{ .def_type = .UserData });

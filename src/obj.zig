@@ -4364,7 +4364,7 @@ pub const ObjTypeDef = struct {
 
     // Always keep types with void value first.
     pub const TypeUnion = union(Type) {
-        Any: bool, // true if mutable
+        Any: void,
         Boolean: void,
         Double: void,
         Integer: void,
@@ -4995,12 +4995,7 @@ pub const ObjTypeDef = struct {
             .Double => try writer.writeAll("double"),
             .String => try writer.writeAll("str"),
             .Pattern => try writer.writeAll("pat"),
-            .Any => {
-                if (self.resolved_type.?.Any) {
-                    try writer.writeAll("mut ");
-                }
-                try writer.writeAll("any");
-            },
+            .Any => try writer.writeAll("any"),
             .Range => try writer.writeAll("rg"),
             .Fiber => {
                 try writer.writeAll("fib<");

@@ -2998,9 +2998,6 @@ fn parseTypeDef(
                     .{
                         .optional = optional,
                         .def_type = .Any,
-                        .resolved_type = .{
-                            .Any = mutable,
-                        },
                     },
                 ),
                 .components = .{

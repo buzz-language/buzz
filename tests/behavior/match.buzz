@@ -190,3 +190,14 @@ test "match fallback equality and inference" {
     };
     std\assert(mixed is str, message: "mixed branch types produce selected value");
 }
+
+test "match any" {
+    final val: any = "yep";
+
+    final result = match (val) {
+        <str> -> "string",
+        else -> "nope",
+    };
+
+    std\assert(result == "string", message: "can match any value against type");
+}
