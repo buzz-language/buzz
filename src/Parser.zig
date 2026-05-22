@@ -18,38 +18,10 @@ const Reporter = @import("Reporter.zig");
 const StringParser = @import("StringParser.zig");
 const Perf = @import("Perf.zig");
 const pcre = if (!is_wasm) @import("pcre.zig") else void;
-const buzz_api = @import("lib/buzz_api.zig");
+const static_libraries = @import("lib/static_libraries.zig");
 const print = @import("io.zig").print;
 
-const libs = if (!is_wasm)
-    std.StaticStringMap(std.StaticStringMap(buzz_api.NativeFn)).initComptime(
-        &.{
-            &.{ @import("lib/buzz_buffer.zig").library.name, @import("lib/buzz_buffer.zig").library.methods },
-            &.{ @import("lib/buzz_crypto.zig").library.name, @import("lib/buzz_crypto.zig").library.methods },
-            &.{ @import("lib/buzz_debug.zig").library.name, @import("lib/buzz_debug.zig").library.methods },
-            &.{ @import("lib/buzz_ffi.zig").library.name, @import("lib/buzz_ffi.zig").library.methods },
-            &.{ @import("lib/buzz_fs.zig").library.name, @import("lib/buzz_fs.zig").library.methods },
-            &.{ @import("lib/buzz_gc.zig").library.name, @import("lib/buzz_gc.zig").library.methods },
-            &.{ @import("lib/buzz_http.zig").library.name, @import("lib/buzz_http.zig").library.methods },
-            &.{ @import("lib/buzz_io.zig").library.name, @import("lib/buzz_io.zig").library.methods },
-            &.{ @import("lib/buzz_math.zig").library.name, @import("lib/buzz_math.zig").library.methods },
-            &.{ @import("lib/buzz_os.zig").library.name, @import("lib/buzz_os.zig").library.methods },
-            &.{ @import("lib/buzz_serialize.zig").library.name, @import("lib/buzz_serialize.zig").library.methods },
-            &.{ @import("lib/buzz_std.zig").library.name, @import("lib/buzz_std.zig").library.methods },
-        },
-    )
-else
-    std.StaticStringMap(std.StaticStringMap(buzz_api.NativeFn)).initComptime(
-        &.{
-            &.{ @import("lib/buzz_buffer.zig").library.name, @import("lib/buzz_buffer.zig").library.methods },
-            &.{ @import("lib/buzz_crypto.zig").library.name, @import("lib/buzz_crypto.zig").library.methods },
-            &.{ @import("lib/buzz_debug.zig").library.name, @import("lib/buzz_debug.zig").library.methods },
-            &.{ @import("lib/buzz_gc.zig").library.name, @import("lib/buzz_gc.zig").library.methods },
-            &.{ @import("lib/buzz_math.zig").library.name, @import("lib/buzz_math.zig").library.methods },
-            &.{ @import("lib/buzz_serialize.zig").library.name, @import("lib/buzz_serialize.zig").library.methods },
-            &.{ @import("lib/buzz_std.zig").library.name, @import("lib/buzz_std.zig").library.methods },
-        },
-    );
+const libs = static_libraries.nativeLibraries(is_wasm);
 
 pub const Dlib = struct {
     pub const LookupFn = *const fn ([*:0]const u8) callconv(.c) ?obj.NativeFn;
@@ -748,6 +720,10 @@ pub fn consume(self: *Self, tag: Token.Tag, comptime message: []const u8) !void 
                 },
             );
 
+            if (tag == .Semicolon) {
+                return CompileError.Recoverable;
+            }
+
             // We don't recover from this
             return Error.CantCompile;
         },
@@ -983,8 +959,8 @@ pub fn parse(self: *Self, source: []const u8, file_name: ?[]const u8, name: []co
     );
 
     var entry = Ast.Function.Entry{
-        .test_slots = undefined,
-        .test_locations = undefined,
+        .test_slots = &.{},
+        .test_locations = &.{},
     };
 
     self.script_name = name;
@@ -1000,7 +976,7 @@ pub fn parse(self: *Self, source: []const u8, file_name: ?[]const u8, name: []co
 
     var statements = std.ArrayList(Ast.Node.Index).empty;
     while (!(try self.match(.Eof))) {
-        if (self.declarationOrStatement(null) catch |err| {
+        if (self.declarationOrStatement(null) catch |err| recover: {
             if (function_type != .Repl and err == error.ReachedMaximumMemoryUsage) {
                 return err;
             }
@@ -1016,21 +992,40 @@ pub fn parse(self: *Self, source: []const u8, file_name: ?[]const u8, name: []co
                     },
                 );
             }
-            self.discardFramesUntil(enclosing_frame);
-            return null;
+
+            break :recover null;
         }) |decl| {
             try statements.append(self.gc.allocator, decl);
         } else {
-            self.reporter.reportErrorAt(
-                .syntax,
-                self.ast.tokens.get(self.current_token.? - 1),
-                self.ast.tokens.get(self.current_token.? - 1),
-                "Expected statement",
-            );
+            // If declarationOrStatement already reported an error, avoid adding
+            // a secondary diagnostic from a possibly stale recovery token.
+            if (self.reporter.last_error == null) {
+                self.reporter.reportErrorAt(
+                    .syntax,
+                    self.ast.tokens.get(self.current_token.? - 1),
+                    self.ast.tokens.get(self.current_token.? - 1),
+                    "Expected statement",
+                );
+            }
             break;
         }
     }
+
+    // Failed imported scripts are only used for their diagnostics; nested import
+    // recovery can rewind the shared AST before this parser publishes a root.
+    if (self.imported and self.reporter.last_error != null) {
+        return null;
+    }
+
     self.ast.nodes.items(.components)[body_node].Block = try statements.toOwnedSlice(self.gc.allocator);
+
+    // Once parsing has failed, later entry/global analysis can touch partial
+    // declarations. Keep the partial root for tooling and stop semantic setup.
+    if (self.reporter.last_error != null) {
+        self.ast.nodes.items(.components)[function_node].Function.entry = entry;
+        self.ast.root = self.endFrame();
+        return null;
+    }
 
     // If top level, search `main` or `test` function(s) and call them
     // Then put any exported globals on the stack
@@ -1104,8 +1099,7 @@ pub fn parse(self: *Self, source: []const u8, file_name: ?[]const u8, name: []co
         ];
     }
 
-    const root_node = self.endFrame();
-    self.ast.root = if (self.reporter.last_error != null) null else root_node;
+    self.ast.root = self.endFrame();
 
     return if (self.reporter.last_error != null) null else self.ast;
 }
@@ -1211,70 +1205,78 @@ fn beginFrame(self: *Self, function_type: obj.ObjFunction.FunctionType, function
 }
 
 fn endFrame(self: *Self) Ast.Node.Index {
-    var i: usize = 0;
-    while (i < self.current.?.local_count) : (i += 1) {
-        const local = self.current.?.locals[i];
-
-        if (self.flavor != .Repl) {
-            // Check discarded locals
-            if (!local.isReferenced(self.ast)) {
-                const location = self.ast.tokens.get(local.name);
-                self.reporter.warnFmt(
-                    .unused_argument,
-                    location,
-                    location,
-                    "Local `{s}` is never referenced",
-                    .{
-                        self.ast.tokens.items(.lexeme)[local.name],
-                    },
-                );
-            }
-
-            // Check var local never assigned
-            if (!local.isAssigned(self.ast)) {
-                const location = self.ast.tokens.get(local.name);
-                self.reporter.warnFmt(
-                    .unassigned_final_local,
-                    location,
-                    location,
-                    "Local `{s}` is declared `var` but is never re-assigned",
-                    .{
-                        self.ast.tokens.items(.lexeme)[local.name],
-                    },
-                );
-            }
-        }
-    }
-
-    // If global scope, check unused globals
-    const function_type = self.ast.nodes.items(.type_def)[self.current.?.function_node].?.resolved_type.?.Function.function_type;
-    if (function_type == .Script or function_type == .ScriptEntryPoint) {
-        for (self.globals.items) |global| {
-            if (!global.isReferenced(self.ast)) {
-                const type_def_str = global.type_def.toStringAlloc(self.gc.allocator, false) catch unreachable;
-                defer self.gc.allocator.free(type_def_str);
-
-                const location = self.ast.tokens.get(global.qualified_name.firstToken());
-
-                self.reporter.warnFmt(
-                    .unused_argument,
-                    location,
-                    location,
-                    "Unused global of type `{s}`",
-                    .{
-                        type_def_str,
-                    },
-                );
-            }
-        }
-    }
-
     const current = self.current.?;
     const current_node = current.function_node;
+
+    // Malformed sources can leave type annotations partially built; diagnostics
+    // are enough in that state, so skip warning-only analysis while unwinding.
+    if (self.reporter.last_error == null) {
+        var i: usize = 0;
+        while (i < current.local_count) : (i += 1) {
+            self.warnAboutLocal(current.locals[i], true);
+        }
+
+        // If global scope, check unused globals
+        const function_type = self.ast.nodes.items(.type_def)[current.function_node].?.resolved_type.?.Function.function_type;
+        if (function_type == .Script or function_type == .ScriptEntryPoint) {
+            for (self.globals.items) |global| {
+                if (!global.isReferenced(self.ast)) {
+                    const type_def_str = global.type_def.toStringAlloc(self.gc.allocator, false) catch unreachable;
+                    defer self.gc.allocator.free(type_def_str);
+
+                    const location = self.ast.tokens.get(global.qualified_name.firstToken());
+
+                    self.reporter.warnFmt(
+                        .unused_argument,
+                        location,
+                        location,
+                        "Unused global of type `{s}`",
+                        .{
+                            type_def_str,
+                        },
+                    );
+                }
+            }
+        }
+    }
+
     self.current = current.enclosing;
     self.destroyFrame(current);
 
     return current_node;
+}
+
+/// Emits diagnostics for a local before its parser frame slot is discarded.
+fn warnAboutLocal(self: *Self, local: Local, comptime check_assignment: bool) void {
+    if (self.flavor == .Repl) {
+        return;
+    }
+
+    if (!local.isReferenced(self.ast)) {
+        const location = self.ast.tokens.get(local.name);
+        self.reporter.warnFmt(
+            .unused_argument,
+            location,
+            location,
+            "Local `{s}` is never referenced",
+            .{
+                self.ast.tokens.items(.lexeme)[local.name],
+            },
+        );
+    }
+
+    if (check_assignment and !local.isAssigned(self.ast)) {
+        const location = self.ast.tokens.get(local.name);
+        self.reporter.warnFmt(
+            .unassigned_final_local,
+            location,
+            location,
+            "Local `{s}` is declared `var` but is never re-assigned",
+            .{
+                self.ast.tokens.items(.lexeme)[local.name],
+            },
+        );
+    }
 }
 
 fn beginScope(self: *Self, at: ?Ast.Node.Index) !void {
@@ -1290,6 +1292,7 @@ fn endScope(self: *Self) ![]Ast.Close {
 
     while (current.local_count > 0 and current.locals[current.local_count - 1].depth > current.scope_depth) {
         const local = current.locals[current.local_count - 1];
+        self.warnAboutLocal(local, false);
 
         if (local.captured) {
             try closing.append(
@@ -1645,6 +1648,22 @@ fn declaration(self: *Self, docblock: ?Ast.TokenIndex) Error!?Ast.Node.Index {
     return node;
 }
 
+/// Recovers after a statement-boundary error without discarding completed siblings.
+fn recoverDeclarationOrStatement(self: *Self, err: Error) Error!void {
+    switch (err) {
+        error.Recoverable => {},
+        else => return err,
+    }
+
+    if (self.check(.RightBrace) or self.check(.Eof)) {
+        // synchronize() normally clears panic_mode, but at block end or EOF there are
+        // no tokens left to skip before returning to the enclosing parser frame.
+        self.reporter.panic_mode = false;
+    } else {
+        try self.synchronize();
+    }
+}
+
 fn declarationOrStatement(self: *Self, loop_scope: ?LoopScope) !?Ast.Node.Index {
     const global_scope = self.current.?.scope_depth == 0;
     const docblock = if (global_scope and try self.match(.Docblock))
@@ -1652,12 +1671,31 @@ fn declarationOrStatement(self: *Self, loop_scope: ?LoopScope) !?Ast.Node.Index 
     else
         null;
 
-    return try self.declaration(docblock) orelse
-        try self.statement(
+    // Recover at the declaration/statement boundary so every caller keeps parsing the
+    // completed prefix of its current list when a statement is incomplete.
+    const node = recover: {
+        if (self.declaration(docblock) catch |err| {
+            try self.recoverDeclarationOrStatement(err);
+            break :recover null;
+        }) |decl| {
+            break :recover decl;
+        }
+
+        break :recover self.statement(
             docblock,
             false,
             loop_scope,
-        );
+        ) catch |err| {
+            try self.recoverDeclarationOrStatement(err);
+            break :recover null;
+        };
+    };
+
+    if (self.reporter.panic_mode) {
+        try self.synchronize();
+    }
+
+    return node;
 }
 
 // When a break statement, will return index of jump to patch
@@ -1807,6 +1845,13 @@ fn addGlobal(
                 }
 
                 try self.resolvePlaceholder(global.type_def, global_type, final);
+                // Forward references create global placeholders before their
+                // declaration node exists. Once the placeholder resolves, keep
+                // the global table pointing at the real declaration so tooling
+                // and later semantic passes can recover the source location.
+                global.node = node;
+                global.final = final;
+                global.mutable = mutable;
 
                 if (self.flavor == .Ast) {
                     for (global.placeholder_referrers.items) |referrer| {
@@ -6188,6 +6233,12 @@ fn namedVariable(self: *Self, qualified_name: Ast.QualifiedName, can_assign: boo
             slot = try self.declarePlaceholder(qualified_name.name, null);
             var_def = self.globals.items[slot].type_def;
             slot_type = .Global;
+            if (self.flavor == .Ast) {
+                try self.globals.items[slot].placeholder_referrers.append(
+                    self.gc.allocator,
+                    @intCast(node_slot),
+                );
+            }
 
             if (qualified_name.namespace.len > 0) {
                 self.reporter.reportErrorFmt(
@@ -6700,7 +6751,7 @@ fn function(
     }
 
     if (function_type == .Extern) {
-        if (self.flavor.resolveImports()) {
+        if (self.flavor.resolveDynLib() and self.flavor.resolveImports()) {
             const native_opt = try self.importStaticLibSymbol(
                 self.script_name,
                 function_typedef.resolved_type.?.Function.name.string,
@@ -6732,8 +6783,6 @@ fn function(
             // Search for a dylib/so/dll with the same name as the current script
             if (native_opt) |native| {
                 self.ast.nodes.items(.components)[function_node].Function.native = native;
-            } else if (!self.flavor.resolveDynLib()) {
-                self.ast.nodes.items(.components)[function_node].Function.native = undefined;
             } else {
                 return error.BuzzNoDll;
             }
@@ -9068,99 +9117,30 @@ fn searchZdefLibPaths(self: *Self, file_name: []const u8) ![][]const u8 {
 }
 
 fn readStaticScript(self: *Self, file_name: []const u8) ?[2][]const u8 {
-    // We can't build the file path dynamically
-    return if (std.mem.eql(u8, file_name, "std"))
-        [_][]const u8{
-            @embedFile("lib/std.buzz"),
-            file_name,
+    inline for (static_libraries.all) |library| {
+        if (std.mem.eql(u8, file_name, library.name)) {
+            return [_][]const u8{
+                @embedFile("lib/" ++ library.header_path),
+                library.name,
+            };
         }
-    else if (std.mem.eql(u8, file_name, "gc"))
-        [_][]const u8{
-            @embedFile("lib/gc.buzz"),
-            file_name,
-        }
-    else if (std.mem.eql(u8, file_name, "math"))
-        [_][]const u8{
-            @embedFile("lib/math.buzz"),
-            file_name,
-        }
-    else if (std.mem.eql(u8, file_name, "debug"))
-        [_][]const u8{
-            @embedFile("lib/debug.buzz"),
-            file_name,
-        }
-    else if (std.mem.eql(u8, file_name, "buffer"))
-        [_][]const u8{
-            @embedFile("lib/buffer.buzz"),
-            file_name,
-        }
-    else if (std.mem.eql(u8, file_name, "serialize"))
-        [_][]const u8{
-            @embedFile("lib/serialize.buzz"),
-            file_name,
-        }
-    else if (std.mem.eql(u8, file_name, "errors"))
-        [_][]const u8{
-            @embedFile("lib/errors.buzz"),
-            file_name,
-        }
-    else if (std.mem.eql(u8, file_name, "test"))
-        [_][]const u8{
-            @embedFile("lib/testing.buzz"),
-            file_name,
-        }
-    else if (std.mem.eql(u8, file_name, "crypto"))
-        [_][]const u8{
-            @embedFile("lib/crypto.buzz"),
-            file_name,
-        }
-    else if (std.mem.eql(u8, file_name, "ffi"))
-        [_][]const u8{
-            @embedFile("lib/ffi.buzz"),
-            file_name,
-        }
-    else if (std.mem.eql(u8, file_name, "fs"))
-        [_][]const u8{
-            @embedFile("lib/fs.buzz"),
-            file_name,
-        }
-    else if (std.mem.eql(u8, file_name, "io"))
-        [_][]const u8{
-            @embedFile("lib/io.buzz"),
-            file_name,
-        }
-    else if (std.mem.eql(u8, file_name, "os"))
-        [_][]const u8{
-            @embedFile("lib/os.buzz"),
-            file_name,
-        }
-    else if (std.mem.eql(u8, file_name, "http"))
-        [_][]const u8{
-            @embedFile("lib/http.buzz"),
-            file_name,
-        }
-    else if (std.mem.eql(u8, file_name, "toml"))
-        [_][]const u8{
-            @embedFile("lib/toml.buzz"),
-            file_name,
-        }
-    else none: {
-        // If wasm it will not fallback to importing actual files
-        if (is_wasm) {
-            const location = self.ast.tokens.get(self.current_token.? - 1);
-            self.reporter.reportErrorFmt(
-                .script_not_found,
-                location,
-                location,
-                "buzz script `{s}` not found",
-                .{
-                    file_name,
-                },
-            );
-        }
+    }
 
-        break :none null;
-    };
+    // If wasm it will not fallback to importing actual files
+    if (is_wasm) {
+        const location = self.ast.tokens.get(self.current_token.? - 1);
+        self.reporter.reportErrorFmt(
+            .script_not_found,
+            location,
+            location,
+            "buzz script `{s}` not found",
+            .{
+                file_name,
+            },
+        );
+    }
+
+    return null;
 }
 
 fn readScript(self: *Self, file_name: []const u8) !?[2][]const u8 {
@@ -9268,7 +9248,7 @@ fn checkImportedNamespaceCollision(self: *Self, namespace: []const Ast.TokenInde
                     self.ast.tokens.get(namespace[namespace.len - 1]),
                     self.ast.tokens.get(own_namespace[0]),
                     self.ast.tokens.get(own_namespace[own_namespace.len - 1]),
-                    "The namespace `{s} already exists`",
+                    "The namespace `{s}` already exists",
                     .{
                         namespace_str.items,
                     },
@@ -9296,7 +9276,7 @@ fn checkImportedNamespaceCollision(self: *Self, namespace: []const Ast.TokenInde
                 self.ast.tokens.get(namespace[namespace.len - 1]),
                 self.ast.tokens.get(global.qualified_name.namespace[0]),
                 self.ast.tokens.get(global.qualified_name.namespace[global.qualified_name.namespace.len - 1]),
-                "The namespace `{s} already exists`",
+                "The namespace `{s}` already exists",
                 .{
                     namespace_str.items,
                 },
@@ -9362,7 +9342,8 @@ fn importScript(
         // We need to share the token and node list with the import so TokenIndex and Node.Index are usable
         parser.ast = self.ast;
         parser.current_token = self.current_token;
-        const token_before_import = self.ast.tokens.get(self.current_token.?);
+        const previous_current_token = self.current_token.?;
+        const token_before_import = self.ast.tokens.get(previous_current_token);
         const previous_root = self.ast.root;
         const previous_tokens_len = self.ast.tokens.len;
         const previous_node_len = self.ast.nodes.len;
@@ -9427,10 +9408,14 @@ fn importScript(
             self.ast.tokens.set(parser.current_token.?, token_before_import);
             self.current_token = parser.current_token;
         } else {
+            // Failed imports can still grow or reallocate the shared token/node
+            // lists, so restore from the imported parser's current AST copy.
+            self.ast = parser.ast;
             self.ast.root = previous_root;
             self.ast.nodes.shrinkRetainingCapacity(previous_node_len);
             self.ast.tokens.shrinkRetainingCapacity(previous_tokens_len);
-            self.current_token = @intCast(previous_tokens_len);
+            self.ast.tokens.set(previous_current_token, token_before_import);
+            self.current_token = previous_current_token;
 
             self.reporter.last_error = parser.reporter.last_error;
         }
@@ -9714,6 +9699,7 @@ fn importStatement(self: *Self) Error!Ast.Node.Index {
     }
 
     try self.consume(.Semicolon, "Expected `;` after statement.");
+    const end_location = self.current_token.? - 1;
 
     const import = if (self.reporter.last_error == null)
         try self.importScript(
@@ -9743,7 +9729,7 @@ fn importStatement(self: *Self) Error!Ast.Node.Index {
         .{
             .tag = .Import,
             .location = start_location,
-            .end_location = self.current_token.? - 1,
+            .end_location = end_location,
             .components = .{
                 .Import = .{
                     .prefix = prefix,

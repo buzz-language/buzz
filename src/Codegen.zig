@@ -1959,7 +1959,7 @@ fn generateFunction(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?
 
     if (function_type != .ScriptEntryPoint and function_type != .Repl) {
         // `extern` functions don't have upvalues
-        if (function_type == .Extern) {
+        if (function_type == .Extern and self.flavor.resolveDynLib()) {
             try self.OP_CONSTANT(
                 locations[node],
                 components.native.?.toValue(),

@@ -127,6 +127,9 @@ Only Zig files need formatting checks for now.
 - Zig variables use snake_case.
 - Zig types and functions use camelCase.
 - Comments are encouraged for compiler/runtime logic, but keep them concise and useful.
+- Any non-trivial code added must be properly commented in the code. Comments should explain intent, invariants, or tricky control flow, not restate obvious assignments.
+- Any new Zig file under `src/` must start with a file docblock (`//! ...`) describing the general role of the file.
+- Any new functions, structs, objects, properties, and enums introduced in Zig or Buzz code must have a docblock.
 
 ## Runtime And GC Rules
 

@@ -1,0 +1,9 @@
+fun importedSyntaxError() > void {
+    final value = 1;
+    final other = "42";
+    final unused = 42;
+
+    if (value == other) {
+        // print("hello");
+    }
+}
