@@ -8,10 +8,12 @@ const GC = @import("GC.zig");
 const TypeRegistry = @import("TypeRegistry.zig");
 const Parser = @import("Parser.zig");
 const Reporter = @import("Reporter.zig");
+const Scanner = @import("Scanner.zig");
 const CodeGen = @import("Codegen.zig");
 const Token = @import("Token.zig");
 const Renderer = @import("renderer.zig").Renderer;
 const o = @import("obj.zig");
+const static_libraries = @import("lib/static_libraries.zig");
 
 const log = std.log.scoped(.buzz_lsp);
 
@@ -66,8 +68,11 @@ const Document = struct {
     ast: Ast,
     errors: []const Reporter.Report,
 
-    /// Symbols collected in the document
+    /// Document symbols collected from parser globals.
     symbols: std.ArrayList(lsp.types.DocumentSymbol) = .empty,
+
+    /// Global and imported labels available for completion.
+    completion_labels: std.StringArrayHashMapUnmanaged(void) = .empty,
 
     /// Cache for previous gotoDefinition
     definitions: std.AutoHashMapUnmanaged(Ast.Node.Index, ?Definition) = .empty,
@@ -115,12 +120,15 @@ const Document = struct {
 
         const owned_uri = try allocator.dupe(u8, uri);
         const std_lib_script_name = staticScriptNameFromUri(owned_uri);
+        const document_script_name = std_lib_script_name orelse
+            (try localPathFromFileUri(allocator, owned_uri)) orelse
+            owned_uri;
 
         // If there's parsing error `parse` does not return the AST, but we can still use it however incomplete
         const ast = (parser.parse(
             std.mem.span(src),
-            if (std_lib_script_name != null) owned_uri else null,
-            std_lib_script_name orelse owned_uri,
+            owned_uri,
+            document_script_name,
         ) catch parser.ast) orelse
             parser.ast;
 
@@ -144,12 +152,240 @@ const Document = struct {
             .errors = errors.items,
         };
 
+        try doc.collectGlobalSymbols(allocator, parser.globals.items);
+
+        // Keywords are document-independent, so store them with the precomputed
+        // global labels once instead of rebuilding them on every completion.
+        for (Token.keywords.keys()) |keyword| {
+            try doc.completion_labels.put(allocator, keyword, {});
+        }
+
         if (ast.root != null) {
             doc.computeInlayHints() catch return error.OutOfMemory;
             try doc.collectMemberDocblocks(&imports);
         }
 
         return doc;
+    }
+
+    /// Collects current-file document symbols and all global completion labels from parser globals.
+    fn collectGlobalSymbols(self: *Document, allocator: std.mem.Allocator, globals: []const Parser.Global) !void {
+        const ast_slice = self.ast.slice();
+        const tags = ast_slice.nodes.items(.tag);
+        const components = ast_slice.nodes.items(.components);
+        const locations = ast_slice.nodes.items(.location);
+        const end_locations = ast_slice.nodes.items(.end_location);
+        const lexemes = ast_slice.tokens.items(.lexeme);
+
+        // Parser globals are the resolved top-level visibility table; collecting
+        // from it keeps document symbols and imported completions in one place.
+        for (globals) |global| {
+            if (global.hidden) {
+                continue;
+            }
+
+            if (global.type_def.def_type == .Placeholder) {
+                continue;
+            }
+
+            const name = lexemes[global.qualified_name.name];
+            if (name.len == 1 and name[0] == '_') {
+                continue;
+            }
+
+            // Imported globals are completion-only in this document. Their
+            // defining node can belong to the imported script, so collect the
+            // label before applying current-document symbol checks.
+            if (global.imported_from != null) {
+                var label = std.Io.Writer.Allocating.init(allocator);
+
+                if (global.qualified_name.namespace.len > 0) {
+                    for (global.qualified_name.namespace) |part| {
+                        try label.writer.print("{s}\\", .{lexemes[part]});
+                    }
+                }
+
+                try label.writer.writeAll(name);
+
+                try self.completion_labels.put(allocator, label.written(), {});
+                continue;
+            }
+
+            const node_index: usize = @intCast(global.node);
+            if (node_index == 0 or node_index >= ast_slice.nodes.len) {
+                continue;
+            }
+
+            try self.completion_labels.put(allocator, name, {});
+
+            const node = global.node;
+            switch (tags[node]) {
+                .VarDeclaration => {
+                    const comp = components[node].VarDeclaration;
+                    if (comp.slot_type == .Global) {
+                        try self.symbols.append(
+                            allocator,
+                            .{
+                                .name = name,
+                                .detail = try global.type_def.toStringAlloc(allocator, false),
+                                .kind = if (!global.type_def.isMutable() and comp.final)
+                                    .Constant
+                                else
+                                    .Variable,
+                                .range = tokenToRange(ast_slice, locations[node], end_locations[node]),
+                                .selectionRange = tokenToRange(ast_slice, locations[node], end_locations[node]),
+                            },
+                        );
+                    }
+                },
+                .Enum => {
+                    const comp = components[node].Enum;
+                    var children = std.ArrayList(lsp.types.DocumentSymbol).empty;
+
+                    for (comp.cases) |case| {
+                        const range = tokenToRange(
+                            ast_slice,
+                            case.name,
+                            if (case.value) |value|
+                                end_locations[value]
+                            else
+                                case.name,
+                        );
+
+                        try children.append(
+                            allocator,
+                            .{
+                                .name = lexemes[case.name],
+                                .kind = .EnumMember,
+                                .range = range,
+                                .selectionRange = range,
+                            },
+                        );
+                    }
+
+                    try self.symbols.append(
+                        allocator,
+                        .{
+                            .name = name,
+                            .detail = try global.type_def.toStringAlloc(allocator, false),
+                            .kind = .Enum,
+                            .range = tokenToRange(ast_slice, locations[node], end_locations[node]),
+                            .selectionRange = tokenToRange(ast_slice, locations[node], end_locations[node]),
+                            .children = try children.toOwnedSlice(allocator),
+                        },
+                    );
+                },
+                .ObjectDeclaration => {
+                    var children = std.ArrayList(lsp.types.DocumentSymbol).empty;
+
+                    if (global.type_def.def_type == .Object and global.type_def.resolved_type != null) {
+                        var it = global.type_def.resolved_type.?.Object.fields.iterator();
+                        while (it.next()) |kv| {
+                            const field = kv.value_ptr.*;
+
+                            try children.append(
+                                allocator,
+                                .{
+                                    .name = field.name,
+                                    .detail = try field.type_def.toStringAlloc(allocator, false),
+                                    .kind = if (field.method)
+                                        .Method
+                                    else
+                                        .Property,
+                                    .range = tokenToRange(ast_slice, field.location, field.location),
+                                    .selectionRange = tokenToRange(ast_slice, field.location, field.location),
+                                },
+                            );
+                        }
+                    }
+
+                    try self.symbols.append(
+                        allocator,
+                        .{
+                            .name = name,
+                            .detail = try global.type_def.toStringAlloc(allocator, false),
+                            .kind = .Struct,
+                            .range = tokenToRange(ast_slice, locations[node], end_locations[node]),
+                            .selectionRange = tokenToRange(ast_slice, locations[node], end_locations[node]),
+                            .children = try children.toOwnedSlice(allocator),
+                        },
+                    );
+                },
+                .ProtocolDeclaration => {
+                    var children = std.ArrayList(lsp.types.DocumentSymbol).empty;
+
+                    if (global.type_def.def_type == .Protocol and global.type_def.resolved_type != null) {
+                        var it = global.type_def.resolved_type.?.Protocol.methods.iterator();
+                        while (it.next()) |kv| {
+                            const method = kv.value_ptr.*;
+                            const method_location = global.type_def.resolved_type.?.Protocol.methods_locations.get(kv.key_ptr.*).?;
+                            const range = tokenToRange(ast_slice, method_location, method_location);
+
+                            try children.append(
+                                allocator,
+                                .{
+                                    .name = kv.key_ptr.*,
+                                    .detail = try method.type_def.toStringAlloc(allocator, false),
+                                    .kind = .Method,
+                                    .range = range,
+                                    .selectionRange = range,
+                                },
+                            );
+                        }
+                    }
+
+                    try self.symbols.append(
+                        allocator,
+                        .{
+                            .name = name,
+                            .detail = try global.type_def.toStringAlloc(allocator, false),
+                            .kind = .Interface,
+                            .range = tokenToRange(ast_slice, locations[node], end_locations[node]),
+                            .selectionRange = tokenToRange(ast_slice, locations[node], end_locations[node]),
+                            .children = try children.toOwnedSlice(allocator),
+                        },
+                    );
+                },
+                .FunDeclaration => fun: {
+                    if (global.type_def.def_type != .Function or global.type_def.resolved_type == null) {
+                        break :fun;
+                    }
+
+                    const fun_def = global.type_def.resolved_type.?.Function;
+                    switch (fun_def.function_type) {
+                        .Method,
+                        .Script,
+                        .ScriptEntryPoint,
+                        .Anonymous,
+                        .Repl,
+                        => break :fun,
+                        .Function,
+                        .EntryPoint,
+                        .Test,
+                        .Extern,
+                        .Abstract,
+                        => {},
+                    }
+
+                    const function_node = components[node].FunDeclaration.function;
+                    const function_comp = components[function_node].Function;
+                    try self.symbols.append(
+                        allocator,
+                        .{
+                            .name = if (fun_def.function_type == .Test)
+                                lexemes[function_comp.test_message.?]
+                            else
+                                fun_def.name.string,
+                            .detail = try global.type_def.toStringAlloc(allocator, false),
+                            .kind = .Function,
+                            .range = tokenToRange(ast_slice, locations[function_node], end_locations[function_node]),
+                            .selectionRange = tokenToRange(ast_slice, locations[function_node], end_locations[function_node]),
+                        },
+                    );
+                },
+                else => {},
+            }
+        }
     }
 
     pub fn deinit(self: *Document) void {
@@ -183,6 +419,8 @@ const Document = struct {
 
     const NodeUnderPositionContext = struct {
         result: ?Ast.Node.Index = null,
+        /// URI of the client document being searched.
+        uri: []const u8,
         position: lsp.types.Position,
 
         pub fn processNode(
@@ -195,11 +433,18 @@ const Document = struct {
             const location = ast.tokens.get(locations[node]);
             const end_locations = ast.nodes.items(.end_location);
             const end_location = ast.tokens.get(end_locations[node]);
+            const script_names = ast.tokens.items(.script_name);
 
             // Ignore root node and imports
             if (locations[node] == 0) {
                 return false;
             }
+
+            // Walking from the document root must only visit document-local
+            // nodes. Imported scripts share the backing token/node lists, so
+            // assert the parser did not attach an imported token to this range.
+            std.debug.assert(std.mem.eql(u8, script_names[locations[node]], self.uri));
+            std.debug.assert(std.mem.eql(u8, script_names[end_locations[node]], self.uri));
 
             // If outside of the node range, don't go deeper
             if (self.position.line < location.line or
@@ -228,10 +473,16 @@ const Document = struct {
 
         if (!nodeEntry.found_existing) {
             var node_ctx = NodeUnderPositionContext{
+                .uri = self.uri,
                 .position = position,
             };
 
-            self.ast.slice().walk(allocator, &node_ctx, self.ast.root.?) catch |err| {
+            self.ast.slice().walk(
+                allocator,
+                &node_ctx,
+                self.ast.root.?,
+                .breadthFirst,
+            ) catch |err| {
                 log.err("nodeUnderPosition: {any}", .{err});
             };
 
@@ -621,6 +872,7 @@ const Document = struct {
             allocator,
             &ctx,
             self.ast.root.?,
+            .breadthFirst,
         );
     }
 
@@ -634,6 +886,7 @@ const Document = struct {
             allocator,
             &ctx,
             self.ast.root.?,
+            .breadthFirst,
         );
 
         var imports_it = imports.valueIterator();
@@ -642,6 +895,7 @@ const Document = struct {
                 allocator,
                 &ctx,
                 import.function,
+                .breadthFirst,
             );
         }
     }
@@ -686,10 +940,9 @@ const Handler = struct {
     allocator: std.mem.Allocator,
     transport: *lsp.Transport,
     documents: std.StringHashMapUnmanaged(Document) = .empty,
-    offset_encoding: lsp.offsets.Encoding = .@"utf-16",
 
     pub fn initialize(
-        self: *Handler,
+        _: *Handler,
         allocator: std.mem.Allocator,
         params: lsp.types.requests.get("initialize").?.Params.?,
     ) !lsp.types.requests.get("initialize").?.Result {
@@ -715,11 +968,7 @@ const Handler = struct {
                 .version = version.written(),
             },
             .capabilities = .{
-                .positionEncoding = switch (self.offset_encoding) {
-                    .@"utf-8" => .@"utf-8",
-                    .@"utf-16" => .@"utf-16",
-                    .@"utf-32" => .@"utf-32",
-                },
+                .positionEncoding = .@"utf-8",
                 .textDocumentSync = .{
                     .text_document_sync_options = .{
                         .openClose = true,
@@ -762,11 +1011,13 @@ const Handler = struct {
                 .documentFormattingProvider = .{
                     .bool = true,
                 },
+                .completionProvider = .{
+                    .triggerCharacters = &.{"\\"},
+                },
 
                 // Keeping those here so I don't forget about them
 
                 // NYI
-                .completionProvider = null,
                 .referencesProvider = null,
                 .documentHighlightProvider = null,
                 .workspaceSymbolProvider = null,
@@ -929,13 +1180,13 @@ const Handler = struct {
                     const start_idx = lsp.offsets.positionToIndex(
                         old_text,
                         range.start,
-                        self.offset_encoding,
+                        .@"utf-8",
                     );
 
                     const end_idx = lsp.offsets.positionToIndex(
                         old_text,
                         range.end,
-                        self.offset_encoding,
+                        .@"utf-8",
                     );
 
                     var new_text = std.ArrayList(u8).empty;
@@ -975,243 +1226,98 @@ const Handler = struct {
         kv.value.deinit();
     }
 
-    const DocumentSymbolContext = struct {
-        document: *Document,
-
-        pub fn processNode(
-            self: DocumentSymbolContext,
-            _: std.mem.Allocator,
-            ast: Ast.Slice,
-            node: Ast.Node.Index,
-        ) (std.mem.Allocator.Error || std.fmt.BufPrintError || error{WriteFailed})!bool {
-            const lexemes = ast.tokens.items(.lexeme);
-            const locations = ast.nodes.items(.location);
-            const end_locations = ast.nodes.items(.end_location);
-            const components = ast.nodes.items(.components)[node];
-            const type_def = ast.nodes.items(.type_def)[node];
-            const allocator = self.document.arena.allocator();
-
-            switch (ast.nodes.items(.tag)[node]) {
-                .VarDeclaration => {
-                    const name = lexemes[components.VarDeclaration.name];
-
-                    if (components.VarDeclaration.slot_type == .Global and (name.len > 1 or name[0] != '_')) {
-                        try self.document.symbols.append(
-                            allocator,
-                            .{
-                                .name = lexemes[components.VarDeclaration.name],
-                                .detail = if (type_def) |td|
-                                    try td.toStringAlloc(allocator, false)
-                                else
-                                    null,
-                                .kind = if (type_def != null and !type_def.?.isMutable() and components.VarDeclaration.final)
-                                    .Constant
-                                else
-                                    .Variable,
-                                .range = tokenToRange(ast, locations[node], end_locations[node]),
-                                .selectionRange = tokenToRange(ast, locations[node], end_locations[node]),
-                            },
-                        );
-                    }
-                },
-                .Enum => {
-                    var children = std.ArrayList(lsp.types.DocumentSymbol).empty;
-
-                    for (components.Enum.cases) |case| {
-                        const range = tokenToRange(
-                            ast,
-                            case.name,
-                            if (case.value) |value|
-                                end_locations[value]
-                            else
-                                case.name,
-                        );
-
-                        try children.append(
-                            allocator,
-                            .{
-                                .name = lexemes[case.name],
-                                .kind = .EnumMember,
-                                .range = range,
-                                .selectionRange = range,
-                            },
-                        );
-                    }
-
-                    try self.document.symbols.append(
-                        allocator,
-                        .{
-                            .name = lexemes[components.Enum.name],
-                            .detail = if (type_def) |td|
-                                try td.toStringAlloc(allocator, false)
-                            else
-                                null,
-                            .kind = .Enum,
-                            .range = tokenToRange(ast, locations[node], end_locations[node]),
-                            .selectionRange = tokenToRange(ast, locations[node], end_locations[node]),
-                            .children = try children.toOwnedSlice(allocator),
-                        },
-                    );
-                },
-                .ObjectDeclaration => {
-                    var children = std.ArrayList(lsp.types.DocumentSymbol).empty;
-
-                    if (type_def) |td| {
-                        var it = td.resolved_type.?.Object.fields.iterator();
-                        while (it.next()) |kv| {
-                            const field = kv.value_ptr.*;
-
-                            try children.append(
-                                allocator,
-                                .{
-                                    .name = field.name,
-                                    .detail = try field.type_def.toStringAlloc(allocator, false),
-                                    .kind = if (field.method)
-                                        .Method
-                                    else
-                                        .Property,
-                                    .range = tokenToRange(ast, field.location, field.location),
-                                    .selectionRange = tokenToRange(ast, field.location, field.location),
-                                },
-                            );
-                        }
-                    }
-
-                    try self.document.symbols.append(
-                        allocator,
-                        .{
-                            .name = lexemes[components.ObjectDeclaration.name],
-                            .detail = if (type_def) |td|
-                                try td.toStringAlloc(allocator, false)
-                            else
-                                null,
-                            .kind = .Struct,
-                            .range = tokenToRange(ast, locations[node], end_locations[node]),
-                            .selectionRange = tokenToRange(ast, locations[node], end_locations[node]),
-                            .children = try children.toOwnedSlice(allocator),
-                        },
-                    );
-                },
-                .ProtocolDeclaration => {
-                    var children = std.ArrayList(lsp.types.DocumentSymbol).empty;
-
-                    if (type_def) |td| {
-                        var it = td.resolved_type.?.Protocol.methods.iterator();
-                        while (it.next()) |kv| {
-                            const method = kv.value_ptr.*;
-
-                            const method_location = td.resolved_type.?.Protocol.methods_locations.get(kv.key_ptr.*).?;
-                            const range = tokenToRange(ast, method_location, method_location);
-
-                            try children.append(
-                                allocator,
-                                .{
-                                    .name = kv.key_ptr.*,
-                                    .detail = try method.type_def.toStringAlloc(allocator, false),
-                                    .kind = .Method,
-                                    .range = range,
-                                    .selectionRange = range,
-                                },
-                            );
-                        }
-                    }
-
-                    try self.document.symbols.append(
-                        allocator,
-                        .{
-                            .name = lexemes[components.ProtocolDeclaration.name],
-                            .detail = if (type_def) |td|
-                                try td.toStringAlloc(allocator, false)
-                            else
-                                null,
-                            .kind = .Interface,
-                            .range = tokenToRange(ast, locations[node], end_locations[node]),
-                            .selectionRange = tokenToRange(ast, locations[node], end_locations[node]),
-                            .children = try children.toOwnedSlice(allocator),
-                        },
-                    );
-                },
-                .Function => fun: {
-                    if (type_def) |td| {
-                        const fun_def = td.resolved_type.?.Function;
-
-                        switch (fun_def.function_type) {
-                            .Method, // Already covered when looking at ObjectDeclaration
-                            .Script, // Imported script
-                            .ScriptEntryPoint, // Script entry point
-                            .Anonymous, // No name to list
-                            .Repl, // Should not happen
-                            => break :fun,
-                            .Function,
-                            .EntryPoint,
-                            .Test,
-                            .Extern,
-                            .Abstract,
-                            => {},
-                        }
-
-                        try self.document.symbols.append(
-                            allocator,
-                            .{
-                                .name = if (fun_def.function_type == .Test)
-                                    lexemes[components.Function.test_message.?]
-                                else
-                                    fun_def.name.string,
-                                .detail = try td.toStringAlloc(allocator, false),
-                                .kind = .Function,
-                                .range = tokenToRange(ast, locations[node], end_locations[node]),
-                                .selectionRange = tokenToRange(ast, locations[node], end_locations[node]),
-                            },
-                        );
-                    }
-                },
-                else => {},
-            }
-
-            return false;
-        }
-    };
-
     pub fn @"textDocument/documentSymbol"(
         self: Handler,
         _: std.mem.Allocator,
         notification: lsp.types.requests.get("textDocument/documentSymbol").?.Params.?,
     ) !lsp.types.requests.get("textDocument/documentSymbol").?.Result {
         if (self.documents.getEntry(notification.textDocument.uri)) |kv| {
-            if (kv.value_ptr.ast.root) |root| {
-                if (kv.value_ptr.symbols.items.len == 0) {
-                    var document = kv.value_ptr.*;
-
-                    const ctx = DocumentSymbolContext{
-                        .document = &document,
-                    };
-
-                    document.ast.slice().walk(self.allocator, ctx, root) catch |err| {
-                        log.err("textDocument/documentSymbol: {any}", .{err});
-
-                        document.symbols = .empty;
-                    };
-
-                    kv.value_ptr.* = document;
-                }
-
-                return .{
-                    .document_symbols = kv.value_ptr.symbols.items,
-                };
-            }
+            return .{
+                .document_symbols = kv.value_ptr.symbols.items,
+            };
         }
+
         return null;
     }
 
     pub fn @"textDocument/completion"(
-        _: Handler,
-        _: std.mem.Allocator,
-        _: lsp.types.requests.get("textDocument/completion").?.Params.?,
+        self: Handler,
+        allocator: std.mem.Allocator,
+        notification: lsp.types.requests.get("textDocument/completion").?.Params.?,
     ) !lsp.types.requests.get("textDocument/completion").?.Result {
+        var result = std.ArrayList(lsp.types.completion.Item).empty;
+
+        if (self.documents.getPtr(notification.textDocument.uri)) |document| {
+            const cursor_offset = @min(
+                lsp.offsets.positionToIndex(
+                    std.mem.span(document.src),
+                    notification.position,
+                    .@"utf-8",
+                ),
+                std.mem.span(document.src).len,
+            );
+            const completion_prefix = completionPrefixAtOffset(
+                std.mem.span(document.src),
+                document.uri,
+                document.ast.slice(),
+                cursor_offset,
+            );
+
+            // Globals and keyword completion items
+            for (document.completion_labels.keys()) |label| {
+                try appendCompletionItem(
+                    &result,
+                    allocator,
+                    label,
+                    completion_prefix,
+                );
+            }
+
+            // Locals reachable at that offset in the source
+            var local_labels = std.StringArrayHashMapUnmanaged(void).empty;
+            defer local_labels.deinit(allocator);
+
+            if (document.ast.root) |root| {
+                const ast = document.ast.slice();
+                const tags = ast.nodes.items(.tag);
+                const components = ast.nodes.items(.components);
+                const lexemes = ast.tokens.items(.lexeme);
+
+                for (try ast.visibleSymbolsAtOffset(
+                    allocator,
+                    root,
+                    cursor_offset,
+                )) |symbol_node| {
+                    if (tags[symbol_node] == .VarDeclaration) {
+                        const decl = components[symbol_node].VarDeclaration;
+                        const label = lexemes[decl.name];
+
+                        if (document.completion_labels.getIndex(label) != null or
+                            (try local_labels.getOrPut(allocator, label)).found_existing)
+                        {
+                            continue;
+                        }
+
+                        try appendCompletionItem(
+                            &result,
+                            allocator,
+                            label,
+                            completion_prefix,
+                        );
+                    }
+                }
+            }
+
+            // If after a `.`, complete we member
+
+            // Do we already have Dot node under the cursor (meaning we're at something like `callee.me|  `)
+            // Else find the node living just before `.` and treat it as the callee
+        }
+
         return .{
             .completion_list = .{
                 .isIncomplete = false,
-                .items = &.{},
+                .items = try result.toOwnedSlice(allocator),
             },
         };
     }
@@ -1221,8 +1327,7 @@ const Handler = struct {
         _: std.mem.Allocator,
         notification: lsp.types.requests.get("textDocument/hover").?.Params.?,
     ) !lsp.types.requests.get("textDocument/hover").?.Result {
-        if (self.documents.getEntry(notification.textDocument.uri)) |kv| {
-            var document = kv.value_ptr.*;
+        if (self.documents.getPtr(notification.textDocument.uri)) |document| {
             const allocator = document.arena.allocator();
 
             if (try document.nodeUnderPosition(notification.position)) |origin| {
@@ -1416,6 +1521,140 @@ const Handler = struct {
     }
 };
 
+/// Prefix text and replacement range for a completion request at the cursor.
+const CompletionPrefix = struct {
+    /// Text already present in the document that completion labels must match.
+    text: []const u8,
+
+    /// LSP range replaced by the selected completion item.
+    range: lsp.types.Range,
+};
+
+/// Appends a completion item, applying prefix filtering and replacement edits when available.
+fn appendCompletionItem(
+    result: *std.ArrayList(lsp.types.completion.Item),
+    allocator: std.mem.Allocator,
+    label: []const u8,
+    prefix: ?CompletionPrefix,
+) !void {
+    if (prefix) |completion_prefix| {
+        if (!std.mem.startsWith(u8, label, completion_prefix.text)) {
+            return;
+        }
+
+        try result.append(
+            allocator,
+            .{
+                .label = label,
+                .textEdit = .{
+                    .text_edit = .{
+                        .range = completion_prefix.range,
+                        .newText = label,
+                    },
+                },
+            },
+        );
+    } else {
+        try result.append(
+            allocator,
+            .{ .label = label },
+        );
+    }
+}
+
+/// Finds the contiguous completion prefix immediately before or under the cursor.
+fn completionPrefixAtOffset(
+    source: []const u8,
+    uri: []const u8,
+    ast: Ast.Slice,
+    cursor_offset: usize,
+) ?CompletionPrefix {
+    const bounded_cursor = @min(cursor_offset, source.len);
+    const tags = ast.tokens.items(.tag);
+    const lexemes = ast.tokens.items(.lexeme);
+    const offsets = ast.tokens.items(.offset);
+    const script_names = ast.tokens.items(.script_name);
+    const utility_tokens = ast.tokens.items(.utility_token);
+
+    // `current_prefix_*` describes the contiguous run of prefix tokens we are
+    // currently scanning. For `std\pr`, it starts at `std` and ends after `pr`.
+    var current_prefix_start_token: ?usize = null;
+    var current_prefix_end: usize = 0;
+
+    // Once the cursor is inside the current run, this becomes the first token
+    // of the prefix to replace.
+    var prefix_start_token: ?usize = null;
+
+    for (tags, 0..) |tag, index| {
+        if (utility_tokens[index] or
+            !std.mem.eql(u8, script_names[index], uri) or
+            !isCompletionPrefixToken(tag, lexemes[index]))
+        {
+            continue;
+        }
+
+        const token_start = offsets[index];
+        const token_end = token_start + lexemes[index].len;
+        if (token_start >= bounded_cursor) {
+            continue;
+        }
+
+        // A gap means whitespace, punctuation, or another non-prefix token broke
+        // the typed prefix. Start a new run from the current token.
+        if (current_prefix_start_token == null or token_start != current_prefix_end) {
+            current_prefix_start_token = index;
+        }
+        current_prefix_end = token_end;
+
+        // The cursor is inside or just after this token, so the current run is
+        // the text the selected completion item should replace.
+        if (bounded_cursor <= token_end) {
+            prefix_start_token = current_prefix_start_token;
+            break;
+        }
+    }
+
+    if (prefix_start_token == null or offsets[prefix_start_token.?] >= bounded_cursor) {
+        return null;
+    }
+
+    const prefix_start = offsets[prefix_start_token.?];
+    const text = source[prefix_start..bounded_cursor];
+
+    // This should be redundant with the contiguous-token tracking above, but it
+    // keeps the edit conservative if scanner recovery ever exposes odd gaps.
+    if (std.mem.indexOfAny(u8, text, " \t\r\n") != null) {
+        return null;
+    }
+
+    // Token columns are already LSP UTF-8 columns; use the first prefix token
+    // for the range start and the typed byte length for the range end.
+    const range_start = tokenToRange(
+        ast,
+        @intCast(prefix_start_token.?),
+        @intCast(prefix_start_token.?),
+    ).start;
+
+    return .{
+        .text = text,
+        .range = .{
+            .start = range_start,
+            .end = .{
+                .line = range_start.line,
+                .character = range_start.character + @as(u32, @intCast(text.len)),
+            },
+        },
+    };
+}
+
+/// Returns whether a token can be part of a typed completion prefix.
+fn isCompletionPrefixToken(tag: Token.Tag, lexeme: []const u8) bool {
+    return tag == .AntiSlash or
+        tag == .Identifier or
+        Token.keywords.get(lexeme) != null;
+}
+
+/// Builds an LSP range from AST token locations.
 fn tokenToRange(ast: Ast.Slice, location: Ast.TokenIndex, end_location: Ast.TokenIndex) lsp.types.Range {
     const lines = ast.tokens.items(.line);
     const columns = ast.tokens.items(.column);
@@ -1430,6 +1669,24 @@ fn tokenToRange(ast: Ast.Slice, location: Ast.TokenIndex, end_location: Ast.Toke
             .character = @intCast(@max(1, columns[end_location]) - 1),
         },
     };
+}
+
+/// Converts a local `file://` document URI into the script path used by parser semantics.
+/// For example, `file:///tmp/project/main.buzz` becomes `/tmp/project/main.buzz`.
+fn localPathFromFileUri(allocator: std.mem.Allocator, uri: []const u8) !?[]const u8 {
+    const parsed = std.Uri.parse(uri) catch return null;
+    if (!std.ascii.eqlIgnoreCase(parsed.scheme, "file")) {
+        return null;
+    }
+
+    if (parsed.host) |host| {
+        const raw_host = try host.toRawMaybeAlloc(allocator);
+        if (raw_host.len > 0 and !std.ascii.eqlIgnoreCase(raw_host, "localhost")) {
+            return null;
+        }
+    }
+
+    return try parsed.path.toRawMaybeAlloc(allocator);
 }
 
 fn scriptNameToUri(io: std.Io, allocator: std.mem.Allocator, buzz_lib_path: []const u8, script_name: []const u8) ![]const u8 {
@@ -1479,39 +1736,18 @@ fn isClientUri(text: []const u8) bool {
 }
 
 fn staticScriptFileName(script_name: []const u8) ?[]const u8 {
-    if (std.mem.eql(u8, script_name, "std")) return "std.buzz";
-    if (std.mem.eql(u8, script_name, "gc")) return "gc.buzz";
-    if (std.mem.eql(u8, script_name, "math")) return "math.buzz";
-    if (std.mem.eql(u8, script_name, "debug")) return "debug.buzz";
-    if (std.mem.eql(u8, script_name, "buffer")) return "buffer.buzz";
-    if (std.mem.eql(u8, script_name, "serialize")) return "serialize.buzz";
-    if (std.mem.eql(u8, script_name, "errors")) return "errors.buzz";
-    if (std.mem.eql(u8, script_name, "test")) return "testing.buzz";
-    if (std.mem.eql(u8, script_name, "crypto")) return "crypto.buzz";
-    if (std.mem.eql(u8, script_name, "ffi")) return "ffi.buzz";
-    if (std.mem.eql(u8, script_name, "fs")) return "fs.buzz";
-    if (std.mem.eql(u8, script_name, "io")) return "io.buzz";
-    if (std.mem.eql(u8, script_name, "os")) return "os.buzz";
-    if (std.mem.eql(u8, script_name, "http")) return "http.buzz";
-
-    return null;
+    return if (static_libraries.byName(script_name)) |library|
+        library.header_path
+    else
+        null;
 }
 
 fn staticScriptNameFromUri(uri: []const u8) ?[]const u8 {
-    if (isStaticScriptUri(uri, "std.buzz")) return "std";
-    if (isStaticScriptUri(uri, "gc.buzz")) return "gc";
-    if (isStaticScriptUri(uri, "math.buzz")) return "math";
-    if (isStaticScriptUri(uri, "debug.buzz")) return "debug";
-    if (isStaticScriptUri(uri, "buffer.buzz")) return "buffer";
-    if (isStaticScriptUri(uri, "serialize.buzz")) return "serialize";
-    if (isStaticScriptUri(uri, "errors.buzz")) return "errors";
-    if (isStaticScriptUri(uri, "testing.buzz")) return "test";
-    if (isStaticScriptUri(uri, "crypto.buzz")) return "crypto";
-    if (isStaticScriptUri(uri, "ffi.buzz")) return "ffi";
-    if (isStaticScriptUri(uri, "fs.buzz")) return "fs";
-    if (isStaticScriptUri(uri, "io.buzz")) return "io";
-    if (isStaticScriptUri(uri, "os.buzz")) return "os";
-    if (isStaticScriptUri(uri, "http.buzz")) return "http";
+    inline for (static_libraries.all) |library| {
+        if (isStaticScriptUri(uri, library.header_path)) {
+            return library.name;
+        }
+    }
 
     return null;
 }
@@ -1533,63 +1769,4 @@ fn isStaticScriptUri(uri: []const u8, file_name: []const u8) bool {
 
     return std.mem.endsWith(u8, uri, src_lib) or
         std.mem.endsWith(u8, uri, installed_lib);
-}
-
-test "scriptNameToUri converts paths to LSP URIs" {
-    const allocator = std.heap.page_allocator;
-
-    try expectScriptNameUri(allocator, "file:///tmp/already.buzz", "file:///tmp/already.buzz");
-    try expectScriptNameUri(allocator, "untitled:Untitled-1", "untitled:Untitled-1");
-
-    try expectScriptNameUri(allocator, "/tmp/buzz lsp.buzz", "file:///tmp/buzz%20lsp.buzz");
-
-    try expectScriptNameUri(allocator, "std", "file:///tmp/buzz%20lib/std.buzz");
-    try expectScriptNameUri(allocator, "test", "file:///tmp/buzz%20lib/testing.buzz");
-    try std.testing.expectEqualStrings(
-        "buffer",
-        staticScriptNameFromUri("file:///repo/src/lib/buffer.buzz").?,
-    );
-    try std.testing.expectEqualStrings(
-        "test",
-        staticScriptNameFromUri("file:///repo/src/lib/testing.buzz").?,
-    );
-    try std.testing.expect(staticScriptNameFromUri("file:///repo/not-lib/buffer.buzz") == null);
-
-    const expected_relative_path = try testRelativePath(allocator, "src/lsp.zig");
-    const expected_relative_uri = try fileUri(allocator, expected_relative_path);
-
-    try expectScriptNameUri(allocator, "src/lsp.zig", expected_relative_uri);
-
-    const expected_weird_path = try testRelativePath(allocator, "foo:STUPIDSHIT");
-    const expected_weird_uri = try fileUri(allocator, expected_weird_path);
-
-    try expectScriptNameUri(allocator, "foo:STUPIDSHIT", expected_weird_uri);
-}
-
-fn expectScriptNameUri(allocator: std.mem.Allocator, script_name: []const u8, expected: []const u8) !void {
-    const uri = try scriptNameToUri(std.testing.io, allocator, "/tmp/buzz lib", script_name);
-
-    try std.testing.expectEqualStrings(expected, uri);
-}
-
-fn fileUri(allocator: std.mem.Allocator, path: []const u8) ![]const u8 {
-    return std.fmt.allocPrint(
-        allocator,
-        "{f}",
-        .{std.Uri{
-            .scheme = "file",
-            .host = .{ .percent_encoded = "" },
-            .path = .{ .raw = path },
-        }},
-    );
-}
-
-fn testRelativePath(allocator: std.mem.Allocator, relative: []const u8) ![]u8 {
-    var cwd_buffer: [std.Io.Dir.max_path_bytes]u8 = undefined;
-    const cwd_len = try std.process.currentPath(std.testing.io, &cwd_buffer);
-
-    return std.fs.path.join(
-        allocator,
-        &.{ cwd_buffer[0..cwd_len], relative },
-    );
 }

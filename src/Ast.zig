@@ -21,6 +21,11 @@ pub const TokenIndex = u32;
 pub const TokenList = std.MultiArrayList(Token);
 pub const NodeList = std.MultiArrayList(Node);
 
+pub const WalkStrategy = enum {
+    breadthFirst,
+    depthFirst,
+};
+
 allocator: std.mem.Allocator,
 tokens: TokenList,
 nodes: NodeList,
@@ -31,15 +36,21 @@ pub const Slice = struct {
     nodes: NodeList.Slice,
     root: ?Node.Index,
 
-    /// Do a breadth first walk of the AST, calling a callback for each node that can stop the walking from going deeper by returning true
+    /// Walk the AST, calling a callback for each node that can stop the walking from going deeper by returning true.
     /// ctx should have:
     /// - `fn processNode(ctx: @TypeOf(ctx), allocator: std.mem.Allocator, ast: Ast.Slice, node: Node.Index) error{OutOfMemory}!bool: returns true to stop walking deeper
+    /// ctx can optionally have, only used by depth-first walks:
+    /// - `fn enterNode(ctx: @TypeOf(ctx), allocator: std.mem.Allocator, ast: Ast.Slice, node: Node.Index) !void`
+    /// - `fn exitNode(ctx: @TypeOf(ctx), allocator: std.mem.Allocator, ast: Ast.Slice, node: Node.Index) !void`
     // FIXME: the context should have a error type we can reuse in processNode signature
-    pub fn walk(self: Slice, allocator: std.mem.Allocator, ctx: anytype, root: Node.Index) !void {
-        const tags = self.nodes.items(.tag);
-        const components = self.nodes.items(.components);
+    pub fn walk(self: Slice, allocator: std.mem.Allocator, ctx: anytype, root: Node.Index, comptime strategy: WalkStrategy) !void {
+        switch (strategy) {
+            .breadthFirst => try self.walkBreadthFirst(allocator, ctx, root),
+            .depthFirst => try self.walkDepthFirst(allocator, ctx, root),
+        }
+    }
 
-        // Hold previous node's leaves
+    fn walkBreadthFirst(self: Slice, allocator: std.mem.Allocator, ctx: anytype, root: Node.Index) !void {
         var node_queue = std.ArrayList(Node.Index).empty;
         try node_queue.append(allocator, root);
         defer node_queue.deinit(allocator);
@@ -47,125 +58,205 @@ pub const Slice = struct {
         while (node_queue.items.len > 0) {
             const node = node_queue.orderedRemove(0);
 
-            // Stop if requested and if there's no neighbors to process
-            if (try ctx.processNode(allocator, self, node) and node_queue.items.len == 0) {
-                return;
+            if (try ctx.processNode(allocator, self, node)) {
+                continue;
             }
 
-            // Otherwise continue walking the tree
-            const comp = components[node];
-            switch (tags[node]) {
-                .AnonymousObjectType => {
-                    for (comp.AnonymousObjectType.fields) |field| {
-                        try node_queue.append(allocator, field.type);
-                    }
-                },
-                .Is => {
-                    try node_queue.appendSlice(
-                        allocator,
-                        &.{
-                            comp.Is.left,
-                            comp.Is.constant,
-                        },
-                    );
-                },
-                .As => {
-                    try node_queue.appendSlice(
-                        allocator,
-                        &.{
-                            comp.As.left,
-                            comp.As.constant,
-                        },
-                    );
-                },
-                .AsyncCall => try node_queue.append(allocator, comp.AsyncCall),
-                .Binary => {
-                    try node_queue.append(allocator, comp.Binary.left);
-                    try node_queue.append(allocator, comp.Binary.right);
-                },
-                .Block => try node_queue.appendSlice(allocator, comp.Block),
-                .BlockExpression => try node_queue.appendSlice(allocator, comp.BlockExpression),
-                .Match => {
-                    try node_queue.append(allocator, comp.Match.value);
+            try self.appendWalkChildren(allocator, &node_queue, node, .breadthFirst);
+        }
+    }
 
-                    for (comp.Match.branches) |branch| {
-                        try node_queue.appendSlice(allocator, branch.conditions);
-                        try node_queue.append(allocator, branch.expression);
-                    }
-                },
-                .Call => {
-                    // Avoid loop between Call and Dot nodes
-                    if (tags[comp.Call.callee] != .Dot or
-                        components[comp.Call.callee].Dot.member_kind != .Call or
-                        components[comp.Call.callee].Dot.value_or_call_or_enum.Call != node)
-                    {
-                        try node_queue.append(allocator, comp.Call.callee);
-                    }
-                    if (comp.Call.catch_default) |default| {
-                        try node_queue.append(allocator, default);
-                    }
-                    for (comp.Call.arguments) |arg| {
-                        try node_queue.append(allocator, arg.value);
-                    }
-                },
-                .Dot => {
-                    try node_queue.append(allocator, comp.Dot.callee);
-                    if (comp.Dot.generic_resolve) |generic_resolve| {
-                        try node_queue.append(allocator, generic_resolve);
-                    }
-                    switch (comp.Dot.member_kind) {
-                        .Value => try node_queue.append(allocator, comp.Dot.value_or_call_or_enum.Value.value),
-                        .Call => {
-                            // We avoid the actual Call node, we're only interested in the Call's parts
-                            const call = components[comp.Dot.value_or_call_or_enum.Call].Call;
-                            if (call.catch_default) |default| {
-                                try node_queue.append(allocator, default);
-                            }
-                            for (call.arguments) |arg| {
-                                try node_queue.append(allocator, arg.value);
-                            }
-                        },
-                        .Ref, .EnumCase => {},
-                    }
-                },
-                .DoUntil => {
+    fn walkDepthFirst(self: Slice, allocator: std.mem.Allocator, ctx: anytype, node: Node.Index) !void {
+        try self.enterWalkNode(allocator, ctx, node);
+
+        const skip_children = try ctx.processNode(allocator, self, node);
+        if (!skip_children) {
+            var children = std.ArrayList(Node.Index).empty;
+            defer children.deinit(allocator);
+
+            try self.appendWalkChildren(allocator, &children, node, .depthFirst);
+
+            for (children.items) |child| {
+                try self.walkDepthFirst(allocator, ctx, child);
+            }
+        }
+
+        try self.exitWalkNode(allocator, ctx, node);
+    }
+
+    fn contextType(comptime Context: type) type {
+        return switch (@typeInfo(Context)) {
+            .pointer => |pointer| pointer.child,
+            else => Context,
+        };
+    }
+
+    fn enterWalkNode(self: Slice, allocator: std.mem.Allocator, ctx: anytype, node: Node.Index) !void {
+        const Context = contextType(@TypeOf(ctx));
+
+        if (@hasDecl(Context, "enterNode")) {
+            try ctx.enterNode(allocator, self, node);
+        }
+    }
+
+    fn exitWalkNode(self: Slice, allocator: std.mem.Allocator, ctx: anytype, node: Node.Index) !void {
+        const Context = contextType(@TypeOf(ctx));
+
+        if (@hasDecl(Context, "exitNode")) {
+            try ctx.exitNode(allocator, self, node);
+        }
+    }
+
+    fn appendWalkChildren(
+        self: Slice,
+        allocator: std.mem.Allocator,
+        node_queue: *std.ArrayList(Node.Index),
+        node: Node.Index,
+        comptime strategy: WalkStrategy,
+    ) !void {
+        const tags = self.nodes.items(.tag);
+        const components = self.nodes.items(.components);
+        const comp = components[node];
+
+        switch (tags[node]) {
+            .AnonymousObjectType => {
+                for (comp.AnonymousObjectType.fields) |field| {
+                    try node_queue.append(allocator, field.type);
+                }
+            },
+            .Is => {
+                try node_queue.appendSlice(
+                    allocator,
+                    &.{
+                        comp.Is.left,
+                        comp.Is.constant,
+                    },
+                );
+            },
+            .As => {
+                try node_queue.appendSlice(
+                    allocator,
+                    &.{
+                        comp.As.left,
+                        comp.As.constant,
+                    },
+                );
+            },
+            .AsyncCall => try node_queue.append(allocator, comp.AsyncCall),
+            .Binary => {
+                try node_queue.append(allocator, comp.Binary.left);
+                try node_queue.append(allocator, comp.Binary.right);
+            },
+            .Block => try node_queue.appendSlice(allocator, comp.Block),
+            .BlockExpression => try node_queue.appendSlice(allocator, comp.BlockExpression),
+            .Match => {
+                try node_queue.append(allocator, comp.Match.value);
+
+                for (comp.Match.branches) |branch| {
+                    try node_queue.appendSlice(allocator, branch.conditions);
+                    try node_queue.append(allocator, branch.expression);
+                }
+
+                if (comp.Match.else_branch) |else_branch| {
+                    try node_queue.append(allocator, else_branch);
+                }
+            },
+            .Call => {
+                // Avoid loop between Call and Dot nodes
+                if (tags[comp.Call.callee] != .Dot or
+                    components[comp.Call.callee].Dot.member_kind != .Call or
+                    components[comp.Call.callee].Dot.value_or_call_or_enum.Call != node)
+                {
+                    try node_queue.append(allocator, comp.Call.callee);
+                }
+                if (comp.Call.catch_default) |default| {
+                    try node_queue.append(allocator, default);
+                }
+                for (comp.Call.arguments) |arg| {
+                    try node_queue.append(allocator, arg.value);
+                }
+            },
+            .Dot => {
+                try node_queue.append(allocator, comp.Dot.callee);
+                if (comp.Dot.generic_resolve) |generic_resolve| {
+                    try node_queue.append(allocator, generic_resolve);
+                }
+                switch (comp.Dot.member_kind) {
+                    .Value => try node_queue.append(allocator, comp.Dot.value_or_call_or_enum.Value.value),
+                    .Call => {
+                        // We avoid the actual Call node, we're only interested in the Call's parts
+                        const call = components[comp.Dot.value_or_call_or_enum.Call].Call;
+                        if (call.catch_default) |default| {
+                            try node_queue.append(allocator, default);
+                        }
+                        for (call.arguments) |arg| {
+                            try node_queue.append(allocator, arg.value);
+                        }
+                    },
+                    .Ref, .EnumCase => {},
+                }
+            },
+            .DoUntil => switch (strategy) {
+                .breadthFirst => {
                     try node_queue.append(allocator, comp.DoUntil.condition);
                     try node_queue.append(allocator, comp.DoUntil.body);
                 },
-                .Enum => {
-                    if (comp.Enum.case_type) |case_type| {
-                        try node_queue.append(allocator, case_type);
-                    }
-                    for (comp.Enum.cases) |case| {
-                        if (case.value) |value| {
-                            try node_queue.append(allocator, value);
-                        }
-                    }
+                .depthFirst => {
+                    try node_queue.append(allocator, comp.DoUntil.body);
+                    try node_queue.append(allocator, comp.DoUntil.condition);
                 },
-                .Export => {
-                    if (comp.Export.declaration) |decl| {
-                        try node_queue.append(allocator, decl);
+            },
+            .Enum => {
+                if (comp.Enum.case_type) |case_type| {
+                    try node_queue.append(allocator, case_type);
+                }
+                for (comp.Enum.cases) |case| {
+                    if (case.value) |value| {
+                        try node_queue.append(allocator, value);
                     }
-                },
-                .Expression => try node_queue.append(allocator, comp.Expression),
-                .FiberType => {
-                    try node_queue.append(allocator, comp.FiberType.return_type);
-                    try node_queue.append(allocator, comp.FiberType.yield_type);
-                },
-                .For => {
+                }
+            },
+            .Export => {
+                if (comp.Export.declaration) |decl| {
+                    try node_queue.append(allocator, decl);
+                }
+            },
+            .Expression => try node_queue.append(allocator, comp.Expression),
+            .FiberType => {
+                try node_queue.append(allocator, comp.FiberType.return_type);
+                try node_queue.append(allocator, comp.FiberType.yield_type);
+            },
+            .For => switch (strategy) {
+                .breadthFirst => {
                     try node_queue.append(allocator, comp.For.condition);
                     try node_queue.append(allocator, comp.For.body);
                     try node_queue.appendSlice(allocator, comp.For.init_declarations);
                     try node_queue.appendSlice(allocator, comp.For.post_loop);
                 },
-                .ForceUnwrap => try node_queue.append(allocator, comp.ForceUnwrap.unwrapped),
-                .ForEach => {
+                .depthFirst => {
+                    try node_queue.appendSlice(allocator, comp.For.init_declarations);
+                    try node_queue.append(allocator, comp.For.condition);
+                    try node_queue.appendSlice(allocator, comp.For.post_loop);
+                    try node_queue.append(allocator, comp.For.body);
+                },
+            },
+            .ForceUnwrap => try node_queue.append(allocator, comp.ForceUnwrap.unwrapped),
+            .ForEach => switch (strategy) {
+                .breadthFirst => {
                     try node_queue.append(allocator, comp.ForEach.iterable);
                     try node_queue.append(allocator, comp.ForEach.body);
                     try node_queue.append(allocator, comp.ForEach.key);
                     try node_queue.append(allocator, comp.ForEach.value);
                 },
-                .Function => {
+                .depthFirst => {
+                    try node_queue.append(allocator, comp.ForEach.key);
+                    try node_queue.append(allocator, comp.ForEach.value);
+                    try node_queue.append(allocator, comp.ForEach.iterable);
+                    try node_queue.append(allocator, comp.ForEach.body);
+                },
+            },
+            .Function => switch (strategy) {
+                .breadthFirst => {
                     if (comp.Function.body) |body| {
                         try node_queue.append(allocator, body);
                     }
@@ -174,33 +265,44 @@ pub const Slice = struct {
                         try node_queue.append(allocator, signature);
                     }
                 },
-                .FunctionType => {
-                    if (comp.FunctionType.return_type) |return_type| {
-                        try node_queue.append(allocator, return_type);
+                .depthFirst => {
+                    if (comp.Function.function_signature) |signature| {
+                        try node_queue.append(allocator, signature);
                     }
 
-                    if (comp.FunctionType.yield_type) |yield_type| {
-                        try node_queue.append(allocator, yield_type);
-                    }
-
-                    try node_queue.appendSlice(allocator, comp.FunctionType.error_types);
-
-                    for (comp.FunctionType.arguments) |arg| {
-                        try node_queue.append(allocator, arg.type);
-
-                        if (arg.default) |default| {
-                            try node_queue.append(allocator, default);
-                        }
+                    if (comp.Function.body) |body| {
+                        try node_queue.append(allocator, body);
                     }
                 },
-                .FunDeclaration => try node_queue.append(allocator, comp.FunDeclaration.function),
-                .GenericResolve => {
-                    try node_queue.append(allocator, comp.GenericResolve.expression);
-                    try node_queue.appendSlice(allocator, comp.GenericResolve.resolved_types);
-                },
-                .GenericResolveType => try node_queue.appendSlice(allocator, comp.GenericResolveType),
-                .Grouping => try node_queue.append(allocator, comp.Grouping),
-                .If => {
+            },
+            .FunctionType => {
+                if (comp.FunctionType.return_type) |return_type| {
+                    try node_queue.append(allocator, return_type);
+                }
+
+                if (comp.FunctionType.yield_type) |yield_type| {
+                    try node_queue.append(allocator, yield_type);
+                }
+
+                try node_queue.appendSlice(allocator, comp.FunctionType.error_types);
+
+                for (comp.FunctionType.arguments) |arg| {
+                    try node_queue.append(allocator, arg.type);
+
+                    if (arg.default) |default| {
+                        try node_queue.append(allocator, default);
+                    }
+                }
+            },
+            .FunDeclaration => try node_queue.append(allocator, comp.FunDeclaration.function),
+            .GenericResolve => {
+                try node_queue.append(allocator, comp.GenericResolve.expression);
+                try node_queue.appendSlice(allocator, comp.GenericResolve.resolved_types);
+            },
+            .GenericResolveType => try node_queue.appendSlice(allocator, comp.GenericResolveType),
+            .Grouping => try node_queue.append(allocator, comp.Grouping),
+            .If => switch (strategy) {
+                .breadthFirst => {
                     try node_queue.append(allocator, comp.If.condition);
                     try node_queue.append(allocator, comp.If.body);
                     if (comp.If.casted_type) |casted_type| {
@@ -210,91 +312,111 @@ pub const Slice = struct {
                         try node_queue.append(allocator, else_branch);
                     }
                 },
-                .List => {
+                .depthFirst => {
+                    try node_queue.append(allocator, comp.If.condition);
+                    if (comp.If.casted_type) |casted_type| {
+                        try node_queue.append(allocator, casted_type);
+                    }
+                    try node_queue.append(allocator, comp.If.body);
+                    if (comp.If.else_branch) |else_branch| {
+                        try node_queue.append(allocator, else_branch);
+                    }
+                },
+            },
+            .List => switch (strategy) {
+                .breadthFirst => {
                     try node_queue.appendSlice(allocator, comp.List.items);
                     if (comp.List.explicit_item_type) |item_type| {
                         try node_queue.append(allocator, item_type);
                     }
                 },
-                .ListType => try node_queue.append(allocator, comp.ListType),
-                .Map => {
-                    if (comp.Map.explicit_key_type) |key_type| {
-                        try node_queue.append(allocator, key_type);
+                .depthFirst => {
+                    if (comp.List.explicit_item_type) |item_type| {
+                        try node_queue.append(allocator, item_type);
                     }
+                    try node_queue.appendSlice(allocator, comp.List.items);
+                },
+            },
+            .ListType => try node_queue.append(allocator, comp.ListType),
+            .Map => {
+                if (comp.Map.explicit_key_type) |key_type| {
+                    try node_queue.append(allocator, key_type);
+                }
 
-                    if (comp.Map.explicit_value_type) |value_type| {
-                        try node_queue.append(allocator, value_type);
-                    }
+                if (comp.Map.explicit_value_type) |value_type| {
+                    try node_queue.append(allocator, value_type);
+                }
 
-                    for (comp.Map.entries) |entry| {
-                        try node_queue.append(allocator, entry.key);
-                        try node_queue.append(allocator, entry.value);
+                for (comp.Map.entries) |entry| {
+                    try node_queue.append(allocator, entry.key);
+                    try node_queue.append(allocator, entry.value);
+                }
+            },
+            .MapType => {
+                try node_queue.append(allocator, comp.MapType.key_type);
+                try node_queue.append(allocator, comp.MapType.value_type);
+            },
+            .NamedVariable => if (comp.NamedVariable.value) |value|
+                try node_queue.append(allocator, value),
+            .ObjectDeclaration => {
+                try node_queue.appendSlice(allocator, comp.ObjectDeclaration.protocols);
+                for (comp.ObjectDeclaration.members) |member| {
+                    if (member.property_type) |property_type| {
+                        try node_queue.append(allocator, property_type);
                     }
-                },
-                .MapType => {
-                    try node_queue.append(allocator, comp.MapType.key_type);
-                    try node_queue.append(allocator, comp.MapType.value_type);
-                },
-                .NamedVariable => if (comp.NamedVariable.value) |value|
-                    try node_queue.append(allocator, value),
-                .ObjectDeclaration => {
-                    try node_queue.appendSlice(allocator, comp.ObjectDeclaration.protocols);
-                    for (comp.ObjectDeclaration.members) |member| {
-                        if (member.property_type) |property_type| {
-                            try node_queue.append(allocator, property_type);
-                        }
-                        if (member.method_or_default_value) |value| {
-                            try node_queue.append(allocator, value);
-                        }
-                    }
-                },
-                .ObjectInit => {
-                    if (comp.ObjectInit.object) |object| {
-                        try node_queue.append(allocator, object);
-                    }
-                    for (comp.ObjectInit.properties) |property| {
-                        try node_queue.append(allocator, property.value);
-                    }
-                },
-                .Out => try node_queue.append(allocator, comp.Out),
-                .ProtocolDeclaration => for (comp.ProtocolDeclaration.methods) |method| {
-                    try node_queue.append(allocator, method.method);
-                },
-                .Range => {
-                    try node_queue.append(allocator, comp.Range.low);
-                    try node_queue.append(allocator, comp.Range.high);
-                },
-                .Resolve => try node_queue.append(allocator, comp.Resolve),
-                .Resume => try node_queue.append(allocator, comp.Resume),
-                .Return => if (comp.Return.value) |value|
-                    try node_queue.append(allocator, value),
-                .String => for (comp.String) |el|
-                    try node_queue.append(allocator, el),
-                .Subscript => {
-                    try node_queue.append(allocator, comp.Subscript.subscripted);
-                    try node_queue.append(allocator, comp.Subscript.index);
-                    if (comp.Subscript.value) |value| {
+                    if (member.method_or_default_value) |value| {
                         try node_queue.append(allocator, value);
                     }
-                },
-                .Throw => try node_queue.append(allocator, comp.Throw.expression),
-                .Try => {
-                    try node_queue.append(allocator, comp.Try.body);
-                    if (comp.Try.unconditional_clause) |clause| {
-                        try node_queue.append(allocator, clause);
-                    }
-                    for (comp.Try.clauses) |clause| {
-                        try node_queue.append(allocator, clause.type_def);
-                        try node_queue.append(allocator, clause.body);
-                    }
-                },
-                .TypeExpression => try node_queue.append(allocator, comp.TypeExpression),
-                .TypeOfExpression => try node_queue.append(allocator, comp.TypeOfExpression),
-                .Unary => try node_queue.append(allocator, comp.Unary.expression),
-                .Unwrap => try node_queue.append(allocator, comp.Unwrap.unwrapped),
-                .UserType => if (comp.UserType.generic_resolve) |generic_resolve|
-                    try node_queue.append(allocator, generic_resolve),
-                .VarDeclaration => {
+                }
+            },
+            .ObjectInit => {
+                if (comp.ObjectInit.object) |object| {
+                    try node_queue.append(allocator, object);
+                }
+                for (comp.ObjectInit.properties) |property| {
+                    try node_queue.append(allocator, property.value);
+                }
+            },
+            .Out => try node_queue.append(allocator, comp.Out),
+            .ProtocolDeclaration => for (comp.ProtocolDeclaration.methods) |method| {
+                try node_queue.append(allocator, method.method);
+            },
+            .Range => {
+                try node_queue.append(allocator, comp.Range.low);
+                try node_queue.append(allocator, comp.Range.high);
+            },
+            .Resolve => try node_queue.append(allocator, comp.Resolve),
+            .Resume => try node_queue.append(allocator, comp.Resume),
+            .Return => if (comp.Return.value) |value|
+                try node_queue.append(allocator, value),
+            .String => for (comp.String) |el|
+                try node_queue.append(allocator, el),
+            .Subscript => {
+                try node_queue.append(allocator, comp.Subscript.subscripted);
+                try node_queue.append(allocator, comp.Subscript.index);
+                if (comp.Subscript.value) |value| {
+                    try node_queue.append(allocator, value);
+                }
+            },
+            .Throw => try node_queue.append(allocator, comp.Throw.expression),
+            .Try => {
+                try node_queue.append(allocator, comp.Try.body);
+                if (comp.Try.unconditional_clause) |clause| {
+                    try node_queue.append(allocator, clause);
+                }
+                for (comp.Try.clauses) |clause| {
+                    try node_queue.append(allocator, clause.type_def);
+                    try node_queue.append(allocator, clause.body);
+                }
+            },
+            .TypeExpression => try node_queue.append(allocator, comp.TypeExpression),
+            .TypeOfExpression => try node_queue.append(allocator, comp.TypeOfExpression),
+            .Unary => try node_queue.append(allocator, comp.Unary.expression),
+            .Unwrap => try node_queue.append(allocator, comp.Unwrap.unwrapped),
+            .UserType => if (comp.UserType.generic_resolve) |generic_resolve|
+                try node_queue.append(allocator, generic_resolve),
+            .VarDeclaration => switch (strategy) {
+                .breadthFirst => {
                     if (comp.VarDeclaration.value) |value| {
                         try node_queue.append(allocator, value);
                     }
@@ -302,29 +424,198 @@ pub const Slice = struct {
                         try node_queue.append(allocator, type_def);
                     }
                 },
-                .While => {
-                    try node_queue.append(allocator, comp.While.condition);
-                    try node_queue.append(allocator, comp.While.body);
+                .depthFirst => {
+                    if (comp.VarDeclaration.type) |type_def| {
+                        try node_queue.append(allocator, type_def);
+                    }
+                    if (comp.VarDeclaration.value) |value| {
+                        try node_queue.append(allocator, value);
+                    }
                 },
-                .Yield => try node_queue.append(allocator, comp.Yield),
-                .AnonymousEnumCase,
-                .Boolean,
-                .Break,
-                .Continue,
-                .Import,
-                .Integer,
-                .Double,
-                .Null,
-                .GenericType,
-                .Namespace,
-                .Pattern,
-                .SimpleType,
-                .StringLiteral,
-                .Void,
-                .Zdef,
-                => {},
+            },
+            .While => {
+                try node_queue.append(allocator, comp.While.condition);
+                try node_queue.append(allocator, comp.While.body);
+            },
+            .Yield => try node_queue.append(allocator, comp.Yield),
+            .AnonymousEnumCase,
+            .Boolean,
+            .Break,
+            .Continue,
+            .Import,
+            .Integer,
+            .Double,
+            .Null,
+            .GenericType,
+            .Namespace,
+            .Pattern,
+            .SimpleType,
+            .StringLiteral,
+            .Void,
+            .Zdef,
+            => {},
+        }
+    }
+
+    /// Restores the visible declaration list when the depth-first walk exits a lexical scope.
+    const ScopeCheckpoint = struct {
+        /// Node whose exit ends this scope.
+        end_node: Node.Index,
+        /// Visible declaration count before entering this scope.
+        visible_len: usize,
+    };
+
+    /// Depth-first walk context that snapshots declarations visible at a source offset.
+    const ScopeAwareContext = struct {
+        /// Root node of the visibility query.
+        root: Node.Index,
+        /// Source byte offset whose lexical environment is being queried.
+        offset: usize,
+        /// Declarations currently visible at the walk position, in declaration order.
+        visible: std.ArrayList(Node.Index) = .empty,
+        /// Stack of lexical scopes and the visible list size each scope must restore.
+        scope_checkpoints: std.ArrayList(ScopeCheckpoint) = .empty,
+        /// Captured visible declaration snapshot once the requested offset is reached.
+        result: ?[]const Node.Index = null,
+
+        /// Frees scratch state owned by the context; `result` is returned to the caller.
+        fn deinit(self: *ScopeAwareContext, allocator: std.mem.Allocator) void {
+            self.visible.deinit(allocator);
+            self.scope_checkpoints.deinit(allocator);
+        }
+
+        /// Copies the currently visible declarations once a lookup reaches its target.
+        fn captureResult(self: *ScopeAwareContext, allocator: std.mem.Allocator) std.mem.Allocator.Error!void {
+            if (self.result == null) {
+                self.result = try allocator.dupe(Node.Index, self.visible.items);
             }
         }
+
+        /// Marks a lexical scope boundary and remembers how many declarations were visible on entry.
+        fn pushScope(self: *ScopeAwareContext, allocator: std.mem.Allocator, end_node: Node.Index) std.mem.Allocator.Error!void {
+            try self.scope_checkpoints.append(
+                allocator,
+                .{
+                    .end_node = end_node,
+                    .visible_len = self.visible.items.len,
+                },
+            );
+        }
+
+        /// Enters scopes before processing children; some parser scopes end at a child body node.
+        pub fn enterNode(
+            self: *ScopeAwareContext,
+            allocator: std.mem.Allocator,
+            ast: Self.Slice,
+            node: Self.Node.Index,
+        ) std.mem.Allocator.Error!void {
+            if (self.result != null) {
+                return;
+            }
+
+            const components = ast.nodes.items(.components);
+            switch (ast.nodes.items(.tag)[node]) {
+                .Function, .BlockExpression => try self.pushScope(allocator, node),
+                .If => try self.pushScope(allocator, components[node].If.body),
+                .While => try self.pushScope(allocator, components[node].While.body),
+                .DoUntil => try self.pushScope(allocator, components[node].DoUntil.body),
+                .For, .ForEach => try self.pushScope(allocator, node),
+                else => if (ast.nodes.items(.ends_scope)[node] != null and
+                    (self.scope_checkpoints.items.len == 0 or
+                        self.scope_checkpoints.items[self.scope_checkpoints.items.len - 1].end_node != node))
+                {
+                    try self.pushScope(allocator, node);
+                },
+            }
+        }
+
+        /// Exits scopes whose lifetime ends at this node and drops declarations from those scopes.
+        pub fn exitNode(
+            self: *ScopeAwareContext,
+            allocator: std.mem.Allocator,
+            ast: Self.Slice,
+            node: Self.Node.Index,
+        ) std.mem.Allocator.Error!void {
+            const node_ends_current_scope = self.scope_checkpoints.items.len > 0 and
+                self.scope_checkpoints.items[self.scope_checkpoints.items.len - 1].end_node == node;
+
+            if (self.result == null and (node_ends_current_scope or node == self.root)) {
+                const token_offsets = ast.tokens.items(.offset);
+                const lexemes = ast.tokens.items(.lexeme);
+                const locations = ast.nodes.items(.location);
+                const end_locations = ast.nodes.items(.end_location);
+                const node_start = token_offsets[locations[node]];
+                const node_end = token_offsets[end_locations[node]] + lexemes[end_locations[node]].len;
+
+                // Only lexical scopes can be the fallback capture point. Other nodes, such as
+                // imports, can have ranges from another source and must not stop the walk early.
+                if ((node_start <= self.offset and self.offset <= node_end) or node == self.root) {
+                    try self.captureResult(allocator);
+                }
+            }
+
+            while (self.scope_checkpoints.items.len > 0 and
+                self.scope_checkpoints.items[self.scope_checkpoints.items.len - 1].end_node == node)
+            {
+                const checkpoint = self.scope_checkpoints.pop().?;
+                self.visible.shrinkRetainingCapacity(checkpoint.visible_len);
+            }
+        }
+
+        /// Captures visible declarations at the source offset and records declarations as they become visible.
+        pub fn processNode(
+            self: *ScopeAwareContext,
+            allocator: std.mem.Allocator,
+            ast: Self.Slice,
+            node: Self.Node.Index,
+        ) std.mem.Allocator.Error!bool {
+            if (self.result != null) {
+                return true;
+            }
+
+            const token_offsets = ast.tokens.items(.offset);
+            const lexemes = ast.tokens.items(.lexeme);
+            const locations = ast.nodes.items(.location);
+            const end_locations = ast.nodes.items(.end_location);
+            const node_start = token_offsets[locations[node]];
+
+            if (node_start >= self.offset) {
+                try self.captureResult(allocator);
+                return true;
+            }
+
+            if (ast.nodes.items(.tag)[node] == .VarDeclaration) {
+                const declaration = ast.nodes.items(.components)[node].VarDeclaration;
+                const node_end = token_offsets[end_locations[node]] + lexemes[end_locations[node]].len;
+
+                const declaration_is_before_offset = node_end <= self.offset;
+                const offset_inside_declaration = node_start <= self.offset and self.offset < node_end;
+
+                if (!declaration.implicit and declaration_is_before_offset and !offset_inside_declaration) {
+                    try self.visible.append(allocator, node);
+                }
+            }
+
+            return false;
+        }
+    };
+
+    /// Returns declarations visible in the lexical scope at `offset` in the source.
+    pub fn visibleSymbolsAtOffset(
+        self: Self.Slice,
+        allocator: std.mem.Allocator,
+        root: Node.Index,
+        offset: usize,
+    ) ![]const Node.Index {
+        var ctx = ScopeAwareContext{
+            .root = root,
+            .offset = offset,
+        };
+        defer ctx.deinit(allocator);
+
+        try self.walk(allocator, &ctx, root, .depthFirst);
+
+        return ctx.result orelse &.{};
     }
 
     const UsesFiberContext = struct {
@@ -348,7 +639,7 @@ pub const Slice = struct {
     pub fn usesFiber(self: Self.Slice, allocator: std.mem.Allocator, node: Node.Index) !bool {
         var ctx = UsesFiberContext{};
 
-        try self.walk(allocator, &ctx, node);
+        try self.walk(allocator, &ctx, node, .breadthFirst);
 
         return ctx.result;
     }
@@ -531,7 +822,7 @@ pub const Slice = struct {
     pub fn isConstant(self: Self.Slice, allocator: std.mem.Allocator, node: Node.Index) !bool {
         var ctx = IsConstantContext{};
 
-        try self.walk(allocator, &ctx, node);
+        try self.walk(allocator, &ctx, node, .breadthFirst);
 
         return ctx.result orelse false;
     }
@@ -580,7 +871,7 @@ pub const Slice = struct {
         if (complexity_score.* == null) {
             var ctx = ComplexityContext{};
 
-            try self.walk(allocator, &ctx, node);
+            try self.walk(allocator, &ctx, node, .breadthFirst);
 
             complexity_score.* = ctx.score;
         }
@@ -609,7 +900,7 @@ pub const Slice = struct {
     pub fn namespace(self: Self.Slice, allocator: std.mem.Allocator, node: Node.Index) !?[]const TokenIndex {
         var ctx = NamespaceContext{};
 
-        try self.walk(allocator, &ctx, node);
+        try self.walk(allocator, &ctx, node, .breadthFirst);
 
         return ctx.namespace;
     }
