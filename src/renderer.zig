@@ -26,6 +26,8 @@ pub const Renderer = struct {
     ais: *AutoIndentingStream,
 
     indent: u16 = 0,
+    /// Suppresses declaration docblocks while an exported declaration wrapper renders them.
+    suppress_docblock: bool = false,
 
     pub const Error = error{
         AccessDenied,
@@ -556,9 +558,9 @@ pub const Renderer = struct {
 
     fn renderFunDeclaration(self: *Self, node: Ast.Node.Index, space: Space) Error!void {
         // docblock
-        if (self.ast.nodes.items(.docblock)[node]) |docblock| {
+        if (!self.suppress_docblock and self.ast.nodes.items(.docblock)[node] != null) {
             try self.renderExpectedToken(
-                docblock,
+                self.ast.nodes.items(.docblock)[node].?,
                 .Docblock,
                 .None,
             );
@@ -2030,6 +2032,15 @@ pub const Renderer = struct {
         const components = self.ast.nodes.items(.components)[node].Enum;
         const tags = self.ast.tokens.items(.tag);
 
+        // docblock
+        if (!self.suppress_docblock and self.ast.nodes.items(.docblock)[node] != null) {
+            try self.renderExpectedToken(
+                self.ast.nodes.items(.docblock)[node].?,
+                .Docblock,
+                .None,
+            );
+        }
+
         // enum
         try self.renderExpectedToken(
             locations[node],
@@ -2134,7 +2145,20 @@ pub const Renderer = struct {
 
     fn renderExport(self: *Self, node: Ast.Node.Index, space: Space) Error!void {
         const locations = self.ast.nodes.items(.location);
+        const docblocks = self.ast.nodes.items(.docblock);
         const components = self.ast.nodes.items(.components)[node].Export;
+
+        const docblock = if (components.declaration) |decl|
+            docblocks[decl] orelse docblocks[node]
+        else
+            docblocks[node];
+        if (docblock) |d| {
+            try self.renderExpectedToken(
+                d,
+                .Docblock,
+                .None,
+            );
+        }
 
         // export
         try self.renderExpectedToken(
@@ -2144,6 +2168,10 @@ pub const Renderer = struct {
         );
 
         if (components.declaration) |decl| {
+            const suppress_docblock = self.suppress_docblock;
+            self.suppress_docblock = true;
+            defer self.suppress_docblock = suppress_docblock;
+
             try self.renderNode(decl, space);
         } else {
             try self.renderQualifiedName(
@@ -2652,7 +2680,12 @@ pub const Renderer = struct {
             for (branch.conditions, 0..) |condition, idx| {
                 try self.renderNode(
                     condition,
-                    if (conditions_ends_with_comma) .Newline else .Space,
+                    if (conditions_ends_with_comma)
+                        .Newline
+                    else if (idx == branch.conditions.len - 1)
+                        .Space
+                    else
+                        .None,
                 );
 
                 if (idx == branch.conditions.len - 1) {
@@ -2794,9 +2827,9 @@ pub const Renderer = struct {
             .Object.fields;
 
         // docblock
-        if (self.ast.nodes.items(.docblock)[node]) |docblock| {
+        if (!self.suppress_docblock and self.ast.nodes.items(.docblock)[node] != null) {
             try self.renderExpectedToken(
-                docblock,
+                self.ast.nodes.items(.docblock)[node].?,
                 .Docblock,
                 .None,
             );
@@ -3063,9 +3096,9 @@ pub const Renderer = struct {
         const components = self.ast.nodes.items(.components)[node].ProtocolDeclaration;
 
         // docblock
-        if (self.ast.nodes.items(.docblock)[node]) |docblock| {
+        if (!self.suppress_docblock and self.ast.nodes.items(.docblock)[node] != null) {
             try self.renderExpectedToken(
-                docblock,
+                self.ast.nodes.items(.docblock)[node].?,
                 .Docblock,
                 .None,
             );
@@ -3450,9 +3483,9 @@ pub const Renderer = struct {
         const components = self.ast.nodes.items(.components)[node].VarDeclaration;
 
         // docblock
-        if (self.ast.nodes.items(.docblock)[node]) |docblock| {
+        if (!self.suppress_docblock and self.ast.nodes.items(.docblock)[node] != null) {
             try self.renderExpectedToken(
-                docblock,
+                self.ast.nodes.items(.docblock)[node].?,
                 .Docblock,
                 .None,
             );

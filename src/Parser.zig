@@ -7566,6 +7566,7 @@ fn exportStatement(self: *Self, docblock: ?Ast.TokenIndex) Error!Ast.Node.Index 
                     .tag = .Export,
                     .location = start_location,
                     .end_location = self.current_token.? - 1,
+                    .docblock = docblock,
                     .type_def = global.type_def,
                     .components = .{
                         .Export = .{
@@ -7592,7 +7593,6 @@ fn exportStatement(self: *Self, docblock: ?Ast.TokenIndex) Error!Ast.Node.Index 
                     .tag = .Export,
                     .location = start_location,
                     .end_location = self.current_token.? - 1,
-                    .docblock = docblock,
                     .type_def = self.ast.nodes.items(.type_def)[decl],
                     .components = .{
                         .Export = .{
