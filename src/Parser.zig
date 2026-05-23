@@ -5987,11 +5987,21 @@ fn matchStatementOrExpression(self: *Self, is_statement: bool) Error!Ast.Node.In
 
         try self.consume(.Arrow, "Expected `->`");
 
+        const body_is_block = is_statement and try self.match(.LeftBrace);
+        const body = if (body_is_block) block: {
+            try self.beginScope(null);
+            break :block try self.block(null); // We accept a lexical block when it's a match statement
+        } else try self.expression(false); // Otherwise it should be an expression
+
+        if (body_is_block) {
+            self.ast.nodes.items(.ends_scope)[body] = try self.endScope();
+        }
+
         try branches.append(
             self.gc.allocator,
             .{
                 .conditions = try conditions.toOwnedSlice(self.gc.allocator),
-                .expression = try self.expression(false),
+                .expression = body,
             },
         );
 
@@ -6002,7 +6012,18 @@ fn matchStatementOrExpression(self: *Self, is_statement: bool) Error!Ast.Node.In
 
     const else_branch = if (try self.match(.Else)) else_branch: {
         try self.consume(.Arrow, "Expected `->` after `else`");
-        break :else_branch try self.expression(false);
+
+        const body_is_block = is_statement and try self.match(.LeftBrace);
+        const body = if (body_is_block) block: {
+            try self.beginScope(null);
+            break :block try self.block(null); // We accept a lexical block when it's a match statement
+        } else try self.expression(false); // Otherwise it should be an expression
+
+        if (body_is_block) {
+            self.ast.nodes.items(.ends_scope)[body] = try self.endScope();
+        }
+
+        break :else_branch body;
     } else null;
 
     if (else_branch != null) {

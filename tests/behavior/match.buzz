@@ -4,6 +4,12 @@ object MatchBox {
     value: int = 1,
 }
 
+/// Event object used by match statement block tests.
+object MatchEvent {
+    /// Event kind.
+    kind: str,
+}
+
 enum MatchEnum {
     one,
     two,
@@ -30,6 +36,50 @@ test "match expression and statement" {
 
     statementMatch(1);
     statementMatch(3);
+}
+
+/// Exercise statement match branches whose bodies are lexical blocks.
+fun statementBlockMatch(value: int) > str {
+    var result = "unset";
+    var selected = 0;
+
+    match (value) {
+        1 -> {
+            final branch = "one";
+            selected = selected + 1;
+            result = branch;
+        },
+        2 -> {
+            final branch = "two";
+            selected = selected + 10;
+            result = branch;
+        },
+        else -> {
+            final event = MatchEvent{
+                kind = "other",
+            };
+            result = event.kind;
+        },
+    }
+
+    return "{result}:{selected}";
+}
+
+test "match statement branch blocks" {
+    std\assert(
+        statementBlockMatch(1) == "one:1",
+        message: "match statement branch block can run multiple statements",
+    );
+
+    std\assert(
+        statementBlockMatch(2) == "two:10",
+        message: "match statement branch blocks have sibling lexical scopes",
+    );
+
+    std\assert(
+        statementBlockMatch(3) == "other:0",
+        message: "match statement else branch block can contain object initialization",
+    );
 }
 
 test "match string and pattern" {
