@@ -9469,7 +9469,7 @@ fn importScript(
                     const namespace = prefix orelse global.qualified_name.namespace;
 
                     if (self.namespace) |own_namespace| {
-                        if (namespace.len > own_namespace.len) {
+                        if (namespace.len >= own_namespace.len) {
                             var common: ?usize = null;
                             for (own_namespace, 0..) |part, i| {
                                 if (!std.mem.eql(u8, lexemes[part], lexemes[namespace[i]])) {
