@@ -44,7 +44,10 @@ test "Char literal" {
 
     final carriage_return = '\r';
 
-    std\assert(carriage_return == 13, message: "Could escape carriage return in char literal");
+    std\assert(
+        carriage_return == 13,
+        message: "Could escape carriage return in char literal"
+    );
 
     final tab = '\t';
 
@@ -68,9 +71,15 @@ test "Char literal" {
 
     final vertical_tab = '\v';
 
-    std\assert(vertical_tab == 11, message: "Could escape vertical tab in char literal");
+    std\assert(
+        vertical_tab == 11,
+        message: "Could escape vertical tab in char literal"
+    );
 
     final double_quote = '\"';
 
-    std\assert(double_quote == 34, message: "Could escape double quote in char literal");
+    std\assert(
+        double_quote == 34,
+        message: "Could escape double quote in char literal"
+    );
 }

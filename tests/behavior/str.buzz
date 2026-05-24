@@ -20,7 +20,10 @@ test "str.indexOf" {
 test "str.split" {
     final splits = "one,two,three".split(",");
 
-    std\assert(splits[0] == "one" and splits[1] == "two" and splits[2] == "three", message: "str.split");
+    std\assert(
+        splits[0] == "one" and splits[1] == "two" and splits[2] == "three",
+        message: "str.split"
+    );
 }
 
 test "str.sub" {
@@ -29,8 +32,14 @@ test "str.sub" {
 }
 
 test "base64" {
-    std\assert("hello world".encodeBase64() == "aGVsbG8gd29ybGQ=", message: "could encode in b64");
-    std\assert("aGVsbG8gd29ybGQ=".decodeBase64() == "hello world", message: "could encode in b64");
+    std\assert(
+        "hello world".encodeBase64() == "aGVsbG8gd29ybGQ=",
+        message: "could encode in b64"
+    );
+    std\assert(
+        "aGVsbG8gd29ybGQ=".decodeBase64() == "hello world",
+        message: "could encode in b64"
+    );
 }
 
 test "upper/lower" {
@@ -39,9 +48,16 @@ test "upper/lower" {
 }
 
 test "hex/bin" {
-    std\assert("c3fcd3d76192e4007dfb496cca67e13b".bin().hex() == "c3fcd3d76192e4007dfb496cca67e13b", message: "hex/bin");
+    std\assert(
+        "c3fcd3d76192e4007dfb496cca67e13b".bin().hex()
+            == "c3fcd3d76192e4007dfb496cca67e13b",
+        message: "hex/bin"
+    );
 }
 
 test "trim" {
-    std\assert(" hello world \t\n".trim() == "hello world", message: "could trim str");
+    std\assert(
+        " hello world \t\n".trim() == "hello world",
+        message: "could trim str"
+    );
 }

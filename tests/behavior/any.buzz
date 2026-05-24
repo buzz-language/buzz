@@ -11,10 +11,16 @@ test "any" {
 }
 
 test "any placeholder" {
-    std\assert(placeholder is str, message: "can manipulate placeholder with any typed value");
+    std\assert(
+        placeholder is str,
+        message: "can manipulate placeholder with any typed value"
+    );
 
     if (placeholder as astring: str) {
-        std\assert(astring.len() == "hello".len(), message: "could cast placeholder any");
+        std\assert(
+            astring.len() == "hello".len(),
+            message: "could cast placeholder any"
+        );
     }
 }
 

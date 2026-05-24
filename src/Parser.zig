@@ -3118,6 +3118,7 @@ fn parseTypeDef(
 
             if (user_type_node) |un| {
                 self.ast.nodes.items(.type_def)[un] = user_type;
+                self.ast.nodes.items(.end_location)[un] = self.current_token.? - 1;
             }
         }
 

@@ -49,6 +49,9 @@ test "JIT hotspot string interpolation keeps cast parts alive" {
         i += 1;
     }
 
-    std\assert(demo.lastMouse == "MouseKind.drag MouseButton.left at 10,5", message: "hotspot interpolation");
+    std\assert(
+        demo.lastMouse == "MouseKind.drag MouseButton.left at 10,5",
+        message: "hotspot interpolation"
+    );
     std\assert(demo.events == 10000, message: "hotspot method calls");
 }

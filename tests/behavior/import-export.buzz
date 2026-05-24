@@ -5,6 +5,9 @@ final mine = 42;
 test "Using a function coming from an import" {
     final me = testing\PrefixMe{};
     testing\assert(me.name == "Joe", message: "prefixed global works as type");
-    testing\assert(testing\hey("world") == mine, message: "unexported symbol is reachable");
+    testing\assert(
+        testing\hey("world") == mine,
+        message: "unexported symbol is reachable"
+    );
     testing\assert(true, message: "yeah!");
 }

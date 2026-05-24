@@ -12,7 +12,10 @@ test "Write & read a file" {
     // Now read it
     final fileB = io\File.open("./hello.txt", mode: .read);
 
-    std\assert(fileB.readAll() == "Hello World", message: "Could write and read a file");
+    std\assert(
+        fileB.readAll() == "Hello World",
+        message: "Could write and read a file"
+    );
 
     fileB.close();
 
@@ -26,7 +29,8 @@ test "Write on stdout" {
 test "Read by lines" {
     final file = io\File.open("./README.md", mode: .read);
 
-    for (lines: int = 0, line: str? = ""; line != null; line = file.readLine(), lines = lines + 1) {
+    for (lines: int = 0, line: str? = ""; line != null; line = file.readLine(), lines =
+        lines + 1) {
         std\print("{lines}: {line}");
     }
 

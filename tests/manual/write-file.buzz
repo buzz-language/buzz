@@ -1,6 +1,6 @@
 import "io";
 
-final list = [1, 2, 3];
+final list = [ 1, 2, 3 ];
 
 final map = { list: "hello" };
 

@@ -3,10 +3,10 @@ import "math";
 import "errors";
 
 object Node {
-    left: mut Node? = null,
-    right: mut Node? = null,
-    value: int? = null,
-    hash: int? = null,
+    left: mut Node?,
+    right: mut Node?,
+    value: int?,
+    hash: int?,
 }
 
 fun makeTree(depth: int) > mut Node {
@@ -17,9 +17,7 @@ fun makeTree(depth: int) > mut Node {
         };
     }
 
-    return mut Node{
-        value = 1
-    };
+    return mut Node{ value = 1 };
 }
 
 fun check(tree: Node) > bool {
@@ -60,15 +58,14 @@ fun main(args: [str]) > void !> any {
     final stretchtree = makeTree(stretchdepth);
     calHash(stretchtree);
 
-    std\print("stretch tree of depth {stretchdepth}\t root hash: {stretchtree.hash ?? 0} check: {check(stretchtree)}");
+    std\print(
+        "stretch tree of depth {stretchdepth}\t root hash: {stretchtree.hash ?? 0} check: {check(stretchtree)}"
+    );
 
     final longlivedtree = makeTree(maxdepth);
     for (depth: int = mindepth; depth < maxdepth; depth = depth + 2) {
         final iterations = std\toInt(
-            math\pow(
-                x: 2.0,
-                y: std\toDouble(maxdepth - depth + mindepth)
-            )
+            math\pow(x: 2.0, y: std\toDouble(maxdepth - depth + mindepth))
         );
         var sum = 0;
         foreach (_ in 0..iterations) {
@@ -81,5 +78,7 @@ fun main(args: [str]) > void !> any {
     }
 
     calHash(longlivedtree);
-    std\print("long lived tree of depth {maxdepth}\t root hash: {longlivedtree.hash ?? 0} check: {check(longlivedtree)}");
+    std\print(
+        "long lived tree of depth {maxdepth}\t root hash: {longlivedtree.hash ?? 0} check: {check(longlivedtree)}"
+    );
 }

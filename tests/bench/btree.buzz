@@ -2,8 +2,8 @@ import "std";
 import "math";
 
 object Node {
-    left: Node? = null,
-    right: Node? = null,
+    left: Node?,
+    right: Node?,
 }
 
 fun bottomUpTree(depth: int) > Node {
@@ -36,11 +36,15 @@ fun btree(N: int) > void {
 
     final stretchdepth = maxdepth + 1;
     final stretchtree = bottomUpTree(stretchdepth);
-    std\print("stretch tree of depth {stretchdepth},\t check: {itemCheck(stretchtree)}");
+    std\print(
+        "stretch tree of depth {stretchdepth},\t check: {itemCheck(stretchtree)}"
+    );
 
     final longlivedtree = bottomUpTree(maxdepth);
     for (depth = mindepth; depth < maxdepth; depth = depth + 2) {
-        final iterations = std\toInt(math\pow(x: 2.0, y: std\toDouble(maxdepth - depth + mindepth)) catch 0.0);
+        final iterations = std\toInt(
+            math\pow(x: 2.0, y: std\toDouble(maxdepth - depth + mindepth)) catch 0.0
+        );
         var check = 0;
         foreach (_ in 0..iterations) {
             check = check + itemCheck(bottomUpTree(depth));
@@ -49,11 +53,11 @@ fun btree(N: int) > void {
         std\print("{iterations}\t trees of depth {depth}\t check: {check}");
     }
 
-    std\print("long lived tree of depth {maxdepth}\t check: {itemCheck(longlivedtree)}");
+    std\print(
+        "long lived tree of depth {maxdepth}\t check: {itemCheck(longlivedtree)}"
+    );
 }
 
 fun main(args: [str]) > void !> any {
-    btree(
-        std\parseInt(args[?0] ?? "3") ?? 3
-    );
+    btree(std\parseInt(args[?0] ?? "3") ?? 3);
 }

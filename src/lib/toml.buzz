@@ -47,7 +47,8 @@ object Token {
 
         return match (content.byte(0)) {
             '\n' -> content.sub(1),
-            '\r' -> if (content.len() > 1 and content.byte(1) == '\n') content.sub(2) else content,
+            '\r' -> if (content.len() > 1 and content.byte(1) == '\n') content
+                .sub(2) else content,
             else -> content,
         };
     }
@@ -79,7 +80,8 @@ object Token {
     }
 
     fun utf8Codepoint(codepoint: int) > str? {
-        if (codepoint < 0 or codepoint > 0x10ffff or (codepoint >= 0xd800 and codepoint <= 0xdfff)) {
+        if (codepoint < 0 or codepoint > 0x10ffff
+            or (codepoint >= 0xd800 and codepoint <= 0xdfff)) {
             return null;
         }
 
@@ -88,14 +90,22 @@ object Token {
         }
 
         if (codepoint <= 0x7ff) {
-            return std\char(0xc0 | (codepoint >> 6)) + std\char(0x80 | (codepoint & 0x3f));
+            return std\char(0xc0 | (codepoint >> 6)) + std\char(
+                0x80 | (codepoint & 0x3f)
+            );
         }
 
         if (codepoint <= 0xffff) {
-            return std\char(0xe0 | (codepoint >> 12)) + std\char(0x80 | ((codepoint >> 6) & 0x3f)) + std\char(0x80 | (codepoint & 0x3f));
+            return std\char(0xe0 | (codepoint >> 12)) + std\char(
+                0x80 | ((codepoint >> 6) & 0x3f)
+            ) + std\char(0x80 | (codepoint & 0x3f));
         }
 
-        return std\char(0xf0 | (codepoint >> 18)) + std\char(0x80 | ((codepoint >> 12) & 0x3f)) + std\char(0x80 | ((codepoint >> 6) & 0x3f)) + std\char(0x80 | (codepoint & 0x3f));
+        return std\char(0xf0 | (codepoint >> 18)) + std\char(
+            0x80 | ((codepoint >> 12) & 0x3f)
+        ) + std\char(0x80 | ((codepoint >> 6) & 0x3f)) + std\char(
+            0x80 | (codepoint & 0x3f)
+        );
     }
 
     fun decodeBasicString(content: str, multiline: bool = false) > str? {
@@ -113,18 +123,26 @@ object Token {
 
             if (multiline) {
                 var continuationOffset = offset + 1;
-                while (continuationOffset < content.len() and (content.byte(continuationOffset) == ' ' or content.byte(continuationOffset) == '\t')) {
+                while (continuationOffset < content.len()
+                    and (content.byte(continuationOffset) == ' '
+                        or content.byte(continuationOffset) == '\t')) {
                     continuationOffset = continuationOffset + 1;
                 }
 
-                if (continuationOffset < content.len() and (content.byte(continuationOffset) == '\n' or (continuationOffset + 1 < content.len() and content.byte(continuationOffset) == '\r' and content.byte(continuationOffset + 1) == '\n'))) {
+                if (continuationOffset < content.len()
+                    and (content.byte(continuationOffset) == '\n'
+                        or (continuationOffset + 1 < content.len()
+                            and content.byte(continuationOffset) == '\r'
+                            and content.byte(continuationOffset + 1) == '\n'))) {
                     offset = if (content.byte(continuationOffset) == '\r') continuationOffset + 2 else continuationOffset + 1;
 
                     while (offset < content.len()) {
                         final peeked = content.byte(offset);
                         if (peeked == ' ' or peeked == '\t' or peeked == '\n') {
                             offset = offset + 1;
-                        } else if (peeked == '\r' and offset + 1 < content.len() and content.byte(offset + 1) == '\n') {
+                        } else if (peeked == '\r'
+                            and offset + 1 < content.len()
+                            and content.byte(offset + 1) == '\n') {
                             offset = offset + 2;
                         } else {
                             break;
@@ -163,7 +181,11 @@ object Token {
                 return null;
             }
 
-            final codepoint = this.hexEscapeValue(content, offset: offset + 1, len: len!);
+            final codepoint = this.hexEscapeValue(
+                content,
+                offset: offset + 1,
+                len: len!
+            );
             if (codepoint == null) {
                 return null;
             }
@@ -260,8 +282,12 @@ object Token {
     fun literal() > any {
         return match (this.tag) {
             .LiteralString -> this.stripStringDelimiters(1),
-            .MultilineLiteralString -> this.trimFirstMultilineNewline(this.stripStringDelimiters(3)),
-            .BasicString -> this.decodeBasicString(this.stripStringDelimiters(1)),
+            .MultilineLiteralString -> this.trimFirstMultilineNewline(
+                this.stripStringDelimiters(3)
+            ),
+            .BasicString -> this.decodeBasicString(
+                this.stripStringDelimiters(1)
+            ),
             .MultilineBasicString -> this.decodeBasicString(
                 this.trimFirstMultilineNewline(this.stripStringDelimiters(3)),
                 multiline: true,
@@ -297,9 +323,11 @@ object Scanner {
 
     fun isEOF() => this.current.offset >= this.source.len();
 
-    fun peek(n: int = 0) => if (this.current.offset + n >= this.source.len()) 0 else this.source.byte(this.current.offset + n);
+    fun peek(n: int = 0) => if (this.current.offset + n >= this.source.len()) 0 else this
+        .source.byte(this.current.offset + n);
 
-    fun byteAt(offset: int) => if (offset >= this.source.len()) 0 else this.source.byte(offset);
+    fun byteAt(offset: int) => if (offset >= this.source.len()) 0 else this
+        .source.byte(offset);
 
     mut fun advance() > int {
         final char = this.source.byte(this.current.offset);
@@ -326,19 +354,24 @@ object Scanner {
 
     fun isNumber(char: int) => char >= '0' and char <= '9';
 
-    fun isHexDigit(char: int) => this.isNumber(char) or (char >= 'a' and char <= 'f') or (char >= 'A' and char <= 'F');
+    fun isHexDigit(char: int) => this.isNumber(char)
+        or (char >= 'a' and char <= 'f') or (char >= 'A' and char <= 'F');
 
     fun isOctalDigit(char: int) => char >= '0' and char <= '7';
 
     fun isBinaryDigit(char: int) => char == '0' or char == '1';
 
-    fun isLetter(char: int) => (char >= 'a' and char <= 'z') or (char >= 'A' and char <= 'Z');
+    fun isLetter(char: int) => (char >= 'a' and char <= 'z')
+        or (char >= 'A' and char <= 'Z');
 
-    fun isBareKeyChar(char: int) => this.isLetter(char) or this.isNumber(char) or char == '_' or char == '-';
+    fun isBareKeyChar(char: int) => this.isLetter(char) or this.isNumber(char)
+        or char == '_' or char == '-';
 
-    fun isDisallowedLiteralStringChar(char: int) => (char >= '\0' and char <= '\b') or (char >= '\n' and char <= 31) or char == 127;
+    fun isDisallowedLiteralStringChar(char: int) => (char >= '\0'
+        and char <= '\b') or (char >= '\n' and char <= 31) or char == 127;
 
-    fun isDisallowedBasicStringChar(char: int) => (char >= '\0' and char <= '\b') or (char >= '\n' and char <= 31) or char == 127;
+    fun isDisallowedBasicStringChar(char: int) => (char >= '\0' and char <= '\b')
+        or (char >= '\n' and char <= 31) or char == 127;
 
     fun digitValue(char: int) > int? {
         return match (char) {
@@ -366,7 +399,8 @@ object Scanner {
         return value;
     }
 
-    fun isValidUnicodeScalar(codepoint: int) => codepoint >= 0 and codepoint <= 0x10ffff and (codepoint < 0xd800 or codepoint > 0xdfff);
+    fun isValidUnicodeScalar(codepoint: int) => codepoint >= 0
+        and codepoint <= 0x10ffff and (codepoint < 0xd800 or codepoint > 0xdfff);
 
     fun isStringNewlineStart(offset: int) > bool {
         final char = this.byteAt(offset);
@@ -424,7 +458,10 @@ object Scanner {
         this.tokens.append(
             Token{
                 tag,
-                lexeme = this.source.sub(this.current.start, len: this.current.offset - this.current.start),
+                lexeme = this.source.sub(
+                    this.current.start,
+                    len: this.current.offset - this.current.start
+                ),
                 offset = this.current.start,
                 line = this.lineOffset + this.current.startLine,
                 column = this.columnOffset + this.current.startColumn,
@@ -508,9 +545,13 @@ object Scanner {
             return this.makeToken(simpleTag!);
         }
 
-        if (this.isLetter(char) or char == '_' or (char == '-' and !this.isNumber(peeked) and peeked != 'i' and peeked != 'n')) {
+        if (this.isLetter(char) or char == '_'
+            or (char == '-'
+                and !this.isNumber(peeked) and peeked != 'i' and peeked != 'n')) {
             return this.bareKey();
-        } else if (this.isNumber(char) or ((char == '+' or char == '-') and (this.isNumber(peeked) or peeked == 'i' or peeked == 'n'))) {
+        } else if (this.isNumber(char)
+            or ((char == '+' or char == '-')
+                and (this.isNumber(peeked) or peeked == 'i' or peeked == 'n'))) {
             if ((char == '+' or char == '-') and this.isNumber(peeked)) {
                 _ = this.advance();
             }
@@ -539,7 +580,10 @@ object Scanner {
     }
 
     fun keywordOrBareKey() > Token {
-        final lexeme = this.source.sub(this.current.start, len: this.current.offset - this.current.start);
+        final lexeme = this.source.sub(
+            this.current.start,
+            len: this.current.offset - this.current.start
+        );
 
         return this.makeToken(
             match (lexeme) {
@@ -572,7 +616,11 @@ object Scanner {
         return this.makeError(error);
     }
 
-    mut fun consumeNumberDigits(base: str, required: bool = false, consumedAlready: bool = false) > bool {
+    mut fun consumeNumberDigits(
+        base: str,
+        required: bool = false,
+        consumedAlready: bool = false
+    ) > bool {
         var consumed = consumedAlready;
         var valid = true;
 
@@ -627,11 +675,16 @@ object Scanner {
         return true;
     }
 
-    fun twoDigits(offset: int) => (this.byteAt(offset) - '0') * 10 + this.byteAt(offset + 1) - '0';
+    fun twoDigits(offset: int) => (this.byteAt(offset) - '0') * 10 + this.byteAt(
+        offset + 1
+    ) - '0';
 
-    fun fourDigits(offset: int) => (this.byteAt(offset) - '0') * 1000 + (this.byteAt(offset + 1) - '0') * 100 + (this.byteAt(offset + 2) - '0') * 10 + this.byteAt(offset + 3) - '0';
+    fun fourDigits(offset: int) => (this.byteAt(offset) - '0') * 1000 + (this
+        .byteAt(offset + 1) - '0') * 100 + (this.byteAt(offset + 2) - '0') * 10 + this
+        .byteAt(offset + 3) - '0';
 
-    fun isLeapYear(year: int) => (year % 4 == 0 and year % 100 != 0) or year % 400 == 0;
+    fun isLeapYear(year: int) => (year % 4 == 0 and year % 100 != 0)
+        or year % 400 == 0;
 
     fun daysInMonth(year: int, month: int) > int {
         return match (month) {
@@ -646,7 +699,9 @@ object Scanner {
         final month = this.twoDigits(offset + 5);
         final day = this.twoDigits(offset + 8);
 
-        return month >= 1 and month <= 12 and day >= 1 and day <= this.daysInMonth(year, month: month);
+        return month >= 1
+            and month <= 12
+            and day >= 1 and day <= this.daysInMonth(year, month: month);
     }
 
     fun validTime(offset: int, length: int) > bool {
@@ -676,7 +731,10 @@ object Scanner {
     }
 
     fun partialTimeLength(offset: int) > int {
-        if (!this.hasDigits(offset, count: 2) or this.byteAt(offset + 2) != ':' or !this.hasDigits(offset + 3, count: 2) or this.byteAt(offset + 5) != ':' or !this.hasDigits(offset + 6, count: 2)) {
+        if (!this.hasDigits(offset, count: 2) or this.byteAt(offset + 2) != ':'
+            or !this.hasDigits(offset + 3, count: 2)
+            or this.byteAt(offset + 5) != ':'
+            or !this.hasDigits(offset + 6, count: 2)) {
             return 0;
         }
 
@@ -697,7 +755,11 @@ object Scanner {
     }
 
     fun fullDateLength(offset: int) > int {
-        if (this.hasDigits(offset, count: 4) and this.byteAt(offset + 4) == '-' and this.hasDigits(offset + 5, count: 2) and this.byteAt(offset + 7) == '-' and this.hasDigits(offset + 8, count: 2)) {
+        if (this.hasDigits(offset, count: 4)
+            and this.byteAt(offset + 4) == '-'
+            and this.hasDigits(offset + 5, count: 2)
+            and this.byteAt(offset + 7) == '-'
+            and this.hasDigits(offset + 8, count: 2)) {
             return 10;
         }
 
@@ -727,7 +789,10 @@ object Scanner {
 
                 if (timeLength == 0) {
                     if (afterDate == ' ') {
-                        return this.makeTokenWithLength(.LocalDate, length: dateLength);
+                        return this.makeTokenWithLength(
+                            .LocalDate,
+                            length: dateLength
+                        );
                     }
 
                     return null;
@@ -743,28 +808,40 @@ object Scanner {
                 if (afterTime == 'Z' or afterTime == 'z') {
                     length = length + 1;
 
-                    if (this.isBareKeyChar(this.byteAt(this.current.start + length))) {
+                    if (this.isBareKeyChar(
+                        this.byteAt(this.current.start + length)
+                    )) {
                         return null;
                     }
 
-                    return this.makeTokenWithLength(.OffsetDateTime, length: length);
+                    return this.makeTokenWithLength(
+                        .OffsetDateTime,
+                        length: length
+                    );
                 }
 
                 if (afterTime == '+' or afterTime == '-') {
                     final offsetStart = this.current.start + length + 1;
 
-                    if (this.hasDigits(offsetStart, count: 2) and this.byteAt(offsetStart + 2) == ':' and this.hasDigits(offsetStart + 3, count: 2)) {
+                    if (this.hasDigits(offsetStart, count: 2)
+                        and this.byteAt(offsetStart + 2) == ':'
+                        and this.hasDigits(offsetStart + 3, count: 2)) {
                         if (!this.validOffsetTime(offsetStart)) {
                             return this.makeError("Invalid offset time");
                         }
 
                         length = length + 6;
 
-                        if (this.isBareKeyChar(this.byteAt(this.current.start + length))) {
+                        if (this.isBareKeyChar(
+                            this.byteAt(this.current.start + length)
+                        )) {
                             return null;
                         }
 
-                        return this.makeTokenWithLength(.OffsetDateTime, length: length);
+                        return this.makeTokenWithLength(
+                            .OffsetDateTime,
+                            length: length
+                        );
                     }
 
                     return null;
@@ -823,7 +900,8 @@ object Scanner {
     }
 
     mut fun number() > Token {
-        final signed = this.source.byte(this.current.start) == '+' or this.source.byte(this.current.start) == '-';
+        final signed = this.source.byte(this.current.start) == '+'
+            or this.source.byte(this.current.start) == '-';
         final afterSign = this.peek();
 
         if (signed and match (afterSign) {
@@ -840,7 +918,8 @@ object Scanner {
             }
         }
 
-        final firstDigitOffset = if (signed) this.current.start + 1 else this.current.start;
+        final firstDigitOffset = if (signed) this.current.start + 1 else this
+            .current.start;
         final firstDigit = this.source.byte(firstDigitOffset);
         final afterFirstDigit = this.peek();
 
@@ -877,7 +956,8 @@ object Scanner {
         var valid = true;
         var isFloat = false;
 
-        if (firstDigit == '0' and (this.isNumber(afterFirstDigit) or afterFirstDigit == '_')) {
+        if (firstDigit == '0'
+            and (this.isNumber(afterFirstDigit) or afterFirstDigit == '_')) {
             valid = false;
         }
 
@@ -1084,7 +1164,10 @@ object Scanner {
             final peeked = this.peek();
 
             if (peeked == '\"') {
-                final token = this.consumeMultilineQuoteRun('\"', tag: .MultilineBasicString);
+                final token = this.consumeMultilineQuoteRun(
+                    '\"',
+                    tag: .MultilineBasicString
+                );
                 if (token != null) {
                     return token!;
                 }
@@ -1150,7 +1233,10 @@ object Scanner {
             final next = this.peek(1);
 
             if (peeked == '\'') {
-                final token = this.consumeMultilineQuoteRun('\'', tag: .MultilineLiteralString);
+                final token = this.consumeMultilineQuoteRun(
+                    '\'',
+                    tag: .MultilineLiteralString
+                );
                 if (token != null) {
                     return token!;
                 }
@@ -1295,11 +1381,13 @@ object Path {
 
         while (true) {
             if (logical) {
-                while (left < this.parts.len() and this.parts[left].tag == .Index) {
+                while (left < this.parts.len()
+                    and this.parts[left].tag == .Index) {
                     left += 1;
                 }
 
-                while (right < other.parts.len() and other.parts[right].tag == .Index) {
+                while (right < other.parts.len()
+                    and other.parts[right].tag == .Index) {
                     right += 1;
                 }
             }
@@ -1424,11 +1512,14 @@ object Parser {
 
                 parser.section = parser.currentPath.len();
 
-                if (parser.check(.LeftBracket) and parser.scanner.tokens[parser.currentToken!].offset == firstLeft.offset + 1) {
+                if (parser.check(.LeftBracket)
+                    and parser.scanner.tokens[parser.currentToken!].offset == firstLeft
+                        .offset + 1) {
                     parser.advance();
                     // [[section]]
                     parser.currentPath.appendKeys(parser.parseKey());
-                    if (!parser.declareArrayTable() or !parser.appendArrayTable()) {
+                    if (!parser.declareArrayTable()
+                        or !parser.appendArrayTable()) {
                         parser.report("Invalid array table");
 
                         throw Error.Invalid;
@@ -1436,7 +1527,9 @@ object Parser {
 
                     parser.consume(.RightBracket, message: "Expected `]`");
                     final firstRight = parser.scanner.tokens[parser.currentToken! - 1];
-                    if (!parser.check(.RightBracket) or parser.scanner.tokens[parser.currentToken!].offset != firstRight.offset + 1) {
+                    if (!parser.check(.RightBracket)
+                        or parser.scanner.tokens[parser.currentToken!].offset != firstRight
+                            .offset + 1) {
                         parser.report("Expected adjacent `]`");
 
                         throw Error.Invalid;
@@ -1539,7 +1632,12 @@ object Parser {
     }
 
     fun declareTable() > bool {
-        if (this.explicitTables.has(this.currentPath) or this.definedValues.has(this.currentPath) or this.arrayTables.has(this.currentPath) or this.inlineTables.has(this.currentPath) or this.dottedKeyTables.has(this.currentPath) or this.currentPath.hasInlineParent(this.inlineTables)) {
+        if (this.explicitTables.has(this.currentPath)
+            or this.definedValues.has(this.currentPath)
+            or this.arrayTables.has(this.currentPath)
+            or this.inlineTables.has(this.currentPath)
+            or this.dottedKeyTables.has(this.currentPath)
+            or this.currentPath.hasInlineParent(this.inlineTables)) {
             return false;
         }
 
@@ -1548,7 +1646,9 @@ object Parser {
     }
 
     fun declareArrayTable() > bool {
-        if (this.definedValues.has(this.currentPath) or this.explicitTables.has(this.currentPath) or this.inlineTables.has(this.currentPath)) {
+        if (this.definedValues.has(this.currentPath)
+            or this.explicitTables.has(this.currentPath)
+            or this.inlineTables.has(this.currentPath)) {
             return false;
         }
 
@@ -1639,7 +1739,8 @@ object Parser {
             }
 
             prefix.appendPart(part);
-            if (i + 1 > this.currentKeyBaseLen and this.explicitTables.has(prefix)) {
+            if (i + 1 > this.currentKeyBaseLen
+                and this.explicitTables.has(prefix)) {
                 return false;
             }
         }
@@ -1745,7 +1846,8 @@ object Parser {
     }
 
     mut fun advance() !> Error {
-        if (this.currentToken != null and this.scanner.tokens[this.currentToken!].tag == .Eof) {
+        if (this.currentToken != null
+            and this.scanner.tokens[this.currentToken!].tag == .Eof) {
             return;
         }
 
@@ -1759,7 +1861,9 @@ object Parser {
             final newToken = this.scanner.scan();
 
             if (newToken.tag == .Error) {
-                this.report("Syntax error: {newToken.error ?? "unexpected character"}");
+                this.report(
+                    "Syntax error: {newToken.error ?? "unexpected character"}"
+                );
 
                 throw Error.Invalid;
             }
@@ -1767,7 +1871,8 @@ object Parser {
     }
 
     mut fun consume(tag: TokenTag, message: str) !> Error {
-        if (this.currentToken != null and this.scanner.tokens[this.currentToken!].tag == tag) {
+        if (this.currentToken != null
+            and this.scanner.tokens[this.currentToken!].tag == tag) {
             this.advance();
             return;
         }
@@ -1779,18 +1884,22 @@ object Parser {
 
     mut fun consumeAnyOf(tags: [TokenTag], message: str) !> Error {
         foreach (tag in tags) {
-            if (this.currentToken != null and this.scanner.tokens[this.currentToken!].tag == tag) {
+            if (this.currentToken != null
+                and this.scanner.tokens[this.currentToken!].tag == tag) {
                 this.advance();
                 return;
             }
         }
 
-        this.report("Syntax error: {message} got {this.scanner.tokens[this.currentToken!].tag}");
+        this.report(
+            "Syntax error: {message} got {this.scanner.tokens[this.currentToken!].tag}"
+        );
 
         throw Error.Invalid;
     }
 
-    fun check(tag: TokenTag) => this.currentToken != null and this.scanner.tokens[this.currentToken!].tag == tag;
+    fun check(tag: TokenTag) => this.currentToken != null
+        and this.scanner.tokens[this.currentToken!].tag == tag;
 
     fun isKeyStartTag(tag: TokenTag) => match (tag) {
         .LeftBracket,
@@ -1830,7 +1939,8 @@ object Parser {
         this.panic_mode = false;
 
         // Advance until we see a token from which we can recover
-        while (this.currentToken != null and this.scanner.tokens[this.currentToken!].tag != .Eof) {
+        while (this.currentToken != null
+            and this.scanner.tokens[this.currentToken!].tag != .Eof) {
             if (this.currentToken == 0) {
                 return;
             }
@@ -1892,7 +2002,6 @@ object Parser {
             } else {
                 this.appendKeyLexeme(result, lexeme: token.lexeme);
             }
-
 
             if (!this.matchToken(.Dot)) {
                 break;

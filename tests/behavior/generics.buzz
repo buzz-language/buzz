@@ -15,7 +15,10 @@ fun extractList::<T>(data: obj{ list: [T] }) > [T] {
 test "Generic within anonymous object" {
     final list = [ 1, 2, 3 ];
 
-    std\assert(extractList::<int>(.{ list = list }) == list, message: "could use generic within anonymous object");
+    std\assert(
+        extractList::<int>(.{ list = list }) == list,
+        message: "could use generic within anonymous object"
+    );
 }
 
 fun countMap::<K, V>(map: {K: V}) > int {
@@ -29,7 +32,10 @@ test "Multiple generic types" {
         "three": 3,
     };
 
-    std\assert(countMap::<str, int>(map) == 3, message: "could use multiple generic types");
+    std\assert(
+        countMap::<str, int>(map) == 3,
+        message: "could use multiple generic types"
+    );
 }
 
 fun extractMap::<K, V>(data: obj{ map: {K: V} }) > {K: V} {
@@ -43,7 +49,10 @@ test "Generic within anonymous object and map" {
         "three": 3,
     };
 
-    std\assert(extractMap::<str, int>(.{ map = map }) == map, message: "could use generic within anonymous object");
+    std\assert(
+        extractMap::<str, int>(.{ map = map }) == map,
+        message: "could use generic within anonymous object"
+    );
 }
 
 fun countShuffleGenerics::<A, B>() > fun (a: [A], b: [B]) > int {
@@ -54,7 +63,10 @@ test "Generic in lambda function definition" {
     final a = [ "one", "two", "three" ];
     final b = [ 1, 2, 3 ];
 
-    std\assert(countShuffleGenerics::<str, int>()(a, b: b) == 6, message: "could use generic in lambda function definition");
+    std\assert(
+        countShuffleGenerics::<str, int>()(a, b: b) == 6,
+        message: "could use generic in lambda function definition"
+    );
 }
 
 fun genericReturn::<T>(value: T) > T {
@@ -62,7 +74,10 @@ fun genericReturn::<T>(value: T) > T {
 }
 
 test "generic return" {
-    std\assert(genericReturn::<int>(12) == 12, message: "could use return of generic type");
+    std\assert(
+        genericReturn::<int>(12) == 12,
+        message: "could use return of generic type"
+    );
 }
 
 fun fiber::<T>(data: [T]) > void *> T? {

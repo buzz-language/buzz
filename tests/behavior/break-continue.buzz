@@ -40,7 +40,10 @@ test "continue properly jumps and closes scope" {
 
     final anotherRandomLocal = "bye there";
 
-    std\assert(anotherRandomLocal == "bye there", message: "continue properly closed revelant scopes");
+    std\assert(
+        anotherRandomLocal == "bye there",
+        message: "continue properly closed revelant scopes"
+    );
 }
 
 test "break properly jumps and closes scope" {
@@ -56,5 +59,8 @@ test "break properly jumps and closes scope" {
 
     final anotherRandomLocal = "bye there";
 
-    std\assert(anotherRandomLocal == "bye there", message: "break properly closed revelant scopes");
+    std\assert(
+        anotherRandomLocal == "bye there",
+        message: "break properly closed revelant scopes"
+    );
 }

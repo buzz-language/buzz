@@ -55,7 +55,10 @@ test "Field access on map subscript" {
         "yo": You{},
     };
 
-    std\assert(map["yo"]?.name == "joe", message: "could field access map subscript");
+    std\assert(
+        map["yo"]?.name == "joe",
+        message: "could field access map subscript"
+    );
 }
 
 object A {

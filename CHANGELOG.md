@@ -14,6 +14,7 @@
 - `map.hasKey`
 - `toml` std lib
 - `match` statement/expression for value matching with type-specific condition semantics (https://github.com/buzz-language/buzz/issues/80)
+- `buzz --fmt` now enforces 80 characters long lines. This can be overriden with `--line-width`
 
 ## Changed
 

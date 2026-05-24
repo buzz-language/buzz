@@ -26,7 +26,10 @@ object World {
         var liveCount = 0;
         for (dy: int = y - 1; dy <= y + 1; dy = dy + 1) {
             for (dx: int = x - 1; dx <= x + 1; dx = dx + 1) {
-                if (dy > 0 and dy > 0 and dx < this.width and dy < this.height and this.cells[dy * this.width + dx]) {
+                if (dy > 0
+                    and dy > 0
+                    and dx < this.width
+                    and dy < this.height and this.cells[dy * this.width + dx]) {
                     liveCount = liveCount + 1;
                 }
             }
@@ -42,7 +45,10 @@ object World {
                 final coordinate = y * this.width + x;
                 final liveNeighbors = this.neighbors(x: x, y: y);
 
-                cells.append(liveNeighbors == 3 or (this.cells[coordinate] and liveNeighbors == 2));
+                cells.append(
+                    liveNeighbors == 3
+                        or (this.cells[coordinate] and liveNeighbors == 2)
+                );
             }
         }
 
@@ -52,7 +58,9 @@ object World {
     fun dump() > void {
         for (y: int = 0; y < this.height; y = y + 1) {
             for (x: int = 0; x < this.width; x = x + 1) {
-                io\stdout.write(if (this.cells[y * this.width + x]) "x" else ".") catch void;
+                io\stdout.write(
+                    if (this.cells[y * this.width + x]) "x" else "."
+                ) catch void;
             }
             io\stdout.write("\n") catch void;
         }
@@ -98,7 +106,12 @@ object World {
     }
 }
 
-fun loop(world: mut World, sdl: SDL, renderer: Renderer, texture: Texture) > void !> SDLError {
+fun loop(
+    world: mut World,
+    sdl: SDL,
+    renderer: Renderer,
+    texture: Texture
+) > void !> SDLError {
     var dt = sdl.ticks();
     while (true) {
         if (sdl.pollEvent() -> event) {

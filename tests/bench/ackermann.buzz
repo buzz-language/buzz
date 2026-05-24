@@ -16,8 +16,5 @@ fun ack(m: int, n: int) > int {
         return ack(m: m - 1, n: 1);
     }
 
-    return ack(
-        m: m - 1,
-        n: ack(m, n: n - 1)
-    );
+    return ack(m: m - 1, n: ack(m, n: n - 1));
 }

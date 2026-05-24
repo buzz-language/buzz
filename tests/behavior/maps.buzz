@@ -11,7 +11,10 @@ test "Maps" {
     std\assert(map["bye"] is int?, message: "yeah");
 
     std\assert(map["bye"] == 2, message: "map subscript");
-    std\assert(({ 1: true, 2: false })[2] == false, message: "map expression subscript");
+    std\assert(
+        ({ 1: true, 2: false })[2] == false,
+        message: "map expression subscript"
+    );
 
     std\assert(map.remove("hello") == 1, message: "removed element");
     // std\assert(map["hello"] == null, message: "removed element");
@@ -26,11 +29,17 @@ test "map merge" {
 }
 
 test "map.keys" {
-    std\assert({ "one": 1, "two": 2, "three": 3 }.keys().join(",") == "one,two,three", message: "map.keys");
+    std\assert(
+        { "one": 1, "two": 2, "three": 3 }.keys().join(",") == "one,two,three",
+        message: "map.keys"
+    );
 }
 
 test "map.values" {
-    std\assert({ "one": 1, "two": 2, "three": 3 }.values().join(",") == "1,2,3", message: "map.values");
+    std\assert(
+        { "one": 1, "two": 2, "three": 3 }.values().join(",") == "1,2,3",
+        message: "map.values"
+    );
 
     std\assert({<str: str>}.keys().len() == 0, message: "yo empty map");
 }
@@ -50,7 +59,10 @@ test "map.diff" {
 
     final diff = first.diff(second);
 
-    std\assert(diff.size() == 1 and diff["one"] != null, message: "Could use map.diff");
+    std\assert(
+        diff.size() == 1 and diff["one"] != null,
+        message: "Could use map.diff"
+    );
 }
 
 test "map.intersect" {
@@ -68,7 +80,10 @@ test "map.intersect" {
 
     final intersect = first.intersect(second);
 
-    std\assert(intersect.size() == 1 and intersect["two"] != null, message: "Could use map.intersect");
+    std\assert(
+        intersect.size() == 1 and intersect["two"] != null,
+        message: "Could use map.intersect"
+    );
 }
 
 test "map.clone" {
@@ -96,7 +111,7 @@ test "empty map type inferring" {
 }
 
 test "map.hasKey" {
-    final map = { "hello" : "world"};
+    final map = { "hello": "world" };
 
     std\assert(map.hasKey("hello"));
 }

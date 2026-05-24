@@ -100,7 +100,7 @@ fun offsetMomentum(b: [mut Body], nbody: int) > void {
 }
 
 fun main(args: [str]) > void {
-    final sun = mut mut Body{
+    final sun = mut Body{
         x = 0.0,
         y = 0.0,
         z = 0.0,

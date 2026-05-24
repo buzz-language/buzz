@@ -22,7 +22,8 @@ fun callDynamic(fn: fun (value: int) > int, value: int) > int {
     return fn(value);
 }
 
-fun callDynamicWithCatch(fn: fun (value: int) > int !> str, value: int) > int {
+fun callDynamicWithCatch(fn: fun (value: int) > int !>
+    str, value: int) > int {
     return fn(value) catch 42;
 }
 
@@ -45,7 +46,10 @@ test "JIT dynamic call to blacklisted closure" {
         value = callDynamic(callbacks[0], value: value);
     }
 
-    std\assert(value == 1500, message: "compiled code can call an interpreted dynamic closure");
+    std\assert(
+        value == 1500,
+        message: "compiled code can call an interpreted dynamic closure"
+    );
 }
 
 test "JIT dynamic call to blacklisted throwing closure" {
@@ -56,5 +60,8 @@ test "JIT dynamic call to blacklisted throwing closure" {
         value = callDynamicWithCatch(callbacks[0], value: value);
     }
 
-    std\assert(value == 42, message: "compiled code can catch an interpreted dynamic closure error");
+    std\assert(
+        value == 42,
+        message: "compiled code can catch an interpreted dynamic closure error"
+    );
 }

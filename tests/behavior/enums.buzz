@@ -10,7 +10,7 @@ enum<int> IntEnum {
     one = 1,
     two = 2,
     three = 3,
-    // wat = "wat",
+        // wat = "wat",
 }
 
 enum NaturalEnum {
@@ -40,11 +40,20 @@ test "Enums" {
 
     final fromValue = NaturalEnum(0);
     std\assert(fromValue != null, message: "Could get enum instance from value");
-    std\assert(fromValue?.value == 0, message: "Could get correct enum instance from value");
+    std\assert(
+        fromValue?.value == 0,
+        message: "Could get correct enum instance from value"
+    );
 }
 
 test "Enum case as default value" {
-    std\assert(getValue() == 0, message: "Could use enum case as function argument default value");
+    std\assert(
+        getValue() == 0,
+        message: "Could use enum case as function argument default value"
+    );
 
-    std\assert(Natural{}.natural == NaturalEnum.zero, message: "Could use enum case as object field default value");
+    std\assert(
+        Natural{}.natural == NaturalEnum.zero,
+        message: "Could use enum case as object field default value"
+    );
 }

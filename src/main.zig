@@ -52,6 +52,7 @@ pub fn main(provided_init: Init) u8 {
         \\-h, --help             Show help and exit
         \\-t, --test             Run test blocks in provided script
         \\-f, --fmt              Reformat script, output the result to stdout
+        \\--line-width <usize>   Formatter line width, only valid with --fmt (defaults to 80)
         \\-c, --check            Check script for error without running it
         \\-v, --version          Print version and exit
         \\-L, --library <str>... Add search path for external libraries
@@ -120,6 +121,24 @@ pub fn main(provided_init: Init) u8 {
         Parser.user_library_paths = list.toOwnedSlice(allocator) catch return 1;
     }
 
+    var renderer_options: Renderer.Options = .{};
+    if (res.args.@"line-width") |line_width| {
+        if (res.args.fmt != 1) {
+            stderr.interface.print("--line-width is only valid with -f/--fmt\n", .{}) catch {};
+            return 1;
+        }
+
+        if (line_width < Renderer.min_line_width) {
+            stderr.interface.print(
+                "--line-width must be at least {}\n",
+                .{Renderer.min_line_width},
+            ) catch {};
+            return 1;
+        }
+
+        renderer_options.line_width = line_width;
+    }
+
     const flavor: RunFlavor = if (res.args.check == 1)
         .Check
     else if (res.args.@"test" == 1)
@@ -150,6 +169,7 @@ pub fn main(provided_init: Init) u8 {
             return 1;
         };
         defer runner.deinit();
+        runner.renderer_options = renderer_options;
 
         return runner.runFile(
             res.positionals[0][0],

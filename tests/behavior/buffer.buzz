@@ -23,7 +23,10 @@ test "Reading and writing in a buffer" {
         std\assert(expected[i] == char.byte(0), message: "Buffer has expected content");
     }
 
-    std\assert(buffer.len() == expected.len(), message: "wrote expected number of bytes");
+    std\assert(
+        buffer.len() == expected.len(),
+        message: "wrote expected number of bytes"
+    );
 
     final len = buffer.readInt() ?? -1;
     std\assert(len == 11, message: "could read number");
