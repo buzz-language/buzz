@@ -1,8 +1,10 @@
 namespace commom\part;
 
 import "tests/utils/common-namespace";
+import "tests/utils/common-namespace-sibling";
 import "std";
 
 test "Import with common part in namespace" {
     std\assert(here\message == "hello world");
+    std\assert(sibling\siblingMessage == "hello sibling");
 }

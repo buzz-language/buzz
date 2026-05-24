@@ -1,0 +1,4 @@
+namespace commom\sibling;
+
+/// Message exported from a sibling namespace.
+export final siblingMessage = "hello sibling";
