@@ -1,0 +1,54 @@
+import "std";
+
+/// Mouse event category used by the JIT interpolation regression.
+enum MouseKind {
+    /// Drag event case.
+    drag,
+}
+
+/// Mouse button category used by the JIT interpolation regression.
+enum MouseButton {
+    /// Left button case.
+    left,
+}
+
+/// Reduced mouse event payload matching the interactive TUI path.
+object MouseEvent {
+    /// Mouse event category.
+    mouse: MouseKind = .drag,
+    /// Mouse button category.
+    button: MouseButton = .left,
+    /// Horizontal coordinate.
+    x: int = 10,
+    /// Vertical coordinate.
+    y: int = 5,
+}
+
+/// Program state that records the latest mouse label.
+object Demo {
+    /// Last interpolated mouse label.
+    lastMouse: str = "none",
+    /// Number of processed events.
+    events: int = 0,
+
+    /// Handle a mouse event and build the drag label inside a potential hotspot.
+    mut fun onEvent(event: MouseEvent) > bool {
+        this.events += 1;
+        this.lastMouse = "{event.mouse} {event.button} at {event.x},{event.y}";
+        return true;
+    }
+}
+
+test "JIT hotspot string interpolation keeps cast parts alive" {
+    final event = MouseEvent{};
+    final demo = mut Demo{};
+    var i = 0;
+
+    while (i < 10000) {
+        _ = demo.onEvent(event);
+        i += 1;
+    }
+
+    std\assert(demo.lastMouse == "MouseKind.drag MouseButton.left at 10,5", message: "hotspot interpolation");
+    std\assert(demo.events == 10000, message: "hotspot method calls");
+}

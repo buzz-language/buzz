@@ -2127,6 +2127,10 @@ fn generateString(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
                 try self.REG("result", m.MIR_T_I64),
             );
 
+            // The current element can be a freshly allocated cast result. Keep
+            // it visible to the GC while concat allocates the combined string.
+            try self.buildPush(value);
+
             try self.buildExternApiCall(
                 .bz_stringConcat,
                 dest,
@@ -2141,6 +2145,7 @@ fn generateString(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
         }
 
         if (previous != null) {
+            try self.buildPop(null);
             try self.buildPop(null);
         }
 
