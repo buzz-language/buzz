@@ -139,9 +139,9 @@ pub const Error = enum(u8) {
     default_value_type = 104,
     unexhaustive_match = 105,
     match_condition_type = 106,
+    match_duplicate_condition = 107,
 };
 
-// Inspired by https://github.com/zesterer/ariadne
 pub const ReportKind = enum {
     @"error",
     warning,

@@ -1,0 +1,7 @@
+// Duplicate `match` condition
+test "match duplicate condition in same branch" {
+    _ = match (1) {
+        1, 1 -> "one",
+        else -> "other",
+    };
+}

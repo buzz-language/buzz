@@ -1,0 +1,8 @@
+// Duplicate `match` condition
+test "match duplicate numeric condition" {
+    _ = match (1) {
+        1 -> "int",
+        1.0 -> "double",
+        else -> "other",
+    };
+}

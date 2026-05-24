@@ -22,6 +22,15 @@ fun statementMatch(value: int) > void {
     }
 }
 
+/// Exercise match conditions that are only known at runtime.
+fun dynamicConditionMatch(value: int, dynamic: int) > str {
+    return match (value) {
+        dynamic -> "dynamic",
+        1 -> "literal",
+        else -> "other",
+    };
+}
+
 test "match expression and statement" {
     final value = 2;
 
@@ -36,6 +45,13 @@ test "match expression and statement" {
 
     statementMatch(1);
     statementMatch(3);
+}
+
+test "match dynamic conditions may equal literals" {
+    std\assert(
+        dynamicConditionMatch(1, dynamic: 1) == "dynamic",
+        message: "runtime condition values may overlap literal conditions",
+    );
 }
 
 /// Exercise statement match branches whose bodies are lexical blocks.
