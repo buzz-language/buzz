@@ -137,7 +137,10 @@ test "Composite operators on object instance" {
     std\assert(p.map.size() == 2, message: "+= on object instance map field");
 
     p.string += " world";
-    std\assert(p.string == "hello world", message: "+= on object instance string field");
+    std\assert(
+        p.string == "hello world",
+        message: "+= on object instance string field"
+    );
 }
 
 test "Composite operators on object static fields" {
@@ -194,7 +197,10 @@ test "Composite operators on object static fields" {
     std\assert(P.smap.size() == 2, message: "+= on object static map field");
 
     P.sstring += " world";
-    std\assert(P.sstring == "hello world", message: "+= on object static string field");
+    std\assert(
+        P.sstring == "hello world",
+        message: "+= on object static string field"
+    );
 }
 
 test "Composite operator on list assignment" {
@@ -259,5 +265,8 @@ test "Composite operator on list assignment" {
 
     final slist = mut [ "one", "hello", "two" ];
     slist[1] += " world";
-    std\assert(slist[1] == "hello world", message: "+= on list of strings subscript");
+    std\assert(
+        slist[1] == "hello world",
+        message: "+= on list of strings subscript"
+    );
 }

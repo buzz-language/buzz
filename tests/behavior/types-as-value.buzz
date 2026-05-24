@@ -30,7 +30,10 @@ test "typeof" {
     std\assert(typeof 1 == <int>, message: "typeof operator int");
     std\assert(typeof 3.14 == <double>, message: "typeof operator double");
     std\assert(typeof $"hello" == <pat>, message: "typeof operator pattern");
-    std\assert(typeof dumpType == <fun (myType: type) > void *> void>, message: "typeof operator");
+    std\assert(
+        typeof dumpType == <fun (myType: type) > void *> void>,
+        message: "typeof operator"
+    );
 }
 
 test "type argument" {
@@ -48,7 +51,10 @@ zdef(
 );
 
 test "necessary weirdness" {
-    std\assert((<A>) == typeof A{}, message: "typeof Object == typeof Object instance");
+    std\assert(
+        (<A>) == typeof A{},
+        message: "typeof Object == typeof Object instance"
+    );
 
     std\assert(typeof C == <type>, message: "protocol is a type at runtime");
     std\assert(typeof Data == <type>, message: "fstruct is a type at runtime");

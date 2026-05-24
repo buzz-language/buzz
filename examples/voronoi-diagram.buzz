@@ -10,7 +10,12 @@ fun hypot(x: int, y: int) > int {
     );
 }
 
-fun generateVoronoi(renderer: Renderer, width: int, height: int, numCells: int) > void !> SDLError {
+fun generateVoronoi(
+    renderer: Renderer,
+    width: int,
+    height: int,
+    numCells: int
+) > void !> SDLError {
     final nx: mut [int] = mut [];
     final ny: mut [int] = mut [];
     final colors: mut [Color] = mut [];

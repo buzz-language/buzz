@@ -1,6 +1,6 @@
 import "toml";
 import "std";
-import  "serialize" as _;
+import "serialize" as _;
 
 fun assertInvalidToml(source: str, message: str) > void {
     var invalid = false;
@@ -46,7 +46,8 @@ test "Section" {
 
     std\assert(data.q([ "hello" ]).string() == "world");
     std\assert(data.q([ "section", "number" ]).integer() == 42);
-    std\assert(data.q([ "section", "some", "deep", "key" ]).string() == "well done");
+    std\assert(data.q([ "section", "some", "deep", "key" ]).string()
+        == "well done");
 }
 
 test "Several sections" {
@@ -64,7 +65,8 @@ test "Several sections" {
 
     std\assert(data.q([ "hello" ]).string() == "world");
     std\assert(data.q([ "section", "number" ]).integer() == 42);
-    std\assert(data.q([ "another", "some", "deep", "key" ]).string() == "well done");
+    std\assert(data.q([ "another", "some", "deep", "key" ]).string()
+        == "well done");
 }
 
 test "Array of sections" {
@@ -102,8 +104,12 @@ test "Nested array of sections" {
     );
 
     std\assert(data.q([ "fruit", 0, "name" ]).string() == "apple");
-    std\assert(data.q([ "fruit", 0, "variety", 0, "name" ]).string() == "red delicious");
-    std\assert(data.q([ "fruit", 0, "variety", 1, "name" ]).string() == "granny smith");
+    std\assert(
+        data.q([ "fruit", 0, "variety", 0, "name" ]).string() == "red delicious"
+    );
+    std\assert(
+        data.q([ "fruit", 0, "variety", 1, "name" ]).string() == "granny smith"
+    );
 }
 
 test "Comments and blank lines" {
@@ -235,11 +241,8 @@ test "Duplicate and conflicting definitions are rejected" {
 }
 
 test "invalid/table/with-pound" {
-    assertInvalidToml(
-        `
+    assertInvalidToml(`
             [key#group]
             answer = 42
-        `,
-        message: "invalid table with-pound"
-    );
+        `, message: "invalid table with-pound");
 }

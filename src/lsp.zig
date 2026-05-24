@@ -1432,6 +1432,7 @@ const Handler = struct {
                 self.allocator,
                 &result.writer,
                 document.ast,
+                .{},
             ) catch |err| {
                 log.err(
                     "Could not format {s}: {any}",

@@ -17,8 +17,14 @@ test "Function as arguments" {
         })(10) == 100,
         message: "called anonymous function",
     );
-    std\assert((fun (n: int) > int => n * n)(10) == 100, message: "called lambda function");
-    std\assert(callThis(fun (n: int) > int => n * 2, arg: 2) == 4, message: "called a function from a function");
+    std\assert(
+        (fun (n: int) > int => n * n)(10) == 100,
+        message: "called lambda function"
+    );
+    std\assert(
+        callThis(fun (n: int) > int => n * 2, arg: 2) == 4,
+        message: "called a function from a function"
+    );
 }
 
 fun mul(a: int, b: int) > int => a * b;

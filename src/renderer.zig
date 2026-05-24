@@ -7,6 +7,18 @@ const Token = @import("Token.zig");
 pub const Renderer = struct {
     const Self = @This();
 
+    /// Default maximum visible line width used by the formatter.
+    pub const default_line_width = 80;
+
+    /// Smallest line width accepted by the formatter CLI.
+    pub const min_line_width = 1;
+
+    /// Formatting options that can be shared by CLI, LSP, and tests.
+    pub const Options = struct {
+        /// Maximum visible output columns before width-based wrapping is used.
+        line_width: usize = default_line_width,
+    };
+
     const equals: []const Token.Tag = &.{
         .Equal,
         .PlusEqual,
@@ -24,10 +36,14 @@ pub const Renderer = struct {
     allocator: std.mem.Allocator,
     ast: Ast.Slice,
     ais: *AutoIndentingStream,
+    /// Options controlling formatter decisions for this render pass.
+    options: Options,
 
     indent: u16 = 0,
     /// Suppresses declaration docblocks while an exported declaration wrapper renders them.
     suppress_docblock: bool = false,
+    /// Suppresses source comments while rendering syntax that cannot contain comments.
+    suppress_comments: bool = false,
 
     pub const Error = error{
         AccessDenied,
@@ -84,7 +100,8 @@ pub const Renderer = struct {
         Skip,
     };
 
-    pub fn render(allocator: std.mem.Allocator, out: *std.Io.Writer, ast: Ast) Error!void {
+    /// Render an AST to canonical Buzz source using the provided options.
+    pub fn render(allocator: std.mem.Allocator, out: *std.Io.Writer, ast: Ast, options: Options) Error!void {
         var ais: AutoIndentingStream = .init(out, 4);
         defer ais.deinit(allocator);
 
@@ -92,6 +109,7 @@ pub const Renderer = struct {
             .allocator = allocator,
             .ast = ast.slice(),
             .ais = &ais,
+            .options = options,
         };
 
         if (ast.root == null) {
@@ -116,6 +134,126 @@ pub const Renderer = struct {
 
     inline fn renderNode(self: *Self, node: Ast.Node.Index, space: Space) Error!void {
         return Self.renderers[@intFromEnum(self.ast.nodes.items(.tag)[node])](self, node, space);
+    }
+
+    /// Returns true when adding `additional_columns` would exceed the configured line width.
+    fn wouldExceedLine(self: *Self, additional_columns: usize) bool {
+        return self.ais.wouldExceed(self.options.line_width, additional_columns);
+    }
+
+    /// Returns true when rendering `node` inline from the current column would exceed the configured line width.
+    fn nodeWouldExceedLine(self: *Self, node: Ast.Node.Index) Error!bool {
+        if (self.options.line_width == std.math.maxInt(usize)) return false;
+        const rendered_len = try self.inlineNodeLength(node) orelse return false;
+
+        return self.wouldExceedLine(rendered_len);
+    }
+
+    /// Returns the byte length of `node` when rendered inline, or null if it already renders multiline.
+    fn inlineNodeLength(self: *Self, node: Ast.Node.Index) Error!?usize {
+        var result = std.Io.Writer.Allocating.init(self.allocator);
+        defer result.deinit();
+
+        var ais: AutoIndentingStream = .init(&result.writer, 4);
+        defer ais.deinit(self.allocator);
+
+        var measuring = Self{
+            .allocator = self.allocator,
+            .ast = self.ast,
+            .ais = &ais,
+            .options = .{
+                .line_width = std.math.maxInt(usize),
+            },
+            .suppress_docblock = self.suppress_docblock,
+            .suppress_comments = self.suppress_comments,
+        };
+
+        try measuring.renderNode(node, .None);
+
+        const rendered = result.written();
+        if (std.mem.indexOfScalar(u8, rendered, '\n') != null) {
+            return null;
+        }
+
+        return rendered.len;
+    }
+
+    /// Returns the first rendered line length for `node` when it starts at `column`.
+    fn nodeFirstLineLengthFromColumn(self: *Self, node: Ast.Node.Index, column: usize) Error!usize {
+        var result = std.Io.Writer.Allocating.init(self.allocator);
+        defer result.deinit();
+
+        var ais: AutoIndentingStream = .init(&result.writer, 4);
+        defer ais.deinit(self.allocator);
+        ais.current_line_empty = false;
+        ais.current_column = column;
+
+        var measuring = Self{
+            .allocator = self.allocator,
+            .ast = self.ast,
+            .ais = &ais,
+            .options = self.options,
+            .suppress_docblock = self.suppress_docblock,
+            .suppress_comments = self.suppress_comments,
+        };
+
+        try measuring.renderNode(node, .None);
+
+        const rendered = result.written();
+        return std.mem.indexOfScalar(u8, rendered, '\n') orelse rendered.len;
+    }
+
+    /// Returns the inline byte length of a comma-separated node sequence, or null if any entry renders multiline.
+    fn inlineCommaListLength(self: *Self, nodes: []const Ast.Node.Index) Error!?usize {
+        var len: usize = 0;
+        for (nodes, 0..) |node, i| {
+            len += try self.inlineNodeLength(node) orelse return null;
+            if (i < nodes.len - 1) {
+                len += 2;
+            }
+        }
+
+        return len;
+    }
+
+    /// Writes either a space or newline before an inline value of `inline_len`.
+    fn renderSpaceBeforeInlineLength(self: *Self, inline_len: ?usize) Error!bool {
+        const len = inline_len orelse {
+            try self.ais.insertNewline();
+            return true;
+        };
+
+        if (self.wouldExceedLine(1 + len)) {
+            try self.ais.insertNewline();
+            return true;
+        }
+
+        try self.ais.writeByte(' ');
+        return false;
+    }
+
+    /// Adds a fixed prefix length to an inline length, preserving null for multiline values.
+    fn prefixedInlineLength(inline_len: ?usize, prefix_len: usize) ?usize {
+        return if (inline_len) |len| prefix_len + len else null;
+    }
+
+    /// Renders an assignment token and wraps the value after it when needed.
+    fn renderAssignmentValue(self: *Self, assign_token: Ast.TokenIndex, value: Ast.Node.Index, space: Space) Error!void {
+        try self.renderOneOfExpectedToken(assign_token, equals, .None);
+
+        try self.ais.pushIndent(self.allocator, .after_equals);
+        defer self.ais.popIndent();
+
+        _ = try self.renderSpaceBeforeInlineLength(
+            try self.nodeFirstLineLengthFromColumn(value, self.ais.currentColumn() + 1),
+        );
+        try self.renderNode(value, space);
+    }
+
+    /// Returns the spacing for one entry in a comma-separated sequence.
+    fn commaListSpace(multiline: bool, has_trailing_comma: bool, is_last: bool, inline_space: Space) Space {
+        if (!multiline) return inline_space;
+        return if (!is_last or has_trailing_comma) .Comma else .Newline;
     }
 
     const renderers = [@typeInfo(Ast.Node.Tag).@"enum".fields.len]RenderNode{
@@ -327,18 +465,22 @@ pub const Renderer = struct {
         // Skip utility tokens
         const utility = self.ast.tokens.items(.utility_token);
         var next_token = token + 1;
-        while (utility[next_token] or
+        while (next_token < utility.len and (utility[next_token] or
             offsets[next_token] < offsets[token] or
             !std.mem.eql(
                 u8,
                 script_names[token],
                 script_names[next_token],
-            ))
+            )))
         {
             next_token += 1;
         }
 
-        const next_token_tag = self.ast.tokens.items(.tag)[next_token];
+        const has_next_token = next_token < utility.len;
+        const next_token_tag = if (has_next_token)
+            self.ast.tokens.items(.tag)[next_token]
+        else
+            .Eof;
         if (space == .Comma and next_token_tag != .Comma) {
             try self.ais.writeByte(',');
         }
@@ -346,7 +488,7 @@ pub const Renderer = struct {
         if (space == .Semicolon or space == .Comma) self.ais.enableSpaceMode(space);
         defer self.ais.disableSpaceMode();
 
-        if (builtin.mode == .Debug and offsets[next_token] < offsets[token] + lexeme_len) {
+        if (builtin.mode == .Debug and has_next_token and offsets[next_token] < offsets[token] + lexeme_len) {
             std.debug.print(
                 "\nToken overlap: {s}#{} at {}-{} {} `{s}` and {s}#{} at {}-{} {} `{s}`\n{s}\n",
                 .{
@@ -369,36 +511,39 @@ pub const Renderer = struct {
             self.dumpTokens(token - 1, token + 5);
         }
 
-        const comment = try self.renderComments(
-            self.ast.tokens.items(.source)[token],
-            offsets[token] + lexeme_len,
-            offsets[next_token],
-        );
+        const comment = if (self.suppress_comments)
+            false
+        else
+            try self.renderComments(
+                self.ast.tokens.items(.source)[token],
+                offsets[token] + lexeme_len,
+                if (has_next_token) offsets[next_token] else self.ast.tokens.items(.source)[token].len,
+            );
 
         switch (space) {
             .None => {},
             .Space => if (!comment) try self.ais.writeByte(' '),
             .Newline => if (!comment) try self.ais.insertNewline(),
 
-            .Comma => if (next_token_tag == .Comma) {
+            .Comma => if (has_next_token and next_token_tag == .Comma) {
                 try self.renderToken(next_token, .Newline);
             } else if (!comment) {
                 try self.ais.insertNewline();
             },
 
-            .CommaSpace => if (next_token_tag == .Comma) {
+            .CommaSpace => if (has_next_token and next_token_tag == .Comma) {
                 try self.renderToken(next_token, .Space);
             } else if (!comment) {
                 try self.ais.writeByte(' ');
             },
 
-            .Semicolon => if (next_token_tag == .Semicolon) {
+            .Semicolon => if (has_next_token and next_token_tag == .Semicolon) {
                 try self.renderToken(next_token, .Newline);
             } else if (!comment) {
                 try self.ais.insertNewline();
             },
 
-            .SemicolonSpace => if (next_token_tag == .Semicolon) {
+            .SemicolonSpace => if (has_next_token and next_token_tag == .Semicolon) {
                 try self.renderToken(next_token, .Space);
             } else if (!comment) {
                 try self.ais.writeByte(' ');
@@ -449,7 +594,7 @@ pub const Renderer = struct {
                 const disabled_source = token_source[self.ais.disabled_offset.?..comment_start];
                 try self.ais.writeFixingWhitespace(disabled_source);
                 // Write with the canonical single space.
-                try self.ais.underlying_writer.writeAll("// buzz fmt: on\n");
+                try self.ais.writeDirect("// buzz fmt: on\n");
                 self.ais.disabled_offset = null;
             } else if (self.ais.disabled_offset == null and std.mem.eql(u8, comment, "buzz fmt: off")) {
                 // Write with the canonical single space.
@@ -617,15 +762,13 @@ pub const Renderer = struct {
         const end_locations = self.ast.nodes.items(.end_location);
 
         const components = self.ast.nodes.items(.components);
-        const fun_def = self.ast.nodes.items(.type_def)[node].?
-            .resolved_type.?.Function;
         const comp = components[node].Function;
         const is_lambda = if (comp.function_signature) |fs|
             components[fs].FunctionType.lambda
         else
             false;
 
-        if (fun_def.function_type == .Script or fun_def.function_type == .ScriptEntryPoint) {
+        if (comp.function_signature == null) {
             const tags = self.ast.nodes.items(.tag);
 
             for (components[comp.body.?].Block, 0..) |statement, i| {
@@ -652,7 +795,10 @@ pub const Renderer = struct {
             return;
         }
 
-        if (fun_def.function_type == .Extern) {
+        const is_extern = locations[node] >= 2 and
+            self.ast.tokens.items(.tag)[locations[node] - 2] == .Extern;
+
+        if (is_extern) {
             // extern
             try self.renderExpectedToken(locations[node] - 2, .Extern, .Space);
         }
@@ -688,7 +834,6 @@ pub const Renderer = struct {
 
         if (comp.body) |body| {
             if (is_lambda) {
-                assert(fun_def.function_type != .Test);
                 assert(token_idx == locations[body] - 1);
 
                 try self.ais.pushIndent(self.allocator, .normal);
@@ -712,6 +857,11 @@ pub const Renderer = struct {
 
         const components = self.ast.nodes.items(.components);
         const comp = components[node].FunctionType;
+        const is_optional = !comp.is_signature and if (self.ast.nodes.items(.type_def)[node]) |type_def|
+            type_def.optional
+        else
+            false;
+        const width_multiline = try self.nodeWouldExceedLine(node);
 
         // fun
         try self.renderExpectedToken(
@@ -736,12 +886,14 @@ pub const Renderer = struct {
 
         // FIXME: when the node is an actual type we have token here and when its a signature we have nodes
         if (comp.generic_types.len > 0) {
+            var generic_start = token_idx + 1;
+            while (self.ast.tokens.items(.utility_token)[generic_start]) {
+                generic_start += 1;
+            }
+
             // ::<
             try self.renderExpectedTokenSequence(
-                if (comp.is_signature)
-                    token_idx + 2 // +2 because we skip the utility token
-                else
-                    token_idx + 1,
+                generic_start,
                 &.{ .DoubleColon, .Less },
                 .None,
             );
@@ -816,17 +968,14 @@ pub const Renderer = struct {
             ] == .Comma
         else
             false;
+        const arguments_multiline = has_trailing_comma or (width_multiline and comp.arguments.len > 0);
 
-        const term: Space = if (has_trailing_comma)
-            .Comma
-        else
-            .CommaSpace;
-
-        if (has_trailing_comma) {
+        if (arguments_multiline) {
             try self.ais.insertNewline();
         }
 
         for (comp.arguments, 0..) |arg, i| {
+            const is_last = i == comp.arguments.len - 1;
             // arg
             try self.renderExpectedToken(arg.name, .Identifier, .None);
 
@@ -838,31 +987,25 @@ pub const Renderer = struct {
                 arg.type,
                 if (arg.default != null)
                     .Space
-                else if (comp.arguments.len > 1 and i < comp.arguments.len - 1)
-                    term
-                else if (has_trailing_comma)
-                    term
                 else
-                    .None,
+                    commaListSpace(
+                        arguments_multiline,
+                        has_trailing_comma,
+                        is_last,
+                        if (!is_last) .CommaSpace else .None,
+                    ),
             );
 
             if (arg.default) |default| {
-                // =
-                try self.renderExpectedToken(
+                try self.renderAssignmentValue(
                     end_locations[arg.type] + 1,
-                    .Equal,
-                    .Space,
-                );
-
-                // default
-                try self.renderNode(
                     default,
-                    if (comp.arguments.len > 1 and i < comp.arguments.len - 1)
-                        term
-                    else if (has_trailing_comma)
-                        term
-                    else
-                        .None,
+                    commaListSpace(
+                        arguments_multiline,
+                        has_trailing_comma,
+                        is_last,
+                        if (!is_last) .CommaSpace else .None,
+                    ),
                 );
             }
         }
@@ -876,6 +1019,8 @@ pub const Renderer = struct {
             locations[yt] - 2
         else if (comp.error_types.len > 0)
             locations[comp.error_types[0]] - 2
+        else if (is_optional)
+            end_locations[node] - 1
         else
             end_locations[node];
 
@@ -884,23 +1029,37 @@ pub const Renderer = struct {
             .RightParen,
             if (comp.return_type != null or comp.yield_type != null or comp.error_types.len > 0)
                 .Space
+            else if (is_optional)
+                .None
             else
                 space,
         );
 
         if (comp.return_type) |return_type| {
             // >
-            try self.renderExpectedToken(token_idx + 1, .Greater, .Space);
+            try self.renderExpectedToken(token_idx + 1, .Greater, .None);
+
+            _ = try self.renderSpaceBeforeInlineLength(try self.inlineNodeLength(return_type));
 
             try self.renderNode(
                 return_type,
-                if (comp.yield_type != null or comp.error_types.len > 0)
-                    .Space
+                if (comp.yield_type == null and comp.error_types.len == 0 and !is_optional)
+                    space
                 else
-                    space,
+                    .None,
             );
 
             token_idx = end_locations[return_type] + 1;
+
+            if (comp.yield_type) |yield_type| {
+                _ = try self.renderSpaceBeforeInlineLength(
+                    prefixedInlineLength(try self.inlineNodeLength(yield_type), 3),
+                );
+            } else if (comp.error_types.len > 0) {
+                _ = try self.renderSpaceBeforeInlineLength(
+                    prefixedInlineLength(try self.inlineCommaListLength(comp.error_types), 3),
+                );
+            }
         }
 
         if (comp.yield_type) |yield_type| {
@@ -908,18 +1067,26 @@ pub const Renderer = struct {
             try self.renderExpectedTokenSequence(
                 token_idx,
                 &.{ .Star, .Greater },
-                .Space,
+                .None,
             );
+
+            _ = try self.renderSpaceBeforeInlineLength(try self.inlineNodeLength(yield_type));
 
             try self.renderNode(
                 yield_type,
-                if (comp.error_types.len > 0)
-                    .Space
+                if (comp.error_types.len == 0 and !is_optional)
+                    space
                 else
-                    space,
+                    .None,
             );
 
             token_idx = end_locations[yield_type] + 1;
+
+            if (comp.error_types.len > 0) {
+                _ = try self.renderSpaceBeforeInlineLength(
+                    prefixedInlineLength(try self.inlineCommaListLength(comp.error_types), 3),
+                );
+            }
         }
 
         if (comp.error_types.len > 0) {
@@ -927,7 +1094,7 @@ pub const Renderer = struct {
             try self.renderExpectedToken(
                 locations[comp.error_types[0]] - 1,
                 .BangGreater,
-                .Space,
+                .None,
             );
 
             try self.ais.pushIndent(self.allocator, .normal);
@@ -936,29 +1103,41 @@ pub const Renderer = struct {
             has_trailing_comma = self.ast.tokens.items(.tag)[
                 end_locations[comp.error_types[comp.error_types.len - 1]] + 1
             ] == .Comma;
-
-            if (has_trailing_comma) {
+            const error_types_multiline = if (has_trailing_comma) multiline: {
                 try self.ais.insertNewline();
-            }
+                break :multiline true;
+            } else try self.renderSpaceBeforeInlineLength(try self.inlineCommaListLength(comp.error_types));
 
             for (comp.error_types, 0..) |error_type, i| {
+                const is_last = i == comp.error_types.len - 1;
                 try self.renderNode(
                     error_type,
-                    if (comp.error_types.len > 1 and i < comp.error_types.len - 1)
-                        if (has_trailing_comma)
-                            .Comma
-                        else
-                            .CommaSpace
+                    if (!is_last)
+                        if (error_types_multiline) .Comma else .CommaSpace
                     else if (has_trailing_comma)
-                        .CommaSpace
+                        .None
+                    else if (is_optional)
+                        .None
                     else
                         space,
                 );
             }
 
             if (has_trailing_comma) {
-                try self.ais.insertNewline();
+                try self.renderExpectedToken(
+                    end_locations[comp.error_types[comp.error_types.len - 1]] + 1,
+                    .Comma,
+                    space,
+                );
             }
+        }
+
+        if (is_optional) {
+            try self.renderExpectedToken(
+                end_locations[node],
+                .Question,
+                space,
+            );
         }
     }
 
@@ -995,9 +1174,7 @@ pub const Renderer = struct {
         );
 
         if (components.assign_token) |assign_token| {
-            try self.renderToken(assign_token, .Space);
-
-            try self.renderNode(components.value.?, space);
+            try self.renderAssignmentValue(assign_token, components.value.?, space);
         }
     }
 
@@ -1064,15 +1241,15 @@ pub const Renderer = struct {
             .data = string_literal,
         };
 
+        var buffer = std.Io.Writer.Allocating.init(self.allocator);
+        defer buffer.deinit();
+
+        try formatter.format(&buffer.writer);
+
         if (string_literal.delimiter == '`') {
-            var buffer = std.Io.Writer.Allocating.init(self.allocator);
-            defer buffer.deinit();
-
-            try formatter.format(&buffer.writer);
-
             try self.ais.writeFixingWhitespace(buffer.written());
         } else {
-            try formatter.format(self.ais.underlying_writer);
+            try self.ais.writeAll(buffer.written());
         }
 
         const token = self.ast.nodes.items(.location)[node];
@@ -1091,15 +1268,27 @@ pub const Renderer = struct {
         // " or `
         try self.ais.writeAll(string_lexeme[0..1]);
 
-        for (self.ast.nodes.items(.components)[node].String) |part| {
-            if (tags[part] != .StringLiteral) {
-                try self.ais.writeByte('{');
+        {
+            const previous_suppress_comments = self.suppress_comments;
+            defer self.suppress_comments = previous_suppress_comments;
 
-                try self.renderNode(part, .None);
+            self.suppress_comments = true;
+            for (self.ast.nodes.items(.components)[node].String) |part| {
+                if (tags[part] != .StringLiteral) {
+                    try self.ais.writeByte('{');
 
-                try self.ais.writeByte('}');
-            } else {
-                try self.renderNode(part, .None);
+                    {
+                        const previous_options = self.options;
+                        defer self.options = previous_options;
+
+                        self.options.line_width = std.math.maxInt(usize);
+                        try self.renderNode(part, .None);
+                    }
+
+                    try self.ais.writeByte('}');
+                } else {
+                    try self.renderNode(part, .None);
+                }
             }
         }
 
@@ -1168,6 +1357,7 @@ pub const Renderer = struct {
         const components = self.ast.nodes.items(.components)[node].ObjectInit;
         const utility_token = self.ast.tokens.items(.utility_token);
         const mutable = self.ast.nodes.items(.type_def)[node].?.isMutable();
+        const width_multiline = try self.nodeWouldExceedLine(node);
 
         var token_idx = location;
         if (mutable) {
@@ -1208,6 +1398,7 @@ pub const Renderer = struct {
             self.ast.tokens.items(.tag)[lft] == .Comma
         else
             false;
+        const multiline = has_trailing_comma or width_multiline;
 
         // {
         try self.renderExpectedToken(
@@ -1216,7 +1407,7 @@ pub const Renderer = struct {
             else
                 token_idx,
             .LeftBrace,
-            if (has_trailing_comma)
+            if (multiline)
                 .Newline
             else if (components.properties.len == 0)
                 .None
@@ -1224,7 +1415,8 @@ pub const Renderer = struct {
                 .Space,
         );
 
-        for (components.properties) |field| {
+        for (components.properties, 0..) |field, i| {
+            const is_last = i == components.properties.len - 1;
             const show_identifier = !utility_token[field.name] and locations[field.value] != field.name;
 
             if (show_identifier) {
@@ -1232,19 +1424,20 @@ pub const Renderer = struct {
                 try self.renderToken(field.name, .Space);
 
                 try self.ais.pushIndent(self.allocator, .normal);
-
-                // =
-                try self.renderExpectedToken(field.name + 1, .Equal, .Space);
             }
 
-            // value
-            try self.renderNode(
-                field.value,
-                if (has_trailing_comma)
-                    .Comma
-                else
-                    .CommaSpace,
+            const field_space = commaListSpace(
+                multiline,
+                has_trailing_comma,
+                is_last,
+                .CommaSpace,
             );
+            if (show_identifier) {
+                try self.renderAssignmentValue(field.name + 1, field.value, field_space);
+            } else {
+                // value
+                try self.renderNode(field.value, field_space);
+            }
 
             if (show_identifier) {
                 self.ais.popIndent();
@@ -1263,6 +1456,7 @@ pub const Renderer = struct {
         const object_type = self.ast.nodes.items(.type_def)[node].?;
         const fields = self.ast.nodes.items(.components)[node].AnonymousObjectType.fields;
         const utility_token = self.ast.tokens.items(.utility_token);
+        const width_multiline = try self.nodeWouldExceedLine(node);
 
         // obj
         try self.renderExpectedToken(location, .Obj, .None);
@@ -1274,12 +1468,13 @@ pub const Renderer = struct {
             self.ast.tokens.items(.tag)[self.ast.nodes.items(.end_location)[lf.type] + 1] == .Comma
         else
             false;
+        const multiline = has_trailing_comma or width_multiline;
 
         // {
         try self.renderExpectedToken(
             location + 1,
             .LeftBrace,
-            if (has_trailing_comma)
+            if (multiline)
                 .Newline
             else if (fields.len > 0)
                 .Space
@@ -1287,7 +1482,8 @@ pub const Renderer = struct {
                 .None,
         );
 
-        for (fields) |field| {
+        for (fields, 0..) |field, i| {
+            const is_last = i == fields.len - 1;
             if (!utility_token[field.name]) {
                 // identifier
                 try self.renderToken(field.name, .None);
@@ -1302,7 +1498,12 @@ pub const Renderer = struct {
 
             try self.renderNode(
                 field.type,
-                if (has_trailing_comma) .Comma else .CommaSpace,
+                commaListSpace(
+                    multiline,
+                    has_trailing_comma,
+                    is_last,
+                    .CommaSpace,
+                ),
             );
         }
 
@@ -1359,14 +1560,33 @@ pub const Renderer = struct {
     fn renderBinary(self: *Self, node: Ast.Node.Index, space: Space) Error!void {
         const components = self.ast.nodes.items(.components)[node].Binary;
         const end_locations = self.ast.nodes.items(.end_location);
+        const is_boolean_chain = components.operator == .And or components.operator == .Or;
 
-        try self.renderNode(components.left, .Space);
+        try self.renderNode(components.left, .None);
 
-        try self.ais.pushIndent(self.allocator, .normal);
+        try self.ais.pushIndent(self.allocator, .binop);
         defer self.ais.popIndent();
 
+        const operator_token = end_locations[components.left] + 1;
+        const operator_len = self.ast.tokens.items(.lexeme)[operator_token].len;
+        const right_len = if (is_boolean_chain)
+            try self.inlineNodeLength(components.right) orelse try self.nodeFirstLineLengthFromColumn(
+                components.right,
+                self.ais.currentColumn() + 1 + operator_len + 1,
+            )
+        else
+            try self.nodeFirstLineLengthFromColumn(
+                components.right,
+                self.ais.currentColumn() + 1 + operator_len + 1,
+            );
+        if (self.wouldExceedLine(1 + operator_len + 1 + right_len)) {
+            try self.ais.insertNewline();
+        } else {
+            try self.ais.writeByte(' ');
+        }
+
         try self.renderExpectedToken(
-            end_locations[components.left] + 1,
+            operator_token,
             components.operator,
             .Space,
         );
@@ -1443,6 +1663,7 @@ pub const Renderer = struct {
         const invoked = tags[comp.callee] == .Dot and
             components[comp.callee].Dot.member_kind == .Call and
             components[comp.callee].Dot.value_or_call_or_enum.Call == node;
+        const width_multiline = try self.nodeWouldExceedLine(node);
 
         // callee (generated by Dot if call is invokation)
         if (!invoked) {
@@ -1476,12 +1697,14 @@ pub const Renderer = struct {
             self.ast.tokens.items(.tag)[end_locations[arg.value] + 1] == .Comma
         else
             false;
+        const multiline = has_trailing_comma or width_multiline;
 
-        if (has_trailing_comma) {
+        if (multiline and comp.arguments.len > 0) {
             try self.ais.insertNewline();
         }
 
         for (comp.arguments, 0..) |arg, i| {
+            const is_last = i == comp.arguments.len - 1;
             if (arg.name) |name| {
                 // Don't show arg name if named expression argument
                 if (name != self.ast.nodes.items(.location)[arg.value]) {
@@ -1495,15 +1718,12 @@ pub const Renderer = struct {
 
             try self.renderNode(
                 arg.value,
-                if (comp.arguments.len > 1 and i < comp.arguments.len - 1)
-                    if (has_trailing_comma)
-                        .Comma
-                    else
-                        .CommaSpace
-                else if (has_trailing_comma)
-                    .Comma
-                else
-                    .None,
+                commaListSpace(
+                    multiline,
+                    has_trailing_comma,
+                    is_last,
+                    if (!is_last) .CommaSpace else .None,
+                ),
             );
         }
 
@@ -1553,6 +1773,7 @@ pub const Renderer = struct {
             tags[end_locations[it] + 1] == .Comma
         else
             false;
+        const multiline = has_trailing_comma or (try self.nodeWouldExceedLine(node));
 
         try self.ais.pushIndent(self.allocator, .normal);
 
@@ -1572,7 +1793,7 @@ pub const Renderer = struct {
         try self.renderExpectedToken(
             token_idx,
             .LeftBracket,
-            if (has_trailing_comma)
+            if (multiline)
                 .Newline
             else if (components.items.len > 0)
                 .Space
@@ -1594,24 +1815,25 @@ pub const Renderer = struct {
             try self.renderExpectedToken(
                 end_locations[item_type] + 1,
                 .Greater,
-                if (has_trailing_comma)
-                    .Comma
-                else if (components.items.len > 0)
-                    .CommaSpace
-                else
-                    .None,
+                commaListSpace(
+                    multiline,
+                    has_trailing_comma,
+                    components.items.len == 0,
+                    if (components.items.len > 0) .CommaSpace else .None,
+                ),
             );
         }
 
         for (components.items, 0..) |item, i| {
+            const is_last = i == components.items.len - 1;
             try self.renderNode(
                 item,
-                if (has_trailing_comma)
-                    .Comma
-                else if ((components.items.len > 1 and i < components.items.len - 1) or components.explicit_item_type != null)
-                    .CommaSpace
-                else
-                    .Space,
+                commaListSpace(
+                    multiline,
+                    has_trailing_comma,
+                    is_last,
+                    if (!is_last or components.explicit_item_type != null) .CommaSpace else .Space,
+                ),
             );
         }
 
@@ -1698,6 +1920,7 @@ pub const Renderer = struct {
             tags[end_locations[vt] + 1] == .Comma
         else
             false;
+        const multiline = has_trailing_comma or (try self.nodeWouldExceedLine(node));
 
         const mutable = self.ast.nodes.items(.type_def)[node].?.isMutable();
         var token_idx = location;
@@ -1717,7 +1940,7 @@ pub const Renderer = struct {
         try self.renderExpectedToken(
             token_idx,
             .LeftBrace,
-            if (has_trailing_comma)
+            if (multiline)
                 .Newline
             else if (components.entries.len > 0)
                 .Space
@@ -1750,16 +1973,17 @@ pub const Renderer = struct {
             try self.renderExpectedToken(
                 end_locations[components.explicit_value_type.?] + 1,
                 .Greater,
-                if (has_trailing_comma)
-                    .Comma
-                else if (components.entries.len > 0)
-                    .CommaSpace
-                else
-                    .None,
+                commaListSpace(
+                    multiline,
+                    has_trailing_comma,
+                    components.entries.len == 0,
+                    if (components.entries.len > 0) .CommaSpace else .None,
+                ),
             );
         }
 
         for (components.entries, 0..) |entry, i| {
+            const is_last = i == components.entries.len - 1;
             // key
             try self.renderNode(entry.key, .None);
 
@@ -1773,12 +1997,12 @@ pub const Renderer = struct {
             // value
             try self.renderNode(
                 entry.value,
-                if (has_trailing_comma)
-                    .Comma
-                else if (components.entries.len > 0 and i < components.entries.len - 1)
-                    .CommaSpace
-                else
-                    .Space,
+                commaListSpace(
+                    multiline,
+                    has_trailing_comma,
+                    is_last,
+                    if (!is_last) .CommaSpace else .Space,
+                ),
             );
         }
 
@@ -1921,8 +2145,12 @@ pub const Renderer = struct {
         // callee
         try self.renderNode(components.callee, .None);
 
-        try self.ais.pushIndent(self.allocator, .normal);
+        try self.ais.pushIndent(self.allocator, .field_access);
         defer self.ais.popIndent();
+
+        if (self.wouldExceedLine(1 + self.ast.tokens.items(.lexeme)[components.identifier].len)) {
+            try self.ais.insertNewline();
+        }
 
         // .
         try self.renderExpectedToken(
@@ -1944,14 +2172,8 @@ pub const Renderer = struct {
 
         switch (components.member_kind) {
             .Value => {
-                // =
-                try self.renderToken(
+                try self.renderAssignmentValue(
                     components.value_or_call_or_enum.Value.assign_token,
-                    .Space,
-                );
-
-                // value
-                try self.renderNode(
                     components.value_or_call_or_enum.Value.value,
                     space,
                 );
@@ -2115,15 +2337,11 @@ pub const Renderer = struct {
 
             if (!components.values_omitted) {
                 if (case.value) |value| {
-                    // =
-                    try self.renderExpectedToken(
+                    try self.renderAssignmentValue(
                         locations[value] - 1,
-                        .Equal,
-                        .Space,
+                        value,
+                        .Comma,
                     );
-
-                    // value
-                    try self.renderNode(value, .Comma);
 
                     token_idx = if (tags[end_locations[value] + 1] == .Comma)
                         end_locations[value] + 1
@@ -2678,30 +2896,28 @@ pub const Renderer = struct {
 
             // expr, expr, ... (if ends with a comma we get one per line)
             for (branch.conditions, 0..) |condition, idx| {
-                try self.renderNode(
-                    condition,
-                    if (conditions_ends_with_comma)
-                        .Newline
-                    else if (idx == branch.conditions.len - 1)
-                        .Space
-                    else
-                        .None,
-                );
-
-                if (idx == branch.conditions.len - 1) {
-                    if (conditions_ends_with_comma) {
-                        try self.renderExpectedToken(
-                            end_locations[condition] + 1,
-                            .Comma,
-                            .Newline,
-                        );
-                    }
-                } else {
+                if (conditions_ends_with_comma) {
+                    try self.renderNode(condition, .None);
                     try self.renderExpectedToken(
                         end_locations[condition] + 1,
                         .Comma,
-                        .Space,
+                        .Newline,
                     );
+                } else {
+                    try self.renderNode(
+                        condition,
+                        if (idx == branch.conditions.len - 1)
+                            .Space
+                        else
+                            .None,
+                    );
+                    if (idx < branch.conditions.len - 1) {
+                        try self.renderExpectedToken(
+                            end_locations[condition] + 1,
+                            .Comma,
+                            .Space,
+                        );
+                    }
                 }
             }
 
@@ -2925,7 +3141,7 @@ pub const Renderer = struct {
         }
 
         // {
-        var token_idx = if (components.generics.len > 1)
+        var token_idx = if (components.generics.len > 0)
             components.generics[components.generics.len - 1] + 2
         else
             components.name + 1;
@@ -3060,15 +3276,11 @@ pub const Renderer = struct {
 
                 if (has_default_value) {
                     if (member.method_or_default_value) |default_value| {
-                        // =
-                        try self.renderExpectedToken(
+                        try self.renderAssignmentValue(
                             end_locations[member.property_type.?] + 1,
-                            .Equal,
-                            .Space,
+                            default_value,
+                            terminator,
                         );
-
-                        // default value
-                        try self.renderNode(default_value, terminator);
                     }
                 }
 
@@ -3282,15 +3494,11 @@ pub const Renderer = struct {
         );
 
         if (components.value) |value| {
-            // =
-            try self.renderOneOfExpectedToken(
+            try self.renderAssignmentValue(
                 locations[value] - 1,
-                equals,
-                .Space,
+                value,
+                space,
             );
-
-            // value
-            try self.renderNode(value, space);
         }
 
         self.ais.popIndent();
@@ -3440,6 +3648,7 @@ pub const Renderer = struct {
 
     fn renderUserType(self: *Self, node: Ast.Node.Index, space: Space) Error!void {
         const components = self.ast.nodes.items(.components)[node].UserType;
+        const end_locations = self.ast.nodes.items(.end_location);
         const type_def = self.ast.nodes.items(.type_def)[node].?;
         const is_optional = type_def.optional;
 
@@ -3460,21 +3669,21 @@ pub const Renderer = struct {
                 space,
         );
 
+        // generic resolve
+        if (components.generic_resolve) |gn| {
+            try self.renderNode(gn, if (is_optional) .None else space);
+        }
+
         // ?
         if (is_optional) {
             try self.renderExpectedToken(
-                components.qualified_name.name + 1,
-                .Question,
-                if (components.generic_resolve != null)
-                    .None
+                if (components.generic_resolve) |gn|
+                    end_locations[gn] + 1
                 else
-                    space,
+                    components.qualified_name.name + 1,
+                .Question,
+                space,
             );
-        }
-
-        // generic resolve
-        if (components.generic_resolve) |gn| {
-            try self.renderNode(gn, space);
         }
     }
 
@@ -3532,15 +3741,11 @@ pub const Renderer = struct {
         }
 
         if (components.value) |value| {
-            // =
-            try self.renderExpectedToken(
+            try self.renderAssignmentValue(
                 locations[value] - 1,
-                .Equal,
-                .Space,
+                value,
+                space,
             );
-
-            // value
-            try self.renderNode(value, space);
         }
 
         self.ais.popIndent();
@@ -3699,6 +3904,8 @@ pub const Renderer = struct {
         space_mode: ?usize = null,
         disable_indent_committing: usize = 0,
         current_line_empty: bool = true,
+        /// Visible column count for the current output line, including indentation.
+        current_column: usize = 0,
         /// the most recently applied indent
         applied_indent: usize = 0,
         underlying_writer: *std.Io.Writer,
@@ -3727,14 +3934,14 @@ pub const Renderer = struct {
         pub fn print(self: *SelfAis, comptime fmt: []const u8, args: anytype) std.Io.Writer.Error!void {
             try self.applyIndent();
             if (self.disabled_offset == null) try self.underlying_writer.print(fmt, args);
-            if (fmt[fmt.len - 1] == '\n') self.resetLine();
+            self.trackPrint(fmt, args);
         }
 
         pub fn writeAll(self: *SelfAis, bytes: []const u8) Error!void {
             if (bytes.len == 0) return;
             try self.applyIndent();
             if (self.disabled_offset == null) try self.underlying_writer.writeAll(bytes);
-            if (bytes[bytes.len - 1] == '\n') self.resetLine();
+            self.trackBytes(bytes);
         }
 
         // Change the indent delta without changing the final indentation level
@@ -3757,10 +3964,16 @@ pub const Renderer = struct {
                 return @as(usize, 0);
 
             if (self.disabled_offset == null) try self.underlying_writer.writeAll(bytes);
-            if (bytes[bytes.len - 1] == '\n')
-                self.resetLine();
+            self.trackBytes(bytes);
 
             return bytes.len;
+        }
+
+        /// Writes bytes directly, even while formatter output is disabled.
+        pub fn writeDirect(self: *SelfAis, bytes: []const u8) std.Io.Writer.Error!void {
+            if (bytes.len == 0) return;
+            try self.underlying_writer.writeAll(bytes);
+            self.trackBytes(bytes);
         }
 
         pub fn insertNewline(self: *SelfAis) std.Io.Writer.Error!void {
@@ -3769,6 +3982,7 @@ pub const Renderer = struct {
 
         fn resetLine(self: *SelfAis) void {
             self.current_line_empty = true;
+            self.current_column = 0;
 
             if (self.disable_indent_committing > 0) return;
 
@@ -3794,6 +4008,12 @@ pub const Renderer = struct {
                 if (self.indent_stack.items[to_realize].indent_type == .field_access) {
                     // Only realize the top-most field_access in a chain.
                     while (to_realize > 0 and self.indent_stack.items[to_realize - 1].indent_type == .field_access)
+                        to_realize -= 1;
+                }
+
+                if (self.indent_stack.items[to_realize].indent_type == .binop) {
+                    // Keep chained boolean operators aligned instead of stair-stepping nested binary nodes.
+                    while (to_realize > 0 and self.indent_stack.items[to_realize - 1].indent_type == .binop)
                         to_realize -= 1;
                 }
 
@@ -3842,6 +4062,18 @@ pub const Renderer = struct {
         pub fn lastSpaceModeIndent(self: *SelfAis) usize {
             if (self.space_stack.items.len == 0) return 0;
             return self.space_stack.getLast().indent_count * self.indent_delta;
+        }
+
+        /// Returns the visible column count for the current line.
+        pub fn currentColumn(self: *SelfAis) usize {
+            return self.current_column;
+        }
+
+        /// Returns true when writing `additional_columns` would exceed `line_width`.
+        pub fn wouldExceed(self: *SelfAis, line_width: usize, additional_columns: usize) bool {
+            if (line_width == std.math.maxInt(usize)) return false;
+            if (self.current_column >= line_width) return additional_columns > 0;
+            return additional_columns > line_width - self.current_column;
         }
 
         /// Insert a newline unless the current line is blank
@@ -3894,6 +4126,7 @@ pub const Renderer = struct {
                     _ = try self.underlying_writer.splatByte(' ', current_indent);
                 }
                 self.applied_indent = current_indent;
+                self.current_column = current_indent;
             }
             self.current_line_empty = false;
         }
@@ -3911,10 +4144,38 @@ pub const Renderer = struct {
 
         pub fn writeFixingWhitespace(self: *SelfAis, slice: []const u8) Error!void {
             for (slice) |byte| switch (byte) {
-                '\t' => _ = try self.underlying_writer.splatByte(' ', self.indent_delta),
+                '\t' => {
+                    _ = try self.underlying_writer.splatByte(' ', self.indent_delta);
+                    self.current_column += self.indent_delta;
+                },
                 '\r' => {},
-                else => _ = try self.underlying_writer.writeByte(byte),
+                else => {
+                    _ = try self.underlying_writer.writeByte(byte);
+                    self.trackBytes(&.{byte});
+                },
             };
+        }
+
+        /// Updates line and column state for a sequence of bytes already written or skipped.
+        fn trackBytes(self: *SelfAis, bytes: []const u8) void {
+            for (bytes) |byte| {
+                if (byte == '\n') {
+                    self.resetLine();
+                } else {
+                    self.current_line_empty = false;
+                    self.current_column += 1;
+                }
+            }
+        }
+
+        /// Updates line and column state for a formatted print call.
+        fn trackPrint(self: *SelfAis, comptime fmt: []const u8, args: anytype) void {
+            if (fmt[fmt.len - 1] == '\n') {
+                self.resetLine();
+            } else {
+                self.current_line_empty = false;
+                self.current_column += std.fmt.count(fmt, args);
+            }
         }
     };
 };

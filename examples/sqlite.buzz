@@ -148,7 +148,10 @@ export object Query {
     }
 
     fun insertInto(table: str, columns: [str]) > Query {
-        return this.branch("insert into", expression: "{table} ({columns.join(", ")})");
+        return this.branch(
+            "insert into",
+            expression: "{table} ({columns.join(", ")})"
+        );
     }
 
     fun @"from"(expression: str) > Query {
@@ -175,7 +178,9 @@ export object Query {
         return db.prepare(this);
     }
 
-    fun execute(db: Database) > [[Boxed]] *> [Boxed]? !> SQLiteError, errors\ReadWriteError {
+    fun execute(
+        db: Database
+    ) > [[Boxed]] *> [Boxed]? !> SQLiteError, errors\ReadWriteError {
         return db.prepare(this).execute();
     }
 }
@@ -195,7 +200,8 @@ export object Statement {
             if (code != .Ok and code != .Row and code != .Done) {
                 throw SQLiteError{
                     code = code,
-                    message = "Could not execute statement `{this.query}`: {code} {sqlite3_errmsg(this.db)}",
+                    message =
+                        "Could not execute statement `{this.query}`: {code} {sqlite3_errmsg(this.db)}",
                 };
             }
 
@@ -206,7 +212,9 @@ export object Statement {
             final columnCount = sqlite3_column_count(this.stmt);
             final row: mut [any] = mut [];
             for (i: int = 0; i < columnCount; i = i + 1) {
-                final columnType: Type = Type(sqlite3_column_type(this.stmt, col: i)) ?? .Null;
+                final columnType: Type = Type(
+                    sqlite3_column_type(this.stmt, col: i)
+                ) ?? .Null;
 
                 if (columnType == .Integer) {
                     row.append(sqlite3_column_int(this.stmt, col: i));
@@ -221,7 +229,8 @@ export object Statement {
                 }
             }
 
-            final boxedRow = (Boxed.init(row.cloneImmutable()) catch void).listValue();
+            final boxedRow = (Boxed.init(row.cloneImmutable()) catch void)
+                .listValue();
             rows.append(boxedRow);
 
             _ = yield boxedRow;
@@ -260,7 +269,11 @@ export object Database {
             ),
         ) ?? .Error;
         if (code != .Ok) {
-            throw SQLiteError{ code = code, message = "Could not prepareRaw query `{query}`: {code} {sqlite3_errmsg(this.db)}" };
+            throw SQLiteError{
+                code = code,
+                message =
+                    "Could not prepareRaw query `{query}`: {code} {sqlite3_errmsg(this.db)}"
+            };
         }
 
         return Statement{
@@ -292,7 +305,10 @@ export object SQLite {
         _ = sqlite3_shutdown();
     }
 
-    fun open(filename: str, flags: [OpenFlag]) > Database !> SQLiteError, errors\ReadWriteError {
+    fun open(
+        filename: str,
+        flags: [OpenFlag]
+    ) > Database !> SQLiteError, errors\ReadWriteError {
         var cFlags = 0;
         foreach (flag in flags) {
             cFlags = cFlags | flag.value;
@@ -301,10 +317,20 @@ export object SQLite {
         final buffer = buffer\Buffer.init();
         buffer.writeUserData(std\toUd(0)) catch void;
 
-        final code = ResultCode(sqlite3_open_v2(filename: ffi\cstr(filename), ppDb: buffer.ptr(), flags: cFlags, zVfs: null)) ?? .Error;
+        final code = ResultCode(
+            sqlite3_open_v2(
+                filename: ffi\cstr(filename),
+                ppDb: buffer.ptr(),
+                flags: cFlags,
+                zVfs: null
+            )
+        ) ?? .Error;
 
         if (code != .Ok) {
-            throw SQLiteError{ code = code, message = "Could not open database `{filename}`: {code}" };
+            throw SQLiteError{
+                code = code,
+                message = "Could not open database `{filename}`: {code}"
+            };
         }
 
         std\print("Database `{filename}` opened");
@@ -329,10 +355,14 @@ test "Testing sqlite" {
     _ = statement.execute();
 
     foreach (name in [ "john", "joe", "janet", "joline" ]) {
-        _ = Query{}.insertInto("test", columns: [ "name" ]).values([ "'{name}'" ]).execute(database);
+        _ = Query{}.insertInto("test", columns: [ "name" ]).values(
+            [ "'{name}'" ]
+        ).execute(database);
     }
 
-    final select = Query{}.select([ "rowid", "name" ]).@"from"("test").prepare(database);
+    final select = Query{}.select([ "rowid", "name" ]).@"from"("test").prepare(
+        database
+    );
 
     foreach (row in &select.execute()) {
         std\print("{row?[0].integerValue()}: {row?[1].stringValue()}");

@@ -3,7 +3,8 @@ import "std";
 fun check(peeked: int) > bool {
     final local = peeked;
 
-    if (('a'..'z').contains(local) or ('A'..'Z').contains(local) or ('0'..'9').contains(local) or local == '_' or local == '-') {
+    if (('a'..'z').contains(local) or ('A'..'Z').contains(local)
+        or ('0'..'9').contains(local) or local == '_' or local == '-') {
         return true;
     } else if (local == '"') {
         return false;
@@ -13,5 +14,8 @@ fun check(peeked: int) > bool {
 }
 
 test "Range expression does not move locals into condition scope" {
-    std\assert(check('a'), message: "Local remains visible after range expression in if condition");
+    std\assert(
+        check('a'),
+        message: "Local remains visible after range expression in if condition"
+    );
 }

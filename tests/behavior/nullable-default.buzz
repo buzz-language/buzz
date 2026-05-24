@@ -10,11 +10,17 @@ test "Nullable object field has a default value at null" {
         name = "Joe",
     };
 
-    std\assert(person.age == null, message: "Nullable object field has a default value at null");
+    std\assert(
+        person.age == null,
+        message: "Nullable object field has a default value at null"
+    );
 }
 
 test "Nullable variable has a default value at null" {
     final hello: int?;
 
-    std\assert(hello == null, message: "Nullable variable has default value at null");
+    std\assert(
+        hello == null,
+        message: "Nullable variable has default value at null"
+    );
 }

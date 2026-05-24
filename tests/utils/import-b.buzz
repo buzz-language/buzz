@@ -10,4 +10,5 @@ fun printClass() > void {
 }
 
 export hello;
+
 export printClass;

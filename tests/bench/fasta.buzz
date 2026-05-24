@@ -31,7 +31,11 @@ object Frequency {
     probs: mut [double],
     last: double,
 
-    static fun init(chars: Buffer, probs: mut [double], last: double) > mut Frequency {
+    static fun init(
+        chars: Buffer,
+        probs: mut [double],
+        last: double
+    ) > mut Frequency {
         final freq = mut Frequency{
             chars = chars,
             probs = probs,
@@ -56,7 +60,11 @@ object Frequency {
         }
     }
 
-    mut fun selectRandomIntoBuffer(buffer: Buffer, initialBufferIndex: int, nRandom: int) > int !> OutOfBoundError, WriteWhileReadingError {
+    mut fun selectRandomIntoBuffer(
+        buffer: Buffer,
+        initialBufferIndex: int,
+        nRandom: int
+    ) > int !> OutOfBoundError, WriteWhileReadingError {
         final len = this.probs.len();
         var bufferIndex = initialBufferIndex;
 
@@ -82,14 +90,21 @@ object Frequency {
     }
 }
 
-fun makeRandomFasta(id: str, desc: str, fpf: mut Frequency, initialNchars: int) > void !> OutOfBoundError, WriteWhileReadingError {
+fun makeRandomFasta(
+    id: str,
+    desc: str,
+    fpf: mut Frequency,
+    initialNchars: int
+) > void !> OutOfBoundError, WriteWhileReadingError {
     std\print(">{id} {desc}");
     var nchars = initialNchars;
 
     var buffer = Buffer.init(bufferSize);
     var bufferIndex = 0;
     while (nchars > 0) {
-        final chunkSize = std\toInt(math\minDouble(a: std\toDouble(lineLength), b: std\toDouble(nchars)));
+        final chunkSize = std\toInt(
+            math\minDouble(a: std\toDouble(lineLength), b: std\toDouble(nchars))
+        );
 
         if (bufferIndex == bufferSize) {
             std\print(buffer.toString().sub(0, len: bufferIndex));
@@ -97,7 +112,11 @@ fun makeRandomFasta(id: str, desc: str, fpf: mut Frequency, initialNchars: int) 
             bufferIndex = 0;
         }
 
-        bufferIndex = fpf.selectRandomIntoBuffer(buffer, initialBufferIndex: bufferIndex, nRandom: chunkSize);
+        bufferIndex = fpf.selectRandomIntoBuffer(
+            buffer,
+            initialBufferIndex: bufferIndex,
+            nRandom: chunkSize
+        );
         buffer.setAt(bufferIndex, value: 10);
         bufferIndex = bufferIndex + 1;
 
@@ -124,19 +143,50 @@ fun main(args: [str]) > void !> any {
     iubChars.write("acgtBDHKMNRSVWY");
     final iub = Frequency.init(
         chars: iubChars,
-        probs: mut [ 0.27, 0.12, 0.12, 0.27, 0.02, 0.02, 0.02, 0.02, 0.02, 0.02, 0.02, 0.02, 0.02, 0.02, 0.02 ],
+        probs: mut [
+            0.27,
+            0.12,
+            0.12,
+            0.27,
+            0.02,
+            0.02,
+            0.02,
+            0.02,
+            0.02,
+            0.02,
+            0.02,
+            0.02,
+            0.02,
+            0.02,
+            0.02
+        ],
         last: 42.0,
     );
 
-    makeRandomFasta("TWO", desc: "IUB ambiguity codes", fpf: iub, initialNchars: N * 3);
+    makeRandomFasta(
+        "TWO",
+        desc: "IUB ambiguity codes",
+        fpf: iub,
+        initialNchars: N * 3
+    );
 
     final homoSapiensChars = Buffer.init();
     homoSapiensChars.write("acgt");
     final homoSapiens = Frequency.init(
         chars: homoSapiensChars,
-        probs: mut [ 0.3029549426680, 0.1979883004921, 0.1975473066391, 0.3015094502008 ],
+        probs: mut [
+            0.3029549426680,
+            0.1979883004921,
+            0.1975473066391,
+            0.3015094502008
+        ],
         last: iub.last,
     );
 
-    makeRandomFasta("THREE", desc: "Homo sapiens frequency", fpf: homoSapiens, initialNchars: N * 5);
+    makeRandomFasta(
+        "THREE",
+        desc: "Homo sapiens frequency",
+        fpf: homoSapiens,
+        initialNchars: N * 5
+    );
 }

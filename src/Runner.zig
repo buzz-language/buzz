@@ -31,6 +31,8 @@ gc: GC,
 parser: Parser,
 codegen: CodeGen,
 perf: ?*Perf = null,
+/// Formatter options used when the runner is executing in `.Fmt` mode.
+renderer_options: Renderer.Options = .{},
 import_registry: ImportRegistry = .empty,
 imports: std.StringHashMapUnmanaged(Parser.ScriptImport) = .empty,
 /// DynLib lookup cache
@@ -157,6 +159,7 @@ pub fn runFile(
                 arena.allocator(),
                 &stdout.interface,
                 ast,
+                runner.renderer_options,
             );
         }
     } else {

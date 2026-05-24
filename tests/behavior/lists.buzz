@@ -24,10 +24,16 @@ test "Lists" {
 
     final removed = strList.remove(1);
     std\assert(strList.len() == 2, message: "removed element form list");
-    std\assert(strList[0] == "hello" and strList[1] == "dojo", message: "item were properly shifted");
+    std\assert(
+        strList[0] == "hello" and strList[1] == "dojo",
+        message: "item were properly shifted"
+    );
     std\assert(removed == "yolo", message: "removed element has the correct value");
 
-    std\assert(strList.remove(12) == null, message: "returns null when removing non existent index");
+    std\assert(
+        strList.remove(12) == null,
+        message: "returns null when removing non existent index"
+    );
 }
 
 test "list.sub" {
@@ -46,7 +52,10 @@ test "list.join" {
 }
 
 test "list concat" {
-    std\assert(([ 1, 2, 3 ] + [ 4, 5, 6 ]).join(",") == "1,2,3,4,5,6", message: "list concat");
+    std\assert(
+        ([ 1, 2, 3 ] + [ 4, 5, 6 ]).join(",") == "1,2,3,4,5,6",
+        message: "list concat"
+    );
 }
 
 test "list.clone" {
@@ -74,7 +83,15 @@ test "list.fill" {
 
     std\assert(list[0] == 42 and list[1] == 42 and list[2] == 42);
 
-    final another = (mut [ 0, 1, 2, 3, 4, 5, 6, 7, 8, 9 ]).fill(42, start: 2, len: 3);
+    final another = (mut [ 0, 1, 2, 3, 4, 5, 6, 7, 8, 9 ]).fill(
+        42,
+        start: 2,
+        len: 3
+    );
 
-    std\assert(another[2] == 42 and another[3] == 42 and another[4] == 42 and another[1] != 42 and another[5] != 42);
+    std\assert(
+        another[2] == 42
+            and another[3] == 42
+            and another[4] == 42 and another[1] != 42 and another[5] != 42
+    );
 }
