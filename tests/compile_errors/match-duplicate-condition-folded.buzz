@@ -1,0 +1,8 @@
+// Duplicate `match` condition
+test "match duplicate folded condition" {
+    _ = match (2) {
+        1 + 1 -> "folded",
+        2 -> "literal",
+        else -> "other",
+    };
+}

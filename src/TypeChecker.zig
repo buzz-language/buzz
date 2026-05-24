@@ -3,6 +3,7 @@ const o = @import("obj.zig");
 const Reporter = @import("Reporter.zig");
 const Ast = @import("Ast.zig");
 const GC = @import("GC.zig");
+const Value = @import("value.zig").Value;
 const BuildOptions = @import("build_options");
 const io = @import("io.zig");
 
@@ -1811,9 +1812,119 @@ fn checkMatch(ast: Ast.Slice, reporter: *Reporter, gc: *GC, _: ?Ast.Node.Index, 
                             condition_type_def.?,
                             "Bad `match` condition type",
                         );
+                        had_error = true;
                     }
                 }
             },
+        }
+    }
+
+    if (!had_error) {
+        const numeric_match_value = !value_type_def.optional and
+            (value_type_def.def_type == .Integer or value_type_def.def_type == .Double);
+        var seen_values = std.ArrayList(Value).empty;
+        defer seen_values.deinit(gc.allocator);
+        var seen_conditions = std.ArrayList(Ast.Node.Index).empty;
+        defer seen_conditions.deinit(gc.allocator);
+
+        for (node_components.branches) |branch| {
+            for (branch.conditions) |condition| {
+                const is_constant = ast.isConstant(gc.allocator, condition) catch |err| switch (err) {
+                    error.OutOfMemory => return error.OutOfMemory,
+                    else => false,
+                };
+                if (!is_constant) {
+                    continue;
+                }
+
+                const condition_value = ast.toValue(condition, gc) catch |err| switch (err) {
+                    error.OutOfMemory => return error.OutOfMemory,
+                    else => continue,
+                };
+
+                for (seen_values.items, seen_conditions.items) |seen_value, seen_condition| {
+                    const duplicate_condition = condition_value.eql(seen_value);
+                    var overlapping_condition = false;
+
+                    // Numeric range matches use rg.contains semantics: normalized half-open intervals.
+                    if (!duplicate_condition and numeric_match_value) {
+                        const condition_type_def = type_defs[condition] orelse continue;
+                        const seen_condition_type_def = type_defs[seen_condition] orelse continue;
+                        const condition_is_range = !condition_type_def.optional and
+                            condition_type_def.def_type == .Range;
+                        const seen_condition_is_range = !seen_condition_type_def.optional and
+                            seen_condition_type_def.def_type == .Range;
+
+                        if (condition_is_range and seen_condition_is_range) {
+                            const condition_range = o.ObjRange.cast(condition_value.obj()).?;
+                            const seen_range = o.ObjRange.cast(seen_value.obj()).?;
+                            const condition_low = @min(condition_range.low, condition_range.high);
+                            const condition_high = @max(condition_range.low, condition_range.high);
+                            const seen_low = @min(seen_range.low, seen_range.high);
+                            const seen_high = @max(seen_range.low, seen_range.high);
+
+                            overlapping_condition = @max(condition_low, seen_low) < @min(condition_high, seen_high);
+                        } else if (condition_is_range and seen_value.isNumber()) {
+                            const condition_range = o.ObjRange.cast(condition_value.obj()).?;
+                            const condition_low: f64 = @floatFromInt(@min(condition_range.low, condition_range.high));
+                            const condition_high: f64 = @floatFromInt(@max(condition_range.low, condition_range.high));
+                            const seen_number = if (seen_value.isInteger())
+                                @as(f64, @floatFromInt(seen_value.integer()))
+                            else
+                                seen_value.double();
+
+                            overlapping_condition = (value_type_def.def_type == .Double or
+                                seen_value.isInteger() or
+                                (std.math.isFinite(seen_number) and seen_number == @trunc(seen_number))) and
+                                seen_number >= condition_low and seen_number < condition_high;
+                        } else if (seen_condition_is_range and condition_value.isNumber()) {
+                            const seen_range = o.ObjRange.cast(seen_value.obj()).?;
+                            const seen_low: f64 = @floatFromInt(@min(seen_range.low, seen_range.high));
+                            const seen_high: f64 = @floatFromInt(@max(seen_range.low, seen_range.high));
+                            const condition_number = if (condition_value.isInteger())
+                                @as(f64, @floatFromInt(condition_value.integer()))
+                            else
+                                condition_value.double();
+
+                            overlapping_condition = (value_type_def.def_type == .Double or
+                                condition_value.isInteger() or
+                                (std.math.isFinite(condition_number) and condition_number == @trunc(condition_number))) and
+                                condition_number >= seen_low and condition_number < seen_high;
+                        }
+                    }
+
+                    if (duplicate_condition) {
+                        reporter.reportWithOrigin(
+                            .match_duplicate_condition,
+                            ast.tokens.get(locations[condition]),
+                            ast.tokens.get(end_locations[condition]),
+                            ast.tokens.get(locations[seen_condition]),
+                            ast.tokens.get(end_locations[seen_condition]),
+                            "Duplicate `match` condition",
+                            .{},
+                            "first used here",
+                        );
+                        return true;
+                    }
+
+                    if (overlapping_condition) {
+                        reporter.reportWithOrigin(
+                            .match_duplicate_condition,
+                            ast.tokens.get(locations[condition]),
+                            ast.tokens.get(end_locations[condition]),
+                            ast.tokens.get(locations[seen_condition]),
+                            ast.tokens.get(end_locations[seen_condition]),
+                            "Overlapping `match` condition",
+                            .{},
+                            "overlaps with this condition",
+                        );
+                        return true;
+                    }
+                }
+
+                try seen_values.append(gc.allocator, condition_value);
+                try seen_conditions.append(gc.allocator, condition);
+            }
         }
     }
 

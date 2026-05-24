@@ -1,0 +1,8 @@
+// Overlapping `match` condition
+test "match overlapping range condition" {
+    _ = match (4) {
+        1..5 -> "left",
+        4..8 -> "right",
+        else -> "other",
+    };
+}
