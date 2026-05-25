@@ -3047,10 +3047,10 @@ pub const ObjList = struct {
                 );
 
                 return member_def;
-            } else if ((self.mutable and (mem.eql(u8, method, "cloneImmutable") or
-                mem.eql(u8, method, "copyMutable"))) or
-                (!self.mutable and (mem.eql(u8, method, "cloneMutable") or
-                    mem.eql(u8, method, "copyImmutable"))))
+            } else if (mem.eql(u8, method, "cloneMutable") or
+                mem.eql(u8, method, "cloneImmutable") or
+                (self.mutable and mem.eql(u8, method, "copyMutable")) or
+                (!self.mutable and mem.eql(u8, method, "copyImmutable")))
             {
                 // We omit first arg: it'll be OP_SWAPed in and we already parsed it
                 // It's always the list.
@@ -3074,7 +3074,7 @@ pub const ObjList = struct {
                             },
                         },
                     ),
-                    .mutable = mem.eql(u8, method, "cloneImmutable") or mem.eql(u8, method, "copyMutable"),
+                    .mutable = mem.eql(u8, method, "copyMutable"),
                 };
 
                 try self.methods.put(
@@ -4137,10 +4137,10 @@ pub const ObjMap = struct {
                 );
 
                 return method_def;
-            } else if ((self.mutable and (mem.eql(u8, method, "cloneImmutable") or
-                mem.eql(u8, method, "copyMutable"))) or
-                (!self.mutable and (mem.eql(u8, method, "cloneMutable") or
-                    mem.eql(u8, method, "copyImmutable"))))
+            } else if (mem.eql(u8, method, "cloneMutable") or
+                mem.eql(u8, method, "cloneImmutable") or
+                (self.mutable and mem.eql(u8, method, "copyMutable")) or
+                (!self.mutable and mem.eql(u8, method, "copyImmutable")))
             {
                 // We omit first arg: it'll be OP_SWAPed in and we already parsed it
                 // It's always the list.
@@ -4164,7 +4164,7 @@ pub const ObjMap = struct {
                             },
                         },
                     ),
-                    .mutable = mem.eql(u8, method, "cloneImmutable") or mem.eql(u8, method, "copyMutable"),
+                    .mutable = mem.eql(u8, method, "copyMutable"),
                 };
 
                 try self.methods.put(
@@ -4911,15 +4911,21 @@ pub const ObjTypeDef = struct {
             },
             .List => list: {
                 var clone = self.*;
+                const list_def = clone.resolved_type.?.List;
 
-                clone.resolved_type.?.List.mutable = mutable;
+                // Method signatures can depend on receiver mutability. Rebuild them
+                // lazily for the cloned list type instead of sharing the old cache.
+                clone.resolved_type = .{ .List = ObjList.ListDef.init(list_def.item_type, mutable) };
 
                 break :list try type_registry.getTypeDef(clone);
             },
             .Map => map: {
                 var clone = self.*;
+                const map_def = clone.resolved_type.?.Map;
 
-                clone.resolved_type.?.Map.mutable = mutable;
+                // Method signatures can depend on receiver mutability. Rebuild them
+                // lazily for the cloned map type instead of sharing the old cache.
+                clone.resolved_type = .{ .Map = ObjMap.MapDef.init(map_def.key_type, map_def.value_type, mutable) };
 
                 break :map try type_registry.getTypeDef(clone);
             },

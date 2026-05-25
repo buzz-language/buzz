@@ -1,0 +1,81 @@
+import "std";
+
+test "clone methods are available for matching mutability" {
+    final immutableList: [int] = [ 1, 2 ];
+    final immutableListClone: [int] = immutableList.cloneImmutable();
+    std\assert(immutableListClone.len() == 2, message: "Could clone immutable list");
+
+    final mutableList: mut [int] = mut [ 1, 2 ];
+    final mutableListClone: mut [int] = mutableList.cloneMutable();
+    mutableListClone[0] = 3;
+    std\assert(mutableListClone[0] == 3, message: "Could clone mutable list");
+
+    final immutableMap: {str: int} = { "one": 1 };
+    final immutableMapClone: {str: int} = immutableMap.cloneImmutable();
+    std\assert(immutableMapClone.size() == 1, message: "Could clone immutable map");
+
+    final mutableMap: mut {str: int} = mut { "one": 1 };
+    final mutableMapClone: mut {str: int} = mutableMap.cloneMutable();
+    mutableMapClone["one"] = 3;
+    std\assert(mutableMapClone["one"] == 3, message: "Could clone mutable map");
+}
+
+test "cloned list methods are retyped after mutability changes" {
+    final immutableList: [int] = [ 1, 2 ];
+    _ = immutableList.sub(0);
+
+    final mutableFromImmutable = immutableList.cloneMutable();
+    final mutableSub = mutableFromImmutable.sub(0);
+
+    std\assert(typeof mutableFromImmutable == <mut [int]>);
+    std\assert(typeof mutableSub == <mut [int]>);
+
+    mutableSub[0] = 3;
+    std\assert(
+        mutableSub[0] == 3,
+        message: "Mutable clone has mutable list methods"
+    );
+
+    final mutableList: mut [int] = mut [ 1, 2 ];
+    _ = mutableList.sub(0);
+
+    final immutableFromMutable = mutableList.cloneImmutable();
+    final immutableSub = immutableFromMutable.sub(0);
+
+    std\assert(typeof immutableFromMutable == <[int]>);
+    std\assert(typeof immutableSub == <[int]>);
+}
+
+test "cloned map methods are retyped after mutability changes" {
+    final immutableMap: {str: int} = { "one": 1, "two": 2 };
+    _ = immutableMap.filter(
+        fun (key: str, value: int) => key.len() > 0 or value > 0
+    );
+
+    final mutableFromImmutable = immutableMap.cloneMutable();
+    final mutableFiltered = mutableFromImmutable.filter(
+        fun (key: str, value: int) => key.len() > 0 or value > 0,
+    );
+
+    std\assert(typeof mutableFromImmutable == <mut {str: int}>);
+    std\assert(typeof mutableFiltered == <mut {str: int}>);
+
+    mutableFiltered["three"] = 3;
+    std\assert(
+        mutableFiltered["three"] == 3,
+        message: "Mutable clone has mutable map methods"
+    );
+
+    final mutableMap: mut {str: int} = mut { "one": 1, "two": 2 };
+    _ = mutableMap.filter(
+        fun (key: str, value: int) => key.len() > 0 or value > 0
+    );
+
+    final immutableFromMutable = mutableMap.cloneImmutable();
+    final immutableFiltered = immutableFromMutable.filter(
+        fun (key: str, value: int) => key.len() > 0 or value > 0,
+    );
+
+    std\assert(typeof immutableFromMutable == <{str: int}>);
+    std\assert(typeof immutableFiltered == <{str: int}>);
+}

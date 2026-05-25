@@ -130,6 +130,7 @@ Only Zig files need formatting checks for now.
 - Any non-trivial code added must be properly commented in the code. Comments should explain intent, invariants, or tricky control flow, not restate obvious assignments.
 - Any new Zig file under `src/` must start with a file docblock (`//! ...`) describing the general role of the file.
 - Any new functions, structs, objects, properties, and enums introduced in Zig or Buzz code must have a docblock.
+- When modifying of creating a buzz file, always reformat it with `buzz -f`
 
 ## Runtime And GC Rules
 

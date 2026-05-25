@@ -176,10 +176,12 @@ pub fn indexOf(ctx: *o.NativeCtx) callconv(.c) c_int {
         i += 1;
     }
 
-    ctx.vm.push(if (index) |uindex|
-        v.Value.fromInteger(@as(v.Integer, @intCast(uindex)))
-    else
-        v.Value.Null);
+    ctx.vm.push(
+        if (index) |uindex|
+            .fromInteger(@as(v.Integer, @intCast(uindex)))
+        else
+            .Null,
+    );
 
     return 1;
 }
