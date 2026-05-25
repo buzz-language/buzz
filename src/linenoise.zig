@@ -1,11 +1,28 @@
-pub const linenoiseState = opaque {
-    // Non blocking API.
-    pub extern fn linenoiseEditStart(stdind_fd: c_int, stdout_fd: c_int, buf: [*]u8, buflen: usize, prompt: [*:0]const u8) callconv(.c) c_int;
-    pub extern fn linenoiseEditFeed() callconv(.c) [*:0]u8;
-    pub extern fn linenoiseEditStop() callconv(.c) void;
-    pub extern fn linenoiseHide() callconv(.c) void;
-    pub extern fn linenoiseShow() callconv(.c) void;
+pub const linenoiseState = extern struct {
+    in_completion: c_int,
+    completion_idx: usize,
+    ifd: c_int,
+    ofd: c_int,
+    buf: [*]u8,
+    buflen: usize,
+    prompt: [*:0]const u8,
+    plen: usize,
+    pos: usize,
+    oldpos: usize,
+    len: usize,
+    cols: usize,
+    oldrows: usize,
+    history_index: c_int,
 };
+
+pub extern var linenoiseEditMore: [*:0]u8;
+
+// Non blocking API.
+pub extern fn linenoiseEditStart(state: *linenoiseState, stdin_fd: c_int, stdout_fd: c_int, buf: [*]u8, buflen: usize, prompt: [*:0]const u8) callconv(.c) c_int;
+pub extern fn linenoiseEditFeed(state: *linenoiseState) callconv(.c) ?[*:0]u8;
+pub extern fn linenoiseEditStop(state: *linenoiseState) callconv(.c) void;
+pub extern fn linenoiseHide(state: *linenoiseState) callconv(.c) void;
+pub extern fn linenoiseShow(state: *linenoiseState) callconv(.c) void;
 
 pub const linenoiseCompletions = extern struct {
     len: usize,
@@ -14,6 +31,7 @@ pub const linenoiseCompletions = extern struct {
 
 // Blocking API.
 pub extern fn linenoise(prompt: [*:0]const u8) callconv(.c) ?[*:0]const u8;
+pub extern fn linenoiseFree(ptr: ?*anyopaque) callconv(.c) void;
 
 // Completion API.
 pub const linenoiseCompletionCallback = fn ([*:0]const u8, *linenoiseCompletions) void;

@@ -764,17 +764,8 @@ pub fn highlight(self: *Self, out: *std.Io.Writer, true_color: bool) void {
         token = self.scanToken() catch unreachable;
     }
 
-    // Is there some comments or whitespace after last token?
     if (previous_offset < self.source.len) {
-        out.print(
-            "{s}{s}{s}{s}",
-            .{
-                Color.dim,
-                Color.black,
-                self.source[previous_offset..],
-                Color.reset,
-            },
-        ) catch unreachable;
+        out.writeAll(self.source[previous_offset..]) catch unreachable;
     }
 }
 

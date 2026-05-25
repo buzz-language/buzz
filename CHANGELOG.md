@@ -1,4 +1,6 @@
-# Unreleased
+# Unreleased: Gearing it up!
+
+This release brings a lot of useful tools to write buzz code: LSP, formatter and DAP support.
 
 > [!NOTE]
 > This release builds with zig 0.16.0. We will only use tagged version of zig from now on.
@@ -8,13 +10,13 @@
 - First working version of a LSP thanks to [lsp-kit](https://github.com/zigtools/lsp-kit) (https://github.com/buzz-language/buzz/issues/16)
 - First working version of the debugger that implements the [Debugger Adapter Protocol](https://microsoft.github.io/debug-adapter-protocol/) thanks to [buzz-language/dap-kit](https://github.com/buzz-language/dap-kit) (https://github.com/buzz-language/buzz/issues/88)
 - Code formatter (`buzz --fmt`) (https://github.com/buzz-language/buzz/issues/96)
+- `match` statement/expression for value matching with type-specific condition semantics (https://github.com/buzz-language/buzz/issues/80)
 - File polling API: `File.getPoller`, `FilePoller` (see example https://github.com/buzz-language/buzz/blob/main/tests/manual/007-fd-poller.buzz)
 - _Shortcut_ operators: `+=`, `-=`, `*=`, etc. (https://github.com/buzz-language/buzz/issues/78)
 - `rg.contains`
 - `map.hasKey`
 - `toml` std lib
-- `match` statement/expression for value matching with type-specific condition semantics (https://github.com/buzz-language/buzz/issues/80)
-- `buzz --fmt` now enforces 80 characters long lines. This can be overriden with `--line-width`
+- REPL highlights input as it's being written and format it once submitted
 
 ## Changed
 

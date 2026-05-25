@@ -8,10 +8,10 @@ const obj = @import("obj.zig");
 const Parser = @import("Parser.zig");
 const JIT = @import("Jit.zig");
 const ln = if (builtin.os.tag != .windows) @import("linenoise.zig") else void;
-const Value = @import("value.zig").Value;
 const disassembler = @import("disassembler.zig");
 const CodeGen = @import("Codegen.zig");
 const Scanner = @import("Scanner.zig");
+const Renderer = @import("renderer.zig").Renderer;
 const io = @import("io.zig");
 const GC = @import("GC.zig");
 const TypeRegistry = @import("TypeRegistry.zig");
@@ -21,6 +21,7 @@ const Perf = @import("Perf.zig");
 
 pub const PROMPT = ">>> ";
 pub const MULTILINE_PROMPT = "... ";
+const linenoise_max_line = 4096;
 
 pub fn printBanner(out: *std.Io.Writer, full: bool) void {
     out.print(
@@ -61,6 +62,112 @@ pub fn printBanner(out: *std.Io.Writer, full: bool) void {
     }
 }
 
+fn readHighlightedLine(
+    allocator: std.mem.Allocator,
+    out: *std.Io.Writer,
+    process: std.process.Init,
+    prompt: [*:0]const u8,
+    true_color: bool,
+) ?[*:0]const u8 {
+    if (ln == void) unreachable;
+
+    if (process.environ_map.get("TERM")) |term| {
+        if (std.ascii.eqlIgnoreCase(term, "dumb") or
+            std.ascii.eqlIgnoreCase(term, "cons25") or
+            std.ascii.eqlIgnoreCase(term, "emacs"))
+        {
+            return ln.linenoise(prompt);
+        }
+    }
+
+    var buffer: [linenoise_max_line]u8 = undefined;
+    var state: ln.linenoiseState = undefined;
+    // Enter linenoise nonblocking edit mode; it owns raw terminal state and
+    // mutates `state`/`buffer` as keys arrive.
+    if (ln.linenoiseEditStart(
+        &state,
+        -1,
+        -1,
+        buffer[0..].ptr,
+        buffer.len,
+        prompt,
+    ) != 0) {
+        return ln.linenoise(prompt);
+    }
+    // Leave raw edit mode and restore the terminal.
+    defer ln.linenoiseEditStop(&state);
+
+    while (true) {
+        // Consume one key sequence. `linenoiseEditMore` means keep editing;
+        // any other non-null pointer is the submitted NUL-terminated line.
+        const result = ln.linenoiseEditFeed(&state) orelse return null;
+        if (@intFromPtr(result) != @intFromPtr(ln.linenoiseEditMore)) {
+            return result;
+        }
+
+        ln.linenoiseHide(&state);
+
+        // Match linenoise single-line scrolling: leave room for the prompt,
+        // shift right only when the cursor would hit the terminal edge, and
+        // render no more than the visible input window.
+        const cols = @max(state.cols, state.plen + 1);
+        const visible_capacity = cols - state.plen;
+        const visible_start = if (state.pos >= visible_capacity)
+            state.pos - visible_capacity + 1
+        else
+            0;
+        const visible_len = @min(state.len - visible_start, visible_capacity);
+        const visible_pos = state.pos - visible_start;
+
+        const state_prompt = std.mem.span(state.prompt);
+        const visible_source = state.buf[visible_start..][0..visible_len];
+
+        out.writeAll("\r") catch unreachable;
+        out.writeAll(state_prompt) catch unreachable;
+
+        var scanner = Scanner.init(
+            allocator,
+            "REPL",
+            visible_source,
+        );
+        scanner.highlight(out, true_color);
+
+        out.writeAll("\x1b[0K") catch unreachable;
+
+        const cursor_column = @min(state.plen + visible_pos, cols - 1);
+        if (cursor_column > 0) {
+            out.print("\r\x1b[{}C", .{cursor_column}) catch unreachable;
+        } else {
+            out.writeAll("\r") catch unreachable;
+        }
+    }
+}
+
+/// Replace the submitted edit line with highlighted source.
+fn rewriteSubmittedSource(
+    allocator: std.mem.Allocator,
+    out: *std.Io.Writer,
+    prompt: []const u8,
+    source: []const u8,
+    true_color: bool,
+) !void {
+    try out.print(
+        if (builtin.os.tag == .windows)
+            "{s}"
+        else
+            "\x1b[1A\r\x1b[2K{s}",
+        .{prompt},
+    );
+
+    var source_scanner = Scanner.init(
+        allocator,
+        "REPL",
+        source,
+    );
+    source_scanner.highlight(out, true_color);
+    try out.writeAll("\n");
+}
+
 pub fn repl(process: std.process.Init, allocator: std.mem.Allocator) !void {
     const colorterm = process.environ_map.get("COLORTERM");
     const true_color = if (colorterm) |ct|
@@ -72,7 +179,13 @@ pub fn repl(process: std.process.Init, allocator: std.mem.Allocator) !void {
     var perf: ?Perf = if (BuildOptions.show_perf) Perf.init(process.io) else null;
     defer if (perf) |*p| p.report();
 
-    try runner.init(process, allocator, .Repl, null, if (perf) |*p| p else null);
+    try runner.init(
+        process,
+        allocator,
+        .Repl,
+        null,
+        if (perf) |*p| p else null,
+    );
     defer runner.deinit();
 
     var stdout = io.stdoutWriter(process.io);
@@ -115,21 +228,24 @@ pub fn repl(process: std.process.Init, allocator: std.mem.Allocator) !void {
     );
 
     while (true) {
+        const prompt: [*:0]const u8 = if (previous_input != null)
+            MULTILINE_PROMPT
+        else
+            PROMPT;
+
         if (builtin.os.tag == .windows) {
             std.io.getStdOut().writeAll(
-                if (previous_input != null)
-                    MULTILINE_PROMPT
-                else
-                    PROMPT,
+                std.mem.span(prompt),
             ) catch @panic("Could not write to stdout");
         }
 
         const read_source = if (ln != void)
-            ln.linenoise(
-                if (previous_input != null)
-                    MULTILINE_PROMPT
-                else
-                    PROMPT,
+            readHighlightedLine(
+                runner.gc.allocator,
+                &stdout.interface,
+                process,
+                prompt,
+                true_color,
             )
         else // FIXME: in that case, at least use an arena?
             reader.readUntilDelimiterOrEof('\n') catch @panic("Could not read stdin");
@@ -140,30 +256,17 @@ pub fn repl(process: std.process.Init, allocator: std.mem.Allocator) !void {
 
         var source = if (builtin.os.tag == .windows) read_source.? else std.mem.span(read_source.?);
         const original_source = source;
+        const submitted_prompt = std.mem.span(prompt);
+        const continued_submission = previous_input != null;
 
         if (source.len > 0) {
-            // Highlight input
-            var source_scanner = Scanner.init(
+            rewriteSubmittedSource(
                 runner.gc.allocator,
-                "REPL",
+                &stdout.interface,
+                submitted_prompt,
                 original_source,
-            );
-            // Go up one line, erase it
-            stdout.interface.print(
-                if (builtin.os.tag == .windows)
-                    "{s}"
-                else
-                    "\x1b[1A\r\x1b[2K{s}",
-                .{
-                    if (previous_input != null)
-                        MULTILINE_PROMPT
-                    else
-                        PROMPT,
-                },
+                true_color,
             ) catch unreachable;
-            // Output highlighted user input
-            source_scanner.highlight(&stdout.interface, true_color);
-            stdout.interface.writeAll("\n") catch unreachable;
 
             if (previous_input) |previous| {
                 source = std.mem.concatWithSentinel(
@@ -179,12 +282,79 @@ pub fn repl(process: std.process.Init, allocator: std.mem.Allocator) !void {
                 previous_input = null;
             }
 
-            const expr = runner.runSource(source, "REPL") catch |err| failed: {
-                if (BuildOptions.debug) {
-                    stderr.print("Failed with error {}\n", .{err}) catch unreachable;
+            const expr = expr: {
+                const maybe_ast = runner.parser.parse(source, null, "REPL") catch |err| {
+                    if (BuildOptions.debug) {
+                        stderr.print("Failed with error {}\n", .{err}) catch unreachable;
+                    }
+
+                    break :expr null;
+                };
+
+                const ast = maybe_ast orelse {
+                    if (runner.parser.reporter.last_error != .unclosed and BuildOptions.debug) {
+                        stderr.print("Failed with error {}\n", .{Parser.CompileError.Recoverable}) catch unreachable;
+                    }
+
+                    break :expr null;
+                };
+
+                if (builtin.os.tag != .windows and !continued_submission) format_echo: {
+                    var formatted = std.Io.Writer.Allocating.init(runner.gc.allocator);
+                    defer formatted.deinit();
+
+                    Renderer.render(
+                        runner.gc.allocator,
+                        &formatted.writer,
+                        ast,
+                        .{},
+                    ) catch break :format_echo;
+
+                    const rendered = std.mem.trimEnd(u8, formatted.written(), "\n");
+                    if (std.mem.eql(u8, rendered, source)) {
+                        break :format_echo;
+                    }
+
+                    rewriteSubmittedSource(
+                        runner.gc.allocator,
+                        &stdout.interface,
+                        submitted_prompt,
+                        rendered,
+                        true_color,
+                    ) catch break :format_echo;
                 }
 
-                break :failed null;
+                const ast_slice = ast.slice();
+                if (runner.codegen.generate(ast_slice) catch |err| {
+                    if (BuildOptions.debug) {
+                        stderr.print("Failed with error {}\n", .{err}) catch unreachable;
+                    }
+
+                    break :expr null;
+                }) |function| {
+                    runner.vm.interpret(
+                        ast_slice,
+                        function,
+                        null,
+                    ) catch |err| {
+                        if (BuildOptions.debug) {
+                            stderr.print("Failed with error {}\n", .{err}) catch unreachable;
+                        }
+
+                        break :expr null;
+                    };
+
+                    const fnode = ast.nodes.items(.components)[ast.root.?].Function;
+                    const statements = ast.nodes.items(.components)[fnode.body.?].Block;
+                    const last_statement = if (statements.len > 0) statements[statements.len - 1] else null;
+                    if (last_statement != null and ast.nodes.items(.tag)[last_statement.?] == .Expression) {
+                        break :expr runner.vm.pop();
+                    }
+                } else if (BuildOptions.debug) {
+                    stderr.print("Failed with error {}\n", .{Parser.CompileError.Recoverable}) catch unreachable;
+                }
+
+                break :expr null;
             };
 
             if (runner.parser.reporter.last_error == null and runner.codegen.reporter.last_error == null) {

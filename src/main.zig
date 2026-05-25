@@ -187,5 +187,6 @@ pub fn main(provided_init: Init) u8 {
 }
 
 test {
+    _ = @import("Scanner.zig");
     _ = @import("tests/fmt.zig");
 }
