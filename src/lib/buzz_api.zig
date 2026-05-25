@@ -136,7 +136,7 @@ pub const Value = extern struct {
         return @ptrFromInt(@as(usize, @truncate(self.val & ~PointerMask)));
     }
 
-    pub extern fn bz_valueToString(value: Value, len: *usize) ?[*]const u8;
+    pub extern fn bz_valueToString(value: Value, len: *usize) callconv(.c) ?[*]const u8;
     pub extern fn bz_valueToCString(value: Value) callconv(.c) ?[*:0]const u8;
     pub extern fn bz_valueToForeignContainerPtr(value: Value) callconv(.c) [*]u8;
     pub extern fn bz_valueIsForeignContainer(value: Value) callconv(.c) bool;

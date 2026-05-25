@@ -1,0 +1,7 @@
+namespace buzz_c_api;
+
+export extern fun add(lhs: int, rhs: int) > int;
+
+export extern fun isNumber(value: any) > bool;
+
+export extern fun argCount(a: int, b: int, c: int) > int;

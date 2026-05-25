@@ -1,0 +1,25 @@
+import "std";
+import "tests/utils/buzz_c_api";
+
+test "C buzz api library" {
+    std\assert(
+        buzz_c_api\add(40, rhs: 2) == 42,
+        message: "C library can read and return integers"
+    );
+    std\assert(
+        buzz_c_api\isNumber(12),
+        message: "C library can inspect integer values"
+    );
+    std\assert(
+        buzz_c_api\isNumber(12.5),
+        message: "C library can inspect double values"
+    );
+    std\assert(
+        !buzz_c_api\isNumber("no"),
+        message: "C library can reject non-number values"
+    );
+    std\assert(
+        buzz_c_api\argCount(1, b: 2, c: 3) == 3,
+        message: "C library can read NativeCtx arg_count"
+    );
+}

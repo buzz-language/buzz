@@ -110,15 +110,15 @@ pub fn build(b: *Build) !void {
         )
     else
         null;
+    var run_behavior: ?*Build.Step.Run = null;
     if (!is_wasm) {
         b.installArtifact(behavior_exe.?);
-        const run_behavior = b.addRunArtifact(behavior_exe.?);
-        run_behavior.step.dependOn(install_step);
-        run_behavior.step.dependOn(install_step);
+        run_behavior = b.addRunArtifact(behavior_exe.?);
+        run_behavior.?.step.dependOn(install_step);
         if (b.args) |args| {
-            run_behavior.addArgs(args);
+            run_behavior.?.addArgs(args);
         }
-        b.step("test-behavior", "Test behavior").dependOn(&run_behavior.step);
+        b.step("test-behavior", "Test behavior").dependOn(&run_behavior.?.step);
     }
 
     // buzz_debugger
@@ -259,6 +259,8 @@ pub fn build(b: *Build) !void {
     ) else null;
     if (!is_wasm) {
         b.installArtifact(lib.?);
+        const test_libs_step = buildTestLibraries(b, target, build_mode, build_option_module, lib.?);
+        run_behavior.?.step.dependOn(test_libs_step);
     }
 
     const static_lib = b.addLibrary(
@@ -582,6 +584,107 @@ pub fn buildLinenoise(b: *Build, target: Build.ResolvedTarget, optimize: std.bui
     b.installArtifact(lib);
 
     return lib;
+}
+
+fn buildTestLibraries(
+    b: *Build,
+    target: Build.ResolvedTarget,
+    optimize: std.builtin.OptimizeMode,
+    build_option_module: *Build.Module,
+    buzz_lib: *Build.Step.Compile,
+) *Build.Step {
+    const foreign_lib = b.addLibrary(
+        .{
+            .name = "foreign",
+            .linkage = .dynamic,
+            .use_llvm = true,
+            .root_module = b.createModule(
+                .{
+                    .root_source_file = b.path("tests/utils/foreign.zig"),
+                    .target = target,
+                    .optimize = optimize,
+                    .sanitize_c = .off,
+                },
+            ),
+        },
+    );
+
+    const hello_lib = b.addLibrary(
+        .{
+            .name = "hello",
+            .linkage = .dynamic,
+            .use_llvm = true,
+            .root_module = b.createModule(
+                .{
+                    .root_source_file = b.path("tests/utils/hello.zig"),
+                    .target = target,
+                    .optimize = optimize,
+                    .sanitize_c = .off,
+                    .link_libc = true,
+                },
+            ),
+        },
+    );
+    const buzz_api_module = b.createModule(
+        .{
+            .root_source_file = b.path("src/lib/buzz_api.zig"),
+            .target = target,
+            .optimize = optimize,
+        },
+    );
+    buzz_api_module.addImport("build_options", build_option_module);
+    hello_lib.root_module.addImport("buzz_api.zig", buzz_api_module);
+    hello_lib.root_module.linkLibrary(buzz_lib);
+    hello_lib.root_module.addRPath(buzz_lib.getEmittedBinDirectory());
+
+    const c_api_lib = b.addLibrary(
+        .{
+            .name = "buzz_c_api",
+            .linkage = .dynamic,
+            .use_llvm = true,
+            .root_module = b.createModule(
+                .{
+                    .target = target,
+                    .optimize = optimize,
+                    .sanitize_c = .off,
+                    .link_libc = true,
+                },
+            ),
+        },
+    );
+    c_api_lib.root_module.addIncludePath(b.path("src/lib"));
+    c_api_lib.root_module.linkLibrary(buzz_lib);
+    c_api_lib.root_module.addRPath(buzz_lib.getEmittedBinDirectory());
+    c_api_lib.root_module.addCSourceFile(
+        .{
+            .file = b.path("tests/utils/buzz_c_api.c"),
+            .flags = &.{
+                "-std=c11",
+            },
+        },
+    );
+
+    const copy_test_libs = b.addUpdateSourceFiles();
+    copy_test_libs.addCopyFileToSource(
+        foreign_lib.getEmittedBin(),
+        b.pathJoin(&.{ "tests", "utils", foreign_lib.out_filename }),
+    );
+    copy_test_libs.addCopyFileToSource(
+        hello_lib.getEmittedBin(),
+        hello_lib.out_filename,
+    );
+    copy_test_libs.addCopyFileToSource(
+        hello_lib.getEmittedBin(),
+        b.pathJoin(&.{ "tests", "utils", hello_lib.out_filename }),
+    );
+    copy_test_libs.addCopyFileToSource(
+        c_api_lib.getEmittedBin(),
+        b.pathJoin(&.{ "tests", "utils", c_api_lib.out_filename }),
+    );
+
+    const step = b.step("test-libs", "Build dynamic libraries used by tests");
+    step.dependOn(&copy_test_libs.step);
+    return step;
 }
 
 pub fn buildWasmReplDemo(b: *Build, exe: *Build.Step.Compile) void {
