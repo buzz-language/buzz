@@ -1,3 +1,4 @@
+// Expected type definition
 fun bad() > {
     return 0;
 }

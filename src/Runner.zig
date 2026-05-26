@@ -267,6 +267,7 @@ pub fn evaluate(self: *Runner, parent_fiber: *Fiber, parent_frame: *CallFrame, e
     const previous_debugger = self.vm.debugger;
     self.codegen.debugging = false;
     self.vm.debugger = null;
+    const previous_current_ast = self.vm.current_ast;
     const previous_global_count = self.parser.globals.items.len;
     defer {
         self.parser.flavor = previous_flavor;
@@ -274,6 +275,7 @@ pub fn evaluate(self: *Runner, parent_fiber: *Fiber, parent_frame: *CallFrame, e
         self.vm.flavor = previous_flavor;
         self.codegen.debugging = previous_debugger != null;
         self.vm.debugger = previous_debugger;
+        self.vm.current_ast = previous_current_ast;
         self.codegen.reporter.last_error = null;
         self.codegen.reporter.panic_mode = false;
         self.parser.reporter.last_error = null;
@@ -289,7 +291,7 @@ pub fn evaluate(self: *Runner, parent_fiber: *Fiber, parent_frame: *CallFrame, e
         self.codegen.reporter.panic_mode = false;
         self.parser.reporter.last_error = null;
         self.parser.reporter.panic_mode = false;
-        self.parser.globals.shrinkRetainingCapacity(previous_global_count);
+        self.removeParserGlobalsFrom(previous_global_count);
     }
 
     // Compile it
@@ -355,7 +357,11 @@ pub fn evaluate(self: *Runner, parent_fiber: *Fiber, parent_frame: *CallFrame, e
             // now we get that global and call it with the locals as arguments
             // We also remove it from the globals to avoid polluting the globals and avoid collision with other evaluates
             const eval_value = self.vm.globals.pop().?;
-            _ = self.parser.globals.pop();
+            const eval_global = self.parser.globals.pop().?;
+            _ = self.parser.globals_lookup.removeContext(
+                eval_global.qualified_name,
+                .{ .ast = &self.parser.ast },
+            );
             _ = self.vm.globals_dbg.pop();
             self.vm.globals_count -= 1;
 
@@ -394,4 +400,16 @@ pub fn evaluate(self: *Runner, parent_fiber: *Fiber, parent_frame: *CallFrame, e
     }
 
     return Parser.CompileError.Recoverable;
+}
+
+/// Removes parser globals and lookup entries added after `start`.
+fn removeParserGlobalsFrom(self: *Runner, start: usize) void {
+    for (self.parser.globals.items[start..]) |global| {
+        _ = self.parser.globals_lookup.removeContext(
+            global.qualified_name,
+            .{ .ast = &self.parser.ast },
+        );
+    }
+
+    self.parser.globals.shrinkRetainingCapacity(start);
 }
