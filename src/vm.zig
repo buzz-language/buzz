@@ -4698,7 +4698,12 @@ pub const VM = struct {
     fn OP_DBG_LOCAL_EXIT(self: *Self, frame: *CallFrame, _: u32, _: Chunk.OpCode, arg: u24) void {
         const slot = arg + (frame.slots - @as([*]Value, @ptrCast(self.current_fiber.stack))) - 1;
 
-        self.current_fiber.locals_dbg.items[slot] = Value.Null;
+        // Debug local exits can be emitted for compiler temporaries that were
+        // never exposed through OP_DBG_LOCAL_ENTER. Keep local metadata
+        // best-effort instead of letting debugger-only bookkeeping abort VM execution.
+        if (slot < self.current_fiber.locals_dbg.items.len) {
+            self.current_fiber.locals_dbg.items[slot] = Value.Null;
+        }
 
         const next_full_instruction = self.readInstruction(frame);
         @call(

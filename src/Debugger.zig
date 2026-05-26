@@ -79,19 +79,65 @@ const Error = error{
     CantEvaluate,
 };
 
+/// Source location used both for breakpoint lookup and exact resume-skip state.
+const BreakpointLocation = struct {
+    script: []const u8,
+    line: u32,
+    column: ?usize = null,
+    frame: ?*v.CallFrame = null,
+
+    /// Returns true when two locations point at the same runtime stop site.
+    pub fn sameStopSite(self: BreakpointLocation, other: BreakpointLocation) bool {
+        return self.frame == other.frame and
+            self.line == other.line and
+            self.column == other.column and
+            std.mem.eql(u8, self.script, other.script);
+    }
+
+    /// Hash/equality context for source breakpoint keys.
+    pub const AutoContext = struct {
+        /// Hashes only source coordinates; runtime frames are not part of breakpoint identity.
+        pub fn hash(_: AutoContext, location: BreakpointLocation) u32 {
+            var hasher = std.hash.Wyhash.init(0);
+            const has_column = location.column != null;
+
+            hasher.update(location.script);
+            hasher.update(std.mem.asBytes(&location.line));
+            hasher.update(std.mem.asBytes(&has_column));
+
+            if (location.column) |column| {
+                hasher.update(std.mem.asBytes(&column));
+            }
+
+            return @truncate(hasher.final());
+        }
+
+        /// Compares only source coordinates; runtime frames are not part of breakpoint identity.
+        pub fn eql(_: AutoContext, location_a: BreakpointLocation, location_b: BreakpointLocation, _: usize) bool {
+            return location_a.line == location_b.line and
+                location_a.column == location_b.column and
+                std.mem.eql(u8, location_a.script, location_b.script);
+        }
+    };
+};
+
 const DebugSession = struct {
     runner: Runner,
     /// If true, program must terminate
     run_state: RunState = .resumed,
     /// List of breakpoints to enforce
     breakpoints: std.ArrayHashMapUnmanaged(
-        BreakpointKey,
+        BreakpointLocation,
         ProtocolMessage.Breakpoint,
-        BreakpointKey.AutoContext,
+        BreakpointLocation.AutoContext,
         true,
     ) = .empty,
     /// Variable cache
     variables: std.ArrayList(Variable) = .empty,
+    /// Breakpoint source location to ignore while resuming from that same location.
+    skip_breakpoint: ?BreakpointLocation = null,
+    /// Stable storage for the single hit breakpoint id reported in stopped events.
+    hit_breakpoint_ids: [1]u64 = undefined,
 
     pub fn resetVariables(self: *DebugSession, allocator: std.mem.Allocator) void {
         self.variables.deinit(allocator);
@@ -116,6 +162,10 @@ const DebugSession = struct {
 
     pub fn setState(self: *DebugSession, new_state: RunState) void {
         self.run_state = new_state;
+        switch (new_state) {
+            .resumed => {},
+            else => self.skip_breakpoint = null,
+        }
 
         // Reset variable cache (but keep globals)
         if (self.variables.items.len > 1) {
@@ -156,26 +206,6 @@ const Variable = struct {
         scope: ProtocolMessage.Scope,
     },
     children: ?[]const Variable = null,
-};
-
-const BreakpointKey = struct {
-    script: []const u8,
-    line: u32,
-
-    pub const AutoContext = struct {
-        pub fn hash(_: AutoContext, bk: BreakpointKey) u32 {
-            var hasher = std.hash.Wyhash.init(0);
-
-            hasher.update(bk.script);
-            hasher.update(std.mem.asBytes(&bk.line));
-
-            return @truncate(hasher.final());
-        }
-
-        pub fn eql(_: AutoContext, bk_a: BreakpointKey, bk_b: BreakpointKey, _: usize) bool {
-            return bk_a.line == bk_b.line and std.mem.eql(u8, bk_a.script, bk_b.script);
-        }
-    };
 };
 
 pub fn start(
@@ -319,7 +349,7 @@ pub fn onDispatch(self: *Debugger) Error!bool {
                 );
             }
         },
-        .resumed => {
+        .resumed => resumed: {
             // Did we reach a breakpoint?
             const current_frame = self.session.?.runner.vm.currentFrame();
 
@@ -328,15 +358,38 @@ pub fn onDispatch(self: *Debugger) Error!bool {
             {
                 const location = current_frame.?.closure.function.chunk.locations.items[current_frame.?.ip];
                 const line = self.session.?.runner.vm.current_ast.tokens.items(.line)[location] + 1;
+                const column = self.session.?.runner.vm.current_ast.tokens.items(.column)[location];
                 const script = self.session.?.runner.vm.current_ast.tokens.items(.script_name)[location];
+                const current_location = BreakpointLocation{
+                    .script = script,
+                    .line = @intCast(line),
+                    .column = column,
+                    .frame = current_frame.?,
+                };
 
-                if (self.session.?.breakpoints.getPtr(
-                    .{
-                        .line = @intCast(line),
-                        .script = script,
-                    },
-                )) |breakpoint| {
+                if (self.session.?.skip_breakpoint) |skip| {
+                    if (skip.sameStopSite(current_location)) {
+                        break :resumed;
+                    }
+
+                    self.session.?.skip_breakpoint = null;
+                }
+
+                const source_line_location = BreakpointLocation{
+                    .script = script,
+                    .line = @intCast(line),
+                };
+                const maybe_breakpoint = self.session.?.breakpoints.getPtr(current_location) orelse
+                    self.session.?.breakpoints.getPtr(source_line_location);
+
+                if (maybe_breakpoint) |breakpoint| {
                     self.session.?.setState(.paused);
+
+                    const hit_breakpoint_ids = if (breakpoint.id) |bid| ids: {
+                        self.session.?.hit_breakpoint_ids[0] = bid;
+                        const id_slice: []const u64 = self.session.?.hit_breakpoint_ids[0..1];
+                        break :ids id_slice;
+                    } else null;
 
                     // Notifiy we stopped
                     self.adapter.emitEvent(
@@ -346,7 +399,7 @@ pub fn onDispatch(self: *Debugger) Error!bool {
                                 .stopped = .{
                                     .reason = .breakpoint,
                                     .threadId = @intFromPtr(self.session.?.runner.vm.current_fiber),
-                                    .hitBreakpointIds = if (breakpoint.id) |bid| &.{bid} else null,
+                                    .hitBreakpointIds = hit_breakpoint_ids,
                                 },
                             },
                         },
@@ -484,17 +537,21 @@ pub fn setBreakpoints(self: *Debugger, arguments: Arguments(.setBreakpoints)) Er
         session.breakpoints.clearRetainingCapacity();
 
         for (arguments.breakpoints orelse &.{}) |point| {
+            const script = arguments.source.path orelse arguments.source.name.?;
+
             try session.breakpoints.put(
                 self.allocator,
                 .{
-                    .script = arguments.source.path orelse arguments.source.name.?,
+                    .script = script,
                     .line = @intCast(point.line),
+                    .column = if (point.column) |column| @intCast(column) else null,
                 },
                 .{
                     .id = session.breakpoints.count(),
                     .verified = false,
                     .source = arguments.source,
                     .line = point.line,
+                    .column = point.column,
                 },
             );
         }
@@ -527,6 +584,8 @@ pub fn next(self: *Debugger, _: Arguments(.next)) Error!Response(.next) {
                 },
             },
         );
+
+        return;
     }
 
     return error.SessionNotStarted;
@@ -548,6 +607,8 @@ pub fn stepIn(self: *Debugger, _: Arguments(.stepIn)) Error!Response(.stepIn) {
                 },
             },
         );
+
+        return;
     }
 
     return error.SessionNotStarted;
@@ -565,6 +626,8 @@ pub fn stepOut(self: *Debugger, _: Arguments(.stepOut)) Error!Response(.stepOut)
                 .step_out = session.runner.vm.current_fiber.frame_count,
             },
         );
+
+        return;
     }
 
     return error.SessionNotStarted;
@@ -572,6 +635,33 @@ pub fn stepOut(self: *Debugger, _: Arguments(.stepOut)) Error!Response(.stepOut)
 
 pub fn @"continue"(self: *Debugger, _: Arguments(.@"continue")) Error!Response(.@"continue") {
     if (self.session) |*session| {
+        session.skip_breakpoint = null;
+        if (session.runner.vm.currentFrame()) |frame| {
+            if (frame.ip < frame.closure.function.chunk.locations.items.len) {
+                const location = frame.closure.function.chunk.locations.items[frame.ip];
+                const line = session.runner.vm.current_ast.tokens.items(.line)[location] + 1;
+                const column = session.runner.vm.current_ast.tokens.items(.column)[location];
+                const script = session.runner.vm.current_ast.tokens.items(.script_name)[location];
+                const current_location = BreakpointLocation{
+                    .script = script,
+                    .line = @intCast(line),
+                    .column = column,
+                    .frame = frame,
+                };
+
+                if (session.breakpoints.contains(current_location) or
+                    session.breakpoints.contains(
+                        .{
+                            .line = @intCast(line),
+                            .script = script,
+                        },
+                    ))
+                {
+                    session.skip_breakpoint = current_location;
+                }
+            }
+        }
+
         session.setState(.resumed);
 
         return .{};
@@ -908,6 +998,8 @@ pub fn disconnect(self: *Debugger, _: Arguments(.disconnect)) Error!Response(.di
 pub fn pause(self: *Debugger, _: Arguments(.pause)) Error!Response(.pause) {
     if (self.session) |*session| {
         session.setState(.paused);
+
+        return;
     }
 
     return error.SessionNotStarted;
