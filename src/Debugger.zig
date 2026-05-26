@@ -1017,7 +1017,7 @@ fn valueNamedChildren(_: *Debugger, value: Value) u64 {
             .ForeignContainer => o.ObjForeignContainer.cast(value.obj()).?
                 .type_def.resolved_type.?.ForeignContainer
                 .fields.count(),
-            .Map => 2, // key, value
+            .Map => o.ObjMap.cast(value.obj()).?.map.count(),
             .Bound => 2, // receiver, method
             else => 0,
         };
@@ -1164,7 +1164,7 @@ fn valueChildren(self: *Debugger, value: Value, result: *std.ArrayList(ProtocolM
                                 .name = name.written(),
                                 .evaluateName = name.written(),
                                 .value = "{...}",
-                                .variablesReference = self.session.?.variables.items.len + 3,
+                                .variablesReference = self.session.?.variables.items.len + 1,
                                 .indexedVariables = 0,
                                 .namedVariables = 2,
                             },

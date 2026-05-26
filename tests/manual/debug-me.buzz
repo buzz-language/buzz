@@ -1,0 +1,53 @@
+import "std";
+
+object Payload {
+    data: [int],
+
+    fun sum() > int {
+        var sum = 0;
+        foreach (item in this.data) {
+            sum += item;
+        }
+
+        return sum;
+    }
+}
+
+fun stack2(n: int) > str {
+    final local2 = 43;
+
+    return "{n * 3}".split("").join("");
+}
+
+fun stack1(n: int) > int {
+    final local = 42;
+
+    return std\parseInt(
+        stack2(n * local),
+    ) ?? 0;
+}
+
+fun main() > void {
+    final list = [ 1, 2, 3 ];
+    final map = {
+        "one": [ 1, 1, 1 ],
+        "two": [ 2, 2, 2 ],
+        "three": [ 3, 3, 3 ],
+        "four": [ 4, 4, 4, 4 ]
+    };
+    final weirdMap = {
+        [ 1, 2, 3 ]: "weird huh",
+    };
+    final data = .{
+        one = 1,
+        two = [ 1, 2, 3 ],
+        three = { "one": { "one": 0..1 } },
+    };
+
+    _ = stack1(42);
+    final sum = Payload{
+        data = list,
+    };
+
+    std\print("Hello world {sum.sum()}");
+}

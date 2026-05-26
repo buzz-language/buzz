@@ -901,6 +901,48 @@ const Document = struct {
     }
 };
 
+test "document inlay hints tolerate incomplete function signatures" {
+    const allocator = std.testing.allocator;
+
+    var process_arena = std.heap.ArenaAllocator.init(allocator);
+    defer process_arena.deinit();
+
+    var environ_map = try std.process.Environ.createMap(std.testing.environ, allocator);
+    defer environ_map.deinit();
+
+    const argv = [_][*:0]const u8{"buzz_lsp_test"};
+    const process = std.process.Init{
+        .minimal = .{
+            .args = .{ .vector = &argv },
+            .environ = std.testing.environ,
+        },
+        .arena = &process_arena,
+        .gpa = allocator,
+        .io = std.testing.io,
+        .environ_map = &environ_map,
+        .preopens = try std.process.Preopens.init(process_arena.allocator()),
+    };
+
+    const source =
+        \\fun bad() > {
+        \\    return 0;
+        \\}
+        \\
+    ;
+    const source_z = try allocator.dupeZ(u8, source);
+    defer allocator.free(source_z);
+
+    var doc = try Document.init(
+        process,
+        allocator,
+        source_z.ptr,
+        "file:///tmp/bad-fun-signature.buzz",
+    );
+    defer doc.deinit();
+
+    try std.testing.expect(doc.errors.len > 0);
+}
+
 extern fn getpid() std.os.linux.pid_t;
 
 pub fn main(init: std.process.Init) !void {
@@ -968,7 +1010,7 @@ const Handler = struct {
                 .version = version.written(),
             },
             .capabilities = .{
-                .positionEncoding = .@"utf-8",
+                .positionEncoding = .@"utf-16",
                 .textDocumentSync = .{
                     .text_document_sync_options = .{
                         .openClose = true,
