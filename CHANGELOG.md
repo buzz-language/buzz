@@ -9,6 +9,7 @@ This release brings a lot of useful tools to write buzz code: LSP, formatter and
 
 - First working version of a LSP thanks to [lsp-kit](https://github.com/zigtools/lsp-kit) (https://github.com/buzz-language/buzz/issues/16)
 - First working version of the debugger that implements the [Debugger Adapter Protocol](https://microsoft.github.io/debug-adapter-protocol/) thanks to [buzz-language/dap-kit](https://github.com/buzz-language/dap-kit) (https://github.com/buzz-language/buzz/issues/88)
+- Windows support (https://github.com/buzz-language/buzz/issues/74)
 - Code formatter (`buzz --fmt`) (https://github.com/buzz-language/buzz/issues/96)
 - `match` statement/expression for value matching with type-specific condition semantics (https://github.com/buzz-language/buzz/issues/80)
 - File polling API: `File.getPoller`, `FilePoller` (see example https://github.com/buzz-language/buzz/blob/main/tests/manual/007-fd-poller.buzz)

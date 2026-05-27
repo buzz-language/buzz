@@ -23,10 +23,72 @@ const print = @import("io.zig").print;
 
 const libs = static_libraries.nativeLibraries(is_wasm);
 
+/// Cross-platform dynamic library wrapper used while Zig's std.DynLib has no Windows implementation.
+const DynLib = struct {
+    const Native = if (builtin.os.tag == .windows) WindowsDynLib else std.DynLib;
+
+    /// Target-specific loaded library handle.
+    native: Native,
+
+    /// Opens a dynamic library at `path`.
+    pub fn open(allocator: std.mem.Allocator, path: []const u8) !DynLib {
+        return .{
+            .native = if (builtin.os.tag == .windows)
+                try WindowsDynLib.open(allocator, path)
+            else
+                try std.DynLib.open(path),
+        };
+    }
+
+    /// Looks up a symbol by sentinel-terminated name.
+    pub fn lookup(self: *DynLib, comptime T: type, name: [:0]const u8) ?T {
+        return self.native.lookup(T, name);
+    }
+
+    /// Releases the loaded library handle.
+    pub fn close(self: *DynLib) void {
+        self.native.close();
+    }
+};
+
+/// Windows dynamic library implementation backed by kernel32 APIs.
+const WindowsDynLib = struct {
+    /// Loaded module handle returned by LoadLibraryA.
+    handle: std.os.windows.HMODULE,
+
+    /// Loads a dynamic library by ANSI path.
+    extern "kernel32" fn LoadLibraryA(lpLibFileName: std.os.windows.LPCSTR) callconv(.winapi) ?std.os.windows.HMODULE;
+    /// Looks up a symbol exported by a loaded dynamic library.
+    extern "kernel32" fn GetProcAddress(hModule: std.os.windows.HMODULE, lpProcName: std.os.windows.LPCSTR) callconv(.winapi) ?std.os.windows.FARPROC;
+    /// Releases a dynamic library loaded by LoadLibraryA.
+    extern "kernel32" fn FreeLibrary(hLibModule: std.os.windows.HMODULE) callconv(.winapi) std.os.windows.BOOL;
+
+    /// Opens a Windows DLL at `path`.
+    pub fn open(allocator: std.mem.Allocator, path: []const u8) !WindowsDynLib {
+        const path_z = try allocator.dupeZ(u8, path);
+        defer allocator.free(path_z);
+
+        return .{
+            .handle = LoadLibraryA(path_z.ptr) orelse return error.OpenFailed,
+        };
+    }
+
+    /// Looks up a symbol by sentinel-terminated name.
+    pub fn lookup(self: *WindowsDynLib, comptime T: type, name: [:0]const u8) ?T {
+        const proc = GetProcAddress(self.handle, name.ptr) orelse return null;
+        return @ptrCast(proc);
+    }
+
+    /// Releases the loaded DLL handle.
+    pub fn close(self: *WindowsDynLib) void {
+        _ = FreeLibrary(self.handle);
+    }
+};
+
 pub const Dlib = struct {
     pub const LookupFn = *const fn ([*:0]const u8) callconv(.c) ?obj.NativeFn;
 
-    dynlib: std.DynLib,
+    dynlib: DynLib,
     symbols: std.StringHashMapUnmanaged(*obj.ObjNative) = .empty,
     lookup_fn: LookupFn,
 
@@ -868,6 +930,8 @@ pub fn parse(self: *Self, source: []const u8, file_name: ?[]const u8, name: []co
     var perf_scope = Perf.start(self.perf, .parser);
     defer perf_scope.end();
 
+    const script_name = file_name orelse name;
+
     if (self.scanner != null) {
         self.scanner = null;
     }
@@ -878,7 +942,7 @@ pub fn parse(self: *Self, source: []const u8, file_name: ?[]const u8, name: []co
             .column = 0,
             .line = 0,
             .source = source,
-            .script_name = file_name orelse name,
+            .script_name = script_name,
             .tag = .Error,
             .lexeme = "",
         };
@@ -894,7 +958,7 @@ pub fn parse(self: *Self, source: []const u8, file_name: ?[]const u8, name: []co
 
     self.scanner = Scanner.init(
         self.gc.allocator,
-        file_name orelse name,
+        script_name,
         source,
     );
     self.scanner.?.perf = self.perf;
@@ -938,7 +1002,7 @@ pub fn parse(self: *Self, source: []const u8, file_name: ?[]const u8, name: []co
                         .Function = .{
                             .id = obj.ObjFunction.FunctionDef.nextId(),
                             .name = try self.gc.copyString(function_name),
-                            .script_name = try self.gc.copyString(name),
+                            .script_name = try self.gc.copyString(script_name),
                             .return_type = self.gc.type_registry.void_type,
                             .yield_type = self.gc.type_registry.void_type,
                             .function_type = function_type,
@@ -963,7 +1027,7 @@ pub fn parse(self: *Self, source: []const u8, file_name: ?[]const u8, name: []co
         .test_locations = &.{},
     };
 
-    self.script_name = name;
+    self.script_name = script_name;
 
     const enclosing_frame = self.current;
     try self.beginFrame(function_type, function_node, null);
@@ -8848,8 +8912,15 @@ fn searchPaths(self: *Self, full_file_name: []const u8) ![][]const u8 {
     const file_name = std.fs.path.basename(full_file_name);
 
     var paths = std.ArrayList([]const u8).empty;
+    var appended_script_ancestor_paths = false;
 
     for (search_paths) |path| {
+        if (!appended_script_ancestor_paths and std.mem.startsWith(u8, path, "$")) {
+            const initial_len = paths.items.len;
+            try self.appendScriptAncestorSearchPaths(&paths, initial_len, full_file_name);
+            appended_script_ancestor_paths = true;
+        }
+
         const filled = try std.mem.replaceOwned(
             u8,
             self.gc.allocator,
@@ -8906,7 +8977,7 @@ fn searchPaths(self: *Self, full_file_name: []const u8) ![][]const u8 {
                 self.gc.allocator,
                 prefixed,
                 "/",
-                "\\",
+                std.fs.path.sep_str,
             );
             try paths.append(self.gc.allocator, windows);
         } else {
@@ -8914,7 +8985,87 @@ fn searchPaths(self: *Self, full_file_name: []const u8) ![][]const u8 {
         }
     }
 
+    if (!appended_script_ancestor_paths) {
+        const initial_len = paths.items.len;
+        try self.appendScriptAncestorSearchPaths(&paths, initial_len, full_file_name);
+    }
+
     return try paths.toOwnedSlice(self.gc.allocator);
+}
+
+/// Adds current-script ancestor paths so absolute test runs still find repo-relative imports.
+fn appendScriptAncestorSearchPaths(
+    self: *Self,
+    paths: *std.ArrayList([]const u8),
+    initial_len: usize,
+    full_file_name: []const u8,
+) !void {
+    const dir_name = std.fs.path.dirname(full_file_name) orelse return;
+    if (std.fs.path.isAbsolute(dir_name) or !std.fs.path.isAbsolute(self.script_name)) {
+        return;
+    }
+
+    const native_dir_name = if (std.fs.path.sep != '/')
+        try std.mem.replaceOwned(
+            u8,
+            self.gc.allocator,
+            dir_name,
+            "/",
+            std.fs.path.sep_str,
+        )
+    else
+        dir_name;
+    defer if (std.fs.path.sep != '/') self.gc.allocator.free(native_dir_name);
+
+    var ancestor = std.fs.path.dirname(self.script_name) orelse return;
+    while (true) {
+        var path_index: usize = 0;
+        while (path_index < initial_len) : (path_index += 1) {
+            const path = paths.items[path_index];
+            if (std.fs.path.isAbsolute(path)) {
+                continue;
+            }
+
+            const relative = if (path.len >= 2 and path[0] == '.' and (path[1] == '/' or path[1] == '\\'))
+                path[2..]
+            else
+                path;
+            if (!std.mem.startsWith(u8, relative, native_dir_name) or
+                (relative.len > native_dir_name.len and relative[native_dir_name.len] != '/' and relative[native_dir_name.len] != '\\'))
+            {
+                continue;
+            }
+
+            try paths.append(self.gc.allocator, try std.fs.path.join(self.gc.allocator, &.{ ancestor, relative }));
+        }
+
+        const parent = std.fs.path.dirname(ancestor) orelse break;
+        if (std.mem.eql(u8, parent, ancestor)) {
+            break;
+        }
+        ancestor = parent;
+    }
+}
+
+/// Appends a dynamic library path and the Windows no-`lib` DLL alias.
+fn appendLibraryPath(self: *Self, paths: *std.ArrayList([]const u8), path: []const u8) !void {
+    try paths.append(self.gc.allocator, path);
+
+    if (builtin.os.tag != .windows) {
+        return;
+    }
+
+    const basename = std.fs.path.basename(path);
+    if (!std.mem.startsWith(u8, basename, "lib") or basename.len <= 3) {
+        return;
+    }
+
+    const alias_basename = basename[3..];
+    const alias_path = if (std.fs.path.dirname(path)) |dirname|
+        try std.fs.path.join(self.gc.allocator, &.{ dirname, alias_basename })
+    else
+        try self.gc.allocator.dupe(u8, alias_basename);
+    try paths.append(self.gc.allocator, alias_path);
 }
 
 fn searchLibPaths(self: *Self, full_file_name: []const u8) ![][]const u8 {
@@ -8985,9 +9136,9 @@ fn searchLibPaths(self: *Self, full_file_name: []const u8) ![][]const u8 {
                 self.gc.allocator,
                 prefixed,
                 "/",
-                "\\",
+                std.fs.path.sep_str,
             );
-            try paths.append(self.gc.allocator, windows);
+            try self.appendLibraryPath(&paths, windows);
         } else {
             try paths.append(self.gc.allocator, prefixed);
         }
@@ -9016,7 +9167,7 @@ fn searchLibPaths(self: *Self, full_file_name: []const u8) ![][]const u8 {
             },
         );
 
-        try paths.append(self.gc.allocator, try filled.toOwnedSlice());
+        try self.appendLibraryPath(&paths, try filled.toOwnedSlice());
 
         var prefixed_filled = std.Io.Writer.Allocating.init(self.gc.allocator);
 
@@ -9040,10 +9191,7 @@ fn searchLibPaths(self: *Self, full_file_name: []const u8) ![][]const u8 {
             },
         );
 
-        try paths.append(
-            self.gc.allocator,
-            try prefixed_filled.toOwnedSlice(),
-        );
+        try self.appendLibraryPath(&paths, try prefixed_filled.toOwnedSlice());
     }
 
     return try paths.toOwnedSlice(self.gc.allocator);
@@ -9074,9 +9222,9 @@ fn searchZdefLibPaths(self: *Self, file_name: []const u8) ![][]const u8 {
                 self.gc.allocator,
                 suffixed,
                 "/",
-                "\\",
+                std.fs.path.sep_str,
             );
-            try paths.append(self.gc.allocator, windows);
+            try self.appendLibraryPath(&paths, windows);
         } else {
             try paths.append(self.gc.allocator, suffixed);
         }
@@ -9105,7 +9253,7 @@ fn searchZdefLibPaths(self: *Self, file_name: []const u8) ![][]const u8 {
             },
         );
 
-        try paths.append(self.gc.allocator, try filled.toOwnedSlice());
+        try self.appendLibraryPath(&paths, try filled.toOwnedSlice());
 
         var prefixed_filled = std.Io.Writer.Allocating.init(self.gc.allocator);
 
@@ -9129,10 +9277,7 @@ fn searchZdefLibPaths(self: *Self, file_name: []const u8) ![][]const u8 {
             },
         );
 
-        try paths.append(
-            self.gc.allocator,
-            try prefixed_filled.toOwnedSlice(),
-        );
+        try self.appendLibraryPath(&paths, try prefixed_filled.toOwnedSlice());
     }
 
     return try paths.toOwnedSlice(self.gc.allocator);
@@ -9583,7 +9728,7 @@ fn importLibSymbol(
                 }
 
                 if (exists) {
-                    break :lib std.DynLib.open(path) catch null;
+                    break :lib DynLib.open(self.gc.allocator, path) catch null;
                 }
             }
             break :lib null;
@@ -9839,9 +9984,9 @@ fn zdefStatement(self: *Self) Error!Ast.Node.Index {
                     self.gc.allocator.free(paths);
                 }
 
-                var lib: ?std.DynLib = null;
+                var lib: ?DynLib = null;
                 for (paths) |path| {
-                    lib = std.DynLib.open(path) catch null;
+                    lib = DynLib.open(self.gc.allocator, path) catch null;
                     if (lib != null) {
                         break;
                     }

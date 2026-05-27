@@ -130,7 +130,7 @@ pub export fn FileIsTTY(ctx: *api.NativeCtx) callconv(.c) c_int {
     return 1;
 }
 
-fn handleFileOpenError(ctx: *api.NativeCtx, err: anytype) void {
+fn handleFileOpenError(ctx: *api.NativeCtx, err: anyerror) void {
     switch (err) {
         error.AccessDenied,
         error.AntivirusInterference,
@@ -158,7 +158,33 @@ fn handleFileOpenError(ctx: *api.NativeCtx, err: anytype) void {
         error.Canceled,
         => ctx.vm.pushErrorEnum("errors.FileSystemError", @errorName(err)),
 
+        error.OutOfMemory => {
+            ctx.vm.bz_panic("Out of memory", "Out of memory".len);
+            unreachable;
+        },
         error.Unexpected => ctx.vm.pushError("errors.UnexpectedError", null),
+        else => ctx.vm.pushError("errors.UnexpectedError", null),
+    }
+}
+
+/// Opens a read-only file from an absolute path or relative to the current working directory.
+fn openReadFile(ctx: *api.NativeCtx, filename: []const u8) !std.Io.File {
+    if (std.fs.path.isAbsolute(filename)) {
+        return std.Io.Dir.openFileAbsolute(
+            ctx.getIo(),
+            filename,
+            .{ .mode = .read_only },
+        );
+    }
+
+    if (std.Io.Dir.cwd().openFile(
+        ctx.getIo(),
+        filename,
+        .{ .mode = .read_only },
+    )) |file| {
+        return file;
+    } else |err| {
+        return err;
     }
 }
 
@@ -169,38 +195,14 @@ pub export fn FileOpen(ctx: *api.NativeCtx) callconv(.c) c_int {
     const filename_slice = filename.?[0..len];
     const io = ctx.getIo();
 
-    const fs_file = if (std.fs.path.isAbsolute(filename_slice))
-        switch (mode) {
-            0 => std.Io.Dir.openFileAbsolute(
-                io,
-                filename_slice,
-                .{ .mode = .read_only },
-            ) catch |err| {
-                handleFileOpenError(ctx, err);
-
-                return -1;
-            },
-            else => std.Io.Dir.createFileAbsolute(
-                io,
-                filename_slice,
-                .{ .read = mode != 1 },
-            ) catch |err| {
-                handleFileOpenError(ctx, err);
-
-                return -1;
-            },
-        }
-    else switch (mode) {
-        0 => std.Io.Dir.cwd().openFile(
-            io,
-            filename_slice,
-            .{ .mode = .read_only },
-        ) catch |err| {
+    const fs_file = if (mode == 0) fs_file: {
+        break :fs_file openReadFile(ctx, filename_slice) catch |err| {
             handleFileOpenError(ctx, err);
 
             return -1;
-        },
-        else => std.Io.Dir.cwd().createFile(
+        };
+    } else if (std.fs.path.isAbsolute(filename_slice))
+        std.Io.Dir.createFileAbsolute(
             io,
             filename_slice,
             .{ .read = mode != 1 },
@@ -208,8 +210,17 @@ pub export fn FileOpen(ctx: *api.NativeCtx) callconv(.c) c_int {
             handleFileOpenError(ctx, err);
 
             return -1;
-        },
-    };
+        }
+    else
+        std.Io.Dir.cwd().createFile(
+            io,
+            filename_slice,
+            .{ .read = mode != 1 },
+        ) catch |err| {
+            handleFileOpenError(ctx, err);
+
+            return -1;
+        };
 
     const file = File.init(
         api.VM.allocator,
@@ -530,7 +541,9 @@ fn handlePollError(ctx: *api.NativeCtx, err: anytype) void {
 
 fn handleWindowsPollError(ctx: *api.NativeCtx, err: anytype) void {
     switch (err) {
-        error.Unexpected => ctx.vm.pushError("errors.UnexpectedError", null),
+        error.ConcurrencyUnavailable,
+        error.Canceled,
+        => ctx.vm.pushErrorEnum("errors.FileSystemError", @errorName(err)),
         error.OutOfMemory => {
             ctx.vm.bz_panic("Out of memory", "Out of memory".len);
             unreachable;
@@ -546,10 +559,7 @@ pub export fn runFile(ctx: *api.NativeCtx) callconv(.c) c_int {
     const filename: []const u8 = filename_string.?[0..len];
     const filename_slice: []const u8 = std.mem.sliceTo(filename, 0);
 
-    var file = (if (std.fs.path.isAbsolute(filename_slice))
-        std.Io.Dir.openFileAbsolute(ctx.getIo(), filename_slice, .{})
-    else
-        std.Io.Dir.cwd().openFile(ctx.getIo(), filename_slice, .{})) catch |err| {
+    var file = openReadFile(ctx, filename_slice) catch |err| {
         handleFileOpenError(ctx, err);
 
         return -1;

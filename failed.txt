@@ -1,0 +1,596 @@
+Γû╢ Test: "Anonymous objects"
+Γû╢ Test: "Named variable init"
+Γû╢ Test: "Anonymous object with generics"
+Γû╢ Test: "anonymous objects with different fields order"
+Γû╢ Test: "any"
+Γû╢ Test: "any placeholder"
+Γû╢ Test: "as?"
+Γû╢ Test: "list of any"
+1
+true
+12.4
+hello
+Γû╢ Test: "map of any"
+hello: true
+world: one
+hello: true
+true: one
+hello: 1
+true: one
+Γû╢ Test: "Basic types"
+Γû╢ Test: "Underscore on number literals"
+Γû╢ Test: "Char literal"
+Γû╢ Test: "Bitwise (constant folded)"
+Γû╢ Test: "Bitwise"
+Γû╢ Test: "block expression"
+doing stuff in my block...
+Γû╢ Test: "break statement"
+Γû╢ Test: "continue statement"
+Γû╢ Test: "continue properly jumps and closes scope"
+Γû╢ Test: "break properly jumps and closes scope"
+Γû╢ Test: "Reading and writing in a buffer"
+
+E:\incoming\buzz-windows-x86_64-debug\buzz-main\tests\behavior\c-buzz-api.buzz:2:32: [E68] Syntax error: buzz script `tests/utils/buzz_c_api` not found:
+    no file `.\tests\utils\buzz_c_api.buzz`
+    no file `.\tests\utils\buzz_c_api\main.buzz`
+    no file `.\tests\utils\buzz_c_api\src\buzz_c_api.buzz`
+    no file `.\tests\utils\buzz_c_api\src\main.buzz`
+    no file `E:\incoming\buzz-windows-x86_64-debug\lib\buzz\buzz_c_api.buzz`
+    no file `E:\incoming\buzz-windows-x86_64-debug\lib\buzz\buzz_c_api\main.buzz`
+    no file `E:\incoming\buzz-windows-x86_64-debug\lib\buzz\buzz_c_api\src\buzz_c_api.buzz`
+    no file `E:\incoming\buzz-windows-x86_64-debug\lib\buzz\buzz_c_api\src\main.buzz`
+    no file `.\buzz_c_api.buzz`
+    no file `.\buzz_c_api\main.buzz`
+    no file `.\buzz_c_api\src\main.buzz`
+    no file `.\buzz_c_api\src\buzz_c_api.buzz`
+    no file `.\src\buzz_c_api.buzz`
+
+     1 Γò¡ΓöÇ import "std";
+     2 Γöé  import "tests/utils/buzz_c_api";
+       Γöå                                 Γö¼ΓöÇ
+       Γöå                                 Γò░ΓöÇ buzz script `tests/utils/buzz_c_api` not found:
+    no file `.\tests\utils\buzz_c_api.buzz`
+    no file `.\tests\utils\buzz_c_api\main.buzz`
+    no file `.\tests\utils\buzz_c_api\src\buzz_c_api.buzz`
+    no file `.\tests\utils\buzz_c_api\src\main.buzz`
+    no file `E:\incoming\buzz-windows-x86_64-debug\lib\buzz\buzz_c_api.buzz`
+    no file `E:\incoming\buzz-windows-x86_64-debug\lib\buzz\buzz_c_api\main.buzz`
+    no file `E:\incoming\buzz-windows-x86_64-debug\lib\buzz\buzz_c_api\src\buzz_c_api.buzz`
+    no file `E:\incoming\buzz-windows-x86_64-debug\lib\buzz\buzz_c_api\src\main.buzz`
+    no file `.\buzz_c_api.buzz`
+    no file `.\buzz_c_api\main.buzz`
+    no file `.\buzz_c_api\src\main.buzz`
+    no file `.\buzz_c_api\src\buzz_c_api.buzz`
+    no file `.\src\buzz_c_api.buzz`
+
+     3 Γöé
+     4 Γò░ΓöÇ test "C buzz api library" {
+
+E:\incoming\buzz-windows-x86_64-debug\buzz-main\tests\behavior\c-buzz-api.buzz:6:20: [E74] Syntax error: `add` does not exists in that namespace or namespace does not exists
+     4 Γò¡ΓöÇ test "C buzz api library" {
+     5 Γöé      std\assert(
+     6 Γöé          buzz_c_api\add(40, rhs: 2) == 42,
+       Γöå                     Γò¡ΓöÇΓöÇ
+       Γöå                     Γò░ΓöÇ `add` does not exists in that namespace or namespace does not exists
+     7 Γöé          message: "C library can read and return integers"
+     8 Γò░ΓöÇ     );
+
+E:\incoming\buzz-windows-x86_64-debug\buzz-main\tests\behavior\c-buzz-api.buzz:10:20: [E74] Syntax error: `isNumber` does not exists in that namespace or namespace does not exists
+     8 Γò¡ΓöÇ     );
+     9 Γöé      std\assert(
+    10 Γöé          buzz_c_api\isNumber(12),
+       Γöå                     Γò¡ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+       Γöå                     Γò░ΓöÇ `isNumber` does not exists in that namespace or namespace does not exists
+    11 Γöé          message: "C library can inspect integer values"
+    12 Γò░ΓöÇ     );
+
+E:\incoming\buzz-windows-x86_64-debug\buzz-main\tests\behavior\c-buzz-api.buzz:14:20: [E74] Syntax error: `isNumber` does not exists in that namespace or namespace does not exists
+    12 Γò¡ΓöÇ     );
+    13 Γöé      std\assert(
+    14 Γöé          buzz_c_api\isNumber(12.5),
+       Γöå                     Γò¡ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+       Γöå                     Γò░ΓöÇ `isNumber` does not exists in that namespace or namespace does not exists
+    15 Γöé          message: "C library can inspect double values"
+    16 Γò░ΓöÇ     );
+
+E:\incoming\buzz-windows-x86_64-debug\buzz-main\tests\behavior\c-buzz-api.buzz:18:21: [E74] Syntax error: `isNumber` does not exists in that namespace or namespace does not exists
+    16 Γò¡ΓöÇ     );
+    17 Γöé      std\assert(
+    18 Γöé          !buzz_c_api\isNumber("no"),
+       Γöå                      Γò¡ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+       Γöå                      Γò░ΓöÇ `isNumber` does not exists in that namespace or namespace does not exists
+    19 Γöé          message: "C library can reject non-number values"
+    20 Γò░ΓöÇ     );
+
+E:\incoming\buzz-windows-x86_64-debug\buzz-main\tests\behavior\c-buzz-api.buzz:22:20: [E74] Syntax error: `argCount` does not exists in that namespace or namespace does not exists
+    20 Γò¡ΓöÇ     );
+    21 Γöé      std\assert(
+    22 Γöé          buzz_c_api\argCount(1, b: 2, c: 3) == 3,
+       Γöå                     Γò¡ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+       Γöå                     Γò░ΓöÇ `argCount` does not exists in that namespace or namespace does not exists
+    23 Γöé          message: "C library can read NativeCtx arg_count"
+    24 Γò░ΓöÇ     );
+Γû╢ Test: "List checked subscript"
+Γû╢ Test: "String checked subscript"
+Γû╢ Test: "clone methods are available for matching mutability"
+Γû╢ Test: "cloned list methods are retyped after mutability changes"
+Γû╢ Test: "cloned map methods are retyped after mutability changes"
+Stack overflow (no address available)
+aborting due to recursive panic
+Γû╢ Test: "Composite operators on scalar"
+Γû╢ Test: "Composite operators on object instance"
+Γû╢ Test: "Composite operators on object static fields"
+Γû╢ Test: "Composite operator on list assignment"
+Γû╢ Test: "if statement"
+Γû╢ Test: "if statement with placeholder"
+Γû╢ Test: "while statement"
+Γû╢ Test: "do-until statement"
+Γû╢ Test: "hash"
+Γû╢ Test: "if"
+Γû╢ Test: "foreach"
+Γû╢ Test: "while"
+Γû╢ Test: "for"
+Γû╢ Test: "dump"
+[ 1, 2, 3, 4, ]{ "one": 1, "two": 2, "three": 3, }MyObject{ name = "joe", age = 35, data = Data{ data = [ 1, 2, 3, 4, ], }, init = "joe", }MyStringEnum.OneMyEnum.One"hello world"$"hello .*"Γû╢ Test: "function default arguments"
+Γû╢ Test: "discarding value"
+Γû╢ Test: "Enums"
+Γû╢ Test: "Enum case as default value"
+
+E:\incoming\buzz-windows-x86_64-debug\buzz-main\tests\behavior\extern-library.buzz:1:26: [E68] Syntax error: buzz script `tests/utils/hello` not found:
+    no file `.\tests\utils\hello.buzz`
+    no file `.\tests\utils\hello\main.buzz`
+    no file `.\tests\utils\hello\src\hello.buzz`
+    no file `.\tests\utils\hello\src\main.buzz`
+    no file `E:\incoming\buzz-windows-x86_64-debug\lib\buzz\hello.buzz`
+    no file `E:\incoming\buzz-windows-x86_64-debug\lib\buzz\hello\main.buzz`
+    no file `E:\incoming\buzz-windows-x86_64-debug\lib\buzz\hello\src\hello.buzz`
+    no file `E:\incoming\buzz-windows-x86_64-debug\lib\buzz\hello\src\main.buzz`
+    no file `.\hello.buzz`
+    no file `.\hello\main.buzz`
+    no file `.\hello\src\main.buzz`
+    no file `.\hello\src\hello.buzz`
+    no file `.\src\hello.buzz`
+
+     1 Γò¡ΓöÇ import "tests/utils/hello";
+       Γöå                           Γö¼ΓöÇ
+       Γöå                           Γò░ΓöÇ buzz script `tests/utils/hello` not found:
+    no file `.\tests\utils\hello.buzz`
+    no file `.\tests\utils\hello\main.buzz`
+    no file `.\tests\utils\hello\src\hello.buzz`
+    no file `.\tests\utils\hello\src\main.buzz`
+    no file `E:\incoming\buzz-windows-x86_64-debug\lib\buzz\hello.buzz`
+    no file `E:\incoming\buzz-windows-x86_64-debug\lib\buzz\hello\main.buzz`
+    no file `E:\incoming\buzz-windows-x86_64-debug\lib\buzz\hello\src\hello.buzz`
+    no file `E:\incoming\buzz-windows-x86_64-debug\lib\buzz\hello\src\main.buzz`
+    no file `.\hello.buzz`
+    no file `.\hello\main.buzz`
+    no file `.\hello\src\main.buzz`
+    no file `.\hello\src\hello.buzz`
+    no file `.\src\hello.buzz`
+
+
+E:\incoming\buzz-windows-x86_64-debug\buzz-main\tests\behavior\extern-library.buzz:4:11: [E74] Syntax error: `sayHello` does not exists in that namespace or namespace does not exists
+     2 Γò¡ΓöÇ
+     3 Γöé  test "Use external library" {
+     4 Γöé      hello\sayHello();
+       Γöå            Γò¡ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+       Γöå            Γò░ΓöÇ `sayHello` does not exists in that namespace or namespace does not exists
+     5 Γöé  }
+     6 Γò░ΓöÇ
+
+E:\incoming\buzz-windows-x86_64-debug\buzz-main\tests\behavior\ffi.buzz:6:5: [E41] Syntax error: External library `tests/utils/libforeign` not found:     no file `.\tests\utils\libforeign.dll`
+
+
+     4 Γò¡ΓöÇ
+     5 Γöé  zdef(
+     6 Γöé      "tests/utils/libforeign",
+       Γöå      Γò¡ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+       Γöå      Γò░ΓöÇ External library `tests/utils/libforeign` not found:     no file `.\tests\utils\libforeign.dll`
+
+
+     7 Γöé      `
+     8 Γò░ΓöÇ         fn acos(value: f64) f64;
+
+E:\incoming\buzz-windows-x86_64-debug\buzz-main\tests\behavior\ffi.buzz:92:5: [E41] Syntax error: External library `tests/utils/libforeign` not found:     no file `.\tests\utils\libforeign.dll`
+
+
+    90 Γò¡ΓöÇ
+    91 Γöé  zdef(
+    92 Γöé      "tests/utils/libforeign",
+       Γöå      Γò¡ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+       Γöå      Γò░ΓöÇ External library `tests/utils/libforeign` not found:     no file `.\tests\utils\libforeign.dll`
+
+
+    93 Γöé      `
+    94 Γò░ΓöÇ         const Data = extern struct {
+
+E:\incoming\buzz-windows-x86_64-debug\buzz-main\tests\behavior\ffi.buzz:157:5: [E41] Syntax error: External library `tests/utils/libforeign` not found:     no file `.\tests\utils\libforeign.dll`
+
+
+   155 Γò¡ΓöÇ
+   156 Γöé  zdef(
+   157 Γöé      "tests/utils/libforeign",
+       Γöå      Γò¡ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+       Γöå      Γò░ΓöÇ External library `tests/utils/libforeign` not found:     no file `.\tests\utils\libforeign.dll`
+
+
+   158 Γöé      `
+   159 Γò░ΓöÇ         pub const Flag = extern struct {
+Γû╢ Test: "Throw inside a fiber"
+Γû╢ Test: "Opened upvalue in fiber"
+Γû╢ Test: "Closed upvalue in fiber"
+Γû╢ Test: "Wrapping call inside complex expressions"
+Γû╢ Test: "for loop"
+Γû╢ Test: "multiple variable and expressions in for loop"
+Γû╢ Test: "foreach on list"
+Γû╢ Test: "list.next"
+Γû╢ Test: "foreach on map"
+Γû╢ Test: "foreach on enum"
+Γû╢ Test: "foreach on str"
+Γû╢ Test: "Omit key in foreach"
+Γû╢ Test: "Free identifiers"
+Γû╢ Test: "Free identifier as object field"
+Γû╢ Test: "cwd"
+
+fs:12:9: [E67] Error: FileSystemError.BadPathName
+    10 Γò¡ΓöÇ         return dir;
+    11 Γöé      } else {
+    12 Γöé          throw errors\FileSystemError.BadPathName;
+       Γöå          Γò¡ΓöÇΓöÇΓöÇΓöÇ
+       Γöå          Γò░ΓöÇ FileSystemError.BadPathName
+    13 Γöé      }
+    14 Γò░ΓöÇ
+        Γò░ΓöÇΓö¼ΓöÇ in "cwd" at E:\incoming\buzz-windows-x86_64-debug\buzz-main\tests\behavior\fs.buzz:5:16
+          Γò░ΓöÇ in E:\incoming\buzz-windows-x86_64-debug\buzz-main\tests\behavior\fs.buzz:4:6
+Γû╢ Test: "list.forEach"
+Γû╢ Test: "list.map"
+Γû╢ Test: "list.filter"
+Γû╢ Test: "list.reduce"
+Γû╢ Test: "list.sort"
+Γû╢ Test: "map.forEach"
+Γû╢ Test: "map.map"
+Γû╢ Test: "map.filter"
+Γû╢ Test: "map.reduce"
+Γû╢ Test: "map.sort"
+Γû╢ Test: "GC, collecting unreferenced objects"
+Γû╢ Test: "Simple generic"
+Γû╢ Test: "Generic within anonymous object"
+Γû╢ Test: "Multiple generic types"
+Γû╢ Test: "Generic within anonymous object and map"
+Γû╢ Test: "Generic in lambda function definition"
+Γû╢ Test: "generic return"
+Γû╢ Test: "Generic with fibers"
+Γû╢ Test: "Generics in placeholders"
+Γû╢ Test: "Generic with generic lambda parameter"
+Γû╢ Test: "If arrow"
+
+E:\incoming\buzz-windows-x86_64-debug\buzz-main\tests\behavior\import-export.buzz:6:24: [E74] Syntax error: `PrefixMe` does not exists in that namespace or namespace does not exists
+     4 Γò¡ΓöÇ
+     5 Γöé  test "Using a function coming from an import" {
+     6 Γöé      final me = testing\PrefixMe{};
+       Γöå                         Γò¡ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+       Γöå                         Γò░ΓöÇ `PrefixMe` does not exists in that namespace or namespace does not exists
+     7 Γöé      testing\assert(me.name == "Joe", message: "prefixed global works as type");
+     8 Γò░ΓöÇ     testing\assert(
+
+E:\incoming\buzz-windows-x86_64-debug\buzz-main\tests\behavior\import-export.buzz:7:13: [E74] Syntax error: `assert` does not exists in that namespace or namespace does not exists
+     5 Γò¡ΓöÇ test "Using a function coming from an import" {
+     6 Γöé      final me = testing\PrefixMe{};
+     7 Γöé      testing\assert(me.name == "Joe", message: "prefixed global works as type");
+       Γöå              Γò¡ΓöÇΓöÇΓöÇΓöÇΓöÇ
+       Γöå              Γò░ΓöÇ `assert` does not exists in that namespace or namespace does not exists
+     8 Γöé      testing\assert(
+     9 Γò░ΓöÇ         testing\hey("world") == mine,
+
+E:\incoming\buzz-windows-x86_64-debug\buzz-main\tests\behavior\import-export.buzz:8:13: [E74] Syntax error: `assert` does not exists in that namespace or namespace does not exists
+     6 Γò¡ΓöÇ     final me = testing\PrefixMe{};
+     7 Γöé      testing\assert(me.name == "Joe", message: "prefixed global works as type");
+     8 Γöé      testing\assert(
+       Γöå              Γò¡ΓöÇΓöÇΓöÇΓöÇΓöÇ
+       Γöå              Γò░ΓöÇ `assert` does not exists in that namespace or namespace does not exists
+     9 Γöé          testing\hey("world") == mine,
+    10 Γò░ΓöÇ         message: "unexported symbol is reachable"
+
+E:\incoming\buzz-windows-x86_64-debug\buzz-main\tests\behavior\import-export.buzz:12:13: [E74] Syntax error: `assert` does not exists in that namespace or namespace does not exists
+    10 Γò¡ΓöÇ         message: "unexported symbol is reachable"
+    11 Γöé      );
+    12 Γöé      testing\assert(true, message: "yeah!");
+       Γöå              Γò¡ΓöÇΓöÇΓöÇΓöÇΓöÇ
+       Γöå              Γò░ΓöÇ `assert` does not exists in that namespace or namespace does not exists
+    13 Γöé  }
+    14 Γò░ΓöÇ
+Γû╢ Test: "Using a function coming from a library"
+wat
+Γû╢ Test: "Can infer enum type"
+Γû╢ Test: "Inferring variable declaration type"
+Γû╢ Test: "Inline catch clauses"
+Γû╢ Test: "Inline catch void"
+Γû╢ Test: "ternary"
+Γû╢ Test: "multiple branches"
+Γû╢ Test: "inline if in expression"
+Γû╢ Test: "Escape sequences"
+{escaped interpolation},
+hello   world, backslash \ "hey"
+Γû╢ Test: "String interpolation"
+Γû╢ Test: "Printing empty string"
+Γû╢ Test: "Chained invoke"
+hello
+hello
+Γû╢ Test: "Write & read a file"
+Γû╢ Test: "Write on stdout"
+Hello World !
+Γû╢ Test: "Read by lines"
+
+io:53:20: [E67] Error: FileSystemError.FileNotFound
+    51 Γò¡ΓöÇ     static fun open(filename: str, mode: FileMode) > mut File !> errors\FileSystemError, errors\UnexpectedError {
+    52 Γöé          return mut File {
+    53 Γöé              file = FileOpen(filename, mode: mode.value),
+       Γöå                     Γò¡ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+       Γöå                     Γò░ΓöÇ FileSystemError.FileNotFound
+    54 Γöé          };
+    55 Γò░ΓöÇ     }
+        Γò░ΓöÇΓö¼ΓöÇ in "Read by lines" at E:\incoming\buzz-windows-x86_64-debug\buzz-main\tests\behavior\io.buzz:30:18
+          Γò░ΓöÇ in E:\incoming\buzz-windows-x86_64-debug\buzz-main\tests\behavior\io.buzz:29:6
+Γû╢ Test: "`is` operator"
+Γû╢ Test: "finobacci generator"
+Γû╢ Test: "dot async call"
+i 0
+i 1
+i 2
+i 3
+i 4
+i 5
+i 6
+i 7
+i 8
+i 9
+Γû╢ Test: "JIT dynamic closure call"
+Γû╢ Test: "JIT dynamic call to blacklisted closure"
+Γû╢ Test: "JIT dynamic call to blacklisted throwing closure"
+Γû╢ Test: "JIT hotspot string interpolation keeps cast parts alive"
+func onEvent.16.n109.raw: in instruction 'mov': unexpected operand mode for operand #2. Got 'undef', expected 'int'
+Γû╢ Test: "Json.encode"
+Γû╢ Test: "Json.decode"
+Γû╢ Test: "Boxed.q"
+Γû╢ Test: "Boxed.q again"
+Γû╢ Test: "Old bug with incorrect circular reference error"
+Γû╢ Test: "Crash of mapNext"
+Γû╢ Test: "labeled break"
+Γû╢ Test: "labeled break in nested loop"
+Γû╢ Test: "labeled break in deeply nested loop"
+Γû╢ Test: "labeled continue"
+Γû╢ Test: "Lambda/Anonymous functions"
+Γû╢ Test: "Function as arguments"
+Γû╢ Test: "Any function can be an arrow function"
+Γû╢ Test: "List and Map as Object properties"
+Γû╢ Test: "Mutable List and Map as Object properties"
+Γû╢ Test: "Lists"
+Γû╢ Test: "list.sub"
+Γû╢ Test: "list.indexOf"
+Γû╢ Test: "list.join"
+Γû╢ Test: "list concat"
+Γû╢ Test: "list.clone"
+Γû╢ Test: "empty list type inferring"
+Γû╢ Test: "list.fill"
+
+E:\incoming\buzz-windows-x86_64-debug\buzz-main\tests\behavior\long-namespace.buzz:2:39: [E68] Syntax error: buzz script `tests/utils/complex-namespace` not found:
+    no file `.\tests\utils\complex-namespace.buzz`
+    no file `.\tests\utils\complex-namespace\main.buzz`
+    no file `.\tests\utils\complex-namespace\src\complex-namespace.buzz`
+    no file `.\tests\utils\complex-namespace\src\main.buzz`
+    no file `E:\incoming\buzz-windows-x86_64-debug\lib\buzz\complex-namespace.buzz`
+    no file `E:\incoming\buzz-windows-x86_64-debug\lib\buzz\complex-namespace\main.buzz`
+    no file `E:\incoming\buzz-windows-x86_64-debug\lib\buzz\complex-namespace\src\complex-namespace.buzz`
+    no file `E:\incoming\buzz-windows-x86_64-debug\lib\buzz\complex-namespace\src\main.buzz`
+    no file `.\complex-namespace.buzz`
+    no file `.\complex-namespace\main.buzz`
+    no file `.\complex-namespace\src\main.buzz`
+    no file `.\complex-namespace\src\complex-namespace.buzz`
+    no file `.\src\complex-namespace.buzz`
+
+     1 Γò¡ΓöÇ import "std";
+     2 Γöé  import "tests/utils/complex-namespace";
+       Γöå                                        Γö¼ΓöÇ
+       Γöå                                        Γò░ΓöÇ buzz script `tests/utils/complex-namespace` not found:
+    no file `.\tests\utils\complex-namespace.buzz`
+    no file `.\tests\utils\complex-namespace\main.buzz`
+    no file `.\tests\utils\complex-namespace\src\complex-namespace.buzz`
+    no file `.\tests\utils\complex-namespace\src\main.buzz`
+    no file `E:\incoming\buzz-windows-x86_64-debug\lib\buzz\complex-namespace.buzz`
+    no file `E:\incoming\buzz-windows-x86_64-debug\lib\buzz\complex-namespace\main.buzz`
+    no file `E:\incoming\buzz-windows-x86_64-debug\lib\buzz\complex-namespace\src\complex-namespace.buzz`
+    no file `E:\incoming\buzz-windows-x86_64-debug\lib\buzz\complex-namespace\src\main.buzz`
+    no file `.\complex-namespace.buzz`
+    no file `.\complex-namespace\main.buzz`
+    no file `.\complex-namespace\src\main.buzz`
+    no file `.\complex-namespace\src\complex-namespace.buzz`
+    no file `.\src\complex-namespace.buzz`
+
+     3 Γöé
+     4 Γò░ΓöÇ test "Global with multi part namespace" {
+
+E:\incoming\buzz-windows-x86_64-debug\buzz-main\tests\behavior\long-namespace.buzz:5:32: [E74] Syntax error: `hello` does not exists in that namespace or namespace does not exists
+     3 Γò¡ΓöÇ
+     4 Γöé  test "Global with multi part namespace" {
+     5 Γöé      std\print(rather\long\name\hello);
+       Γöå                                 Γò¡ΓöÇΓöÇΓöÇΓöÇ
+       Γöå                                 Γò░ΓöÇ `hello` does not exists in that namespace or namespace does not exists
+     6 Γöé  }
+     7 Γò░ΓöÇ
+Γû╢ Test: "Maps"
+Γû╢ Test: "map merge"
+Γû╢ Test: "map.keys"
+Γû╢ Test: "map.values"
+Γû╢ Test: "map.diff"
+Γû╢ Test: "map.intersect"
+Γû╢ Test: "map.clone"
+Γû╢ Test: "empty map type inferring"
+Γû╢ Test: "map.hasKey"
+Γû╢ Test: "match expression and statement"
+Γû╢ Test: "match dynamic conditions may equal literals"
+Γû╢ Test: "match statement branch blocks"
+Γû╢ Test: "match string and pattern"
+Γû╢ Test: "match numbers and ranges"
+Γû╢ Test: "match types"
+Γû╢ Test: "match fallback equality and inference"
+Γû╢ Test: "match any"
+Γû╢ Test: "math"
+Γû╢ Test: "Multiline strings"
+
+E:\incoming\buzz-windows-x86_64-debug\buzz-main\tests\behavior\mutual-import.buzz:2:30: [E68] Syntax error: buzz script `tests/utils/import-b` not found:
+    no file `.\tests\utils\import-b.buzz`
+    no file `.\tests\utils\import-b\main.buzz`
+    no file `.\tests\utils\import-b\src\import-b.buzz`
+    no file `.\tests\utils\import-b\src\main.buzz`
+    no file `E:\incoming\buzz-windows-x86_64-debug\lib\buzz\import-b.buzz`
+    no file `E:\incoming\buzz-windows-x86_64-debug\lib\buzz\import-b\main.buzz`
+    no file `E:\incoming\buzz-windows-x86_64-debug\lib\buzz\import-b\src\import-b.buzz`
+    no file `E:\incoming\buzz-windows-x86_64-debug\lib\buzz\import-b\src\main.buzz`
+    no file `.\import-b.buzz`
+    no file `.\import-b\main.buzz`
+    no file `.\import-b\src\main.buzz`
+    no file `.\import-b\src\import-b.buzz`
+    no file `.\src\import-b.buzz`
+
+     1 Γò¡ΓöÇ import "std";
+     2 Γöé  import "tests/utils/import-b";
+       Γöå                               Γö¼ΓöÇ
+       Γöå                               Γò░ΓöÇ buzz script `tests/utils/import-b` not found:
+    no file `.\tests\utils\import-b.buzz`
+    no file `.\tests\utils\import-b\main.buzz`
+    no file `.\tests\utils\import-b\src\import-b.buzz`
+    no file `.\tests\utils\import-b\src\main.buzz`
+    no file `E:\incoming\buzz-windows-x86_64-debug\lib\buzz\import-b.buzz`
+    no file `E:\incoming\buzz-windows-x86_64-debug\lib\buzz\import-b\main.buzz`
+    no file `E:\incoming\buzz-windows-x86_64-debug\lib\buzz\import-b\src\import-b.buzz`
+    no file `E:\incoming\buzz-windows-x86_64-debug\lib\buzz\import-b\src\main.buzz`
+    no file `.\import-b.buzz`
+    no file `.\import-b\main.buzz`
+    no file `.\import-b\src\main.buzz`
+    no file `.\import-b\src\import-b.buzz`
+    no file `.\src\import-b.buzz`
+
+     3 Γöé  import "tests/utils/import-a";
+     4 Γò░ΓöÇ
+
+E:\incoming\buzz-windows-x86_64-debug\buzz-main\tests\behavior\mutual-import.buzz:6:21: [E74] Syntax error: `Hello` does not exists in that namespace or namespace does not exists
+
+E:\incoming\buzz-windows-x86_64-debug\buzz-main\tests\behavior\mutual-import.buzz:7:7: [E74] Syntax error: `printClass` does not exists in that namespace or namespace does not exists
+     5 Γò¡ΓöÇ test "Mutual import" {
+     6 Γöé      std\print("t: {a\Hello}");
+     7 Γöé      b\printClass();
+       Γöå        Γò¡ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+       Γöå        Γò░ΓöÇ `printClass` does not exists in that namespace or namespace does not exists
+     8 Γöé      std\print("{b\hello}");
+     9 Γò░ΓöÇ     std\assert(
+
+E:\incoming\buzz-windows-x86_64-debug\buzz-main\tests\behavior\mutual-import.buzz:8:18: [E74] Syntax error: `hello` does not exists in that namespace or namespace does not exists
+
+E:\incoming\buzz-windows-x86_64-debug\buzz-main\tests\behavior\mutual-import.buzz:10:11: [E74] Syntax error: `hello` does not exists in that namespace or namespace does not exists
+     8 Γò¡ΓöÇ     std\print("{b\hello}");
+     9 Γöé      std\assert(
+    10 Γöé          b\hello is a\Hello,
+       Γöå            Γò¡ΓöÇΓöÇΓöÇΓöÇ
+       Γöå            Γò░ΓöÇ `hello` does not exists in that namespace or namespace does not exists
+    11 Γöé          message: "multiple import of the same script produce the same globals"
+    12 Γò░ΓöÇ     );
+Γû╢ Test: "Named expr object properties"
+Γû╢ Test: "Name expr function argument"
+
+E:\incoming\buzz-windows-x86_64-debug\buzz-main\tests\behavior\namespace.buzz:2:8: [W94] Syntax warning: Unused import
+     1 Γò¡ΓöÇ import "std";
+     2 Γöé  import "math";
+       Γöå         Γò¡ΓöÇΓöÇΓöÇΓöÇΓöÇ
+       Γöå         Γò░ΓöÇ Unused import
+     3 Γöé
+     4 Γò░ΓöÇ test "Global is resolved with correct namespace" {
+Γû╢ Test: "Global is resolved with correct namespace"
+hello world
+Γû╢ Test: "Nullable object field has a default value at null"
+Γû╢ Test: "Nullable variable has a default value at null"
+Γû╢ Test: "Objects generics"
+Γû╢ Test: "Objects"
+hello
+John
+Γû╢ Test: "Object with static fields"
+Γû╢ Test: "Binary operators"
+Γû╢ Test: "Binary operators for strings"
+Γû╢ Test: "Unary operators (constant folded)"
+Γû╢ Test: "Unary operators"
+Γû╢ Test: "Optional force unwrapping with `!`"
+Γû╢ Test: "Optional graceful unwrapping with `?`"
+Γû╢ Test: "Optional chaining"
+Γû╢ Test: "Null coalescing operator"
+Γû╢ Test: "Unwrap map subscript"
+Γû╢ Test: "Field access on map subscript"
+Γû╢ Test: "Check ahead"
+Γû╢ Test: "env"
+Assert failed: could get env variable
+Γû╢ Test: "pattern.matchAgainst"
+Γû╢ Test: "pattern.matchAllAgainst"
+Γû╢ Test: "Escaped pattern delimiter"
+Γû╢ Test: "replace"
+Γû╢ Test: "Cyclic placeholders"
+object: 0x26e69a50b10 `A`
+object: 0x26e69a50b70 `B`
+Γû╢ Test: "Protocols"
+Γû╢ Test: "Range expression does not move locals into condition scope"
+Γû╢ Test: "Range"
+Γû╢ Test: "Inverted range"
+Γû╢ Test: "runFile"
+
+E:\incoming\buzz-windows-x86_64-debug\buzz-main\tests\behavior\run-file.buzz:5:5: [E67] Error: FileSystemError.FileNotFound
+     3 Γò¡ΓöÇ
+     4 Γöé  test "runFile" {
+     5 Γöé      io\runFile("tests/utils/testing.buzz");
+       Γöå      Γò¡ΓöÇ
+       Γöå      Γò░ΓöÇ FileSystemError.FileNotFound
+     6 Γöé
+     7 Γò░ΓöÇ     std\assert(true, message: "Could run a buzz file");
+        Γò░ΓöÇΓö¼ΓöÇ in E:\incoming\buzz-windows-x86_64-debug\buzz-main\tests\behavior\run-file.buzz:4:6
+Γû╢ Test: "locals inside a foreach"
+Γû╢ Test: "std\parseInt/Double"
+Γû╢ Test: "char"
+Γû╢ Test: "random"
+Γû╢ Test: "str subscript"
+Γû╢ Test: "str.len"
+Γû╢ Test: "str.byte"
+Γû╢ Test: "str.indexOf"
+Γû╢ Test: "str.split"
+Γû╢ Test: "str.sub"
+Γû╢ Test: "base64"
+Γû╢ Test: "upper/lower"
+Γû╢ Test: "hex/bin"
+Γû╢ Test: "trim"
+Γû╢ Test: "simple tail call"
+Γû╢ Test: "recursive tail call"
+Γû╢ Test: "dot tail call"
+21
+Γû╢ Test: "Test std lib"
+Γû╢ Test: Should be an integer equal to 12
+Γû╢ Test: Should compare list elements
+Γû╢ Test: Should compare list elements
+Γû╢ Test: Should throw
+Γû╢ Test: Should not throw
+
+ΓùÅΓùÅΓùÅΓùÅΓùÅ
+5 successes, 0 failures in 0.001 seconds
+Γû╢ Test: "Throw inside try/catch"
+Γû╢ Test: "Simple key/value"
+Γû╢ Test: "Section"
+Γû╢ Test: "Several sections"
+Γû╢ Test: "Array of sections"
+Γû╢ Test: "Nested array of sections"
+Γû╢ Test: "Comments and blank lines"
+Γû╢ Test: "Multiline arrays and inline tables"
+Γû╢ Test: "Inline table newlines and trailing commas are rejected"
+Γû╢ Test: "Tables under latest array table element"
+Γû╢ Test: "Duplicate and conflicting definitions are rejected"
+Γû╢ Test: "invalid/table/with-pound"
+Γû╢ Test: "Try catch"
+Γû╢ Test: "catch any catches everything"
+Γû╢ Test: "Tuples"
+func zdef_struct_Data_msg_getter: in instruction 'mov': unexpected operand mode for operand #2. Got 'undef', expected 'int'
+Γû╢ Test: "Upvalues"
+12 up
+Γû╢ Test: "utf8"

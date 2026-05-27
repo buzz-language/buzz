@@ -5,60 +5,85 @@ import "io";
 
 enum<int> Color {
     // attributes
-    reset      = 0,
-    bright     = 1,
-    dim        = 2,
+    reset = 0,
+    bright = 1,
+    dim = 2,
     underscore = 4,
-    blink      = 5,
-    reverse    = 7,
-    hidden     = 8,
+    blink = 5,
+    reverse = 7,
+    hidden = 8,
 
-    // foreground
-    black   = 30,
-    red     = 31,
-    green   = 32,
-    yellow  = 33,
-    blue    = 34,
+        // foreground
+    black = 30,
+    red = 31,
+    green = 32,
+    yellow = 33,
+    blue = 34,
     magenta = 35,
-    cyan    = 36,
-    white   = 37,
+    cyan = 36,
+    white = 37,
 
-    // background
-    onblack   = 40,
-    onred     = 41,
-    ongreen   = 42,
-    onyellow  = 43,
-    onblue    = 44,
+        // background
+    onblack = 40,
+    onred = 41,
+    ongreen = 42,
+    onyellow = 43,
+    onblue = 44,
     onmagenta = 45,
-    oncyan    = 46,
-    onwhite   = 47,
+    oncyan = 46,
+    onwhite = 47,
 }
 
 fun color(text: str, color: Color, reset: bool = true) > str {
-    return "\27[{color.value}m{text}{if (reset) "\27[0m" else ""}";
+    if (os\env("OS") == "Windows_NT" or os\env("NO_COLOR") != null) {
+        return text;
+    }
+
+    return "\027[{color.value}m{text}{if (reset) "\027[0m" else ""}";
 }
 
 fun bright(text: str) => color(text, color: Color.bright);
+
 fun dim(text: str) => color(text, color: Color.dim);
+
 fun underscore(text: str) => color(text, color: Color.underscore);
+
 fun blink(text: str) => color(text, color: Color.blink);
+
 fun reverse(text: str) => color(text, color: Color.reverse);
+
 fun hidden(text: str) => color(text, color: Color.hidden);
+
 fun black(text: str) => color(text, color: Color.black);
+
 fun red(text: str) => color(text, color: Color.red);
+
 fun green(text: str) => color(text, color: Color.green);
+
 fun yellow(text: str) => color(text, color: Color.yellow);
+
 fun blue(text: str) => color(text, color: Color.blue);
+
 fun magenta(text: str) => color(text, color: Color.magenta);
+
 fun cyan(text: str) => color(text, color: Color.cyan);
+
 fun white(text: str) => color(text, color: Color.white);
+
 fun onblack(text: str) => color(text, color: Color.onblack);
+
 fun onred(text: str) => color(text, color: Color.onred);
+
 fun ongreen(text: str) => color(text, color: Color.ongreen);
+
 fun onyellow(text: str) => color(text, color: Color.onyellow);
+
 fun onblue(text: str) => color(text, color: Color.onblue);
+
 fun onmagenta(text: str) => color(text, color: Color.onmagenta);
+
 fun oncyan(text: str) => color(text, color: Color.oncyan);
+
 fun onwhite(text: str) => color(text, color: Color.onwhite);
 
 /// Test runner with assertion helpers.
@@ -115,22 +140,22 @@ export object Tester {
 
     /// @return number of failed assertions
     fun failedAsserts() => this.asserts.reduce::<int>(
-        fun (_: int, success: bool, accumulator: int)
-            => accumulator + if (success) 0 else 1,
+        fun (_: int, success: bool, accumulator: int) => accumulator
+            + if (success) 0 else 1,
         initial: 0,
     );
 
     /// @return number of failed tests
     fun failedTests() => this.tests.reduce::<int>(
-        fun (_: int, success: bool, accumulator: int)
-            => accumulator + if (success) 0 else 1,
+        fun (_: int, success: bool, accumulator: int) => accumulator
+            + if (success) 0 else 1,
         initial: 0,
     );
 
     /// @return number of succeeded tests
     fun succeededTests() => this.tests.reduce::<int>(
-        fun (_: int, success: bool, accumulator: int)
-            => accumulator + if (success) 1 else 0,
+        fun (_: int, success: bool, accumulator: int) => accumulator
+            + if (success) 1 else 0,
         initial: 0,
     );
 
@@ -140,7 +165,7 @@ export object Tester {
     mut fun it(message: str, fn: fun () > void) > void {
         final startTime = os\time();
 
-        io\stdout.write(yellow("▶ Test: {message}\n")) catch void;
+        io\stdout.write(yellow("> Test: {message}\n")) catch void;
 
         if (this.beforeEach -> beforeEach) {
             beforeEach(this);
@@ -170,19 +195,18 @@ export object Tester {
 
         foreach (testStatus in this.tests) {
             if (testStatus) {
-                io\stdout.write(green("●")) catch void;
+                io\stdout.write(green(".")) catch void;
             } else {
-                io\stdout.write(yellow("●")) catch void;
+                io\stdout.write(yellow("x")) catch void;
             }
         }
 
         io\stdout.write(
-            green("\n{this.succeededTests()}")
-            + dim(" successes, ")
-            + yellow("{failed}")
-            + dim(" failures in ")
-            + "{this.elapsed / 1000.0}"
-            + dim(" seconds\n")
+            green("\n{this.succeededTests()}") + dim(" successes, ") + yellow(
+                "{failed}"
+            ) + dim(" failures in ") + "{this.elapsed / 1000.0}" + dim(
+                " seconds\n"
+            )
         ) catch void;
 
         if (failed > 0) {
@@ -194,7 +218,9 @@ export object Tester {
     /// @param error Error details
     /// @param message Assertion message
     fun report(error: str?, message: str?) > void {
-        io\stderr.write(red("  Assert failed: {message ?? ""}") + dim("\n    {error}\n")) catch void;
+        io\stderr.write(
+            red("  Assert failed: {message ?? ""}") + dim("\n    {error}\n")
+        ) catch void;
     }
 
     /// Records whether an assertion condition succeeded.
@@ -254,11 +280,7 @@ export object Tester {
             previous = value;
         }
 
-        this.assert(
-            equal,
-            error: "one element is not equal",
-            message: message
-        );
+        this.assert(equal, error: "one element is not equal", message: message);
     }
 
     /// Asserts that adjacent values are not equal.
@@ -280,11 +302,7 @@ export object Tester {
             previous = value;
         }
 
-        this.assert(
-            equal,
-            error: "one element is equal",
-            message: message
-        );
+        this.assert(equal, error: "one element is equal", message: message);
     }
 
     /// Asserts that a value has type `T`.
@@ -301,7 +319,8 @@ export object Tester {
     /// Asserts that a function throws an error of type `T`.
     /// @param fn Function expected to throw
     /// @param message Assertion message
-    fun assertThrows::<T>(fn: fun () > void !> T, message: str?) > void {
+    fun assertThrows::<T>(fn: fun () > void !>
+        T, message: str?) > void {
         try {
             fn();
         } catch (error: any) {

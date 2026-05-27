@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 
 pub const MIR_no_error: c_int = 0;
 pub const MIR_syntax_error: c_int = 1;
@@ -130,18 +131,31 @@ pub const MIR_imm_t = extern union {
     ld: c_longdouble,
 };
 pub const MIR_alias_t = u32;
-// C gives me a size of 32 and zig 40 and the sum of the fields gives me 33
-// In order to not crash, and since i never really access thos fields, i commented out the scale field which takes 1 byte
-pub const MIR_mem_t = extern struct {
-    type: u8, // MIR_type_t : 8
-    scale: MIR_scale_t,
-    alias: MIR_alias_t,
-    nonalias: MIR_alias_t,
-    nloc: u32,
-    base: MIR_reg_t,
-    index: MIR_reg_t,
-    disp: MIR_disp_t,
-};
+// The `type` bitfield uses a wider allocation unit on Windows, shifting the rest of MIR_mem_t.
+pub const MIR_mem_t = if (builtin.os.tag == .windows)
+    extern struct {
+        type: u8, // MIR_type_t : 8
+        _type_padding: [3]u8 = undefined,
+        scale: MIR_scale_t,
+        _scale_padding: [3]u8 = undefined,
+        alias: MIR_alias_t,
+        nonalias: MIR_alias_t,
+        nloc: u32,
+        base: MIR_reg_t,
+        index: MIR_reg_t,
+        disp: MIR_disp_t,
+    }
+else
+    extern struct {
+        type: u8, // MIR_type_t : 8
+        scale: MIR_scale_t,
+        alias: MIR_alias_t,
+        nonalias: MIR_alias_t,
+        nloc: u32,
+        base: MIR_reg_t,
+        index: MIR_reg_t,
+        disp: MIR_disp_t,
+    };
 pub const MIR_insn_t = ?*struct_MIR_insn;
 pub const struct_DLIST_LINK_MIR_insn_t = extern struct {
     prev: MIR_insn_t,

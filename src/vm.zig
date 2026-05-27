@@ -4943,6 +4943,12 @@ pub const VM = struct {
 
         for (stack, 0..) |frame, i| {
             const next = if (i < stack.len - 1) stack[i + 1] else null;
+            const stack_glyph: Reporter.ReportGlyph = if (i == 0)
+                .runtime_stack_first
+            else if (i < stack.len - 1)
+                .runtime_stack_middle
+            else
+                .runtime_stack_last;
             var msg = std.Io.Writer.Allocating.init(self.gc.allocator);
 
             if (next) |unext| {
@@ -4953,12 +4959,7 @@ pub const VM = struct {
                     else
                         "\t{s} in {s} at {s}",
                     .{
-                        if (i == 0)
-                            "╰─┬─"
-                        else if (i < stack.len - 1)
-                            "  ├─"
-                        else
-                            "  ╰─",
+                        stack_glyph.bytes(),
                         function_name,
                         if (frame.call_site) |call_site|
                             self.current_ast.tokens.items(.script_name)[call_site]
@@ -4970,12 +4971,7 @@ pub const VM = struct {
                 msg.writer.print(
                     "\t{s} in {s}",
                     .{
-                        if (i == 0)
-                            "╰─┬─"
-                        else if (i < stack.len - 1)
-                            "  ├─"
-                        else
-                            "  ╰─",
+                        stack_glyph.bytes(),
                         if (frame.call_site) |call_site|
                             self.current_ast.tokens.items(.script_name)[call_site]
                         else
@@ -5087,7 +5083,7 @@ pub const VM = struct {
                 if (builtin.os.tag != .windows)
                     "\x1b[33m▶ Test: {s}\x1b[0m\n"
                 else
-                    "▶ Test: {s}\n",
+                    "> Test: {s}\n",
                 .{
                     self.current_ast.tokens
                         .items(.lexeme)[

@@ -2,7 +2,11 @@ import "std";
 import "os" as os;
 
 test "env" {
-    std\assert(os\env("HOME") != null, message: "could get env variable");
+    std\assert(
+        os\env("HOME") != null or os\env("USERPROFILE") != null
+            or os\env("TEMP") != null,
+        message: "could get env variable"
+    );
 }
 
 test "os\time" {

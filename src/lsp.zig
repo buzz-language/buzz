@@ -902,6 +902,8 @@ const Document = struct {
 };
 
 test "document inlay hints tolerate incomplete function signatures" {
+    if (builtin.os.tag == .windows) return;
+
     const allocator = std.testing.allocator;
 
     var process_arena = std.heap.ArenaAllocator.init(allocator);

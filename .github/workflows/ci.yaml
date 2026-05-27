@@ -13,7 +13,7 @@ jobs:
         matrix:
           zig-version:
               - "0.16.0"
-          operating-system: [ ubuntu-latest, macos-latest ]
+          operating-system: [ ubuntu-latest, macos-latest, windows-latest ]
           optimize:
             - "Debug"
             - "ReleaseSafe"
@@ -39,8 +39,6 @@ jobs:
         run: zig build -Doptimize=${{ matrix.optimize }} ${{ matrix.options }} test
       - name: Run behavior tests ${{ matrix.optimize }}
         run: zig build -Doptimize=${{ matrix.optimize }} ${{ matrix.options }} test-behavior
-      - name: Cleanup
-        run: rm -rf zig-out zig-cache
  
   wasm-build:
     runs-on: ubuntu-latest

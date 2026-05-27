@@ -1,6 +1,38 @@
 const std = @import("std");
 const api = @import("buzz_api.zig");
 
+/// Maps current-directory lookup failures to Buzz errors.
+fn handleCurrentDirectoryError(ctx: *api.NativeCtx, err: std.process.CurrentPathAllocError) void {
+    switch (err) {
+        error.Canceled => ctx.vm.pushErrorEnum("errors.FileSystemError", @errorName(err)),
+        error.CurrentDirUnlinked => ctx.vm.pushErrorEnum("errors.FileSystemError", "BadPathName"),
+        error.Unexpected => ctx.vm.pushError("errors.UnexpectedError", null),
+        error.OutOfMemory => {
+            ctx.vm.bz_panic("Out of memory", "Out of memory".len);
+            unreachable;
+        },
+    }
+}
+
+/// Returns the process current working directory.
+pub export fn currentDirectory(ctx: *api.NativeCtx) callconv(.c) c_int {
+    const cwd = std.process.currentPathAlloc(ctx.getIo(), api.VM.allocator) catch |err| {
+        handleCurrentDirectoryError(ctx, err);
+        return -1;
+    };
+    defer api.VM.allocator.free(cwd);
+
+    ctx.vm.bz_push(
+        api.VM.bz_stringToValue(
+            ctx.vm,
+            if (cwd.len > 0) @as([*]const u8, @ptrCast(cwd)) else null,
+            cwd.len,
+        ),
+    );
+
+    return 1;
+}
+
 fn handleMakeDirectoryError(ctx: *api.NativeCtx, err: std.Io.Dir.CreateDirError) void {
     switch (err) {
         error.AccessDenied,
@@ -456,6 +488,7 @@ pub export fn exists(ctx: *api.NativeCtx) callconv(.c) c_int {
 pub const library = api.BuzzApi(
     "fs",
     &.{
+        &.{ "currentDirectory", currentDirectory },
         &.{ "makeDirectory", makeDirectory },
         &.{ "deleteFile", deleteFile },
         &.{ "deleteDirectory", deleteDirectory },

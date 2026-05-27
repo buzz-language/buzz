@@ -28,6 +28,15 @@ const ignore_dirs = std.StaticStringMap(void).initComptime(
     },
 );
 
+/// Normalizes Windows checkouts to the formatter's canonical LF output.
+fn normalizeLineEndings(allocator: std.mem.Allocator, source: []const u8) ![]const u8 {
+    if (std.mem.indexOf(u8, source, "\r\n") == null) {
+        return source;
+    }
+
+    return try std.mem.replaceOwned(u8, allocator, source, "\r\n", "\n");
+}
+
 fn testFmt(process: std.process.Init, prefix: []const u8, entry: std.Io.Dir.Entry) !void {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
@@ -65,6 +74,7 @@ fn testFmt(process: std.process.Init, prefix: []const u8, entry: std.Io.Dir.Entr
     const source = try allocator.alloc(u8, (try file.stat(process.io)).size);
 
     _ = try file.readPositionalAll(process.io, source, 0);
+    const normalized_source = try normalizeLineEndings(allocator, source);
 
     var gc = try GC.init(allocator);
     gc.type_registry = try TypeRegistry.init(&gc);
@@ -81,7 +91,7 @@ fn testFmt(process: std.process.Init, prefix: []const u8, entry: std.Io.Dir.Entr
 
     var result = std.Io.Writer.Allocating.init(allocator);
 
-    if (parser.parse(source, file_name, file_name) catch null) |ast| {
+    if (parser.parse(normalized_source, file_name, file_name) catch null) |ast| {
         try Renderer.render(
             allocator,
             &result.writer,
@@ -90,7 +100,7 @@ fn testFmt(process: std.process.Init, prefix: []const u8, entry: std.Io.Dir.Entr
         );
 
         try std.testing.expectEqualStrings(
-            source,
+            normalized_source,
             result.written(),
         );
     } else {

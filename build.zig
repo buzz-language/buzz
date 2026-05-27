@@ -259,7 +259,13 @@ pub fn build(b: *Build) !void {
     ) else null;
     if (!is_wasm) {
         b.installArtifact(lib.?);
-        const test_libs_step = buildTestLibraries(b, target, build_mode, build_option_module, lib.?);
+        const test_libs_step = buildTestLibraries(
+            b,
+            target,
+            build_mode,
+            build_option_module,
+            lib.?,
+        );
         run_behavior.?.step.dependOn(test_libs_step);
     }
 

@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const BuildOptions = @import("build_options");
 const bz_io = @import("io.zig");
 const _vm = @import("vm.zig");
@@ -2088,6 +2089,28 @@ fn buildExternApiCall(self: *Self, method: ExternApi, dest: ?m.MIR_op_t, args: [
     );
 }
 
+/// Emits the target-specific `setjmp` call used by generated try contexts.
+fn buildSetJmp(self: *Self, dest: m.MIR_op_t, env: m.MIR_op_t) !void {
+    if (builtin.os.tag == .windows) {
+        const frame = try self.REG("setjmp_frame", m.MIR_T_I64);
+        self.ALLOCA(frame, @sizeOf(usize));
+        try self.buildExternApiCall(
+            .setjmp,
+            dest,
+            &.{
+                env,
+                m.MIR_new_reg_op(self.ctx, frame),
+            },
+        );
+    } else {
+        try self.buildExternApiCall(
+            .setjmp,
+            dest,
+            &.{env},
+        );
+    }
+}
+
 fn generateString(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
     const elements = self.state.?.ast.nodes.items(.components)[node].String;
     const type_defs = self.state.?.ast.nodes.items(.type_def);
@@ -2463,26 +2486,18 @@ fn generateCall(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
     const error_types = function_type_def.resolved_type.?.Function.error_types;
     const has_catch_clause = components.catch_default != null and error_types != null and error_types.?.len > 0 and function_type != .Extern;
 
-    // We store the callee NativeCtx and eventual catch value in an alloca
+    // We store the callee NativeCtx in an alloca
     // Since the alloca is declared outside of the callee, it will outlive it until the enclosing function returns
     // So we use BSTART/BEND so the new_ctx is released once the callee is done
     const block = try self.REG("call_block", m.MIR_T_I64);
     self.BSTART(block);
 
-    // If we have a catch value, create alloca for return value so we can replace it when error is raised
-    const return_alloca = if (has_catch_clause)
-        try self.REG("return_value", m.MIR_T_I64)
-    else
-        null;
-
-    if (return_alloca) |alloca| {
-        self.ALLOCA(alloca, @sizeOf(u64));
-    }
-
     const post_call_label = if (has_catch_clause)
         m.MIR_new_label(self.ctx)
     else
         null;
+
+    const result = try self.REG("result", m.MIR_T_I64);
 
     const catch_value = if (components.catch_default) |value|
         (try self.generateNode(value)).?
@@ -2518,10 +2533,9 @@ fn generateCall(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
         );
 
         const status = try self.REG("status", m.MIR_T_I64);
-        try self.buildExternApiCall(
-            .setjmp,
+        try self.buildSetJmp(
             m.MIR_new_reg_op(self.ctx, status),
-            &.{env},
+            env,
         );
 
         self.BEQ(
@@ -2534,10 +2548,19 @@ fn generateCall(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
 
         self.append(catch_label);
 
-        // on error set return alloca with catch_value
-        // FIXME: probably not how you use the alloca, maybe use it in a mem_op
+        const discard = try self.REG("discard", m.MIR_T_I64);
+        try self.buildPop(m.MIR_new_reg_op(self.ctx, discard));
+
+        try self.buildExternApiCall(
+            .bz_popTryCtx,
+            null,
+            &.{
+                m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
+            },
+        );
+
         self.MOV(
-            m.MIR_new_reg_op(self.ctx, return_alloca.?),
+            m.MIR_new_reg_op(self.ctx, result),
             catch_value.?,
         );
 
@@ -2618,7 +2641,6 @@ fn generateCall(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
     );
 
     // Regular function, just call it
-    const result = try self.REG("result", m.MIR_T_I64);
     self.append(
         m.MIR_new_insn_arr(
             self.ctx,
@@ -2639,13 +2661,18 @@ fn generateCall(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
         ),
     );
 
+    if (has_catch_clause) {
+        try self.buildExternApiCall(
+            .bz_popTryCtx,
+            null,
+            &.{
+                m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
+            },
+        );
+    }
+
     if (post_call_label) |label| {
         self.append(label);
-
-        self.MOV(
-            m.MIR_new_reg_op(self.ctx, result),
-            m.MIR_new_reg_op(self.ctx, return_alloca.?),
-        );
     }
 
     self.BEND(block);
@@ -4857,10 +4884,9 @@ fn generateTry(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
     );
 
     const status = try self.REG("status", m.MIR_T_I64);
-    try self.buildExternApiCall(
-        .setjmp,
+    try self.buildSetJmp(
         m.MIR_new_reg_op(self.ctx, status),
-        &.{env},
+        env,
     );
 
     self.BEQ(
@@ -4870,6 +4896,17 @@ fn generateTry(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
     );
 
     _ = try self.generateNode(components.body);
+
+    // Unwind TryCtx after the try body completed without throwing. Catch paths
+    // pop before running their handler so a throw in the handler is not caught
+    // by the try it belongs to.
+    try self.buildExternApiCall(
+        .bz_popTryCtx,
+        null,
+        &.{
+            m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
+        },
+    );
 
     self.JMP(out_label);
 
@@ -5000,15 +5037,6 @@ fn generateTry(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
     );
 
     self.append(out_label);
-
-    // Unwind TryCtx
-    try self.buildExternApiCall(
-        .bz_popTryCtx,
-        null,
-        &.{
-            m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
-        },
-    );
 
     return null;
 }
@@ -5561,7 +5589,7 @@ fn generateFunction(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
             .{
                 .type = m.MIR_T_P,
                 .name = @ptrCast(ctx_name.ptr),
-                .size = undefined,
+                .size = 0,
             },
         },
     );
@@ -5643,7 +5671,7 @@ fn generateHotspotFunction(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t 
             .{
                 .type = m.MIR_T_P,
                 .name = @ptrCast(ctx_name.ptr),
-                .size = undefined,
+                .size = 0,
             },
         },
     );
@@ -5705,10 +5733,9 @@ fn generateHotspotFunction(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t 
         self.ctx,
         try self.REG("status", m.MIR_T_I64),
     );
-    try self.buildExternApiCall(
-        .setjmp,
+    try self.buildSetJmp(
         status,
-        &.{env},
+        env,
     );
 
     const fun_label = m.MIR_new_label(self.ctx);
@@ -5786,7 +5813,7 @@ fn generateNativeFn(self: *Self, node: Ast.Node.Index, raw_fn: m.MIR_item_t) !m.
             .{
                 .type = m.MIR_T_P,
                 .name = @ptrCast(ctx_name.ptr),
-                .size = undefined,
+                .size = 0,
             },
         },
     );
@@ -5851,10 +5878,9 @@ fn generateNativeFn(self: *Self, node: Ast.Node.Index, raw_fn: m.MIR_item_t) !m.
             self.ctx,
             try self.REG("status", m.MIR_T_I64),
         );
-        try self.buildExternApiCall(
-            .setjmp,
+        try self.buildSetJmp(
             status,
-            &.{env},
+            env,
         );
 
         const fun_label = m.MIR_new_label(self.ctx);
@@ -6342,7 +6368,7 @@ fn buildZdefWrapper(self: *Self, zdef_element: Ast.Zdef.ZdefElement) Error!m.MIR
             .{
                 .type = m.MIR_T_P,
                 .name = @ptrCast(ctx_name.ptr),
-                .size = undefined,
+                .size = 0,
             },
         },
     );
@@ -6391,7 +6417,7 @@ fn buildZdefWrapper(self: *Self, zdef_element: Ast.Zdef.ZdefElement) Error!m.MIR
                         .{ .Void = {} },
                 ),
                 .name = "param",
-                .size = undefined,
+                .size = 0,
             },
         );
     }
@@ -6552,12 +6578,12 @@ fn buildZdefUnionGetter(
             .{
                 .type = m.MIR_T_P,
                 .name = @ptrCast(vm_name.ptr),
-                .size = undefined,
+                .size = 0,
             },
             .{
                 .type = m.MIR_T_P,
                 .name = @ptrCast(data_name.ptr),
-                .size = undefined,
+                .size = 0,
             },
         },
     );
@@ -6658,17 +6684,17 @@ fn buildZdefUnionSetter(
             .{
                 .type = m.MIR_T_P,
                 .name = @ptrCast(vm_name.ptr),
-                .size = undefined,
+                .size = 0,
             },
             .{
                 .type = m.MIR_T_P,
                 .name = @ptrCast(data_name.ptr),
-                .size = undefined,
+                .size = 0,
             },
             .{
                 .type = m.MIR_T_U64,
                 .name = @ptrCast(new_value_name.ptr),
-                .size = undefined,
+                .size = 0,
             },
         },
     );
@@ -6763,12 +6789,12 @@ fn buildZdefContainerGetter(
             .{
                 .type = m.MIR_T_P,
                 .name = @ptrCast(vm_name.ptr),
-                .size = undefined,
+                .size = 0,
             },
             .{
                 .type = m.MIR_T_P,
                 .name = @ptrCast(data_name.ptr),
-                .size = undefined,
+                .size = 0,
             },
         },
     );
@@ -6853,17 +6879,17 @@ fn buildZdefContainerSetter(
             .{
                 .type = m.MIR_T_P,
                 .name = @ptrCast(vm_name.ptr),
-                .size = undefined,
+                .size = 0,
             },
             .{
                 .type = m.MIR_T_P,
                 .name = @ptrCast(data_name.ptr),
-                .size = undefined,
+                .size = 0,
             },
             .{
                 .type = m.MIR_T_U64,
                 .name = @ptrCast(new_value_name.ptr),
-                .size = undefined,
+                .size = 0,
             },
         },
     );
