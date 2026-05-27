@@ -2507,6 +2507,45 @@ fn generateCall(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
     if (has_catch_clause) {
         const catch_label = m.MIR_new_label(self.ctx);
         const continue_label = m.MIR_new_label(self.ctx);
+        const index = try self.REG("index", m.MIR_T_I64);
+        const stack_top_ptr_base = try self.REG("stack_top_ptr_base", m.MIR_T_I64);
+
+        self.MOV(
+            m.MIR_new_reg_op(self.ctx, index),
+            m.MIR_new_uint_op(self.ctx, 0),
+        );
+
+        // Save the caller stack top before receiver and arguments are pushed.
+        const stack_top_ptr = m.MIR_new_mem_op(
+            self.ctx,
+            m.MIR_T_P,
+            @offsetOf(o.NativeCtx, "stack_top"),
+            self.state.?.ctx_reg.?,
+            index,
+            1,
+        );
+
+        self.MOV(
+            m.MIR_new_reg_op(self.ctx, stack_top_ptr_base),
+            stack_top_ptr,
+        );
+
+        const stack_top = m.MIR_new_reg_op(
+            self.ctx,
+            try self.REG("stack_top", m.MIR_T_I64),
+        );
+
+        self.MOV(
+            stack_top,
+            m.MIR_new_mem_op(
+                self.ctx,
+                m.MIR_T_P,
+                0,
+                stack_top_ptr_base,
+                index,
+                1,
+            ),
+        );
 
         // setjmp to catch any error bubbling up here
         const try_ctx = m.MIR_new_reg_op(
@@ -2550,6 +2589,20 @@ fn generateCall(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
 
         const discard = try self.REG("discard", m.MIR_T_I64);
         try self.buildPop(m.MIR_new_reg_op(self.ctx, discard));
+
+        try self.buildExternApiCall(
+            .bz_closeUpValues,
+            null,
+            &.{
+                m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
+                stack_top,
+            },
+        );
+
+        self.MOV(
+            try self.LOAD(stack_top_ptr),
+            stack_top,
+        );
 
         try self.buildExternApiCall(
             .bz_popTryCtx,
@@ -3963,15 +4016,24 @@ fn generateList(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
     try self.buildPush(new_list);
 
     for (components.items) |item| {
+        const value = m.MIR_new_reg_op(
+            self.ctx,
+            try self.REG("value", m.MIR_T_I64),
+        );
+        self.MOV(value, (try self.generateNode(item)).?);
+        try self.buildPush(value);
+
         try self.buildExternApiCall(
             .bz_listAppend,
             null,
             &.{
                 new_list,
-                (try self.generateNode(item)).?,
+                value,
                 m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
             },
         );
+
+        try self.buildPop(null);
     }
 
     try self.buildPop(null);
@@ -4022,16 +4084,33 @@ fn generateMap(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
     try self.buildPush(new_map);
 
     for (components.entries) |entry| {
+        const key = m.MIR_new_reg_op(
+            self.ctx,
+            try self.REG("key", m.MIR_T_I64),
+        );
+        self.MOV(key, (try self.generateNode(entry.key)).?);
+        try self.buildPush(key);
+
+        const value = m.MIR_new_reg_op(
+            self.ctx,
+            try self.REG("value", m.MIR_T_I64),
+        );
+        self.MOV(value, (try self.generateNode(entry.value)).?);
+        try self.buildPush(value);
+
         try self.buildExternApiCall(
             .bz_mapSet,
             null,
             &.{
                 new_map,
-                (try self.generateNode(entry.key)).?,
-                (try self.generateNode(entry.value)).?,
+                key,
+                value,
                 m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
             },
         );
+
+        try self.buildPop(null);
+        try self.buildPop(null);
     }
 
     try self.buildPop(null);
@@ -4591,7 +4670,6 @@ fn generateSubscript(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
 
     const subscripted = (try self.generateNode(components.subscripted)).?;
     const index_val = (try self.generateNode(components.index)).?;
-    const value = if (components.value) |val| (try self.generateNode(val)).? else null;
 
     switch (type_defs[components.subscripted].?.def_type) {
         .List => {
@@ -4602,7 +4680,14 @@ fn generateSubscript(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
 
             try self.unwrap(.Integer, index_val, index);
 
-            if (value) |val| {
+            if (components.value) |value_node| {
+                const list = m.MIR_new_reg_op(
+                    self.ctx,
+                    try self.REG("list", m.MIR_T_I64),
+                );
+                self.MOV(list, subscripted);
+                try self.buildPush(list);
+
                 if (tags[components.assign_token.?] != .Equal) {
                     const res = m.MIR_new_reg_op(
                         self.ctx,
@@ -4612,44 +4697,67 @@ fn generateSubscript(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
                         .bz_listGet,
                         res,
                         &.{
-                            subscripted,
+                            list,
                             index,
                             m.MIR_new_uint_op(self.ctx, 0),
                         },
                     );
 
+                    const value = m.MIR_new_reg_op(
+                        self.ctx,
+                        try self.REG("value", m.MIR_T_I64),
+                    );
+                    self.MOV(value, (try self.generateNode(value_node)).?);
+                    try self.buildPush(value);
+
                     try self.buildBinary(
                         tags[components.assign_token.?],
                         type_defs[components.value.?].?.def_type,
                         res,
-                        val,
+                        value,
                         res,
                     );
+
+                    try self.buildPush(res);
 
                     try self.buildExternApiCall(
                         .bz_listSet,
                         null,
                         &.{
-                            subscripted,
+                            list,
                             index,
                             res,
                             m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
                         },
                     );
+
+                    try self.buildPop(null);
+                    try self.buildPop(null);
                 } else {
+                    const item = m.MIR_new_reg_op(
+                        self.ctx,
+                        try self.REG("item", m.MIR_T_I64),
+                    );
+                    self.MOV(item, (try self.generateNode(value_node)).?);
+                    try self.buildPush(item);
+
                     try self.buildExternApiCall(
                         .bz_listSet,
                         null,
                         &.{
-                            subscripted,
+                            list,
                             index,
-                            val,
+                            item,
                             m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
                         },
                     );
+
+                    try self.buildPop(null);
                 }
 
-                return subscripted;
+                try self.buildPop(null);
+
+                return list;
             }
 
             const res = m.MIR_new_reg_op(
@@ -4695,19 +4803,45 @@ fn generateSubscript(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
             return res;
         },
         .Map => {
-            if (value) |val| {
+            if (components.value) |value_node| {
+                const map = m.MIR_new_reg_op(
+                    self.ctx,
+                    try self.REG("map", m.MIR_T_I64),
+                );
+                self.MOV(map, subscripted);
+
+                const key = m.MIR_new_reg_op(
+                    self.ctx,
+                    try self.REG("key", m.MIR_T_I64),
+                );
+                self.MOV(key, index_val);
+
+                try self.buildPush(map);
+                try self.buildPush(key);
+
+                const item = m.MIR_new_reg_op(
+                    self.ctx,
+                    try self.REG("item", m.MIR_T_I64),
+                );
+                self.MOV(item, (try self.generateNode(value_node)).?);
+                try self.buildPush(item);
+
                 try self.buildExternApiCall(
                     .bz_mapSet,
                     null,
                     &.{
-                        subscripted,
-                        index_val,
-                        val,
+                        map,
+                        key,
+                        item,
                         m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
                     },
                 );
 
-                return subscripted;
+                try self.buildPop(null);
+                try self.buildPop(null);
+                try self.buildPop(null);
+
+                return map;
             }
 
             const res = m.MIR_new_reg_op(
@@ -5141,6 +5275,13 @@ fn generateObjectInit(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
     try self.buildPush(instance);
 
     for (components.properties) |property| {
+        const value = m.MIR_new_reg_op(
+            self.ctx,
+            try self.REG("value", m.MIR_T_I64),
+        );
+        self.MOV(value, (try self.generateNode(property.value)).?);
+        try self.buildPush(value);
+
         try self.buildExternApiCall(
             .bz_setObjectInstanceProperty,
             null,
@@ -5152,10 +5293,12 @@ fn generateObjectInit(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
                         .resolved_type.?.Object.fields
                         .get(lexemes[property.name]).?.index,
                 ),
-                (try self.generateNode(property.value)).?,
+                value,
                 m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
             },
         );
+
+        try self.buildPop(null);
     }
 
     try self.buildPop(instance);
@@ -5185,7 +5328,16 @@ fn generateForeignContainerInit(self: *Self, node: Ast.Node.Index) Error!?m.MIR_
         },
     );
 
+    try self.buildPush(instance);
+
     for (components.properties) |property| {
+        const value = m.MIR_new_reg_op(
+            self.ctx,
+            try self.REG("value", m.MIR_T_I64),
+        );
+        self.MOV(value, (try self.generateNode(property.value)).?);
+        try self.buildPush(value);
+
         try self.buildExternApiCall(
             .bz_foreignContainerSet,
             null,
@@ -5197,11 +5349,15 @@ fn generateForeignContainerInit(self: *Self, node: Ast.Node.Index) Error!?m.MIR_
                         .fields
                         .getIndex(lexemes[property.name]).?,
                 ),
-                (try self.generateNode(property.value)).?,
+                value,
                 m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
             },
         );
+
+        try self.buildPop(null);
     }
+
+    try self.buildPop(instance);
 
     return instance;
 }
