@@ -1,6 +1,6 @@
 on:
   push:
-    branches: [main, windows]
+    branches: [main]
   pull_request:
     branches: [main]
 
@@ -53,8 +53,6 @@ jobs:
           version: ${{ matrix.zig-version }}
       - name: Build for wasm
         run: zig build -Dtarget=wasm32-freestanding -Doptimize=ReleaseSmall
-      - name: Cleanup
-        run: rm -rf zig-out zig-cache
 
   lint:
     runs-on: macos-latest
