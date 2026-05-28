@@ -5885,12 +5885,25 @@ fn generateNativeFn(self: *Self, node: Ast.Node.Index, raw_fn: m.MIR_item_t) !m.
             m.MIR_new_uint_op(self.ctx, 0),
         );
 
+        const caught_vm_reg = try self.REG("caught_vm", m.MIR_T_I64);
+        self.MOV(
+            m.MIR_new_reg_op(self.ctx, caught_vm_reg),
+            m.MIR_new_mem_op(
+                self.ctx,
+                m.MIR_T_P,
+                @offsetOf(o.NativeCtx, "vm"),
+                ctx_reg,
+                0,
+                0,
+            ),
+        );
+
         // Unwind TryCtx
         try self.buildExternApiCall(
             .bz_popTryCtx,
             null,
             &.{
-                m.MIR_new_reg_op(self.ctx, vm_reg),
+                m.MIR_new_reg_op(self.ctx, caught_vm_reg),
             },
         );
 
