@@ -2091,33 +2091,33 @@ fn buildExternApiCall(self: *Self, method: ExternApi, dest: ?m.MIR_op_t, args: [
 
 /// Emits the target-specific `setjmp` call used by generated try contexts.
 fn buildSetJmp(self: *Self, dest: m.MIR_op_t, env: m.MIR_op_t) !void {
-    if (builtin.os.tag == .windows) {
-        const frame = if (builtin.cpu.arch == .x86_64) frame: {
-            // MinGW maps x86_64 UCRT `_setjmp` to `__intrinsic_setjmpex`.
-            // Its second argument is the current frame address, not scratch
-            // storage. A zero-sized alloca forces MIR to keep rbp as a frame
-            // pointer for functions that otherwise would not need one.
-            const rbp_hard_reg: m.MIR_reg_t = 5;
-            const frame_anchor = try self.REG("setjmp_frame_anchor", m.MIR_T_I64);
-            self.ALLOCA(frame_anchor, 0);
-            break :frame m.MIR_new_hard_reg_op(self.ctx, rbp_hard_reg);
-        } else m.MIR_new_uint_op(self.ctx, 0);
+    // if (builtin.os.tag == .windows) {
+    //     const frame = if (builtin.cpu.arch == .x86_64) frame: {
+    //         // MinGW maps x86_64 UCRT `_setjmp` to `__intrinsic_setjmpex`.
+    //         // Its second argument is the current frame address, not scratch
+    //         // storage. A zero-sized alloca forces MIR to keep rbp as a frame
+    //         // pointer for functions that otherwise would not need one.
+    //         const rbp_hard_reg: m.MIR_reg_t = 5;
+    //         const frame_anchor = try self.REG("setjmp_frame_anchor", m.MIR_T_I64);
+    //         self.ALLOCA(frame_anchor, 0);
+    //         break :frame m.MIR_new_hard_reg_op(self.ctx, rbp_hard_reg);
+    //     } else m.MIR_new_uint_op(self.ctx, 0);
 
-        try self.buildExternApiCall(
-            .setjmp,
-            dest,
-            &.{
-                env,
-                frame,
-            },
-        );
-    } else {
-        try self.buildExternApiCall(
-            .setjmp,
-            dest,
-            &.{env},
-        );
-    }
+    //     try self.buildExternApiCall(
+    //         .setjmp,
+    //         dest,
+    //         &.{
+    //             env,
+    //             frame,
+    //         },
+    //     );
+    // } else {
+    try self.buildExternApiCall(
+        .setjmp,
+        dest,
+        &.{env},
+    );
+    // }
 }
 
 fn generateString(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {

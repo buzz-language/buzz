@@ -4828,11 +4828,11 @@ pub const VM = struct {
                 if (!is_wasm and frame_ptr.?.in_native_call and self.current_fiber.try_context != null) {
                     self.push(payload);
 
-                    if (builtin.os.tag == .macos or builtin.os.tag == .linux) {
-                        jmp._longjmp(&self.current_fiber.try_context.?.env, 1);
-                    } else {
-                        jmp.longjmp(&self.current_fiber.try_context.?.env, 1);
-                    }
+                    // if (builtin.os.tag == .macos or builtin.os.tag == .linux) {
+                    //     jmp._longjmp(&self.current_fiber.try_context.?.env, 1);
+                    // } else {
+                    jmp.longjmp(&self.current_fiber.try_context.?.env, 1);
+                    // }
 
                     unreachable;
                 }

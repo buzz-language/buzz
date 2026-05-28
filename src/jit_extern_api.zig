@@ -695,41 +695,42 @@ pub const ExternApi = enum {
                     },
                 },
             ),
-            .setjmp => if (builtin.os.tag == .windows)
-                m.MIR_new_proto_arr(
-                    ctx,
-                    self.pname(),
-                    1,
-                    &.{m.MIR_T_U64},
-                    2,
-                    &.{
-                        .{
-                            .type = m.MIR_T_P,
-                            .name = "jmp_buf",
-                            .size = 0,
-                        },
-                        .{
-                            .type = m.MIR_T_P,
-                            .name = "ctx",
-                            .size = 0,
-                        },
+            .setjmp =>
+            // if (builtin.os.tag == .windows)
+            //     m.MIR_new_proto_arr(
+            //         ctx,
+            //         self.pname(),
+            //         1,
+            //         &.{m.MIR_T_U64},
+            //         2,
+            //         &.{
+            //             .{
+            //                 .type = m.MIR_T_P,
+            //                 .name = "jmp_buf",
+            //                 .size = 0,
+            //             },
+            //             .{
+            //                 .type = m.MIR_T_P,
+            //                 .name = "ctx",
+            //                 .size = 0,
+            //             },
+            //         },
+            //     )
+            // else
+            m.MIR_new_proto_arr(
+                ctx,
+                self.pname(),
+                1,
+                &.{m.MIR_T_U64},
+                1,
+                &.{
+                    .{
+                        .type = m.MIR_T_P,
+                        .name = "jmp_buf",
+                        .size = 0,
                     },
-                )
-            else
-                m.MIR_new_proto_arr(
-                    ctx,
-                    self.pname(),
-                    1,
-                    &.{m.MIR_T_U64},
-                    1,
-                    &.{
-                        .{
-                            .type = m.MIR_T_P,
-                            .name = "jmp_buf",
-                            .size = 0,
-                        },
-                    },
-                ),
+                },
+            ),
             .bz_clone => m.MIR_new_proto_arr(
                 ctx,
                 self.pname(),
@@ -1225,12 +1226,13 @@ pub const ExternApi = enum {
                 *anyopaque,
                 @ptrFromInt(
                     @intFromPtr(
-                        &(if (builtin.os.tag == .windows)
-                            jmp.__intrinsic_setjmpex
-                        else if (builtin.os.tag == .macos or builtin.os.tag == .linux)
-                            jmp._setjmp
-                        else
-                            jmp.setjmp),
+                        &jmp.setjmp,
+                        // &(if (builtin.os.tag == .windows)
+                        //     jmp.__intrinsic_setjmpex
+                        // else if (builtin.os.tag == .macos or builtin.os.tag == .linux)
+                        //     jmp._setjmp
+                        // else
+                        //     jmp.setjmp),
                     ),
                 ),
             ),

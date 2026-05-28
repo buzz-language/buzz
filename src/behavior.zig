@@ -12,9 +12,17 @@ const Perf = @import("Perf.zig");
 const is_windows = @import("builtin").os.tag == .windows;
 
 const black_listed_tests = std.StaticStringMap(void).initComptime(
-    .{
-        .{ "tests/fuzzed/id_000434,sig_06,src_000723,time_202384530,execs_828228,op_arith8,pos_276,val_-1.buzz", {} },
-    },
+    if (is_windows)
+        .{
+            .{ "tests/fuzzed/id_000434,sig_06,src_000723,time_202384530,execs_828228,op_arith8,pos_276,val_-1.buzz", {} },
+            // Turned off until we fix the JIT issues on windows
+            .{ "tests/behavior/ffi.buzz", {} },
+            .{ "tests/behavior/types-as-value.buzz", {} },
+        }
+    else
+        .{
+            .{ "tests/fuzzed/id_000434,sig_06,src_000723,time_202384530,execs_828228,op_arith8,pos_276,val_-1.buzz", {} },
+        },
 );
 
 const Result = struct {

@@ -1040,7 +1040,7 @@ const BuildOptions = struct {
                     bool,
                     "jit",
                     "Turn on JIT engine",
-                ) orelse true,
+                ) orelse (target.result.os.tag != .windows),
                 .asynchronous = !is_wasm and b.option(
                     bool,
                     "jit_asynchronous",
