@@ -214,6 +214,11 @@ pub fn start(
     allocator: std.mem.Allocator,
     address: std.Io.net.IpAddress,
 ) (std.Thread.SpawnError || error{OutOfMemory} || Error)!void {
+    if (builtin.os.tag == .windows) {
+        // Windows output capture needs a CreatePipe/SetHandleInformation path.
+        return error.CantCaptureOutput;
+    }
+
     self.* = Debugger{
         .process = process,
         .allocator = allocator,

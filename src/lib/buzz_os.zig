@@ -61,7 +61,11 @@ pub export fn env(ctx: *api.NativeCtx) callconv(.c) c_int {
 
 fn sysTempDir(process_env: *std.process.Environ.Map) []const u8 {
     return switch (builtin.os.tag) {
-        .windows => unreachable, // TODO: GetTempPath
+        .windows => process_env.get("TEMP") orelse
+            process_env.get("TMP") orelse
+            process_env.get("LOCALAPPDATA") orelse
+            process_env.get("USERPROFILE") orelse
+            ".",
         else => process_env.get("TMPDIR") orelse
             process_env.get("TMP") orelse
             process_env.get("TEMP") orelse
@@ -117,13 +121,20 @@ pub export fn tmpFilename(ctx: *api.NativeCtx) callconv(.c) c_int {
 
     _ = std.base64.standard.Encoder.encode(random_part_b64.items, random_part.written());
 
+    const tmp_dir = sysTempDir(ctx.getEnv());
+    const separator = if (std.mem.endsWith(u8, tmp_dir, "/") or std.mem.endsWith(u8, tmp_dir, "\\"))
+        ""
+    else
+        std.fs.path.sep_str;
+
     var final = std.Io.Writer.Allocating.init(api.VM.allocator);
     defer final.deinit();
 
     final.writer.print(
-        "{s}{s}-{s}",
+        "{s}{s}{s}-{s}",
         .{
-            sysTempDir(ctx.getEnv()),
+            tmp_dir,
+            separator,
             prefix_slice,
             random_part_b64.items,
         },

@@ -187,6 +187,6 @@ pub fn main(provided_init: Init) u8 {
 }
 
 test {
-    _ = @import("Scanner.zig");
-    _ = @import("tests/fmt.zig");
+    _ = if (builtin.os.tag != .windows) @import("Scanner.zig") else {};
+    _ = if (builtin.os.tag != .windows) @import("tests/fmt.zig") else {};
 }

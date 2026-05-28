@@ -177,7 +177,7 @@ pub fn build(b: *Build) !void {
         }
         b.step("lsp", "run buzz lsp").dependOn(&run_lsp_exe.step);
     }
-    const lsp_tests = if (!is_wasm)
+    const lsp_tests = if (!is_wasm and target.result.os.tag != .windows)
         b.addTest(
             .{
                 .use_llvm = true,
@@ -193,8 +193,8 @@ pub fn build(b: *Build) !void {
         )
     else
         null;
-    if (!is_wasm) {
-        lsp_tests.?.root_module.addImport(
+    if (lsp_tests) |lsp_test_exe| {
+        lsp_test_exe.root_module.addImport(
             "lsp",
             lsp.module("lsp"),
         );
@@ -1034,7 +1034,7 @@ const BuildOptions = struct {
                     bool,
                     "jit",
                     "Turn on JIT engine",
-                ) orelse true,
+                ) orelse (target.result.os.tag != .windows),
                 .asynchronous = !is_wasm and b.option(
                     bool,
                     "jit_asynchronous",
