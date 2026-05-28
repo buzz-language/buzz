@@ -234,7 +234,7 @@ pub fn repl(process: std.process.Init, allocator: std.mem.Allocator) !void {
             PROMPT;
 
         if (builtin.os.tag == .windows) {
-            std.io.getStdOut().writeAll(
+            stdout.interface.writeAll(
                 std.mem.span(prompt),
             ) catch @panic("Could not write to stdout");
         }

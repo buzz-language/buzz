@@ -8,6 +8,7 @@ const Scanner = @import("Scanner.zig");
 const Ast = @import("Ast.zig");
 const builtin = @import("builtin");
 const is_wasm = builtin.cpu.arch.isWasm();
+const is_windows = builtin.os.tag == .windows;
 const bz_io = @import("io.zig");
 const BuildOptions = @import("build_options");
 const Init = @import("vm.zig").Init;
@@ -180,6 +181,71 @@ pub const ReportKind = enum {
     }
 };
 
+/// Source report drawing symbols for the current terminal family.
+pub const ReportGlyph = if (is_windows) enum(u8) {
+    file_header,
+    line_first,
+    line_last,
+    line_middle,
+    cursor_gutter,
+    underline_many,
+    underline_one,
+    underline_fill,
+    message_prefix,
+    runtime_stack_first,
+    runtime_stack_middle,
+    runtime_stack_last,
+
+    /// Returns the rendered bytes for this glyph.
+    pub fn bytes(self: @This()) []const u8 {
+        return switch (self) {
+            .file_header => "+-",
+            .line_first => "+-",
+            .line_last => "+-",
+            .line_middle => "| ",
+            .cursor_gutter => "| ",
+            .underline_many => "^",
+            .underline_one => "^",
+            .underline_fill => "~",
+            .message_prefix => "+-",
+            .runtime_stack_first => "+-",
+            .runtime_stack_middle => "|-",
+            .runtime_stack_last => "+-",
+        };
+    }
+} else enum(u8) {
+    file_header,
+    line_first,
+    line_last,
+    line_middle,
+    cursor_gutter,
+    underline_many,
+    underline_one,
+    underline_fill,
+    message_prefix,
+    runtime_stack_first,
+    runtime_stack_middle,
+    runtime_stack_last,
+
+    /// Returns the rendered bytes for this glyph.
+    pub fn bytes(self: @This()) []const u8 {
+        return switch (self) {
+            .file_header => "╭─",
+            .line_first => "╭─",
+            .line_last => "╰─",
+            .line_middle => "│ ",
+            .cursor_gutter => "┆ ",
+            .underline_many => "╭",
+            .underline_one => "┬",
+            .underline_fill => "─",
+            .message_prefix => "╰─",
+            .runtime_stack_first => "╰─┬─",
+            .runtime_stack_middle => "  ├─",
+            .runtime_stack_last => "  ╰─",
+        };
+    }
+};
+
 pub const Note = struct {
     kind: ReportKind = .hint,
     message: []const u8,
@@ -216,7 +282,7 @@ pub const Report = struct {
     items: []const ReportItem,
     notes: []const Note = &[_]Note{},
     options: ReportOptions = .{
-        .color = builtin.os.tag != .windows,
+        .color = !is_windows,
     },
 
     // Makes sense only in LSP
@@ -243,7 +309,8 @@ pub const Report = struct {
         @branchHint(.cold);
 
         assert(self.items.len > 0);
-        const colorterm = if (!is_wasm) reporter.process.environ_map.get("COLORTERM") else null;
+        const use_color = self.options.color and !is_windows;
+        const colorterm = if (use_color and !is_wasm) reporter.process.environ_map.get("COLORTERM") else null;
         const true_color = if (colorterm) |ct|
             std.mem.eql(u8, ct, "24bit") or std.mem.eql(u8, ct, "truecolor")
         else
@@ -252,7 +319,7 @@ pub const Report = struct {
         // Print main error message
         const main_item = self.items[0];
 
-        if (self.options.color) {
+        if (use_color) {
             try out.print(
                 "\n{s}:{}:{}: \x1b[{d}m[{s}{d}] {s}{s}:\x1b[0m {s}\n",
                 .{
@@ -323,10 +390,16 @@ pub const Report = struct {
         var file_it = reported_files.iterator();
         while (file_it.next()) |file_entry| {
             if (reported_files.count() > 1) {
-                if (self.options.color) {
-                    try out.print("       \x1b[2m╭─\x1b[0m \x1b[4m{s}\x1b[0m\n", .{file_entry.key_ptr.*});
+                if (use_color) {
+                    try out.print("       \x1b[2m{s}\x1b[0m \x1b[4m{s}\x1b[0m\n", .{
+                        ReportGlyph.file_header.bytes(),
+                        file_entry.key_ptr.*,
+                    });
                 } else {
-                    try out.print("       ╭─ {s}\n", .{file_entry.key_ptr.*});
+                    try out.print("       {s} {s}\n", .{
+                        ReportGlyph.file_header.bytes(),
+                        file_entry.key_ptr.*,
+                    });
                 }
             }
 
@@ -376,7 +449,7 @@ pub const Report = struct {
 
                 // Is there a gap between two report items?
                 if (overlapping_before < 0) {
-                    if (self.options.color) {
+                    if (use_color) {
                         try out.print("       \x1b[2m ...\x1b[0m\n", .{});
                     } else {
                         try out.print("        ...\n", .{});
@@ -405,8 +478,15 @@ pub const Report = struct {
 
                 var l: usize = line - @min(line, @as(usize, @intCast(before)));
                 for (lines, 0..) |src_line, line_index| {
+                    const line_glyph: ReportGlyph = if (line_index == 0 and (reported_files.count() == 1 or index > 0))
+                        .line_first
+                    else if (line_index == lines.len - 1)
+                        .line_last
+                    else
+                        .line_middle;
+
                     if (l != line) {
-                        if (self.options.color) {
+                        if (use_color) {
                             try out.print("\x1b[2m", .{});
                         }
                     }
@@ -415,17 +495,12 @@ pub const Report = struct {
                         " {: >5} {s} ",
                         .{
                             l + 1,
-                            if (line_index == 0 and (reported_files.count() == 1 or index > 0))
-                                "╭─"
-                            else if (line_index == lines.len - 1)
-                                "╰─"
-                            else
-                                "│ ",
+                            line_glyph.bytes(),
                         },
                     );
 
                     if (l == line) {
-                        if (self.options.color) {
+                        if (use_color) {
                             var scanner = Scanner.init(
                                 reporter.allocator,
                                 "reporter",
@@ -439,7 +514,7 @@ pub const Report = struct {
                         try out.writeAll(src_line);
                     }
 
-                    if (self.options.color) {
+                    if (use_color) {
                         try out.writeAll("\n\x1b[0m");
                     } else {
                         try out.writeAll("\n");
@@ -447,10 +522,10 @@ pub const Report = struct {
 
                     if (l == line) {
                         // Print error cursors
-                        if (self.options.color) {
-                            try out.print("       \x1b[2m┆ \x1b[0m ", .{});
+                        if (use_color) {
+                            try out.print("       \x1b[2m{s}\x1b[0m ", .{ReportGlyph.cursor_gutter.bytes()});
                         } else {
-                            try out.print("       ┆  ", .{});
+                            try out.print("       {s} ", .{ReportGlyph.cursor_gutter.bytes()});
                         }
                         var column: usize = 0;
                         for (report_items.items) |item| {
@@ -460,7 +535,7 @@ pub const Report = struct {
                                 0;
                             try out.splatByteAll(' ', indent);
 
-                            if (self.options.color) {
+                            if (use_color) {
                                 try out.print("\x1b[{d}m", .{item.kind.color()});
                             }
 
@@ -468,22 +543,22 @@ pub const Report = struct {
                                 "{s}",
                                 .{
                                     if (item.end_location.lexeme.len > 1)
-                                        "╭"
+                                        ReportGlyph.underline_many.bytes()
                                     else
-                                        "┬",
+                                        ReportGlyph.underline_one.bytes(),
                                 },
                             );
 
                             if (item.end_location.lexeme.len > 1) {
                                 var i: usize = 0;
                                 while (i < item.end_location.lexeme.len - 1) : (i += 1) {
-                                    try out.print("─", .{});
+                                    try out.print("{s}", .{ReportGlyph.underline_fill.bytes()});
                                 }
                             } else {
-                                try out.print("─", .{});
+                                try out.print("{s}", .{ReportGlyph.underline_fill.bytes()});
                             }
 
-                            if (self.options.color) {
+                            if (use_color) {
                                 try out.print("\x1b[0m", .{});
                             }
 
@@ -494,27 +569,29 @@ pub const Report = struct {
 
                         // Print error messages
                         for (report_items.items) |item| {
-                            if (self.options.color) {
-                                try out.print("       \x1b[2m┆ \x1b[0m ", .{});
+                            if (use_color) {
+                                try out.print("       \x1b[2m{s}\x1b[0m ", .{ReportGlyph.cursor_gutter.bytes()});
                             } else {
-                                try out.print("       ┆  ", .{});
+                                try out.print("       {s} ", .{ReportGlyph.cursor_gutter.bytes()});
                             }
                             try out.splatByteAll(' ', if (item.end_location.column > 0)
                                 item.end_location.column - 1
                             else
                                 0);
-                            if (self.options.color) {
+                            if (use_color) {
                                 try out.print(
-                                    "\x1b[{d}m╰─ {s}\x1b[0m\n",
+                                    "\x1b[{d}m{s} {s}\x1b[0m\n",
                                     .{
                                         item.kind.color(),
+                                        ReportGlyph.message_prefix.bytes(),
                                         item.message,
                                     },
                                 );
                             } else {
                                 try out.print(
-                                    "╰─ {s}\n",
+                                    "{s} {s}\n",
                                     .{
+                                        ReportGlyph.message_prefix.bytes(),
                                         item.message,
                                     },
                                 );
@@ -531,7 +608,7 @@ pub const Report = struct {
 
         // Print notes
         for (self.notes) |note| {
-            if (self.options.color) {
+            if (use_color) {
                 try out.print(
                     "\x1b[{d}m{s}{s}\x1b[0m {s}\n",
                     .{

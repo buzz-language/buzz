@@ -23,10 +23,72 @@ const print = @import("io.zig").print;
 
 const libs = static_libraries.nativeLibraries(is_wasm);
 
+/// Cross-platform dynamic library wrapper used while Zig's std.DynLib has no Windows implementation.
+const DynLib = struct {
+    const Native = if (builtin.os.tag == .windows) WindowsDynLib else std.DynLib;
+
+    /// Target-specific loaded library handle.
+    native: Native,
+
+    /// Opens a dynamic library at `path`.
+    pub fn open(allocator: std.mem.Allocator, path: []const u8) !DynLib {
+        return .{
+            .native = if (builtin.os.tag == .windows)
+                try WindowsDynLib.open(allocator, path)
+            else
+                try std.DynLib.open(path),
+        };
+    }
+
+    /// Looks up a symbol by sentinel-terminated name.
+    pub fn lookup(self: *DynLib, comptime T: type, name: [:0]const u8) ?T {
+        return self.native.lookup(T, name);
+    }
+
+    /// Releases the loaded library handle.
+    pub fn close(self: *DynLib) void {
+        self.native.close();
+    }
+};
+
+/// Windows dynamic library implementation backed by kernel32 APIs.
+const WindowsDynLib = struct {
+    /// Loaded module handle returned by LoadLibraryA.
+    handle: std.os.windows.HMODULE,
+
+    /// Loads a dynamic library by ANSI path.
+    extern "kernel32" fn LoadLibraryA(lpLibFileName: std.os.windows.LPCSTR) callconv(.winapi) ?std.os.windows.HMODULE;
+    /// Looks up a symbol exported by a loaded dynamic library.
+    extern "kernel32" fn GetProcAddress(hModule: std.os.windows.HMODULE, lpProcName: std.os.windows.LPCSTR) callconv(.winapi) ?std.os.windows.FARPROC;
+    /// Releases a dynamic library loaded by LoadLibraryA.
+    extern "kernel32" fn FreeLibrary(hLibModule: std.os.windows.HMODULE) callconv(.winapi) std.os.windows.BOOL;
+
+    /// Opens a Windows DLL at `path`.
+    pub fn open(allocator: std.mem.Allocator, path: []const u8) !WindowsDynLib {
+        const path_z = try allocator.dupeZ(u8, path);
+        defer allocator.free(path_z);
+
+        return .{
+            .handle = LoadLibraryA(path_z.ptr) orelse return error.OpenFailed,
+        };
+    }
+
+    /// Looks up a symbol by sentinel-terminated name.
+    pub fn lookup(self: *WindowsDynLib, comptime T: type, name: [:0]const u8) ?T {
+        const proc = GetProcAddress(self.handle, name.ptr) orelse return null;
+        return @ptrCast(proc);
+    }
+
+    /// Releases the loaded DLL handle.
+    pub fn close(self: *WindowsDynLib) void {
+        _ = FreeLibrary(self.handle);
+    }
+};
+
 pub const Dlib = struct {
     pub const LookupFn = *const fn ([*:0]const u8) callconv(.c) ?obj.NativeFn;
 
-    dynlib: std.DynLib,
+    dynlib: DynLib,
     symbols: std.StringHashMapUnmanaged(*obj.ObjNative) = .empty,
     lookup_fn: LookupFn,
 
@@ -8906,7 +8968,7 @@ fn searchPaths(self: *Self, full_file_name: []const u8) ![][]const u8 {
                 self.gc.allocator,
                 prefixed,
                 "/",
-                "\\",
+                std.fs.path.sep_str,
             );
             try paths.append(self.gc.allocator, windows);
         } else {
@@ -8920,219 +8982,249 @@ fn searchPaths(self: *Self, full_file_name: []const u8) ![][]const u8 {
 fn searchLibPaths(self: *Self, full_file_name: []const u8) ![][]const u8 {
     const dir_name = std.fs.path.dirname(full_file_name);
     const file_name = std.fs.path.basename(full_file_name);
+    const file_names = [_][]const u8{
+        file_name,
+        if (builtin.os.tag == .windows and std.mem.startsWith(u8, file_name, "lib"))
+            file_name["lib".len..]
+        else
+            "",
+    };
 
     var paths = std.ArrayList([]const u8).empty;
 
-    for (lib_search_paths) |path| {
-        const filled = try std.mem.replaceOwned(
-            u8,
-            self.gc.allocator,
-            path,
-            "?",
-            file_name,
-        );
-        defer self.gc.allocator.free(filled);
+    for (file_names) |candidate_name| {
+        if (candidate_name.len == 0) {
+            continue;
+        }
 
-        const suffixed = try std.mem.replaceOwned(
-            u8,
-            self.gc.allocator,
-            filled,
-            "!",
-            switch (builtin.os.tag) {
-                .linux, .freebsd, .openbsd => "so",
-                .windows => "dll",
-                .macos, .tvos, .watchos, .ios => "dylib",
-                else => unreachable,
-            },
-        );
-        defer self.gc.allocator.free(suffixed);
-
-        const cwd = if (dir_name) |dn|
-            if (!std.fs.path.isAbsolute(dn))
-                try std.mem.replaceOwned(
-                    u8,
-                    self.gc.allocator,
-                    suffixed,
-                    "#",
-                    "./#",
-                )
-            else
-                null
-        else
-            null;
-        defer if (cwd) |d| self.gc.allocator.free(d);
-
-        const dir = if (dir_name) |dn| try std.mem.replaceOwned(
-            u8,
-            self.gc.allocator,
-            cwd orelse suffixed,
-            "#",
-            dn,
-        ) else null;
-        defer if (dir) |d| self.gc.allocator.free(d);
-
-        const prefixed = try std.mem.replaceOwned(
-            u8,
-            self.gc.allocator,
-            dir orelse suffixed,
-            "$",
-            buzzLibPath(self.process.io, self.process.environ_map),
-        );
-
-        if (builtin.os.tag == .windows) {
-            const windows = try std.mem.replaceOwned(
+        for (lib_search_paths) |path| {
+            const filled = try std.mem.replaceOwned(
                 u8,
                 self.gc.allocator,
-                prefixed,
-                "/",
-                "\\",
+                path,
+                "?",
+                candidate_name,
             );
-            try paths.append(self.gc.allocator, windows);
-        } else {
-            try paths.append(self.gc.allocator, prefixed);
+            defer self.gc.allocator.free(filled);
+
+            const suffixed = try std.mem.replaceOwned(
+                u8,
+                self.gc.allocator,
+                filled,
+                "!",
+                switch (builtin.os.tag) {
+                    .linux, .freebsd, .openbsd => "so",
+                    .windows => "dll",
+                    .macos, .tvos, .watchos, .ios => "dylib",
+                    else => unreachable,
+                },
+            );
+            defer self.gc.allocator.free(suffixed);
+
+            const cwd = if (dir_name) |dn|
+                if (!std.fs.path.isAbsolute(dn))
+                    try std.mem.replaceOwned(
+                        u8,
+                        self.gc.allocator,
+                        suffixed,
+                        "#",
+                        "./#",
+                    )
+                else
+                    null
+            else
+                null;
+            defer if (cwd) |d| self.gc.allocator.free(d);
+
+            const dir = if (dir_name) |dn| try std.mem.replaceOwned(
+                u8,
+                self.gc.allocator,
+                cwd orelse suffixed,
+                "#",
+                dn,
+            ) else null;
+            defer if (dir) |d| self.gc.allocator.free(d);
+
+            const prefixed = try std.mem.replaceOwned(
+                u8,
+                self.gc.allocator,
+                dir orelse suffixed,
+                "$",
+                buzzLibPath(self.process.io, self.process.environ_map),
+            );
+
+            if (builtin.os.tag == .windows) {
+                const windows = try std.mem.replaceOwned(
+                    u8,
+                    self.gc.allocator,
+                    prefixed,
+                    "/",
+                    std.fs.path.sep_str,
+                );
+                try paths.append(self.gc.allocator, windows);
+            } else {
+                try paths.append(self.gc.allocator, prefixed);
+            }
         }
     }
 
     for (user_library_paths orelse &[_][]const u8{}) |path| {
-        var filled = std.Io.Writer.Allocating.init(self.gc.allocator);
+        for (file_names) |candidate_name| {
+            if (candidate_name.len == 0) {
+                continue;
+            }
 
-        try filled.writer.print(
-            "{s}{s}{s}.{s}",
-            .{
-                path,
-                if (builtin.os.tag == .windows and !std.mem.endsWith(u8, path, "\\"))
-                    "\\"
-                else if (!std.mem.endsWith(u8, path, "/"))
-                    "/"
-                else
-                    "",
-                file_name,
-                switch (builtin.os.tag) {
-                    .linux, .freebsd, .openbsd => "so",
-                    .windows => "dll",
-                    .macos, .tvos, .watchos, .ios => "dylib",
-                    else => unreachable,
+            var filled = std.Io.Writer.Allocating.init(self.gc.allocator);
+
+            try filled.writer.print(
+                "{s}{s}{s}.{s}",
+                .{
+                    path,
+                    if (!std.mem.endsWith(u8, path, std.fs.path.sep_str))
+                        std.fs.path.sep_str
+                    else
+                        "",
+                    candidate_name,
+                    switch (builtin.os.tag) {
+                        .linux, .freebsd, .openbsd => "so",
+                        .windows => "dll",
+                        .macos, .tvos, .watchos, .ios => "dylib",
+                        else => unreachable,
+                    },
                 },
-            },
-        );
+            );
 
-        try paths.append(self.gc.allocator, try filled.toOwnedSlice());
+            try paths.append(self.gc.allocator, try filled.toOwnedSlice());
 
-        var prefixed_filled = std.Io.Writer.Allocating.init(self.gc.allocator);
+            var prefixed_filled = std.Io.Writer.Allocating.init(self.gc.allocator);
 
-        try prefixed_filled.writer.print(
-            "{s}{s}lib{s}.{s}",
-            .{
-                path,
-                if (builtin.os.tag == .windows and !std.mem.endsWith(u8, path, "\\"))
-                    "\\"
-                else if (!std.mem.endsWith(u8, path, "/"))
-                    "/"
-                else
-                    "",
-                file_name,
-                switch (builtin.os.tag) {
-                    .linux, .freebsd, .openbsd => "so",
-                    .windows => "dll",
-                    .macos, .tvos, .watchos, .ios => "dylib",
-                    else => unreachable,
+            try prefixed_filled.writer.print(
+                "{s}{s}lib{s}.{s}",
+                .{
+                    path,
+                    if (!std.mem.endsWith(u8, path, std.fs.path.sep_str))
+                        std.fs.path.sep_str
+                    else
+                        "",
+                    candidate_name,
+                    switch (builtin.os.tag) {
+                        .linux, .freebsd, .openbsd => "so",
+                        .windows => "dll",
+                        .macos, .tvos, .watchos, .ios => "dylib",
+                        else => unreachable,
+                    },
                 },
-            },
-        );
+            );
 
-        try paths.append(
-            self.gc.allocator,
-            try prefixed_filled.toOwnedSlice(),
-        );
+            try paths.append(
+                self.gc.allocator,
+                try prefixed_filled.toOwnedSlice(),
+            );
+        }
     }
 
     return try paths.toOwnedSlice(self.gc.allocator);
 }
 
 fn searchZdefLibPaths(self: *Self, file_name: []const u8) ![][]const u8 {
+    const file_names = [_][]const u8{
+        file_name,
+        if (builtin.os.tag == .windows and std.mem.startsWith(u8, file_name, "lib"))
+            file_name["lib".len..]
+        else
+            "",
+    };
     var paths = std.ArrayList([]const u8).empty;
 
-    for (zdef_search_paths) |path| {
-        const filled = try std.mem.replaceOwned(u8, self.gc.allocator, path, "?", file_name);
-        defer self.gc.allocator.free(filled);
-        const suffixed = try std.mem.replaceOwned(
-            u8,
-            self.gc.allocator,
-            filled,
-            "!",
-            switch (builtin.os.tag) {
-                .linux, .freebsd, .openbsd => "so",
-                .windows => "dll",
-                .macos, .tvos, .watchos, .ios => "dylib",
-                else => unreachable,
-            },
-        );
+    for (file_names) |candidate_name| {
+        if (candidate_name.len == 0) {
+            continue;
+        }
 
-        if (builtin.os.tag == .windows) {
-            const windows = try std.mem.replaceOwned(
+        for (zdef_search_paths) |path| {
+            const filled = try std.mem.replaceOwned(u8, self.gc.allocator, path, "?", candidate_name);
+            defer self.gc.allocator.free(filled);
+            const suffixed = try std.mem.replaceOwned(
                 u8,
                 self.gc.allocator,
-                suffixed,
-                "/",
-                "\\",
+                filled,
+                "!",
+                switch (builtin.os.tag) {
+                    .linux, .freebsd, .openbsd => "so",
+                    .windows => "dll",
+                    .macos, .tvos, .watchos, .ios => "dylib",
+                    else => unreachable,
+                },
             );
-            try paths.append(self.gc.allocator, windows);
-        } else {
-            try paths.append(self.gc.allocator, suffixed);
+
+            if (builtin.os.tag == .windows) {
+                const windows = try std.mem.replaceOwned(
+                    u8,
+                    self.gc.allocator,
+                    suffixed,
+                    "/",
+                    std.fs.path.sep_str,
+                );
+                try paths.append(self.gc.allocator, windows);
+            } else {
+                try paths.append(self.gc.allocator, suffixed);
+            }
         }
     }
 
     for (Self.user_library_paths orelse &[_][]const u8{}) |path| {
-        var filled = std.Io.Writer.Allocating.init(self.gc.allocator);
+        for (file_names) |candidate_name| {
+            if (candidate_name.len == 0) {
+                continue;
+            }
 
-        try filled.writer.print(
-            "{s}{s}{s}.{s}",
-            .{
-                path,
-                if (builtin.os.tag == .windows and !std.mem.endsWith(u8, path, "\\"))
-                    "\\"
-                else if (!std.mem.endsWith(u8, path, "/"))
-                    "/"
-                else
-                    "",
-                file_name,
-                switch (builtin.os.tag) {
-                    .linux, .freebsd, .openbsd => "so",
-                    .windows => "dll",
-                    .macos, .tvos, .watchos, .ios => "dylib",
-                    else => unreachable,
+            var filled = std.Io.Writer.Allocating.init(self.gc.allocator);
+
+            try filled.writer.print(
+                "{s}{s}{s}.{s}",
+                .{
+                    path,
+                    if (!std.mem.endsWith(u8, path, std.fs.path.sep_str))
+                        std.fs.path.sep_str
+                    else
+                        "",
+                    candidate_name,
+                    switch (builtin.os.tag) {
+                        .linux, .freebsd, .openbsd => "so",
+                        .windows => "dll",
+                        .macos, .tvos, .watchos, .ios => "dylib",
+                        else => unreachable,
+                    },
                 },
-            },
-        );
+            );
 
-        try paths.append(self.gc.allocator, try filled.toOwnedSlice());
+            try paths.append(self.gc.allocator, try filled.toOwnedSlice());
 
-        var prefixed_filled = std.Io.Writer.Allocating.init(self.gc.allocator);
+            var prefixed_filled = std.Io.Writer.Allocating.init(self.gc.allocator);
 
-        try prefixed_filled.writer.print(
-            "{s}{s}lib{s}.{s}",
-            .{
-                path,
-                if (builtin.os.tag == .windows and !std.mem.endsWith(u8, path, "\\"))
-                    "\\"
-                else if (!std.mem.endsWith(u8, path, "/"))
-                    "/"
-                else
-                    "",
-                file_name,
-                switch (builtin.os.tag) {
-                    .linux, .freebsd, .openbsd => "so",
-                    .windows => "dll",
-                    .macos, .tvos, .watchos, .ios => "dylib",
-                    else => unreachable,
+            try prefixed_filled.writer.print(
+                "{s}{s}lib{s}.{s}",
+                .{
+                    path,
+                    if (!std.mem.endsWith(u8, path, std.fs.path.sep_str))
+                        std.fs.path.sep_str
+                    else
+                        "",
+                    candidate_name,
+                    switch (builtin.os.tag) {
+                        .linux, .freebsd, .openbsd => "so",
+                        .windows => "dll",
+                        .macos, .tvos, .watchos, .ios => "dylib",
+                        else => unreachable,
+                    },
                 },
-            },
-        );
+            );
 
-        try paths.append(
-            self.gc.allocator,
-            try prefixed_filled.toOwnedSlice(),
-        );
+            try paths.append(
+                self.gc.allocator,
+                try prefixed_filled.toOwnedSlice(),
+            );
+        }
     }
 
     return try paths.toOwnedSlice(self.gc.allocator);
@@ -9583,7 +9675,7 @@ fn importLibSymbol(
                 }
 
                 if (exists) {
-                    break :lib std.DynLib.open(path) catch null;
+                    break :lib DynLib.open(self.gc.allocator, path) catch null;
                 }
             }
             break :lib null;
@@ -9839,9 +9931,9 @@ fn zdefStatement(self: *Self) Error!Ast.Node.Index {
                     self.gc.allocator.free(paths);
                 }
 
-                var lib: ?std.DynLib = null;
+                var lib: ?DynLib = null;
                 for (paths) |path| {
-                    lib = std.DynLib.open(path) catch null;
+                    lib = DynLib.open(self.gc.allocator, path) catch null;
                     if (lib != null) {
                         break;
                     }
