@@ -4825,10 +4825,10 @@ pub const VM = struct {
             const frame_ptr = self.currentFrame();
             const frame_val = if (frame_ptr) |ptr| ptr.* else null;
             if (self.current_fiber.frame_count > 0) {
-                if (!is_wasm and frame_ptr.?.in_native_call and self.current_fiber.try_context != null) {
+                if (BuildOptions.jit and !is_wasm and frame_ptr.?.in_native_call and self.current_fiber.try_context != null) {
                     self.push(payload);
 
-                    jmp.longjmp(&self.current_fiber.try_context.?.env, 1);
+                    jmp._longjmp(&self.current_fiber.try_context.?.env, 1);
 
                     unreachable;
                 }

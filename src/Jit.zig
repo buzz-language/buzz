@@ -5580,7 +5580,7 @@ fn generateFunction(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
             .{
                 .type = m.MIR_T_P,
                 .name = @ptrCast(ctx_name.ptr),
-                .size = 0,
+                .size = undefined,
             },
         },
     );
@@ -5662,7 +5662,7 @@ fn generateHotspotFunction(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t 
             .{
                 .type = m.MIR_T_P,
                 .name = @ptrCast(ctx_name.ptr),
-                .size = 0,
+                .size = undefined,
             },
         },
     );
@@ -5805,7 +5805,7 @@ fn generateNativeFn(self: *Self, node: Ast.Node.Index, raw_fn: m.MIR_item_t) !m.
             .{
                 .type = m.MIR_T_P,
                 .name = @ptrCast(ctx_name.ptr),
-                .size = 0,
+                .size = undefined,
             },
         },
     );
@@ -6374,7 +6374,7 @@ fn buildZdefWrapper(self: *Self, zdef_element: Ast.Zdef.ZdefElement) Error!m.MIR
             .{
                 .type = m.MIR_T_P,
                 .name = @ptrCast(ctx_name.ptr),
-                .size = 0,
+                .size = undefined,
             },
         },
     );
@@ -6423,7 +6423,7 @@ fn buildZdefWrapper(self: *Self, zdef_element: Ast.Zdef.ZdefElement) Error!m.MIR
                         .{ .Void = {} },
                 ),
                 .name = "param",
-                .size = 0,
+                .size = undefined,
             },
         );
     }
@@ -6584,12 +6584,12 @@ fn buildZdefUnionGetter(
             .{
                 .type = m.MIR_T_P,
                 .name = @ptrCast(vm_name.ptr),
-                .size = 0,
+                .size = undefined,
             },
             .{
                 .type = m.MIR_T_P,
                 .name = @ptrCast(data_name.ptr),
-                .size = 0,
+                .size = undefined,
             },
         },
     );
@@ -6690,17 +6690,17 @@ fn buildZdefUnionSetter(
             .{
                 .type = m.MIR_T_P,
                 .name = @ptrCast(vm_name.ptr),
-                .size = 0,
+                .size = undefined,
             },
             .{
                 .type = m.MIR_T_P,
                 .name = @ptrCast(data_name.ptr),
-                .size = 0,
+                .size = undefined,
             },
             .{
                 .type = m.MIR_T_U64,
                 .name = @ptrCast(new_value_name.ptr),
-                .size = 0,
+                .size = undefined,
             },
         },
     );
@@ -6795,12 +6795,12 @@ fn buildZdefContainerGetter(
             .{
                 .type = m.MIR_T_P,
                 .name = @ptrCast(vm_name.ptr),
-                .size = 0,
+                .size = undefined,
             },
             .{
                 .type = m.MIR_T_P,
                 .name = @ptrCast(data_name.ptr),
-                .size = 0,
+                .size = undefined,
             },
         },
     );
@@ -6885,17 +6885,17 @@ fn buildZdefContainerSetter(
             .{
                 .type = m.MIR_T_P,
                 .name = @ptrCast(vm_name.ptr),
-                .size = 0,
+                .size = undefined,
             },
             .{
                 .type = m.MIR_T_P,
                 .name = @ptrCast(data_name.ptr),
-                .size = 0,
+                .size = undefined,
             },
             .{
                 .type = m.MIR_T_U64,
                 .name = @ptrCast(new_value_name.ptr),
-                .size = 0,
+                .size = undefined,
             },
         },
     );

@@ -1144,10 +1144,10 @@ export fn bz_rethrow(vm: *VM) callconv(.c) void {
     }
 
     // Are we in a JIT compiled function and within a try-catch?
-    if ((vm.currentFrame() == null or vm.currentFrame().?.in_native_call) and vm.current_fiber.try_context != null) {
+    if (BuildOptions.jit and (vm.currentFrame() == null or vm.currentFrame().?.in_native_call) and vm.current_fiber.try_context != null) {
         // FIXME: close try scope
 
-        jmp.longjmp(&vm.current_fiber.try_context.?.env, 1);
+        jmp._longjmp(&vm.current_fiber.try_context.?.env, 1);
 
         unreachable;
     }
