@@ -9,13 +9,12 @@ fun willFailVoid() > void !> str {
     throw "i'm failing";
 }
 
-// fun willSucceed() > int !> str {
-//     return 42;
-// }
-
+fun willSucceed() > int !> str {
+    return 42;
+}
 
 test "Inline catch clauses" {
-    // std\assert((willSucceed() catch 0) == 42, message: "successful value");
+    std\assert((willSucceed() catch 0) == 42, message: "successful value");
     std\assert((willFail() catch 0) == 0, message: "error or default value");
 }
 

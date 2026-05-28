@@ -8,14 +8,13 @@ fun dynamicIncViaFiber(value: int) > int {
     return resolve &dynamicInc(value);
 }
 
-// fun fallibleDynamicInc(value: int) > int !> str {
-//     return value + 1;
-// }
+fun fallibleDynamicInc(value: int) > int !> str {
+    return value + 1;
+}
 
-// fun fallibleDynamicIncViaFiber(value: int) > int !> str {
-//     return resolve &fallibleDynamicInc(value);
-// }
-
+fun fallibleDynamicIncViaFiber(value: int) > int !> str {
+    return resolve &fallibleDynamicInc(value);
+}
 
 fun failDynamic(value: int) > int !> str {
     throw "failed";
@@ -61,20 +60,19 @@ test "JIT dynamic call to blacklisted closure" {
     );
 }
 
-// test "JIT dynamic call with unused catch default preserves result" {
-//     final callbacks = [ fallibleDynamicIncViaFiber ];
-//     var value = 0;
-//
-//     foreach (_ in 0..1500) {
-//         value = callDynamicWithCatch(callbacks[0], value: value);
-//     }
-//
-//     std\assert(
-//         value == 1500,
-//         message: "compiled code keeps a successful result when a catch default exists"
-//     );
-// }
+test "JIT dynamic call with unused catch default preserves result" {
+    final callbacks = [ fallibleDynamicIncViaFiber ];
+    var value = 0;
 
+    foreach (_ in 0..1500) {
+        value = callDynamicWithCatch(callbacks[0], value: value);
+    }
+
+    std\assert(
+        value == 1500,
+        message: "compiled code keeps a successful result when a catch default exists"
+    );
+}
 
 test "JIT dynamic call to blacklisted throwing closure" {
     final callbacks = [ failDynamicViaFiber ];

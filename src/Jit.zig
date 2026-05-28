@@ -2470,12 +2470,12 @@ fn generateCall(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
     self.BSTART(block);
 
     // If we have a catch value, create alloca for return value so we can replace it when error is raised
-    const return_alloca = if (has_catch_clause)
+    const catch_value_alloca = if (has_catch_clause)
         try self.REG("return_value", m.MIR_T_I64)
     else
         null;
 
-    if (return_alloca) |alloca| {
+    if (catch_value_alloca) |alloca| {
         self.ALLOCA(alloca, @sizeOf(u64));
     }
 
@@ -2488,6 +2488,20 @@ fn generateCall(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
         (try self.generateNode(value)).?
     else
         null;
+
+    if (has_catch_clause) {
+        self.MOV(
+            m.MIR_new_mem_op(
+                self.ctx,
+                m.MIR_T_U64,
+                0,
+                catch_value_alloca.?,
+                0,
+                0,
+            ),
+            catch_value.?,
+        );
+    }
 
     if (has_catch_clause) {
         const catch_label = m.MIR_new_label(self.ctx);
@@ -2533,13 +2547,6 @@ fn generateCall(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
         self.JMP(continue_label);
 
         self.append(catch_label);
-
-        // on error set return alloca with catch_value
-        // FIXME: probably not how you use the alloca, maybe use it in a mem_op
-        self.MOV(
-            m.MIR_new_reg_op(self.ctx, return_alloca.?),
-            catch_value.?,
-        );
 
         self.JMP(post_call_label.?);
 
@@ -2639,14 +2646,26 @@ fn generateCall(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
         ),
     );
 
+    const over_catch_value_label = m.MIR_new_label(self.ctx);
+    self.JMP(over_catch_value_label);
+
     if (post_call_label) |label| {
         self.append(label);
 
         self.MOV(
             m.MIR_new_reg_op(self.ctx, result),
-            m.MIR_new_reg_op(self.ctx, return_alloca.?),
+            m.MIR_new_mem_op(
+                self.ctx,
+                m.MIR_T_U64,
+                0,
+                catch_value_alloca.?,
+                0,
+                0,
+            ),
         );
     }
+
+    self.append(over_catch_value_label);
 
     self.BEND(block);
 
