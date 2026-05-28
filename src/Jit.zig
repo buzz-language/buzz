@@ -2513,6 +2513,13 @@ fn generateCall(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
     else
         null;
 
+    // Keep the catch default alive while argument evaluation and the callee can allocate.
+    // The saved stack top below must include this root so a longjmp catch path
+    // restores the stack to "catch root only", not to "empty caller stack".
+    if (catch_value) |value| {
+        try self.buildPush(value);
+    }
+
     if (has_catch_clause) {
         const catch_label = m.MIR_new_label(self.ctx);
         const continue_label = m.MIR_new_label(self.ctx);
@@ -2740,13 +2747,23 @@ fn generateCall(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
     self.BEND(block);
 
     if (function_type == .Extern) {
-        return try self.generateHandleExternReturn(
+        const extern_result = try self.generateHandleExternReturn(
             function_type_def.resolved_type.?.Function.error_types != null,
             function_type_def.resolved_type.?.Function.return_type.def_type != .Void,
             m.MIR_new_reg_op(self.ctx, result),
             function_type_def.resolved_type.?.Function.parameters.count(),
             catch_value,
         );
+
+        if (catch_value != null) {
+            try self.buildPop(null);
+        }
+
+        return extern_result;
+    }
+
+    if (catch_value != null) {
+        try self.buildPop(null);
     }
 
     return m.MIR_new_reg_op(self.ctx, result);
@@ -2775,8 +2792,10 @@ fn generateHandleExternReturn(
             const discard = try self.REG("discard", m.MIR_T_I64);
             try self.buildPop(m.MIR_new_reg_op(self.ctx, discard));
 
-            // Push catch value
-            try self.buildPush(value);
+            if (should_return) {
+                // Push catch value as the synthetic return value.
+                try self.buildPush(value);
+            }
         } else {
             try self.buildExternApiCall(
                 .bz_rethrow,

@@ -509,10 +509,6 @@ extern fn _MIR_redirect_thunk(ctx: MIR_context_t, thunk: ?*anyopaque, to: ?*anyo
 extern fn _MIR_get_wrapper(ctx: MIR_context_t, called_func: MIR_item_t, hook_address: ?*anyopaque) callconv(.c) ?*anyopaque;
 extern fn _MIR_dump_code(name: [*:0]const u8, index: c_int, code: *u8, code_len: usize) callconv(.c) void;
 
-/// Creates an operand referring to a target hard register.
-pub fn MIR_new_hard_reg_op(ctx: MIR_context_t, hard_reg: MIR_reg_t) MIR_op_t {
-    return _MIR_new_var_op(ctx, hard_reg);
-}
 pub extern fn MIR_gen_init(ctx: MIR_context_t) callconv(.c) void;
 pub extern fn MIR_gen_set_debug_file(ctx: MIR_context_t, f: ?*std.c.FILE) callconv(.c) void;
 pub extern fn MIR_gen_set_debug_level(ctx: MIR_context_t, debug_level: c_int) callconv(.c) void;

@@ -1222,20 +1222,7 @@ pub const ExternApi = enum {
             .bz_newForeignContainerInstance => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.VM.bz_newForeignContainerInstance))),
             .bz_valueTypeOf => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.Value.bz_valueTypeOf))),
             .bz_newForeignContainerFromSlice => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.VM.bz_newForeignContainerFromSlice))),
-            .setjmp => @as(
-                *anyopaque,
-                @ptrFromInt(
-                    @intFromPtr(
-                        &jmp.setjmp,
-                        // &(if (builtin.os.tag == .windows)
-                        //     jmp.__intrinsic_setjmpex
-                        // else if (builtin.os.tag == .macos or builtin.os.tag == .linux)
-                        //     jmp._setjmp
-                        // else
-                        //     jmp.setjmp),
-                    ),
-                ),
-            ),
+            .setjmp => @as(*anyopaque, @ptrFromInt(@intFromPtr(&jmp.setjmp))),
             .exit => @as(*anyopaque, @ptrFromInt(@intFromPtr(&bz_exit))),
 
             .bz_valueDump => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.Value.bz_valueDump))),

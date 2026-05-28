@@ -1,6 +1,7 @@
 const builtin = @import("builtin");
 const is_windows = builtin.os.tag == .windows;
 const is_linux = builtin.os.tag == .linux;
+const is_darwin = builtin.os.tag.isDarwin();
 
 const WindowsJmp = struct {
     /// Conservative storage for the platform C `jmp_buf`.
@@ -33,14 +34,14 @@ else
 
 pub const setjmp = if (is_windows)
     WindowsJmp.setjmp
-else if (is_linux)
+else if (is_linux or is_darwin)
     LinuxJmp._setjmp
 else
     jmp.setjmp;
 
 pub const longjmp = if (is_windows)
     WindowsJmp.longjmp
-else if (is_linux)
+else if (is_linux or is_darwin)
     LinuxJmp._longjmp
 else
     jmp.longjmp;
