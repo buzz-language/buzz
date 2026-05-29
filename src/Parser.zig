@@ -992,7 +992,7 @@ pub fn parse(self: *Self, source: []const u8, file_name: ?[]const u8, name: []co
         .{
             .tag = .Function,
             .location = 0,
-            .end_location = undefined,
+            .end_location = 0,
             .type_def = try self.gc.type_registry.getTypeDef(
                 .{
                     .def_type = .Function,
@@ -1269,6 +1269,8 @@ fn beginFrame(self: *Self, function_type: obj.ObjFunction.FunctionType, function
 fn endFrame(self: *Self) Ast.Node.Index {
     const current = self.current.?;
     const current_node = current.function_node;
+
+    self.ast.nodes.items(.end_location)[current_node] = self.current_token.? - 1;
 
     // Malformed sources can leave type annotations partially built; diagnostics
     // are enough in that state, so skip warning-only analysis while unwinding.
