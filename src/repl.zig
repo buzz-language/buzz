@@ -188,8 +188,8 @@ pub fn repl(process: std.process.Init, allocator: std.mem.Allocator) !void {
     );
     defer runner.deinit();
 
-    var stdout = io.stdoutWriter(process.io);
-    var stderr = io.stderrWriter(process.io);
+    var stdout = io.uiStdoutWriter(process.io, allocator);
+    var stderr = io.uiStderrWriter(process.io, allocator);
     printBanner(&stdout.interface, false);
 
     var buzz_history_path = std.Io.Writer.Allocating.init(allocator);

@@ -181,39 +181,8 @@ pub const ReportKind = enum {
     }
 };
 
-/// Source report drawing symbols for the current terminal family.
-pub const ReportGlyph = if (is_windows) enum(u8) {
-    file_header,
-    line_first,
-    line_last,
-    line_middle,
-    cursor_gutter,
-    underline_many,
-    underline_one,
-    underline_fill,
-    message_prefix,
-    runtime_stack_first,
-    runtime_stack_middle,
-    runtime_stack_last,
-
-    /// Returns the rendered bytes for this glyph.
-    pub fn bytes(self: @This()) []const u8 {
-        return switch (self) {
-            .file_header => "+-",
-            .line_first => "+-",
-            .line_last => "+-",
-            .line_middle => "| ",
-            .cursor_gutter => "| ",
-            .underline_many => "^",
-            .underline_one => "^",
-            .underline_fill => "~",
-            .message_prefix => "+-",
-            .runtime_stack_first => "+-",
-            .runtime_stack_middle => "|-",
-            .runtime_stack_last => "+-",
-        };
-    }
-} else enum(u8) {
+/// Source report drawing symbols.
+pub const ReportGlyph = enum(u8) {
     file_header,
     line_first,
     line_last,
@@ -301,7 +270,7 @@ pub const Report = struct {
             return reporter.reports.append(reporter.allocator, self);
         }
 
-        var writer = bz_io.stderrWriter(if (is_wasm) {} else reporter.process.io);
+        var writer = bz_io.uiStderrWriter(if (is_wasm) {} else reporter.process.io, reporter.allocator);
         try self.report(reporter, &writer.interface);
     }
 
