@@ -9232,10 +9232,10 @@ fn searchZdefLibPaths(self: *Self, file_name: []const u8) ![][]const u8 {
 
 fn readStaticScript(self: *Self, file_name: []const u8) ?[2][]const u8 {
     inline for (static_libraries.all) |library| {
-        if (std.mem.eql(u8, file_name, library.name)) {
+        if (std.mem.eql(u8, file_name, library.header.name)) {
             return [_][]const u8{
-                @embedFile("lib/" ++ library.header_path),
-                library.name,
+                @embedFile("lib/" ++ library.header.path),
+                library.header.name,
             };
         }
     }

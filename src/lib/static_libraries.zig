@@ -2,13 +2,12 @@
 
 const std = @import("std");
 const buzz_api = @import("buzz_api.zig");
+const static_headers = @import("static_headers.zig");
 
 /// Describes a statically bundled Buzz library.
 pub const Library = struct {
-    /// Name used by Buzz imports.
-    name: []const u8,
-    /// Header file installed under `lib/buzz` and embedded from `src/lib`.
-    header_path: []const u8,
+    /// Header metadata for import name and installed file path.
+    header: static_headers.Header,
     /// Native Zig implementation beside this file, when the library exposes externs.
     zig_path: ?[]const u8,
     /// Whether the native Zig implementation is available in wasm builds.
@@ -17,27 +16,27 @@ pub const Library = struct {
 
 /// Libraries bundled with the compiler and runtime.
 pub const all = [_]Library{
-    .{ .name = "buffer", .header_path = "buffer.buzz", .zig_path = "buzz_buffer.zig", .wasm_native = true },
-    .{ .name = "crypto", .header_path = "crypto.buzz", .zig_path = "buzz_crypto.zig", .wasm_native = true },
-    .{ .name = "debug", .header_path = "debug.buzz", .zig_path = "buzz_debug.zig", .wasm_native = true },
-    .{ .name = "errors", .header_path = "errors.buzz", .zig_path = null, .wasm_native = false },
-    .{ .name = "ffi", .header_path = "ffi.buzz", .zig_path = "buzz_ffi.zig", .wasm_native = false },
-    .{ .name = "fs", .header_path = "fs.buzz", .zig_path = "buzz_fs.zig", .wasm_native = false },
-    .{ .name = "gc", .header_path = "gc.buzz", .zig_path = "buzz_gc.zig", .wasm_native = true },
-    .{ .name = "http", .header_path = "http.buzz", .zig_path = "buzz_http.zig", .wasm_native = false },
-    .{ .name = "io", .header_path = "io.buzz", .zig_path = "buzz_io.zig", .wasm_native = false },
-    .{ .name = "math", .header_path = "math.buzz", .zig_path = "buzz_math.zig", .wasm_native = true },
-    .{ .name = "os", .header_path = "os.buzz", .zig_path = "buzz_os.zig", .wasm_native = false },
-    .{ .name = "serialize", .header_path = "serialize.buzz", .zig_path = "buzz_serialize.zig", .wasm_native = true },
-    .{ .name = "std", .header_path = "std.buzz", .zig_path = "buzz_std.zig", .wasm_native = true },
-    .{ .name = "test", .header_path = "testing.buzz", .zig_path = null, .wasm_native = false },
-    .{ .name = "toml", .header_path = "toml.buzz", .zig_path = null, .wasm_native = false },
+    .{ .header = static_headers.buffer, .zig_path = "buzz_buffer.zig", .wasm_native = true },
+    .{ .header = static_headers.crypto, .zig_path = "buzz_crypto.zig", .wasm_native = true },
+    .{ .header = static_headers.debug, .zig_path = "buzz_debug.zig", .wasm_native = true },
+    .{ .header = static_headers.errors, .zig_path = null, .wasm_native = false },
+    .{ .header = static_headers.ffi, .zig_path = "buzz_ffi.zig", .wasm_native = false },
+    .{ .header = static_headers.fs, .zig_path = "buzz_fs.zig", .wasm_native = false },
+    .{ .header = static_headers.gc, .zig_path = "buzz_gc.zig", .wasm_native = true },
+    .{ .header = static_headers.http, .zig_path = "buzz_http.zig", .wasm_native = false },
+    .{ .header = static_headers.io, .zig_path = "buzz_io.zig", .wasm_native = false },
+    .{ .header = static_headers.math, .zig_path = "buzz_math.zig", .wasm_native = true },
+    .{ .header = static_headers.os, .zig_path = "buzz_os.zig", .wasm_native = false },
+    .{ .header = static_headers.serialize, .zig_path = "buzz_serialize.zig", .wasm_native = true },
+    .{ .header = static_headers.std, .zig_path = "buzz_std.zig", .wasm_native = true },
+    .{ .header = static_headers.testing, .zig_path = null, .wasm_native = false },
+    .{ .header = static_headers.toml, .zig_path = null, .wasm_native = false },
 };
 
 /// Returns the library registered for a Buzz import name.
 pub fn byName(name: []const u8) ?Library {
     inline for (all) |library| {
-        if (std.mem.eql(u8, name, library.name)) {
+        if (std.mem.eql(u8, name, library.header.name)) {
             return library;
         }
     }
@@ -54,7 +53,7 @@ pub fn nativeLibraries(comptime is_wasm: bool) std.StaticStringMap(std.StaticStr
 
         for (all) |library| {
             if (hasNativeLibrary(library, is_wasm)) {
-                entries[index] = .{ library.name, nativeMethods(library) };
+                entries[index] = .{ library.header.name, nativeMethods(library) };
                 index += 1;
             }
         }
@@ -105,7 +104,7 @@ fn nativeMethods(comptime library: Library) std.StaticStringMap(buzz_api.NativeF
 
 /// Verifies a native library against its registry entry and returns its methods.
 fn checkedNativeMethods(comptime library: Library, comptime native_library: anytype) std.StaticStringMap(buzz_api.NativeFn) {
-    if (!std.mem.eql(u8, native_library.name, library.name)) {
+    if (!std.mem.eql(u8, native_library.name, library.header.name)) {
         @compileError("native library name mismatch for " ++ library.zig_path.?);
     }
 

@@ -1780,15 +1780,15 @@ fn isClientUri(text: []const u8) bool {
 
 fn staticScriptFileName(script_name: []const u8) ?[]const u8 {
     return if (static_libraries.byName(script_name)) |library|
-        library.header_path
+        library.header.path
     else
         null;
 }
 
 fn staticScriptNameFromUri(uri: []const u8) ?[]const u8 {
     inline for (static_libraries.all) |library| {
-        if (isStaticScriptUri(uri, library.header_path)) {
-            return library.name;
+        if (isStaticScriptUri(uri, library.header.path)) {
+            return library.header.name;
         }
     }
 

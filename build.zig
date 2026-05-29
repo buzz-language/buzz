@@ -1,6 +1,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const Build = std.Build;
+const static_headers = @import("src/lib/static_headers.zig");
 
 pub fn build(b: *Build) !void {
     const build_mode = b.standardOptimizeOption(.{});
@@ -84,7 +85,14 @@ pub fn build(b: *Build) !void {
         exe.initial_memory = std.wasm.page_size * 100;
         exe.max_memory = std.wasm.page_size * 1000;
     }
-    b.installArtifact(exe);
+    const install_exe = b.addInstallArtifact(exe, .{});
+    install_step.dependOn(&install_exe.step);
+    const install_buzz_headers = createBuzzHeaderInstallStep(b);
+    install_step.dependOn(install_buzz_headers);
+    const cli_step = b.step("cli", "Build and install the Buzz CLI");
+    cli_step.dependOn(&install_exe.step);
+    cli_step.dependOn(install_buzz_headers);
+
     const run_exe = b.addRunArtifact(exe);
     run_exe.step.dependOn(install_step);
     if (b.args) |args| {
@@ -372,39 +380,36 @@ pub fn build(b: *Build) !void {
             b.default_step.dependOn(&c.step);
         }
     }
+}
 
-    // Building std libraries
-    for ([_][]const u8{
-        "buffer",
-        "crypto",
-        "debug",
-        "errors",
-        "ffi",
-        "fs",
-        "gc",
-        "http",
-        "io",
-        "math",
-        "os",
-        "serialize",
-        "std",
-        "testing",
-        "toml",
-    }) |library| {
-        const step = b.addInstallLibFile(
+/// Creates an internal step that installs all Buzz std headers.
+fn createBuzzHeaderInstallStep(b: *Build) *Build.Step {
+    const step = b.allocator.create(Build.Step) catch @panic("OOM");
+    step.* = Build.Step.init(
+        .{
+            .id = .custom,
+            .name = "install buzz headers",
+            .owner = b,
+        },
+    );
+
+    for (static_headers.all) |header| {
+        const install_header = b.addInstallLibFile(
             b.path(
                 b.fmt(
-                    "src/lib/{s}.buzz",
-                    .{library},
+                    "src/lib/{s}",
+                    .{header.path},
                 ),
             ),
             b.fmt(
-                "buzz/{s}.buzz",
-                .{library},
+                "buzz/{s}",
+                .{header.path},
             ),
         );
-        install_step.dependOn(&step.step);
+        step.dependOn(&install_header.step);
     }
+
+    return step;
 }
 
 pub fn buildPcre2(b: *Build, target: Build.ResolvedTarget, optimize: std.builtin.OptimizeMode) !*Build.Step.Compile {
