@@ -62,6 +62,54 @@ pub fn printBanner(out: *std.Io.Writer, full: bool) void {
     }
 }
 
+fn refreshHighlightedLine(
+    allocator: std.mem.Allocator,
+    out: *std.Io.Writer,
+    state: *ln.linenoiseState,
+    true_color: bool,
+) !void {
+    // Keep Buzz's redraw atomic from the terminal's point of view so raw
+    // linenoise cursor movement is not visible between highlight passes.
+    var refresh = std.Io.Writer.Allocating.init(allocator);
+    defer refresh.deinit();
+
+    // Match linenoise single-line scrolling: leave room for the prompt,
+    // shift right only when the cursor would hit the terminal edge, and
+    // render no more than the visible input window.
+    const cols = @max(state.cols, state.plen + 1);
+    const visible_capacity = cols - state.plen;
+    const visible_start = if (state.pos >= visible_capacity)
+        state.pos - visible_capacity + 1
+    else
+        0;
+    const visible_len = @min(state.len - visible_start, visible_capacity);
+    const visible_pos = state.pos - visible_start;
+
+    const state_prompt = std.mem.span(state.prompt);
+    const visible_source = state.buf[visible_start..][0..visible_len];
+
+    try refresh.writer.writeAll("\r");
+    try refresh.writer.writeAll(state_prompt);
+
+    var scanner = Scanner.init(
+        allocator,
+        "REPL",
+        visible_source,
+    );
+    scanner.highlight(&refresh.writer, true_color);
+
+    try refresh.writer.writeAll("\x1b[0K");
+
+    const cursor_column = @min(state.plen + visible_pos, cols - 1);
+    if (cursor_column > 0) {
+        try refresh.writer.print("\r\x1b[{}C", .{cursor_column});
+    } else {
+        try refresh.writer.writeAll("\r");
+    }
+
+    try out.writeAll(refresh.written());
+}
+
 fn readHighlightedLine(
     allocator: std.mem.Allocator,
     out: *std.Io.Writer,
@@ -80,14 +128,20 @@ fn readHighlightedLine(
         }
     }
 
+    var null_file = std.Io.Dir.openFileAbsolute(process.io, "/dev/null", .{ .mode = .write_only }) catch {
+        return ln.linenoise(prompt);
+    };
+    defer null_file.close(process.io);
+
     var buffer: [linenoise_max_line]u8 = undefined;
     var state: ln.linenoiseState = undefined;
     // Enter linenoise nonblocking edit mode; it owns raw terminal state and
-    // mutates `state`/`buffer` as keys arrive.
+    // mutates `state`/`buffer` as keys arrive. Its own rendering is pointed at
+    // /dev/null so only the highlighted Buzz refresh reaches the terminal.
     if (ln.linenoiseEditStart(
         &state,
         -1,
-        -1,
+        null_file.handle,
         buffer[0..].ptr,
         buffer.len,
         prompt,
@@ -97,6 +151,8 @@ fn readHighlightedLine(
     // Leave raw edit mode and restore the terminal.
     defer ln.linenoiseEditStop(&state);
 
+    refreshHighlightedLine(allocator, out, &state, true_color) catch unreachable;
+
     while (true) {
         // Consume one key sequence. `linenoiseEditMore` means keep editing;
         // any other non-null pointer is the submitted NUL-terminated line.
@@ -105,41 +161,7 @@ fn readHighlightedLine(
             return result;
         }
 
-        ln.linenoiseHide(&state);
-
-        // Match linenoise single-line scrolling: leave room for the prompt,
-        // shift right only when the cursor would hit the terminal edge, and
-        // render no more than the visible input window.
-        const cols = @max(state.cols, state.plen + 1);
-        const visible_capacity = cols - state.plen;
-        const visible_start = if (state.pos >= visible_capacity)
-            state.pos - visible_capacity + 1
-        else
-            0;
-        const visible_len = @min(state.len - visible_start, visible_capacity);
-        const visible_pos = state.pos - visible_start;
-
-        const state_prompt = std.mem.span(state.prompt);
-        const visible_source = state.buf[visible_start..][0..visible_len];
-
-        out.writeAll("\r") catch unreachable;
-        out.writeAll(state_prompt) catch unreachable;
-
-        var scanner = Scanner.init(
-            allocator,
-            "REPL",
-            visible_source,
-        );
-        scanner.highlight(out, true_color);
-
-        out.writeAll("\x1b[0K") catch unreachable;
-
-        const cursor_column = @min(state.plen + visible_pos, cols - 1);
-        if (cursor_column > 0) {
-            out.print("\r\x1b[{}C", .{cursor_column}) catch unreachable;
-        } else {
-            out.writeAll("\r") catch unreachable;
-        }
+        refreshHighlightedLine(allocator, out, &state, true_color) catch unreachable;
     }
 }
 
