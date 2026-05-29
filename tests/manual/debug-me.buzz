@@ -1,7 +1,15 @@
 import "std";
 
-object Payload {
+protocol Sum {
+    fun sum() > int;
+}
+
+object<Sum> Payload {
     data: [int],
+
+    static fun init() => Payload{
+        data = [],
+    };
 
     fun sum() > int {
         var sum = 0;
@@ -11,6 +19,13 @@ object Payload {
 
         return sum;
     }
+}
+
+enum Lang {
+    french,
+    english,
+    englush,
+    russian,
 }
 
 fun stack2(n: int) > str {
@@ -45,9 +60,15 @@ fun main() > void {
     };
 
     _ = stack1(42);
-    final sum = Payload{
+    final payload = Payload{
         data = list,
     };
 
-    std\print("Hello world {sum.sum()}");
+    final range = 0..10;
+
+    final prot: Sum = Payload{
+        data = list,
+    };
+
+    std\print("Hello world {payload.sum()}");
 }
