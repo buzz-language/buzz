@@ -6467,7 +6467,7 @@ fn function(
                 self.current_token.? - 2 // -2 to start at the .Fun token
             else
                 self.current_token.? - 1,
-            .end_location = undefined,
+            .end_location = self.current_token.? - 1,
             .type_def = null,
             .components = .{
                 .FunctionType = .{
@@ -6488,7 +6488,7 @@ fn function(
         .{
             .tag = .Function,
             .location = self.current_token.? - 1,
-            .end_location = undefined,
+            .end_location = self.current_token.? - 1,
             .components = .{
                 .Function = .{
                     .id = Ast.Function.nextId(),

@@ -430,12 +430,12 @@ const Document = struct {
             node: Ast.Node.Index,
         ) (std.mem.Allocator.Error || std.fmt.BufPrintError)!bool {
             const locations = ast.nodes.items(.location);
-            const location = ast.tokens.get(locations[node]);
             const end_locations = ast.nodes.items(.end_location);
+            const location = ast.tokens.get(locations[node]);
             const end_location = ast.tokens.get(end_locations[node]);
             const script_names = ast.tokens.items(.script_name);
 
-            // Ignore root node and imports
+            // Ignore root node
             if (locations[node] == 0) {
                 return false;
             }
@@ -451,6 +451,51 @@ const Document = struct {
                 self.position.line > end_location.line or
                 (self.position.line == end_location.line and self.position.character + 1 > end_location.column + end_location.lexeme.len) or
                 (self.position.line == location.line and self.position.character + 1 < location.column))
+            {
+                return true;
+            }
+
+            // Otherwise this node is a candidate: continue deeper for a more narrow match
+            self.result = node;
+
+            return false;
+        }
+    };
+
+    const NodeWithinRangeContext = struct {
+        result: ?Ast.Node.Index = null,
+        /// URI of the client document being searched.
+        uri: []const u8,
+        range: lsp.types.Range,
+
+        pub fn processNode(
+            self: *NodeWithinRangeContext,
+            _: std.mem.Allocator,
+            ast: Ast.Slice,
+            node: Ast.Node.Index,
+        ) (std.mem.Allocator.Error || std.fmt.BufPrintError)!bool {
+            const locations = ast.nodes.items(.location);
+            const end_locations = ast.nodes.items(.end_location);
+            const location = ast.tokens.get(locations[node]);
+            const end_location = ast.tokens.get(end_locations[node]);
+            const script_names = ast.tokens.items(.script_name);
+
+            // Ignore root node
+            if (locations[node] == 0) {
+                return false;
+            }
+
+            // Walking from the document root must only visit document-local
+            // nodes. Imported scripts share the backing token/node lists, so
+            // assert the parser did not attach an imported token to this range.
+            std.debug.assert(std.mem.eql(u8, script_names[locations[node]], self.uri));
+            std.debug.assert(std.mem.eql(u8, script_names[end_locations[node]], self.uri));
+
+            // If outside of the node range, don't go deeper
+            if (self.range.start.line < location.line or
+                self.range.end.line > end_location.line or
+                (self.range.end.line == end_location.line and self.range.end.character + 1 > end_location.column + end_location.lexeme.len) or
+                (self.range.start.line == location.line and self.range.start.character + 1 < location.column))
             {
                 return true;
             }
@@ -502,6 +547,103 @@ const Document = struct {
         }
 
         return nodeEntry.value_ptr.*;
+    }
+
+    pub fn nodeWithinRange(self: *Document, range: lsp.types.Range) !?Ast.Node.Index {
+        if (self.ast.root == null) {
+            return null;
+        }
+
+        const allocator = self.arena.allocator();
+
+        var node_ctx = NodeWithinRangeContext{
+            .uri = self.uri,
+            .range = range,
+        };
+
+        self.ast.slice().walk(
+            allocator,
+            &node_ctx,
+            self.ast.root.?,
+            .breadthFirst,
+        ) catch |err| {
+            log.err("nodeWithinRange: {any}", .{err});
+        };
+
+        if (node_ctx.result) |res| {
+            log.debug(
+                "Found node {} {s} withing range [{}:{} .. {}:{}]",
+                .{
+                    res,
+                    @tagName(self.ast.nodes.items(.tag)[res]),
+                    range.start.line,
+                    range.start.character,
+                    range.end.line,
+                    range.end.character,
+                },
+            );
+
+            return res;
+        }
+
+        return null;
+    }
+
+    fn isRangeWithinNode(self: *Document, node: Ast.Node.Index, range: lsp.types.Range) bool {
+        const locations = self.ast.nodes.items(.location);
+        const location_idx = locations[node];
+        const end_locations = self.ast.nodes.items(.end_location);
+        const end_location_idx = end_locations[node];
+
+        const location = self.ast.tokens.get(location_idx);
+        const end_location = self.ast.tokens.get(end_location_idx);
+
+        return (range.start.line >= location.line and
+            range.end.line <= end_location.line and
+            (range.end.line != end_location.line or range.end.character + 1 <= end_location.column + end_location.lexeme.len) and
+            (range.start.line != location.line or range.start.character + 1 >= location.column));
+    }
+
+    fn isNodeWithinOtherNode(self: *Document, node: Ast.Node.Index, other: Ast.Node.Index) bool {
+        const locations = self.ast.nodes.items(.location);
+        const end_locations = self.ast.nodes.items(.end_location);
+
+        const node_start = self.ast.tokens.get(locations[node]);
+        const node_end = self.ast.tokens.get(end_locations[node]);
+
+        const other_start = self.ast.tokens.get(locations[other]);
+        const other_end = self.ast.tokens.get(end_locations[other]);
+
+        return node_start.line >= other_start.line and
+            node_end.line <= other_end.line and
+            (node_end.line != other_end.line or node_end.column <= other_end.column + other_end.lexeme.len) and
+            (node_start.line != other_start.line or node_start.column >= other_start.column);
+    }
+
+    /// Search for a node within the givent range not by walking the AST but by iterating over the nodes list
+    /// A normal walk would miss nodes that were not added to the tree because of a parsing error
+    pub fn findNodeContainingRange(self: *Document, range: lsp.types.Range) ?Ast.Node.Index {
+        const locations = self.ast.nodes.items(.location);
+        const script_names = self.ast.tokens.items(.script_name);
+
+        var result: ?Ast.Node.Index = null;
+        for (locations, 0..) |location_idx, node| {
+            if (node == 0 or !std.mem.eql(u8, script_names[location_idx], self.uri)) {
+                continue;
+            }
+
+            result = if (result) |previous|
+                if (self.isNodeWithinOtherNode(@intCast(node), previous) and self.isRangeWithinNode(@intCast(node), range))
+                    @intCast(node)
+                else
+                    result
+            else if (self.isRangeWithinNode(@intCast(node), range))
+                @intCast(node)
+            else
+                null;
+        }
+
+        return result;
     }
 
     pub fn definition(self: *Document, node: Ast.Node.Index) !?Definition {
@@ -1282,6 +1424,226 @@ const Handler = struct {
         return null;
     }
 
+    fn dotCompletion(
+        document: *Document,
+        allocator: std.mem.Allocator,
+        result: *std.ArrayList(lsp.types.completion.Item),
+        completion_prefix: CompletionPrefix,
+    ) !bool {
+        const before = result.items.len;
+
+        // Is there partial or complete dot expression to complete?
+        const tags = document.ast.nodes.items(.tag);
+        const components = document.ast.nodes.items(.components);
+
+        var dot_callee: ?Ast.Node.Index = null;
+        var at_dot = false;
+
+        // If there was no error, we have a clean AST to work with
+        if (document.errors.len == 0) {
+            if (std.mem.endsWith(u8, completion_prefix.text, ".")) {
+                // The node just before must be the callee of a dot expression
+                at_dot = true;
+            } else if (try document.nodeWithinRange(completion_prefix.range)) |dot_node| {
+                // Otherwise we must be on a dot node
+
+                log.debug("Found {s} node under cursor at completion", .{@tagName(tags[dot_node])});
+                if (tags[dot_node] == .Dot) {
+                    // const dot = components[dot_node].Dot;
+
+                    log.debug("Found dot node under cursor at completion", .{});
+                }
+            }
+        } else { // Otherwise we don't search nodes by walking the AST which might miss nodes appended before errors
+            // Are we just after a `.`
+            if (std.mem.endsWith(u8, completion_prefix.text, ".")) {
+                at_dot = true;
+                if (document.findNodeContainingRange(
+                    .{
+                        .start = completion_prefix.range.start,
+                        .end = .{
+                            .line = completion_prefix.range.end.line,
+                            .character = completion_prefix.range.end.character - 1,
+                        },
+                    },
+                )) |node| {
+                    dot_callee = node;
+                }
+                // Else search for a dot node (so the completion must be at something like `callee.completeM|`)
+            } else if (document.findNodeContainingRange(completion_prefix.range)) |node| {
+                if (tags[node] == .Dot) {
+                    dot_callee = components[node].Dot.callee;
+                }
+            }
+        }
+
+        if (dot_callee) |callee| {
+            if (document.ast.nodes.items(.type_def)[callee]) |callee_type_def| {
+                // Adjust prefix: we only want to filter from the `.`
+                const prefix = if (at_dot)
+                    CompletionPrefix{
+                        .range = .{
+                            .start = .{
+                                .line = completion_prefix.range.end.line,
+                                .character = completion_prefix.range.end.character,
+                            },
+                            .end = completion_prefix.range.end,
+                        },
+                        .text = "",
+                    }
+                else if (std.mem.indexOf(u8, completion_prefix.text, ".")) |dot_idx|
+                    CompletionPrefix{
+                        .range = .{
+                            .start = .{
+                                .line = completion_prefix.range.start.line,
+                                .character = completion_prefix.range.start.character + @as(u32, @intCast(dot_idx)) + 1,
+                            },
+                            .end = completion_prefix.range.end,
+                        },
+                        .text = completion_prefix.text[dot_idx + 1 ..],
+                    }
+                else
+                    completion_prefix; // Should not really be used because it means it's not a dot completion
+
+                log.debug(
+                    "Possible callee of type {s} with prefix {s}",
+                    .{
+                        @tagName(callee_type_def.def_type),
+                        prefix.text,
+                    },
+                );
+
+                switch (callee_type_def.def_type) {
+                    .List => {
+                        for (o.ObjList.members_name.keys()) |key| {
+                            try appendCompletionItem(
+                                result,
+                                allocator,
+                                key,
+                                prefix,
+                            );
+                        }
+                    },
+                    .Map => {
+                        for (o.ObjMap.members_name.keys()) |key| {
+                            try appendCompletionItem(
+                                result,
+                                allocator,
+                                key,
+                                prefix,
+                            );
+                        }
+                    },
+                    .String => {
+                        for (o.ObjString.members_name.keys()) |key| {
+                            try appendCompletionItem(
+                                result,
+                                allocator,
+                                key,
+                                prefix,
+                            );
+                        }
+                    },
+                    .Range => {
+                        for (o.ObjRange.members_name.keys()) |key| {
+                            try appendCompletionItem(
+                                result,
+                                allocator,
+                                key,
+                                prefix,
+                            );
+                        }
+                    },
+                    .Pattern => {
+                        for (o.ObjPattern.members_name.keys()) |key| {
+                            try appendCompletionItem(
+                                result,
+                                allocator,
+                                key,
+                                prefix,
+                            );
+                        }
+                    },
+                    .Fiber => {
+                        for (o.ObjFiber.members_name.keys()) |key| {
+                            try appendCompletionItem(
+                                result,
+                                allocator,
+                                key,
+                                prefix,
+                            );
+                        }
+                    },
+                    .Object => {
+                        var it = callee_type_def.resolved_type.?.Object.fields.iterator();
+                        while (it.next()) |kv| {
+                            if (kv.value_ptr.*.static) {
+                                try appendCompletionItem(
+                                    result,
+                                    allocator,
+                                    kv.key_ptr.*,
+                                    prefix,
+                                );
+                            }
+                        }
+                    },
+                    .ObjectInstance => {
+                        var it = callee_type_def.resolved_type.?.ObjectInstance.of.resolved_type.?.Object.fields.iterator();
+                        while (it.next()) |kv| {
+                            if (!kv.value_ptr.*.static) {
+                                try appendCompletionItem(
+                                    result,
+                                    allocator,
+                                    kv.key_ptr.*,
+                                    prefix,
+                                );
+                            }
+                        }
+                    },
+                    .ProtocolInstance => {
+                        for (callee_type_def.resolved_type.?.ProtocolInstance.of.resolved_type.?.Protocol.methods.keys()) |key| {
+                            try appendCompletionItem(
+                                result,
+                                allocator,
+                                key,
+                                prefix,
+                            );
+                        }
+                    },
+                    .ForeignContainer => {
+                        for (callee_type_def.resolved_type.?.ForeignContainer.fields.keys()) |key| {
+                            try appendCompletionItem(
+                                result,
+                                allocator,
+                                key,
+                                prefix,
+                            );
+                        }
+                    },
+                    .EnumInstance => try appendCompletionItem(
+                        result,
+                        allocator,
+                        "value",
+                        prefix,
+                    ),
+                    .Enum => {
+                        for (callee_type_def.resolved_type.?.Enum.cases) |key| {
+                            try appendCompletionItem(
+                                result,
+                                allocator,
+                                key,
+                                prefix,
+                            );
+                        }
+                    },
+                    else => {},
+                }
+            }
+        }
+
+        return result.items.len > before;
+    }
+
     pub fn @"textDocument/completion"(
         self: Handler,
         allocator: std.mem.Allocator,
@@ -1305,55 +1667,62 @@ const Handler = struct {
                 cursor_offset,
             );
 
-            // Globals and keyword completion items
-            for (document.completion_labels.keys()) |label| {
-                try appendCompletionItem(
+            // TODO: field completion in object init
+
+            // Try dot completioni
+            if (completion_prefix == null or
+                !(try dotCompletion(
+                    document,
+                    allocator,
                     &result,
-                    allocator,
-                    label,
-                    completion_prefix,
-                );
-            }
+                    completion_prefix.?,
+                )))
+            { // Else add global and locals
+                // Globals and keyword completion items
+                for (document.completion_labels.keys()) |label| {
+                    try appendCompletionItem(
+                        &result,
+                        allocator,
+                        label,
+                        completion_prefix,
+                    );
+                }
 
-            // Locals reachable at that offset in the source
-            var local_labels = std.StringArrayHashMapUnmanaged(void).empty;
-            defer local_labels.deinit(allocator);
+                // Locals reachable at that offset in the source
+                var local_labels = std.StringArrayHashMapUnmanaged(void).empty;
+                defer local_labels.deinit(allocator);
 
-            if (document.ast.root) |root| {
-                const ast = document.ast.slice();
-                const tags = ast.nodes.items(.tag);
-                const components = ast.nodes.items(.components);
-                const lexemes = ast.tokens.items(.lexeme);
+                if (document.ast.root) |root| {
+                    const ast = document.ast.slice();
+                    const tags = ast.nodes.items(.tag);
+                    const components = ast.nodes.items(.components);
+                    const lexemes = ast.tokens.items(.lexeme);
 
-                for (try ast.visibleSymbolsAtOffset(
-                    allocator,
-                    root,
-                    cursor_offset,
-                )) |symbol_node| {
-                    if (tags[symbol_node] == .VarDeclaration) {
-                        const decl = components[symbol_node].VarDeclaration;
-                        const label = lexemes[decl.name];
+                    for (try ast.visibleSymbolsAtOffset(
+                        allocator,
+                        root,
+                        cursor_offset,
+                    )) |symbol_node| {
+                        if (tags[symbol_node] == .VarDeclaration) {
+                            const decl = components[symbol_node].VarDeclaration;
+                            const label = lexemes[decl.name];
 
-                        if (document.completion_labels.getIndex(label) != null or
-                            (try local_labels.getOrPut(allocator, label)).found_existing)
-                        {
-                            continue;
+                            if (document.completion_labels.getIndex(label) != null or
+                                (try local_labels.getOrPut(allocator, label)).found_existing)
+                            {
+                                continue;
+                            }
+
+                            try appendCompletionItem(
+                                &result,
+                                allocator,
+                                label,
+                                completion_prefix,
+                            );
                         }
-
-                        try appendCompletionItem(
-                            &result,
-                            allocator,
-                            label,
-                            completion_prefix,
-                        );
                     }
                 }
             }
-
-            // If after a `.`, complete we member
-
-            // Do we already have Dot node under the cursor (meaning we're at something like `callee.me|  `)
-            // Else find the node living just before `.` and treat it as the callee
         }
 
         return .{
@@ -1693,6 +2062,7 @@ fn completionPrefixAtOffset(
 /// Returns whether a token can be part of a typed completion prefix.
 fn isCompletionPrefixToken(tag: Token.Tag, lexeme: []const u8) bool {
     return tag == .AntiSlash or
+        tag == .Dot or
         tag == .Identifier or
         Token.keywords.get(lexeme) != null;
 }
