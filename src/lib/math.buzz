@@ -3,86 +3,83 @@ namespace math;
 import "errors";
 
 /// @return absolute value of n
-extern fun abs(n: double) > double;
+export extern fun abs(n: double) > double;
 
 /// @return acos of n
-extern fun acos(n: double) > double;
+export extern fun acos(n: double) > double;
 
 /// @return asin of n
-extern fun asin(n: double) > double;
+export extern fun asin(n: double) > double;
 
 /// @return atan of n
-extern fun atan(n: double) > double;
+export extern fun atan(n: double) > double;
 
 /// @return ceiled n
-extern fun bzceil(n: double) > int;
+export extern fun bzceil(n: double) > int;
 
 /// @return cos of n
-extern fun bzcos(n: double) > double;
-
+export extern fun bzcos(n: double) > double;
 /// π
 final pi: double = 3.1415926535898;
 
 /// Convert radian to degree
-fun deg(n: double) > double {
+export fun deg(n: double) > double {
     return n * 180.0 / pi;
 }
 
 /// @return exp of n
-extern fun bzexp(n: double) > double;
+export extern fun bzexp(n: double) > double;
 
 /// @returned floored n
-extern fun bzfloor(n: double) > int;
+export extern fun bzfloor(n: double) > int;
 
 /// @return log(base) of n
-extern fun bzlog(base: double, n: double) > double;
+export extern fun bzlog(base: double, n: double) > double;
 
 /// @return max of a and b
-extern fun maxDouble(a: double, b: double) > double;
+export extern fun maxDouble(a: double, b: double) > double;
 
 /// @return min of a and b
-extern fun minDouble(a: double, b: double) > double;
+export extern fun minDouble(a: double, b: double) > double;
 
 /// @return max of a and b
-extern fun maxInt(a: int, b: int) > int;
+export extern fun maxInt(a: int, b: int) > int;
 
 /// @return min of a and b
-extern fun minInt(a: int, b: int) > int;
+export extern fun minInt(a: int, b: int) > int;
 
 /// Convert degree to radian
-fun rad(n: double) > double {
+export fun rad(n: double) > double {
     return n * pi / 180.0;
 }
 
 /// @return sin of n
-extern fun bzsin(n: double) > double;
+export extern fun bzsin(n: double) > double;
 
 /// @return square root of n
-extern fun bzsqrt(n: double) > double;
+export extern fun bzsqrt(n: double) > double;
 
 /// @return tan of n
-extern fun bztan(n: double) > double;
+export extern fun bztan(n: double) > double;
 
 /// @return `x`^`y`
-extern fun pow(x: double, y: double) > double !> errors\OverflowError, errors\UnderflowError;
+export extern fun pow(
+    x: double,
+    y: double
+) > double !> errors\OverflowError, errors\UnderflowError;
 
-export abs;
-export acos;
-export asin;
-export atan;
 export bzsqrt as sqrt;
+
 export bzceil as ceil;
+
 export bzcos as cos;
-export deg;
+
 export bzexp as exp;
+
 export bzfloor as floor;
+
 export bzlog as log;
-export minDouble;
-export maxDouble;
-export minInt;
-export maxInt;
-export pi;
-export rad;
+
 export bzsin as sin;
+
 export bztan as tan;
-export pow;

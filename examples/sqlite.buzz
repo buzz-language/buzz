@@ -212,9 +212,10 @@ export object Statement {
             final columnCount = sqlite3_column_count(this.stmt);
             final row: mut [any] = mut [];
             for (i: int = 0; i < columnCount; i = i + 1) {
-                final columnType: Type = Type(
-                    sqlite3_column_type(this.stmt, col: i)
-                ) ?? .Null;
+                final columnType: Type = Type(sqlite3_column_type(
+                    this.stmt,
+                    col: i
+                )) ?? .Null;
 
                 if (columnType == .Integer) {
                     row.append(sqlite3_column_int(this.stmt, col: i));
@@ -229,8 +230,8 @@ export object Statement {
                 }
             }
 
-            final boxedRow = (Boxed.init(row.cloneImmutable()) catch void)
-                .listValue();
+            final boxedRow =
+                (Boxed.init(row.cloneImmutable()) catch void).listValue();
             rows.append(boxedRow);
 
             _ = yield boxedRow;
@@ -317,14 +318,12 @@ export object SQLite {
         final buffer = buffer\Buffer.init();
         buffer.writeUserData(std\toUd(0)) catch void;
 
-        final code = ResultCode(
-            sqlite3_open_v2(
-                filename: ffi\cstr(filename),
-                ppDb: buffer.ptr(),
-                flags: cFlags,
-                zVfs: null
-            )
-        ) ?? .Error;
+        final code = ResultCode(sqlite3_open_v2(
+            filename: ffi\cstr(filename),
+            ppDb: buffer.ptr(),
+            flags: cFlags,
+            zVfs: null
+        )) ?? .Error;
 
         if (code != .Ok) {
             throw SQLiteError{
@@ -355,14 +354,14 @@ test "Testing sqlite" {
     _ = statement.execute();
 
     foreach (name in [ "john", "joe", "janet", "joline" ]) {
-        _ = Query{}.insertInto("test", columns: [ "name" ]).values(
-            [ "'{name}'" ]
-        ).execute(database);
+        _ =
+            Query{}.insertInto("test", columns: [ "name" ]).values(
+                [ "'{name}'" ]
+            ).execute(database);
     }
 
-    final select = Query{}.select([ "rowid", "name" ]).@"from"("test").prepare(
-        database
-    );
+    final select =
+        Query{}.select([ "rowid", "name" ]).@"from"("test").prepare(database);
 
     foreach (row in &select.execute()) {
         std\print("{row?[0].integerValue()}: {row?[1].stringValue()}");

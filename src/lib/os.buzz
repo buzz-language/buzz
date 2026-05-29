@@ -28,22 +28,54 @@ export buzzExit as exit;
 /// Execute command and return its exit code
 /// @param command command to execute
 /// @return exit code of the command
-export extern fun execute(command: [str]) > int !> errors\FileSystemError, errors\ExecError, errors\UnexpectedError;
+export extern fun execute(
+    command: [str]
+) > int !> errors\FileSystemError, errors\ExecError, errors\UnexpectedError;
 
 /// @private
-extern fun SocketConnect(address: str, port: int, netProtocol: int) > int !> errors\InvalidArgumentError, errors\SocketError, errors\FileSystemError, errors\NotYetImplementedError, errors\UnexpectedError;
+extern fun SocketConnect(
+    address: str,
+    port: int,
+    netProtocol: int
+) > int
+    !>
+    errors\InvalidArgumentError,
+    errors\SocketError,
+    errors\FileSystemError,
+    errors\NotYetImplementedError,
+    errors\UnexpectedError;
+
 /// @private
 extern fun SocketClose(fd: int) > void;
+
 /// @private
-extern fun SocketRead(fd: int, n: int) > str? !> errors\InvalidArgumentError, errors\ReadWriteError;
+extern fun SocketRead(
+    fd: int,
+    n: int
+) > str? !> errors\InvalidArgumentError, errors\ReadWriteError;
+
 /// @private
 extern fun SocketWrite(fd: int, bytes: str) > void !> errors\ReadWriteError;
+
 /// @private
-extern fun SocketServerStart(address: str, port: int, reuseAddr: bool) > int !> errors\InvalidArgumentError, errors\SocketError, errors\UnexpectedError;
+extern fun SocketServerStart(
+    address: str,
+    port: int,
+    reuseAddr: bool
+) > int
+    !> errors\InvalidArgumentError, errors\SocketError, errors\UnexpectedError;
+
 /// @private
-extern fun SocketServerAccept(fd: int) > int !> errors\SocketError, errors\UnexpectedError;
+extern fun SocketServerAccept(
+    fd: int
+) > int !> errors\SocketError, errors\UnexpectedError;
+
 /// @private
-extern fun SocketReadLine(fd: int, maxSize: int?) > str? !> errors\ReadWriteError;
+extern fun SocketReadLine(
+    fd: int,
+    maxSize: int?
+) > str? !> errors\ReadWriteError;
+
 /// @private
 extern fun SocketReadAll(fd: int, maxSize: int?) > str? !> errors\ReadWriteError;
 
@@ -64,11 +96,18 @@ export object Socket {
     /// @param port Port to which to connect
     /// @param protocol Protocol to use
     /// @return A new `Socket` opened and ready to use
-    static fun connect(address: str, port: int = 0, netProtocol: SocketProtocol) > Socket !> errors\InvalidArgumentError, errors\SocketError, errors\FileSystemError, errors\NotYetImplementedError, errors\UnexpectedError {
-        return Socket{
-            fd = SocketConnect(address, port: port, netProtocol: netProtocol.value),
-        };
-    }
+    static fun connect(
+        address: str,
+        port: int = 0,
+        netProtocol: SocketProtocol
+    ) !>
+        errors\InvalidArgumentError,
+        errors\SocketError,
+        errors\FileSystemError,
+        errors\NotYetImplementedError,
+        errors\UnexpectedError => Socket{
+        fd = SocketConnect(address, port: port, netProtocol: netProtocol.value),
+    };
 
     /// Close the socket
     fun close() > void {
@@ -78,7 +117,9 @@ export object Socket {
     /// Receive at most `n` bytes from the socket
     /// @param n How many bytes we're prepare to receive
     /// @return The bytes received or null if nothing to read
-    fun receive(n: int) > str? !> errors\InvalidArgumentError, errors\ReadWriteError {
+    fun receive(
+        n: int
+    ) > str? !> errors\InvalidArgumentError, errors\ReadWriteError {
         return SocketRead(this.fd, n: n);
     }
 
@@ -113,18 +154,16 @@ export object TcpServer {
     /// @param port Port to listen on
     /// @param reuseAddr Wether we want to accept multiple connections
     /// @return New `TcpServer` bound to `<address>:<port>`
-    static fun init(address: str, port: int, reuseAddr: bool)
-        > TcpServer
-        !> errors\SocketError,
-           errors\UnexpectedError,
-           errors\InvalidArgumentError {
-        return TcpServer{
-            serverSocket = Socket{
-                fd = SocketServerStart(address, port: port, reuseAddr: reuseAddr),
-            },
-            reuseAddr = reuseAddr,
-        };
-    }
+    static fun init(
+        address: str,
+        port: int,
+        reuseAddr: bool
+    ) !> errors\SocketError, errors\UnexpectedError, errors\InvalidArgumentError => TcpServer{
+        serverSocket = Socket{
+            fd = SocketServerStart(address, port: port, reuseAddr: reuseAddr),
+        },
+        reuseAddr = reuseAddr,
+    };
 
     /// Accept a new connection
     /// @return Socket opened with the client
@@ -139,7 +178,3 @@ export object TcpServer {
         this.serverSocket.close();
     }
 }
-
-export SocketProtocol;
-export Socket;
-export TcpServer;

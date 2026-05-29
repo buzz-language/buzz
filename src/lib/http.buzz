@@ -72,18 +72,40 @@ export enum<str> Method {
 
 /// @private
 extern fun HttpClientNew() > ud !> HttpError;
+
 /// @private
 extern fun HttpClientDeinit(client: ud) > void;
+
 /// @private
-extern fun HttpClientSend(client: ud, method: Method, uri: str, headers: {str: str}, body: str?) > ud !> HttpError, errors\SocketError, errors\ReadWriteError, errors\UnexpectedError;
+extern fun HttpClientSend(
+    client: ud,
+    method: Method,
+    uri: str,
+    headers: {str: str},
+    body: str?
+) > ud
+    !>
+    HttpError,
+    errors\SocketError,
+    errors\ReadWriteError,
+    errors\UnexpectedError;
+
 /// @private
-extern fun HttpRequestWait(request: ud) > Response !> HttpError, errors\SocketError, errors\ReadWriteError, errors\UnexpectedError;
+extern fun HttpRequestWait(
+    request: ud
+) > Response
+    !>
+    HttpError,
+    errors\SocketError,
+    errors\ReadWriteError,
+    errors\UnexpectedError;
+
 /// @private
 extern fun HttpRequestDeinit(request: ud) > void;
 
 /// Error raised when an HTTP response cannot be parsed.
-export object HttpParseError{
-    message: str? = null,
+export object HttpParseError {
+    message: str?,
 }
 
 object Connection {
@@ -109,7 +131,16 @@ export object Client {
     /// Sends a request and waits asynchronously for the response.
     /// @param request Request to send
     /// @return Response from the server
-    fun send(request: mut Request) > Response *> void !> HttpError, errors\SocketError, errors\ReadWriteError, errors\UnexpectedError, errors\InvalidArgumentError, HttpParseError {
+    fun send(
+        request: mut Request
+    ) > Response *> void
+        !>
+        HttpError,
+        errors\SocketError,
+        errors\ReadWriteError,
+        errors\UnexpectedError,
+        errors\InvalidArgumentError,
+        HttpParseError {
         _ = this.start(request);
 
         yield void;
@@ -120,11 +151,18 @@ export object Client {
     /// Starts a request without waiting for the response.
     /// @param request Request to start
     /// @return The started request
-    fun start(request: mut Request) > mut Request !> HttpError, errors\SocketError, errors\ReadWriteError, errors\UnexpectedError {
+    fun start(
+        request: mut Request
+    ) > mut Request
+        !>
+        HttpError,
+        errors\SocketError,
+        errors\ReadWriteError,
+        errors\UnexpectedError {
         if (this.collected) {
             throw HttpError.ClientCollected;
         }
-    
+
         final requestPtr = HttpClientSend(
             client: this.client,
             method: request.method,
@@ -151,25 +189,32 @@ export object Client {
 /// HTTP request data.
 export object Request {
     /// Optional request body.
-    body: str? = null,
+    body: str?,
     /// @private
     collected: bool = false,
     /// Request headers.
-    headers: {str: str}  = {},
+    headers: {str: str} = {},
     /// Request method.
     method: Method,
     /// @private
-    request: ud? = null,
+    request: ud?,
     /// Request URI.
     uri: str = "/",
 
     /// Waits for a started request to complete.
     /// @return Response from the server
-    fun wait() > Response !> HttpError, errors\SocketError, errors\ReadWriteError, errors\UnexpectedError, errors\InvalidArgumentError, HttpParseError {
+    fun wait() > Response
+        !>
+        HttpError,
+        errors\SocketError,
+        errors\ReadWriteError,
+        errors\UnexpectedError,
+        errors\InvalidArgumentError,
+        HttpParseError {
         if (this.collected) {
             throw HttpError.RequestCollected;
         }
-    
+
         if (this.request -> request) {
             return HttpRequestWait(request);
         }
@@ -212,7 +257,7 @@ export object Request {
 /// HTTP response data.
 export object Response {
     /// Optional response body.
-    body: str? = null,
+    body: str?,
     /// @private
     collected: bool = false,
     /// Response headers.

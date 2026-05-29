@@ -90,8 +90,7 @@ test "list.fill" {
     );
 
     std\assert(
-        another[2] == 42
-            and another[3] == 42
-            and another[4] == 42 and another[1] != 42 and another[5] != 42
+        another[2] == 42 and another[3] == 42 and another[4] == 42
+            and another[1] != 42 and another[5] != 42
     );
 }

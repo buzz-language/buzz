@@ -5,61 +5,129 @@ import "errors";
 
 /// Error raised when a buffer is written after reading has started.
 export object WriteWhileReadingError {}
+
 /// Error raised when a buffer index is out of bounds.
 export object OutOfBoundError {}
 
 /// @private
 extern fun BufferNew(capacity: int) > ud;
+
 /// @private
 extern fun BufferDeinit(userdata: ud) > void;
+
 /// @private
 extern fun BufferRead(userdata: ud, n: int) > str?;
+
 /// @private
-extern fun BufferWrite(userdata: ud, bytes: str) > void !> WriteWhileReadingError;
+extern fun BufferWrite(
+    userdata: ud,
+    bytes: str
+) > void !> WriteWhileReadingError;
+
 /// @private
 extern fun BufferReadBoolean(userdata: ud) > bool?;
+
 /// @private
-extern fun BufferWriteBoolean(userdata: ud, b: bool) > void !> WriteWhileReadingError;
+extern fun BufferWriteBoolean(
+    userdata: ud,
+    b: bool
+) > void !> WriteWhileReadingError;
+
 /// @private
 extern fun BufferWriteInt(userdata: ud, n: int) > void !> WriteWhileReadingError;
+
 /// @private
 extern fun BufferReadInt(userdata: ud) > int? !> errors\ReadWriteError;
+
 /// @private
-extern fun BufferWriteUserData(userdata: ud, ptr: ud) > void !> WriteWhileReadingError;
+extern fun BufferWriteUserData(
+    userdata: ud,
+    ptr: ud
+) > void !> WriteWhileReadingError;
+
 /// @private
 extern fun BufferReadUserData(userdata: ud) > ud? !> errors\ReadWriteError;
+
 /// @private
-extern fun BufferWriteDouble(userdata: ud, n: double) > void !> WriteWhileReadingError;
+extern fun BufferWriteDouble(
+    userdata: ud,
+    n: double
+) > void !> WriteWhileReadingError;
+
 /// @private
 extern fun BufferReadDouble(userdata: ud) > double? !> errors\ReadWriteError;
+
 /// @private
 extern fun BufferLen(userdata: ud, align: int) > int;
+
 /// @private
 extern fun BufferCursor(userdata: ud) > int;
+
 /// @private
 extern fun BufferBuffer(userdata: ud) > str;
+
 /// @private
 extern fun BufferPtr(userdata: ud, at: int, alignment: int) > ud;
+
 /// @private
 extern fun BufferEmpty(userdata: ud) > void;
+
 /// @private
 extern fun BufferAt(userdata: ud, index: int) > int;
+
 /// @private
-extern fun BufferSetAt(userdata: ud, index: int, value:int ) > void !> WriteWhileReadingError;
+extern fun BufferSetAt(
+    userdata: ud,
+    index: int,
+    value: int
+) > void !> WriteWhileReadingError;
+
 /// @private
-extern fun BufferWriteZ(userdata: ud, zigType: str, values: [any]) > void !> ffi\FFITypeMismatchError;
+extern fun BufferWriteZ(
+    userdata: ud,
+    zigType: str,
+    values: [any]
+) > void !> ffi\FFITypeMismatchError;
+
 /// @private
-extern fun BufferWriteZAt(userdata: ud, at: int, zigType: str, values: [any]) > void !> ffi\FFITypeMismatchError;
+extern fun BufferWriteZAt(
+    userdata: ud,
+    at: int,
+    zigType: str,
+    values: [any]
+) > void !> ffi\FFITypeMismatchError;
+
 /// @private
-extern fun BufferReadZ::<T>(userdata: ud, zigType: str) > T !> ffi\FFITypeMismatchError;
+extern fun BufferReadZ::<T>(
+    userdata: ud,
+    zigType: str
+) > T !> ffi\FFITypeMismatchError;
+
 /// @private
-extern fun BufferReadZAt::<T>(userdata: ud, at: int, zigType: str) > T !> ffi\FFITypeMismatchError;
+extern fun BufferReadZAt::<T>(
+    userdata: ud,
+    at: int,
+    zigType: str
+) > T !> ffi\FFITypeMismatchError;
+
 /// @private
-extern fun BufferWriteStruct::<T>(userdata: ud, structType: type, values: [T]) > void !> ffi\FFITypeMismatchError;
+extern fun BufferWriteStruct::<T>(
+    userdata: ud,
+    structType: type,
+    values: [T]
+) > void !> ffi\FFITypeMismatchError;
+
 /// @private
-extern fun BufferWriteStructAt::<T>(userdata: ud, structType: type, at: int, values: [T]) > void !> ffi\FFITypeMismatchError;
+extern fun BufferWriteStructAt::<T>(
+    userdata: ud,
+    structType: type,
+    at: int,
+    values: [T]
+) > void !> ffi\FFITypeMismatchError;
+
 /// @private
 extern fun BufferReadStruct::<T>(userdata: ud, structType: type) > T;
+
 /// @private
 extern fun BufferReadStructAt::<T>(userdata: ud, structType: type, at: int) > T;
 
@@ -72,9 +140,7 @@ export object Buffer {
 
     /// @return A new `Buffer`
     static fun init(capacity: int = 0) > Buffer {
-        return Buffer{
-            buffer = BufferNew(capacity)
-        };
+        return Buffer{ buffer = BufferNew(capacity) };
     }
 
     /// Creates a buffer initialized with `string`.
@@ -82,7 +148,7 @@ export object Buffer {
     /// @return A new `Buffer`
     static fun fromStr(string: str) > Buffer {
         final buffer = Buffer.init();
-        
+
         // We're sure we did not read this buffer before
         buffer.write(string) catch void;
 
@@ -113,7 +179,10 @@ export object Buffer {
     /// Writes values using a Zig type layout.
     /// @param zigType Zig type expression
     /// @param values Values to write
-    fun writeZ::<T>(zigType: str, values: [T]) > void !> ffi\FFITypeMismatchError {
+    fun writeZ::<T>(
+        zigType: str,
+        values: [T]
+    ) > void !> ffi\FFITypeMismatchError {
         BufferWriteZ(this.buffer, zigType: zigType, values: values);
     }
 
@@ -121,7 +190,11 @@ export object Buffer {
     /// @param at Offset at which to write
     /// @param zigType Zig type expression
     /// @param values Values to write
-    fun writeZAt::<T>(at: int, zigType: str, values: [T]) > void !> ffi\FFITypeMismatchError {
+    fun writeZAt::<T>(
+        at: int,
+        zigType: str,
+        values: [T]
+    ) > void !> ffi\FFITypeMismatchError {
         BufferWriteZAt(this.buffer, at: at, zigType: zigType, values: values);
     }
 
@@ -143,7 +216,10 @@ export object Buffer {
     /// Writes values using a Buzz object type as a Zig struct layout.
     /// @param structType Buzz object type to use as struct layout
     /// @param values Values to write
-    fun writeStruct::<T>(structType: type, values: [T]) > void !> ffi\FFITypeMismatchError {
+    fun writeStruct::<T>(
+        structType: type,
+        values: [T]
+    ) > void !> ffi\FFITypeMismatchError {
         BufferWriteStruct::<T>(this.buffer, structType: structType, values: values);
     }
 
@@ -151,8 +227,17 @@ export object Buffer {
     /// @param structType Buzz object type to use as struct layout
     /// @param at Offset at which to write
     /// @param values Values to write
-    fun writeStructAt::<T>(structType: type, at: int, values: [T]) > void !> ffi\FFITypeMismatchError {
-        BufferWriteStructAt::<T>(this.buffer, structType: structType, at: at, values: values);
+    fun writeStructAt::<T>(
+        structType: type,
+        at: int,
+        values: [T]
+    ) > void !> ffi\FFITypeMismatchError {
+        BufferWriteStructAt::<T>(
+            this.buffer,
+            structType: structType,
+            at: at,
+            values: values
+        );
     }
 
     /// Reads a value using a Buzz object type as a Zig struct layout.
@@ -167,7 +252,11 @@ export object Buffer {
     /// @param at Offset from which to read
     /// @return Read value
     fun readStructAt::<T>(structType: type, at: int) > T {
-        return BufferReadStructAt::<T>(this.buffer, structType: structType, at: at);
+        return BufferReadStructAt::<T>(
+            this.buffer,
+            structType: structType,
+            at: at
+        );
     }
 
     /// Reads a boolean
@@ -218,7 +307,6 @@ export object Buffer {
         BufferWriteDouble(this.buffer, n: number);
     }
 
-
     /// @return Length of the buffer
     fun len(align: int = 1) > int {
         return BufferLen(this.buffer, align: align);
@@ -254,7 +342,10 @@ export object Buffer {
     }
 
     /// Set byte at `index`
-    fun setAt(index: int, value: int) > void !> WriteWhileReadingError, OutOfBoundError {
+    fun setAt(
+        index: int,
+        value: int
+    ) > void !> WriteWhileReadingError, OutOfBoundError {
         if (index < this.len()) {
             BufferSetAt(this.buffer, index: index, value: value);
 

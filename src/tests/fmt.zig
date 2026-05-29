@@ -214,7 +214,8 @@ test "fmt wraps long expressions at default line width" {
         \\}
         \\
         \\test "fmt" {
-        \\    final condition = "aaaaaaaaaaaaaaaa" == "aaaaaaaaaaaaaaaa"
+        \\    final condition =
+        \\        "aaaaaaaaaaaaaaaa" == "aaaaaaaaaaaaaaaa"
         \\        and "bbbbbbbbbbbbbbbb" == "bbbbbbbbbbbbbbbb"
         \\        or "cccccccccccccccc" == "cccccccccccccccc";
         \\    _ = [ 111111111, 222222222, 333333333, 444444444 ];
@@ -253,12 +254,11 @@ test "fmt line width option controls comma wrapping" {
         \\}
         \\
         \\test "fmt" {
-        \\    final condition = "aaaaaaaaaaaaaaaa"
-        \\        == "aaaaaaaaaaaaaaaa"
-        \\        and "bbbbbbbbbbbbbbbb"
-        \\        == "bbbbbbbbbbbbbbbb"
+        \\    final condition =
+        \\        "aaaaaaaaaaaaaaaa" == "aaaaaaaaaaaaaaaa"
+        \\        and "bbbbbbbbbbbbbbbb" == "bbbbbbbbbbbbbbbb"
         \\        or "cccccccccccccccc"
-        \\        == "cccccccccccccccc";
+        \\            == "cccccccccccccccc";
         \\    _ = [
         \\        111111111,
         \\        222222222,
@@ -316,16 +316,94 @@ test "fmt wraps after assignment tokens and before binary operators" {
         \\
     ,
         \\test "fmt" {
-        \\    final lhs = 111111111 + 222222222 + 333333333 + 444444444 + 555555555
-        \\        + 666666666 + 777777777;
+        \\    final lhs =
+        \\        111111111 + 222222222 + 333333333 + 444444444 + 555555555 + 666666666
+        \\        + 777777777;
         \\    var total = 0;
-        \\    total += 111111111 + 222222222 + 333333333 + 444444444 + 555555555
-        \\        + 666666666 + 777777777;
+        \\    total +=
+        \\        111111111 + 222222222 + 333333333 + 444444444 + 555555555 + 666666666
+        \\        + 777777777;
         \\    _ = lhs + total;
         \\}
         \\
     ,
         .{},
+    );
+}
+
+test "fmt prefers comma breaks over assignment breaks" {
+    try expectFmtSource(
+        \\test "fmt" {
+        \\    final value = [ 111111111, 222222222, 333333333, 444444444 ];
+        \\    _ = value;
+        \\}
+        \\
+    ,
+        \\test "fmt" {
+        \\    final value = [
+        \\        111111111,
+        \\        222222222,
+        \\        333333333,
+        \\        444444444
+        \\    ];
+        \\    _ = value;
+        \\}
+        \\
+    ,
+        .{ .line_width = 40 },
+    );
+}
+
+test "fmt prefers assignment breaks over boolean breaks" {
+    try expectFmtSource(
+        \\test "fmt" {
+        \\    final condition = true and false or true and false;
+        \\    _ = condition;
+        \\}
+        \\
+    ,
+        \\test "fmt" {
+        \\    final condition =
+        \\        true and false or true and false;
+        \\    _ = condition;
+        \\}
+        \\
+    ,
+        .{ .line_width = 40 },
+    );
+}
+
+test "fmt prefers boolean breaks over other binary breaks" {
+    try expectFmtSource(
+        \\fun check() > bool {
+        \\    return 111111111 == 222222222 and 333333333 == 444444444;
+        \\}
+        \\
+    ,
+        \\fun check() > bool {
+        \\    return 111111111 == 222222222
+        \\        and 333333333 == 444444444;
+        \\}
+        \\
+    ,
+        .{ .line_width = 50 },
+    );
+}
+
+test "fmt prefers binary breaks over member chain breaks" {
+    try expectFmtSource(
+        \\fun check() > bool {
+        \\    return [ 1, 2, 3 ].copyImmutable().copyImmutable().len() == 333333333;
+        \\}
+        \\
+    ,
+        \\fun check() > bool {
+        \\    return [ 1, 2, 3 ].copyImmutable().copyImmutable().len()
+        \\        == 333333333;
+        \\}
+        \\
+    ,
+        .{ .line_width = 70 },
     );
 }
 
@@ -500,9 +578,9 @@ test "fmt wraps function signature suffixes after their prefixes" {
         \\    retries: int
         \\) > VeryLongReturnValueName
         \\    !>
-        \\        ExtraordinarilyLongFirstErrorName,
-        \\        ExtraordinarilyLongSecondErrorName,
-        \\        ExtraordinarilyLongThirdErrorName;
+        \\    ExtraordinarilyLongFirstErrorName,
+        \\    ExtraordinarilyLongSecondErrorName,
+        \\    ExtraordinarilyLongThirdErrorName;
         \\
     ,
         .{},

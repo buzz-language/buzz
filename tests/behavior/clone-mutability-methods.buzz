@@ -48,9 +48,10 @@ test "cloned list methods are retyped after mutability changes" {
 
 test "cloned map methods are retyped after mutability changes" {
     final immutableMap: {str: int} = { "one": 1, "two": 2 };
-    _ = immutableMap.filter(
-        fun (key: str, value: int) => key.len() > 0 or value > 0
-    );
+    _ =
+        immutableMap.filter(
+            fun (key: str, value: int) => key.len() > 0 or value > 0
+        );
 
     final mutableFromImmutable = immutableMap.cloneMutable();
     final mutableFiltered = mutableFromImmutable.filter(
@@ -67,9 +68,10 @@ test "cloned map methods are retyped after mutability changes" {
     );
 
     final mutableMap: mut {str: int} = mut { "one": 1, "two": 2 };
-    _ = mutableMap.filter(
-        fun (key: str, value: int) => key.len() > 0 or value > 0
-    );
+    _ =
+        mutableMap.filter(
+            fun (key: str, value: int) => key.len() > 0 or value > 0
+        );
 
     final immutableFromMutable = mutableMap.cloneImmutable();
     final immutableFiltered = immutableFromMutable.filter(

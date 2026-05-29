@@ -210,11 +210,9 @@ export object Tester {
         }
 
         io\stdout.write(
-            green("\n{this.succeededTests()}") + dim(" successes, ") + yellow(
-                "{failed}"
-            ) + dim(" failures in ") + "{this.elapsed / 1000.0}" + dim(
-                " seconds\n"
-            )
+            green("\n{this.succeededTests()}") + dim(" successes, ")
+                + yellow("{failed}") + dim(" failures in ")
+                + "{this.elapsed / 1000.0}" + dim(" seconds\n")
         ) catch void;
 
         if (failed > 0) {

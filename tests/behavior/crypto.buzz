@@ -11,8 +11,8 @@ test "hash" {
     );
 
     std\assert(
-        "a9993e364706816aba3e25717850c26c9cd0d89d" == hash(.Sha1, data: "abc")
-            .hex(),
+        "a9993e364706816aba3e25717850c26c9cd0d89d"
+            == hash(.Sha1, data: "abc").hex(),
         message: "sha1",
     );
 

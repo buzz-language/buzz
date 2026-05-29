@@ -26,10 +26,8 @@ object World {
         var liveCount = 0;
         for (dy: int = y - 1; dy <= y + 1; dy = dy + 1) {
             for (dx: int = x - 1; dx <= x + 1; dx = dx + 1) {
-                if (dy > 0
-                    and dy > 0
-                    and dx < this.width
-                    and dy < this.height and this.cells[dy * this.width + dx]) {
+                if (dy > 0 and dy > 0 and dx < this.width and dy < this.height
+                    and this.cells[dy * this.width + dx]) {
                     liveCount = liveCount + 1;
                 }
             }
@@ -46,8 +44,8 @@ object World {
                 final liveNeighbors = this.neighbors(x: x, y: y);
 
                 cells.append(
-                    liveNeighbors == 3
-                        or (this.cells[coordinate] and liveNeighbors == 2)
+                    liveNeighbors == 3 or (this.cells[coordinate]
+                        and liveNeighbors == 2)
                 );
             }
         }

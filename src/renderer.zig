@@ -33,11 +33,22 @@ pub const Renderer = struct {
         .PercentEqual,
     };
 
+    /// Width-break delimiter classes ordered from least to most preferred.
+    const BreakPriority = enum(u8) {
+        dot,
+        binary_operator,
+        boolean_operator,
+        assignment,
+        comma,
+    };
+
     allocator: std.mem.Allocator,
     ast: Ast.Slice,
     ais: *AutoIndentingStream,
     /// Options controlling formatter decisions for this render pass.
     options: Options,
+    /// Lowest-priority delimiter currently allowed to introduce width-based breaks.
+    minimum_break_priority: BreakPriority = .dot,
 
     indent: u16 = 0,
     /// Suppresses declaration docblocks while an exported declaration wrapper renders them.
@@ -141,6 +152,38 @@ pub const Renderer = struct {
         return self.ais.wouldExceed(self.options.line_width, additional_columns);
     }
 
+    /// Returns the stricter of two minimum break priorities.
+    fn stricterBreakPriority(left: BreakPriority, right: BreakPriority) BreakPriority {
+        return if (@intFromEnum(left) > @intFromEnum(right)) left else right;
+    }
+
+    /// Returns true when `priority` is allowed to introduce a width-based break.
+    fn canBreakAt(self: *Self, priority: BreakPriority) bool {
+        return @intFromEnum(priority) >= @intFromEnum(self.minimum_break_priority);
+    }
+
+    /// Returns the width-break priority for a binary operator.
+    fn binaryBreakPriority(operator: Token.Tag) BreakPriority {
+        return switch (operator) {
+            .And, .Or => .boolean_operator,
+            else => .binary_operator,
+        };
+    }
+
+    /// Renders `node` while suppressing breaks below `minimum_break_priority`.
+    fn renderNodeWithMinimumBreakPriority(
+        self: *Self,
+        node: Ast.Node.Index,
+        space: Space,
+        minimum_break_priority: BreakPriority,
+    ) Error!void {
+        const previous = self.minimum_break_priority;
+        self.minimum_break_priority = stricterBreakPriority(previous, minimum_break_priority);
+        defer self.minimum_break_priority = previous;
+
+        try self.renderNode(node, space);
+    }
+
     /// Returns true when rendering `node` inline from the current column would exceed the configured line width.
     fn nodeWouldExceedLine(self: *Self, node: Ast.Node.Index) Error!bool {
         if (self.options.line_width == std.math.maxInt(usize)) return false;
@@ -180,6 +223,16 @@ pub const Renderer = struct {
 
     /// Returns the first rendered line length for `node` when it starts at `column`.
     fn nodeFirstLineLengthFromColumn(self: *Self, node: Ast.Node.Index, column: usize) Error!usize {
+        return self.nodeFirstLineLengthFromColumnWithMinimumBreakPriority(node, column, .dot);
+    }
+
+    /// Returns the first rendered line length while suppressing lower-priority width breaks.
+    fn nodeFirstLineLengthFromColumnWithMinimumBreakPriority(
+        self: *Self,
+        node: Ast.Node.Index,
+        column: usize,
+        minimum_break_priority: BreakPriority,
+    ) Error!usize {
         var result = std.Io.Writer.Allocating.init(self.allocator);
         defer result.deinit();
 
@@ -195,6 +248,10 @@ pub const Renderer = struct {
             .options = self.options,
             .suppress_docblock = self.suppress_docblock,
             .suppress_comments = self.suppress_comments,
+            .minimum_break_priority = stricterBreakPriority(
+                self.minimum_break_priority,
+                minimum_break_priority,
+            ),
         };
 
         try measuring.renderNode(node, .None);
@@ -244,9 +301,18 @@ pub const Renderer = struct {
         try self.ais.pushIndent(self.allocator, .after_equals);
         defer self.ais.popIndent();
 
-        _ = try self.renderSpaceBeforeInlineLength(
-            try self.nodeFirstLineLengthFromColumn(value, self.ais.currentColumn() + 1),
-        );
+        if (self.canBreakAt(.assignment)) {
+            _ = try self.renderSpaceBeforeInlineLength(
+                try self.nodeFirstLineLengthFromColumnWithMinimumBreakPriority(
+                    value,
+                    self.ais.currentColumn() + 1,
+                    .assignment,
+                ),
+            );
+        } else {
+            try self.ais.writeByte(' ');
+        }
+
         try self.renderNode(value, space);
     }
 
@@ -254,6 +320,11 @@ pub const Renderer = struct {
     fn commaListSpace(multiline: bool, has_trailing_comma: bool, is_last: bool, inline_space: Space) Space {
         if (!multiline) return inline_space;
         return if (!is_last or has_trailing_comma) .Comma else .Newline;
+    }
+
+    /// Returns the priority for width-breaking a comma-style sequence.
+    fn commaListBreakPriority(item_count: usize, has_trailing_comma: bool) BreakPriority {
+        return if (has_trailing_comma or item_count > 1) .comma else .dot;
     }
 
     const renderers = [@typeInfo(Ast.Node.Tag).@"enum".fields.len]RenderNode{
@@ -968,7 +1039,10 @@ pub const Renderer = struct {
             ] == .Comma
         else
             false;
-        const arguments_multiline = has_trailing_comma or (width_multiline and comp.arguments.len > 0);
+        const arguments_multiline = has_trailing_comma or
+            (width_multiline and
+                comp.arguments.len > 0 and
+                self.canBreakAt(commaListBreakPriority(comp.arguments.len, has_trailing_comma)));
 
         if (arguments_multiline) {
             try self.ais.insertNewline();
@@ -1096,9 +1170,6 @@ pub const Renderer = struct {
                 .BangGreater,
                 .None,
             );
-
-            try self.ais.pushIndent(self.allocator, .normal);
-            defer self.ais.popIndent();
 
             has_trailing_comma = self.ast.tokens.items(.tag)[
                 end_locations[comp.error_types[comp.error_types.len - 1]] + 1
@@ -1398,7 +1469,10 @@ pub const Renderer = struct {
             self.ast.tokens.items(.tag)[lft] == .Comma
         else
             false;
-        const multiline = has_trailing_comma or width_multiline;
+        const multiline = has_trailing_comma or
+            (width_multiline and self.canBreakAt(
+                commaListBreakPriority(components.properties.len, has_trailing_comma),
+            ));
 
         // {
         try self.renderExpectedToken(
@@ -1468,7 +1542,10 @@ pub const Renderer = struct {
             self.ast.tokens.items(.tag)[self.ast.nodes.items(.end_location)[lf.type] + 1] == .Comma
         else
             false;
-        const multiline = has_trailing_comma or width_multiline;
+        const multiline = has_trailing_comma or
+            (width_multiline and self.canBreakAt(
+                commaListBreakPriority(fields.len, has_trailing_comma),
+            ));
 
         // {
         try self.renderExpectedToken(
@@ -1560,26 +1637,43 @@ pub const Renderer = struct {
     fn renderBinary(self: *Self, node: Ast.Node.Index, space: Space) Error!void {
         const components = self.ast.nodes.items(.components)[node].Binary;
         const end_locations = self.ast.nodes.items(.end_location);
-        const is_boolean_chain = components.operator == .And or components.operator == .Or;
+        const break_priority = binaryBreakPriority(components.operator);
+        const can_break_at_operator = self.canBreakAt(break_priority);
+        const child_minimum_break_priority = stricterBreakPriority(
+            self.minimum_break_priority,
+            break_priority,
+        );
 
-        try self.renderNode(components.left, .None);
+        if (can_break_at_operator) {
+            const left_len = try self.nodeFirstLineLengthFromColumnWithMinimumBreakPriority(
+                components.left,
+                self.ais.currentColumn(),
+                child_minimum_break_priority,
+            );
+            if (!self.wouldExceedLine(left_len)) {
+                try self.renderNodeWithMinimumBreakPriority(
+                    components.left,
+                    .None,
+                    child_minimum_break_priority,
+                );
+            } else {
+                try self.renderNode(components.left, .None);
+            }
+        } else {
+            try self.renderNode(components.left, .None);
+        }
 
         try self.ais.pushIndent(self.allocator, .binop);
         defer self.ais.popIndent();
 
         const operator_token = end_locations[components.left] + 1;
         const operator_len = self.ast.tokens.items(.lexeme)[operator_token].len;
-        const right_len = if (is_boolean_chain)
-            try self.inlineNodeLength(components.right) orelse try self.nodeFirstLineLengthFromColumn(
-                components.right,
-                self.ais.currentColumn() + 1 + operator_len + 1,
-            )
-        else
-            try self.nodeFirstLineLengthFromColumn(
-                components.right,
-                self.ais.currentColumn() + 1 + operator_len + 1,
-            );
-        if (self.wouldExceedLine(1 + operator_len + 1 + right_len)) {
+        const right_len = try self.nodeFirstLineLengthFromColumnWithMinimumBreakPriority(
+            components.right,
+            self.ais.currentColumn() + 1 + operator_len + 1,
+            child_minimum_break_priority,
+        );
+        if (can_break_at_operator and self.wouldExceedLine(1 + operator_len + 1 + right_len)) {
             try self.ais.insertNewline();
         } else {
             try self.ais.writeByte(' ');
@@ -1697,7 +1791,10 @@ pub const Renderer = struct {
             self.ast.tokens.items(.tag)[end_locations[arg.value] + 1] == .Comma
         else
             false;
-        const multiline = has_trailing_comma or width_multiline;
+        const multiline = has_trailing_comma or
+            (width_multiline and
+                comp.arguments.len > 0 and
+                self.canBreakAt(commaListBreakPriority(comp.arguments.len, has_trailing_comma)));
 
         if (multiline and comp.arguments.len > 0) {
             try self.ais.insertNewline();
@@ -1773,7 +1870,11 @@ pub const Renderer = struct {
             tags[end_locations[it] + 1] == .Comma
         else
             false;
-        const multiline = has_trailing_comma or (try self.nodeWouldExceedLine(node));
+        const item_count = components.items.len + @intFromBool(components.explicit_item_type != null);
+        const multiline = has_trailing_comma or
+            ((try self.nodeWouldExceedLine(node)) and
+                item_count > 0 and
+                self.canBreakAt(commaListBreakPriority(item_count, has_trailing_comma)));
 
         try self.ais.pushIndent(self.allocator, .normal);
 
@@ -1920,7 +2021,11 @@ pub const Renderer = struct {
             tags[end_locations[vt] + 1] == .Comma
         else
             false;
-        const multiline = has_trailing_comma or (try self.nodeWouldExceedLine(node));
+        const entry_count = components.entries.len + @intFromBool(components.explicit_key_type != null);
+        const multiline = has_trailing_comma or
+            ((try self.nodeWouldExceedLine(node)) and
+                entry_count > 0 and
+                self.canBreakAt(commaListBreakPriority(entry_count, has_trailing_comma)));
 
         const mutable = self.ast.nodes.items(.type_def)[node].?.isMutable();
         var token_idx = location;
@@ -2148,7 +2253,7 @@ pub const Renderer = struct {
         try self.ais.pushIndent(self.allocator, .field_access);
         defer self.ais.popIndent();
 
-        if (self.wouldExceedLine(1 + self.ast.tokens.items(.lexeme)[components.identifier].len)) {
+        if (self.canBreakAt(.dot) and self.wouldExceedLine(1 + self.ast.tokens.items(.lexeme)[components.identifier].len)) {
             try self.ais.insertNewline();
         }
 

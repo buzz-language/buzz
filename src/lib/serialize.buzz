@@ -69,14 +69,19 @@ export object Boxed {
 
     /// @return wrapped data string value or empty string if not a string
     fun stringValue() > str => this.string() ?? "";
+
     /// @return wrapped data boolean value or `false` if not a boolean
     fun booleanValue() > bool => this.boolean() ?? false;
+
     /// @return wrapped data number value or `0` if not an integer
     fun integerValue() > int => this.integer() ?? 0;
+
     /// @return wrapped data number value or `0` if not a double
     fun floatValue() > double => this.float() ?? 0.0;
+
     /// @return wrapped data map value or empty map if not a map
     fun mapValue() > {str: Boxed} => this.map() ?? {<str: Boxed>};
+
     /// @return wrapped data list value or empty list if not a list
     fun listValue() > [Boxed] => this.list() ?? [<Boxed>];
 
@@ -121,11 +126,13 @@ export object NotSerializable {
 /// Converts any serializable Buzz value into JSON-compatible data.
 /// @param value Value to serialize
 /// @return Serialized data
-export extern fun serializeValue(value: any) > any !> CircularReference, NotSerializable;
+export extern fun serializeValue(
+    value: any
+) > any !> CircularReference, NotSerializable;
 
 /// Error raised when JSON parsing fails.
 export object JsonParseError {
-    message: str? = null,
+    message: str?,
 }
 
 /// Parse JSON string into a `Json` tree
@@ -157,7 +164,8 @@ object JsonParser {
     }
 
     mut fun matchNext(expected: str) > bool {
-        if (this.offset > this.source.len() or this.source[this.offset] != expected) {
+        if (this.offset > this.source.len()
+            or this.source[this.offset] != expected) {
             return false;
         }
 
@@ -168,7 +176,10 @@ object JsonParser {
 
     mut fun consume(expected: str) > void !> JsonParseError {
         if (!this.matchNext(expected)) {
-            throw JsonParseError{ message = "Could not parse JSON: expected `{expected}` got `{this.peek()}` at offset {this.offset}" };
+            throw JsonParseError{
+                message =
+                    "Could not parse JSON: expected `{expected}` got `{this.peek()}` at offset {this.offset}"
+            };
         }
     }
 
@@ -188,7 +199,9 @@ object JsonParser {
         this.skipWhitespaces();
 
         if (this.offset >= this.source.len()) {
-            throw JsonParseError{ message = "Could not parse JSON: end of string" };
+            throw JsonParseError{
+                message = "Could not parse JSON: end of string"
+            };
         }
 
         final char = this.advance() ?? "";
@@ -212,7 +225,10 @@ object JsonParser {
             return null;
         }
 
-        throw JsonParseError{ message = "Could not parse JSON: unexpected character `{char}` at offset {this.offset}" };
+        throw JsonParseError{
+            message =
+                "Could not parse JSON: unexpected character `{char}` at offset {this.offset}"
+        };
     }
 
     mut fun array() > [any] !> JsonParseError, buffer\WriteWhileReadingError {
@@ -224,14 +240,14 @@ object JsonParser {
             if (this.matchNext("]")) {
                 break;
             }
-                
+
             array.append(this.next());
 
             this.skipWhitespaces();
 
             if (this.matchNext("]")) {
                 break;
-            } 
+            }
 
             this.consume(",");
         }
@@ -297,14 +313,16 @@ object JsonParser {
         } else if (std\parseInt(number) -> integer) {
             return integer;
         }
-        
-        throw JsonParseError{ message = "Could not parse JSON: `{number}` is not a number" };
+
+        throw JsonParseError{
+            message = "Could not parse JSON: `{number}` is not a number"
+        };
     }
 
     mut fun string() > str !> buffer\WriteWhileReadingError {
         var char = this.advance();
         final string = buffer\Buffer.init();
-        
+
         while (char != null and char != "\"") {
             if (char == "\\") {
                 if (this.matchNext("\"")) {
@@ -375,10 +393,8 @@ export fun jsonEncode(data: Boxed) > str !> CircularReference, NotSerializable {
 /// Decode string into a Json instance
 /// @param str json The JSON string
 /// @return Boxed
-export fun jsonDecode(json: str) > Boxed !> JsonParseError, buffer\WriteWhileReadingError {
-    return Boxed{
-        data = (mut JsonParser{
-            source = json
-        }).next()
-    };
+export fun jsonDecode(
+    json: str
+) > Boxed !> JsonParseError, buffer\WriteWhileReadingError {
+    return Boxed{ data = (mut JsonParser{ source = json }).next() };
 }
