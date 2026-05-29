@@ -26,11 +26,11 @@ jobs:
     
     steps:
       - name: Checkout project
-        uses: actions/checkout@v3.0.0
+        uses: actions/checkout@v6.0.2
       - name: Checkout submodules
         run: git submodule update --init --recursive
       - name: Setup Zig
-        uses: mlugg/setup-zig@v2
+        uses: mlugg/setup-zig@v2.2.1
         with:
           version: ${{ matrix.zig-version }}
       - name: Build
@@ -44,11 +44,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout project
-        uses: actions/checkout@v3.0.0
+        uses: actions/checkout@v6.0.2
       - name: Checkout submodules
         run: git submodule update --init --recursive
       - name: Setup nightly Zig
-        uses: mlugg/setup-zig@v2
+        uses: mlugg/setup-zig@v2.2.1
         with:
           version: ${{ matrix.zig-version }}
       - name: Build for wasm
@@ -57,9 +57,9 @@ jobs:
   lint:
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v3.0.0
+      - uses: actions/checkout@v6.0.2
       - name: Setup Zig
-        uses: mlugg/setup-zig@v2
+        uses: mlugg/setup-zig@v2.2.1
         with:
           version: ${{ matrix.zig-version }}
       - run: zig fmt --check src/*.zig src/**/*.zig
