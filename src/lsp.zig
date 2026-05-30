@@ -62,7 +62,7 @@ const Document = struct {
 
     arena: std.heap.ArenaAllocator,
     process: std.process.Init,
-    src: [*:0]const u8,
+    src: [:0]const u8,
     /// Not owned by this struct
     uri: []const u8,
     ast: Ast,
@@ -92,9 +92,12 @@ const Document = struct {
     /// Cache for inlay hints
     inlay_hints: std.ArrayList(lsp.types.InlayHint) = .empty, // I tried to make this a simple slice but the data was lost I don't know why
 
-    pub fn init(process: std.process.Init, parent_allocator: std.mem.Allocator, src: [*:0]const u8, uri: []const u8) !Document {
+    pub fn init(process: std.process.Init, parent_allocator: std.mem.Allocator, src: []const u8, uri: []const u8) !Document {
         var arena = std.heap.ArenaAllocator.init(parent_allocator);
+        errdefer arena.deinit();
+
         const allocator = arena.allocator();
+        const owned_src = try allocator.dupeZ(u8, src);
 
         var gc = try GC.init(allocator);
         gc.type_registry = TypeRegistry.init(&gc) catch return error.OutOfMemory;
@@ -126,7 +129,7 @@ const Document = struct {
 
         // If there's parsing error `parse` does not return the AST, but we can still use it however incomplete
         const ast = (parser.parse(
-            std.mem.span(src),
+            owned_src,
             owned_uri,
             document_script_name,
         ) catch parser.ast) orelse
@@ -146,7 +149,7 @@ const Document = struct {
         var doc = Document{
             .arena = arena,
             .process = process,
-            .src = src,
+            .src = owned_src,
             .uri = owned_uri,
             .ast = ast,
             .errors = errors.items,
@@ -211,14 +214,27 @@ const Document = struct {
                 continue;
             }
 
-            const node_index: usize = @intCast(global.node);
-            if (node_index == 0 or node_index >= ast_slice.nodes.len) {
+            const node = global.node;
+            if (node == 0 or node >= ast_slice.nodes.len) {
                 continue;
             }
 
             try self.completion_labels.put(allocator, name, {});
 
-            const node = global.node;
+            const location = locations[node];
+            const end_location = end_locations[node];
+            if (location >= ast_slice.tokens.len or end_location >= ast_slice.tokens.len) {
+                continue;
+            }
+
+            // Document symbols must only describe the document being served.
+            // Imported nodes can share the AST backing lists but belong to
+            // another script.
+            const script_names = ast_slice.tokens.items(.script_name);
+            if (!std.mem.eql(u8, script_names[location], self.uri)) {
+                continue;
+            }
+
             switch (tags[node]) {
                 .VarDeclaration => {
                     const comp = components[node].VarDeclaration;
@@ -402,14 +418,14 @@ const Document = struct {
                 .line = @intCast(
                     std.mem.count(
                         u8,
-                        std.mem.span(self.src),
+                        self.src,
                         "\n",
                     ),
                 ),
                 .character = @intCast(
-                    std.mem.span(self.src)[std.mem.lastIndexOfScalar(
+                    self.src[std.mem.lastIndexOfScalar(
                         u8,
-                        std.mem.span(self.src),
+                        self.src,
                         '\n',
                     ) orelse 0 ..].len,
                 ),
@@ -1071,18 +1087,81 @@ test "document inlay hints tolerate incomplete function signatures" {
         \\}
         \\
     ;
-    const source_z = try allocator.dupeZ(u8, source);
-    defer allocator.free(source_z);
-
     var doc = try Document.init(
         process,
         allocator,
-        source_z.ptr,
+        source,
         "file:///tmp/bad-fun-signature.buzz",
     );
     defer doc.deinit();
 
     try std.testing.expect(doc.errors.len > 0);
+}
+
+test "document owns source text across repeated reloads" {
+    const allocator = std.testing.allocator;
+
+    var process_arena = std.heap.ArenaAllocator.init(allocator);
+    defer process_arena.deinit();
+
+    var environ_map = try std.process.Environ.createMap(std.testing.environ, allocator);
+    defer environ_map.deinit();
+
+    const argv = [_][*:0]const u8{"buzz_lsp_test"};
+    const process = std.process.Init{
+        .minimal = .{
+            .args = .{ .vector = &argv },
+            .environ = std.testing.environ,
+        },
+        .arena = &process_arena,
+        .gpa = allocator,
+        .io = std.testing.io,
+        .environ_map = &environ_map,
+        .preopens = try std.process.Preopens.init(process_arena.allocator()),
+    };
+
+    const cases = [_]struct {
+        source: []const u8,
+        label: []const u8,
+    }{
+        .{
+            .source = "final first = 1;\n",
+            .label = "first",
+        },
+        .{
+            .source = "final second = 2;\n",
+            .label = "second",
+        },
+        .{
+            .source = "final third = 3;\n",
+            .label = "third",
+        },
+    };
+
+    for (cases, 0..) |case, index| {
+        const caller_text = try allocator.dupe(u8, case.source);
+        defer allocator.free(caller_text);
+
+        var uri_buf: [64]u8 = undefined;
+        const uri = try std.fmt.bufPrint(
+            &uri_buf,
+            "file:///tmp/reload-{}.buzz",
+            .{index},
+        );
+
+        var doc = try Document.init(
+            process,
+            allocator,
+            caller_text,
+            uri,
+        );
+        defer doc.deinit();
+
+        @memset(caller_text, 'x');
+
+        try std.testing.expectEqualStrings(case.source, doc.src);
+        try std.testing.expect(doc.completion_labels.get(case.label) != null);
+    }
 }
 
 extern fn getpid() std.os.linux.pid_t;
@@ -1227,34 +1306,28 @@ const Handler = struct {
     }
 
     // Load file and replaces previous entry in cache
-    fn loadFile(self: *Handler, _: std.mem.Allocator, src: [*:0]const u8, uri: []const u8) !void {
-        var res: lsp.types.publish_diagnostics.Params = .{
-            .uri = uri,
-            .diagnostics = &.{},
-        };
-
-        const doc = try Document.init(
+    fn loadFile(self: *Handler, src: []const u8, uri: []const u8) !void {
+        var doc = try Document.init(
             self.process,
             self.allocator,
             src,
             uri,
         );
+        var doc_owned = true;
+        errdefer if (doc_owned) doc.deinit();
 
-        log.debug("Loaded document `{s}`", .{uri});
+        var res: lsp.types.publish_diagnostics.Params = .{
+            .uri = uri,
+            .diagnostics = &.{},
+        };
 
-        const gop = try self.documents.getOrPut(self.allocator, uri);
-        errdefer _ = self.documents.remove(uri);
-
-        if (gop.found_existing) {
-            gop.value_ptr.deinit();
-        } else {
-            gop.key_ptr.* = try self.allocator.dupe(u8, uri);
-        }
-
-        gop.value_ptr.* = doc;
+        var diagnostics: ?[]lsp.types.Diagnostic = null;
+        defer if (diagnostics) |items| self.allocator.free(items);
 
         if (doc.errors.len > 0) {
             var diags = std.ArrayList(lsp.types.Diagnostic).empty;
+            errdefer diags.deinit(self.allocator);
+
             for (doc.errors) |report| {
                 for (report.items) |item| {
                     if (std.mem.eql(u8, item.location.script_name, doc.uri)) {
@@ -1283,8 +1356,29 @@ const Handler = struct {
                 }
             }
 
-            res.diagnostics = try diags.toOwnedSlice(self.allocator);
+            diagnostics = try diags.toOwnedSlice(self.allocator);
+            res.diagnostics = diagnostics.?;
         }
+
+        log.debug("Loaded document `{s}`", .{uri});
+
+        const gop = try self.documents.getOrPut(self.allocator, uri);
+        var remove_inserted_entry = !gop.found_existing;
+        errdefer {
+            if (remove_inserted_entry) {
+                _ = self.documents.remove(uri);
+            }
+        }
+
+        if (gop.found_existing) {
+            gop.value_ptr.deinit();
+        } else {
+            gop.key_ptr.* = try self.allocator.dupe(u8, uri);
+        }
+
+        gop.value_ptr.* = doc;
+        doc_owned = false;
+        remove_inserted_entry = false;
 
         try self.transport.writeNotification(
             self.process.io,
@@ -1319,15 +1413,8 @@ const Handler = struct {
         _: std.mem.Allocator,
         notification: lsp.types.notifications.get("textDocument/didOpen").?.Params.?,
     ) !void {
-        const new_text = try self.allocator.dupeZ(
-            u8,
-            notification.textDocument.text,
-        ); // We informed the client that we only do full document syncs
-        errdefer self.allocator.free(new_text);
-
         try self.loadFile(
-            self.allocator,
-            new_text,
+            notification.textDocument.text,
             notification.textDocument.uri,
         );
     }
@@ -1354,11 +1441,14 @@ const Handler = struct {
             return error.InvalidParams;
         };
 
+        var current_text = try allocator.dupe(u8, file.src);
+        defer allocator.free(current_text);
+
         for (notification.contentChanges) |change_| {
             const new_text = switch (change_) {
-                .text_document_content_change_whole_document => |change| try self.allocator.dupeZ(u8, change.text),
+                .text_document_content_change_whole_document => |change| try allocator.dupe(u8, change.text),
                 .text_document_content_change_partial => |change| blk: {
-                    const old_text = std.mem.span(file.src);
+                    const old_text = current_text;
                     const range = change.range;
 
                     const start_idx = lsp.offsets.positionToIndex(
@@ -1374,24 +1464,25 @@ const Handler = struct {
                     );
 
                     var new_text = std.ArrayList(u8).empty;
-                    errdefer new_text.deinit(self.allocator);
+                    errdefer new_text.deinit(allocator);
 
-                    try new_text.appendSlice(self.allocator, old_text[0..start_idx]);
-                    try new_text.appendSlice(self.allocator, change.text);
-                    try new_text.appendSlice(self.allocator, old_text[end_idx..]);
+                    try new_text.appendSlice(allocator, old_text[0..start_idx]);
+                    try new_text.appendSlice(allocator, change.text);
+                    try new_text.appendSlice(allocator, old_text[end_idx..]);
 
-                    break :blk try new_text.toOwnedSliceSentinel(self.allocator, 0);
+                    break :blk try new_text.toOwnedSlice(allocator);
                 },
             };
-            errdefer self.allocator.free(new_text);
 
-            // Would be great to not have to reparse the whole thing
-            try self.loadFile(
-                allocator,
-                new_text,
-                notification.textDocument.uri,
-            );
+            allocator.free(current_text);
+            current_text = new_text;
         }
+
+        // Would be great to not have to reparse the whole thing
+        try self.loadFile(
+            current_text,
+            notification.textDocument.uri,
+        );
     }
 
     pub fn @"textDocument/didSave"(
@@ -1654,14 +1745,14 @@ const Handler = struct {
         if (self.documents.getPtr(notification.textDocument.uri)) |document| {
             const cursor_offset = @min(
                 lsp.offsets.positionToIndex(
-                    std.mem.span(document.src),
+                    document.src,
                     notification.position,
                     .@"utf-8",
                 ),
-                std.mem.span(document.src).len,
+                document.src.len,
             );
             const completion_prefix = completionPrefixAtOffset(
-                std.mem.span(document.src),
+                document.src,
                 document.uri,
                 document.ast.slice(),
                 cursor_offset,
@@ -1796,10 +1887,10 @@ const Handler = struct {
         notification: lsp.types.requests.get("textDocument/definition").?.Params.?,
     ) !lsp.types.requests.get("textDocument/definition").?.Result {
         if (self.documents.getEntry(notification.textDocument.uri)) |kv| {
-            var document = kv.value_ptr.*;
+            const document = kv.value_ptr;
 
             if (try document.nodeUnderPosition(notification.position)) |origin| {
-                if (kv.value_ptr.definitions.get(origin)) |result| {
+                if (document.definitions.get(origin)) |result| {
                     if (result) |res| {
                         return .{
                             .definition = .{
@@ -1884,7 +1975,7 @@ const Handler = struct {
         notification: lsp.types.requests.get("textDocument/inlayHint").?.Params.?,
     ) !lsp.types.requests.get("textDocument/inlayHint").?.Result {
         if (self.documents.getEntry(notification.textDocument.uri)) |kv| {
-            var document = kv.value_ptr.*;
+            const document = kv.value_ptr;
             const allocator = document.arena.allocator();
 
             var result = std.ArrayList(lsp.types.InlayHint).empty;

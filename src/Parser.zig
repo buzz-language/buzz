@@ -7111,7 +7111,7 @@ fn resumeFiber(self: *Self, _: bool) Error!Ast.Node.Index {
         .{
             .tag = .Resume,
             .location = start_location,
-            .end_location = undefined,
+            .end_location = start_location,
             .type_def = null,
             .components = .{
                 .Resume = fiber_node,
@@ -7184,7 +7184,7 @@ fn resolveFiber(self: *Self, _: bool) Error!Ast.Node.Index {
         .{
             .tag = .Resolve,
             .location = start_location,
-            .end_location = undefined,
+            .end_location = start_location,
             .type_def = null,
             .components = .{
                 .Resolve = fiber,
@@ -10255,7 +10255,7 @@ fn forStatement(self: *Self) Error!Ast.Node.Index {
         .{
             .tag = .For,
             .location = start_location,
-            .end_location = undefined,
+            .end_location = start_location,
             .components = .{
                 .For = .{
                     .init_declarations = try init_declarations.toOwnedSlice(self.gc.allocator),
@@ -10455,7 +10455,7 @@ fn forEachStatement(self: *Self) Error!Ast.Node.Index {
         .{
             .tag = .ForEach,
             .location = start_location,
-            .end_location = undefined,
+            .end_location = start_location,
             .components = .{
                 .ForEach = .{
                     .key = key,
@@ -10507,7 +10507,7 @@ fn whileStatement(self: *Self) Error!Ast.Node.Index {
         .{
             .tag = .While,
             .location = start_location,
-            .end_location = undefined,
+            .end_location = start_location,
             .components = .{
                 .While = .{
                     .condition = condition,
@@ -10549,7 +10549,7 @@ fn doUntilStatement(self: *Self) Error!Ast.Node.Index {
         .{
             .tag = .DoUntil,
             .location = start_location,
-            .end_location = undefined,
+            .end_location = start_location,
             .components = .{
                 .DoUntil = .{
                     .condition = undefined,
