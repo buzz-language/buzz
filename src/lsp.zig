@@ -478,14 +478,14 @@ const Document = struct {
         }
     };
 
-    const NodeWithinRangeContext = struct {
+    const NodeContainingRangeContext = struct {
         result: ?Ast.Node.Index = null,
         /// URI of the client document being searched.
         uri: []const u8,
         range: lsp.types.Range,
 
         pub fn processNode(
-            self: *NodeWithinRangeContext,
+            self: *NodeContainingRangeContext,
             _: std.mem.Allocator,
             ast: Ast.Slice,
             node: Ast.Node.Index,
@@ -565,14 +565,14 @@ const Document = struct {
         return nodeEntry.value_ptr.*;
     }
 
-    pub fn nodeWithinRange(self: *Document, range: lsp.types.Range) !?Ast.Node.Index {
+    pub fn nodeContainingRange(self: *Document, range: lsp.types.Range) !?Ast.Node.Index {
         if (self.ast.root == null) {
             return null;
         }
 
         const allocator = self.arena.allocator();
 
-        var node_ctx = NodeWithinRangeContext{
+        var node_ctx = NodeContainingRangeContext{
             .uri = self.uri,
             .range = range,
         };
@@ -636,7 +636,7 @@ const Document = struct {
             (node_start.line != other_start.line or node_start.column >= other_start.column);
     }
 
-    /// Search for a node within the givent range not by walking the AST but by iterating over the nodes list
+    /// Search for a node within the given range not by walking the AST but by iterating over the nodes list
     /// A normal walk would miss nodes that were not added to the tree because of a parsing error
     pub fn findNodeContainingRange(self: *Document, range: lsp.types.Range) ?Ast.Node.Index {
         const locations = self.ast.nodes.items(.location);
@@ -649,7 +649,8 @@ const Document = struct {
             }
 
             result = if (result) |previous|
-                if (self.isNodeWithinOtherNode(@intCast(node), previous) and self.isRangeWithinNode(@intCast(node), range))
+                if (self.isNodeWithinOtherNode(@intCast(node), previous) and
+                    self.isRangeWithinNode(@intCast(node), range))
                     @intCast(node)
                 else
                     result
@@ -1530,41 +1531,32 @@ const Handler = struct {
         var dot_callee: ?Ast.Node.Index = null;
         var at_dot = false;
 
-        // If there was no error, we have a clean AST to work with
+        // If there was no error, we have a clean AST to work with and we can walk it to find our node
         if (document.errors.len == 0) {
-            if (std.mem.endsWith(u8, completion_prefix.text, ".")) {
-                // The node just before must be the callee of a dot expression
-                at_dot = true;
-            } else if (try document.nodeWithinRange(completion_prefix.range)) |dot_node| {
-                // Otherwise we must be on a dot node
-
-                log.debug("Found {s} node under cursor at completion", .{@tagName(tags[dot_node])});
-                if (tags[dot_node] == .Dot) {
-                    // const dot = components[dot_node].Dot;
-
-                    log.debug("Found dot node under cursor at completion", .{});
-                }
-            }
-        } else { // Otherwise we don't search nodes by walking the AST which might miss nodes appended before errors
-            // Are we just after a `.`
-            if (std.mem.endsWith(u8, completion_prefix.text, ".")) {
-                at_dot = true;
-                if (document.findNodeContainingRange(
-                    .{
-                        .start = completion_prefix.range.start,
-                        .end = .{
-                            .line = completion_prefix.range.end.line,
-                            .character = completion_prefix.range.end.character - 1,
-                        },
-                    },
-                )) |node| {
-                    dot_callee = node;
-                }
-                // Else search for a dot node (so the completion must be at something like `callee.completeM|`)
-            } else if (document.findNodeContainingRange(completion_prefix.range)) |node| {
+            if (try document.nodeContainingRange(completion_prefix.range)) |node| {
                 if (tags[node] == .Dot) {
                     dot_callee = components[node].Dot.callee;
                 }
+            }
+        } else if (std.mem.endsWith(u8, completion_prefix.text, ".")) {
+            // Otherwise we don't search nodes by walking the AST which might miss nodes appended before errors
+            // Are we just after a `.`
+            at_dot = true;
+            if (document.findNodeContainingRange(
+                .{
+                    .start = completion_prefix.range.start,
+                    .end = .{
+                        .line = completion_prefix.range.end.line,
+                        .character = completion_prefix.range.end.character - 1,
+                    },
+                },
+            )) |node| {
+                dot_callee = node;
+            }
+            // Else search for a dot node (so the completion must be at something like `callee.completeM|`)
+        } else if (document.findNodeContainingRange(completion_prefix.range)) |node| {
+            if (tags[node] == .Dot) {
+                dot_callee = components[node].Dot.callee;
             }
         }
 
