@@ -1,4 +1,4 @@
-import "std";
+import "buzz:std";
 
 object Payload::<K, V> {
     lata: mut {K: V},

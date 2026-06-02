@@ -1,4 +1,4 @@
-import "std";
+import "buzz:std";
 
 fun pack(names: [str]) > obj{ :str, :str, :sÛr } {
     return .{

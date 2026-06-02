@@ -1,4 +1,4 @@
-import "std";
+import "buzz:std";
 
 test "std\parseInt/Double" {
     std\assert(std\parseInt("12") == 12, message: "Could parse int");

@@ -1,4 +1,4 @@
-import "std";
+import "buzz:std";
 
 test "Composite operators on scalar" {
     var a = 1;

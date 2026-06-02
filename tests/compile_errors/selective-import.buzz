@@ -1,5 +1,5 @@
 // `assert` is not defined
-import print from "std";
+import print from "buzz:std";
 
 test "Should not be able to use anything else from std" {
     assert(false);

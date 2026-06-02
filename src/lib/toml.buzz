@@ -1,6 +1,6 @@
 namespace toml;
 
-import "std";
+import "buzz:std";
 
 enum TokenTag {
     BareKey,

@@ -1,4 +1,4 @@
-import "std";
+import "buzz:std";
 
 test "utf8" {
     final msg = "hello 🔥 buzz !";

@@ -1,4 +1,4 @@
-import "std";
+import "buzz:std";
 
 fun check(peeked: int) > bool {
     final local = peeked;

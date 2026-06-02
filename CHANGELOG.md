@@ -10,7 +10,12 @@ This release brings a lot of useful tools to write buzz code: LSP, formatter and
 - Windows support (https://github.com/buzz-language/buzz/issues/74)
 - First working version of a LSP thanks to [lsp-kit](https://github.com/zigtools/lsp-kit) (https://github.com/buzz-language/buzz/issues/16)
 - First working version of the debugger that implements the [Debugger Adapter Protocol](https://microsoft.github.io/debug-adapter-protocol/) thanks to [buzz-language/dap-kit](https://github.com/buzz-language/dap-kit) (https://github.com/buzz-language/buzz/issues/88)
-- Code formatter (`buzz --fmt`) (https://github.com/buzz-language/buzz/issues/96)
+- Code formatter (`buzz format`) (https://github.com/buzz-language/buzz/issues/96)
+- Package manager (https://github.com/buzz-language/buzz/issues/85)
+    - Package manifests with `manifest.buzz` and the new `buzz:manifest` std lib definitions
+    - Package scaffolding with `buzz init`
+    - Dependency fetching with `buzz fetch`, supporting git repositories, archives and local directories
+    - `manifest.lock.buzz` lock files with resolved refs and dependency content hashes
 - `match` statement/expression for value matching with type-specific condition semantics (https://github.com/buzz-language/buzz/issues/80)
 - Enum name can be omitted if it can be inferred (`final list: [Locale] = [ .fr, .it, .en ]`) (https://github.com/buzz-language/buzz/issues/360)
 - Object initialization name can be omitted if it can be inferred (`final payload: Payload = .{ data "..." };`) (https://github.com/buzz-language/buzz/issues/373)
@@ -25,14 +30,26 @@ This release brings a lot of useful tools to write buzz code: LSP, formatter and
 
 ## Changed
 
+- buzz binary now uses subcommands rather than options
+    - `buzz <script.buzz>` becomes `buzz run-script <script.buzz>`
+    - `buzz -t <script.buzz>` becomes `buzz test <script.buzz>`
+    - `buzz -f <script.buzz>` becomes `buzz format <script.buzz>`
+    - `buzz run` runs `src/main.buzz` from the current package
+    - `buzz init` and `buzz fetch` manage package scaffolding and dependencies
+    - `buzz` will start the REPL
 - Extern libraries now must expose only one function which will be called by the compiler to lookup the functions of the library
 - `int` are now `i48` instead of `i32` (https://github.com/buzz-language/buzz/issues/306). If you're wondering why, it's because all buzz values live in a NaN boxed f64 and the maximum bits available for an integer in there is 48. However, C ABI does not understand `i48` so we're still stuck with `i32` in FFI for now.
 - `main` signature can omit `args` argument
 - Maximum number of enum cases is now 16 777 215 instead of 255
 - `pattern.matchAgainst` returns now a list of `obj{ start: int, end: int, capture: str }` and `matchAllAgainst` a list of those lists
-- Selective import erases the imported namespace: `import print from "std"; ... print("hello world");`
-- Common part of imported namespace gets erased: il imported file as namesapce `a\b\c` and importing script has namespace `a\b`, only `c\` remains
 - Tuples no longer require free form identifier to access their properties: `tuple.@"0"` can now be `tuple.0`
+
+### Imports
+- Import do rely on searchers any more, instead the import path provides a deterministic way of finding the imported script
+    - `buzz:<name>` will look for a buzz's standard library `<name>`
+    - `pkg:<name>/path/to/<script.buzz>` will look for the script under `vendors/<name>/src/path/to/<script.buzz>`
+- Selective import erases the imported namespace: `import print from "buzz:std"; ... print("hello world");`
+- Common part of imported namespace gets erased: il imported file as namesapce `a\b\c` and importing script has namespace `a\b`, only `c\` remains
 
 ## Internal
 

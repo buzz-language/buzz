@@ -1,7 +1,7 @@
 namespace buffer;
 
-import "ffi";
-import "errors";
+import "buzz:ffi";
+import "buzz:errors";
 
 /// Error raised when a buffer is written after reading has started.
 export object WriteWhileReadingError {}

@@ -1,4 +1,4 @@
-import "std";
+import "buzz:std";
 
 test "Basic types" {
     _ = "hello world";

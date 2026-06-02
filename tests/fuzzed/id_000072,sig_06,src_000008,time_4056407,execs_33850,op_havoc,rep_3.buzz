@@ -1,5 +1,5 @@
-import "std";
-import "gc";
+import "buzz:std";
+import "buzz:gc";
 
 var collectorCalled = false;
 

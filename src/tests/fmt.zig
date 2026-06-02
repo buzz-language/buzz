@@ -81,7 +81,7 @@ fn testFmt(process: std.process.Init, prefix: []const u8, entry: std.Io.Dir.Entr
 
     var result = std.Io.Writer.Allocating.init(allocator);
 
-    if (parser.parse(source, file_name, file_name) catch null) |ast| {
+    if (parser.parse(source, ".", null, file_name) catch null) |ast| {
         try Renderer.render(
             allocator,
             &result.writer,
@@ -170,7 +170,7 @@ fn expectFmtSource(source: []const u8, expected: []const u8, options: Renderer.O
 
     var result = std.Io.Writer.Allocating.init(allocator);
 
-    if (parser.parse(source, "fmt-test.buzz", "fmt-test.buzz") catch null) |ast| {
+    if (parser.parse(source, ".", null, "fmt-test.buzz") catch null) |ast| {
         try Renderer.render(
             allocator,
             &result.writer,
@@ -185,7 +185,7 @@ fn expectFmtSource(source: []const u8, expected: []const u8, options: Renderer.O
 }
 
 const width_source =
-    \\import "std";
+    \\import "buzz:std";
     \\
     \\fun combine(first_argument_name: int, second_argument_name: int, third_argument_name: int) > int {
     \\    return first_argument_name + second_argument_name + third_argument_name;
@@ -203,7 +203,7 @@ const width_source =
 test "fmt wraps long expressions at default line width" {
     try expectFmtSource(
         width_source,
-        \\import "std";
+        \\import "buzz:std";
         \\
         \\fun combine(
         \\    first_argument_name: int,
@@ -241,7 +241,7 @@ test "fmt wraps long expressions at default line width" {
 test "fmt line width option controls comma wrapping" {
     try expectFmtSource(
         width_source,
-        \\import "std";
+        \\import "buzz:std";
         \\
         \\fun combine(
         \\    first_argument_name: int,
@@ -287,7 +287,7 @@ test "fmt line width option controls comma wrapping" {
 test "fmt custom wide line width keeps short-enough expressions inline" {
     try expectFmtSource(
         width_source,
-        \\import "std";
+        \\import "buzz:std";
         \\
         \\fun combine(first_argument_name: int, second_argument_name: int, third_argument_name: int) > int {
         \\    return first_argument_name + second_argument_name + third_argument_name;
@@ -617,14 +617,14 @@ test "fmt wraps function signature suffixes after their prefixes" {
 
 test "fmt wraps member chains before the member separator" {
     try expectFmtSource(
-        \\import "std";
+        \\import "buzz:std";
         \\
         \\test "fmt" {
         \\    std\assert([ 1, 2, 3 ].copyImmutable().copyImmutable().copyImmutable().copyImmutable().len() == 3);
         \\}
         \\
     ,
-        \\import "std";
+        \\import "buzz:std";
         \\
         \\test "fmt" {
         \\    std\assert(
@@ -711,7 +711,7 @@ test "fmt does not render comments while inside interpolated strings" {
 
     var result = std.Io.Writer.Allocating.init(allocator);
 
-    if (parser.parse(source, "fmt-test.buzz", "fmt-test.buzz") catch null) |parsed| {
+    if (parser.parse(source, ".", null, "fmt-test.buzz") catch null) |parsed| {
         var ast = parsed;
         const token_tags = ast.tokens.items(.tag);
         const lexemes = ast.tokens.items(.lexeme);
@@ -839,7 +839,7 @@ test "fmt tolerates stale function type metadata" {
 
     var result = std.Io.Writer.Allocating.init(allocator);
 
-    if (parser.parse(source, "fmt-test.buzz", "fmt-test.buzz") catch null) |parsed| {
+    if (parser.parse(source, ".", null, "fmt-test.buzz") catch null) |parsed| {
         var ast = parsed;
         const tags = ast.nodes.items(.tag);
         const type_defs = ast.nodes.items(.type_def);

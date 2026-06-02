@@ -1,4 +1,4 @@
-import "examples/sdl-wrapped" as _;
+import "sdl-wrapped" as _;
 
 /// buzz -L/path/to/SDL2.dylib/so/dll examples/sdl.buzz
 fun main() > int !> SDLError {

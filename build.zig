@@ -676,10 +676,6 @@ fn buildTestLibraries(
     );
     copy_test_libs.addCopyFileToSource(
         hello_lib.getEmittedBin(),
-        hello_lib.out_filename,
-    );
-    copy_test_libs.addCopyFileToSource(
-        hello_lib.getEmittedBin(),
         b.pathJoin(&.{ "tests", "utils", hello_lib.out_filename }),
     );
     copy_test_libs.addCopyFileToSource(

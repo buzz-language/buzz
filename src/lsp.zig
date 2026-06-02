@@ -10,6 +10,7 @@ const Parser = @import("Parser.zig");
 const Reporter = @import("Reporter.zig");
 const Scanner = @import("Scanner.zig");
 const CodeGen = @import("Codegen.zig");
+const Package = @import("Package.zig");
 const Token = @import("Token.zig");
 const Renderer = @import("renderer.zig").Renderer;
 const o = @import("obj.zig");
@@ -53,6 +54,12 @@ const MemberDocblockKey = struct {
     }
 };
 
+/// Package document kind that needs an LSP-only parser wrapper.
+const PackageDocumentKind = enum {
+    manifest,
+    manifest_lock,
+};
+
 const Document = struct {
     pub const Definition = struct {
         location: lsp.types.Location,
@@ -62,7 +69,12 @@ const Document = struct {
 
     arena: std.heap.ArenaAllocator,
     process: std.process.Init,
+    /// Client document text, unchanged by LSP-only parsing wrappers.
     src: [:0]const u8,
+    /// Source passed to the parser. Manifest documents may use wrapped text.
+    parse_src: [:0]const u8,
+    /// True when the parser source includes an LSP-only manifest wrapper.
+    is_wrapped_manifest: bool = false,
     /// Not owned by this struct
     uri: []const u8,
     ast: Ast,
@@ -126,6 +138,15 @@ const Document = struct {
 
         const allocator = arena.allocator();
         const owned_src = try allocator.dupeZ(u8, src);
+        const owned_uri = try allocator.dupe(u8, uri);
+        const package_document_kind = try packageDocumentKind(allocator, owned_uri, owned_src);
+        const parse_src = if (package_document_kind) |kind|
+            switch (kind) {
+                .manifest => try allocator.dupeZ(u8, try Package.wrapManifest(allocator, owned_src)),
+                .manifest_lock => try allocator.dupeZ(u8, try Package.wrapManifestLock(allocator, owned_src)),
+            }
+        else
+            owned_src;
 
         var gc = try GC.init(allocator);
         gc.type_registry = TypeRegistry.init(&gc) catch return error.OutOfMemory;
@@ -149,15 +170,34 @@ const Document = struct {
             false,
         );
 
-        const owned_uri = try allocator.dupe(u8, uri);
         const std_lib_script_name = staticScriptNameFromUri(owned_uri);
         const document_script_name = std_lib_script_name orelse
             (try localPathFromFileUri(allocator, owned_uri)) orelse
             owned_uri;
+        const document_root_dir = root_dir: {
+            if (std_lib_script_name != null) {
+                break :root_dir try std.Io.Dir.cwd().realPathFileAlloc(process.io, ".", allocator);
+            }
+
+            if (std.fs.path.dirname(document_script_name)) |dir| {
+                var it = std.fs.path.componentIterator(dir);
+                var maybe_component = it.last();
+                while (maybe_component) |prev_dir| : (maybe_component = it.previous()) {
+                    if (std.mem.eql(u8, prev_dir.name, "src")) {
+                        break :root_dir try allocator.dupe(u8, std.fs.path.dirname(prev_dir.path) orelse ".");
+                    }
+                }
+
+                break :root_dir try allocator.dupe(u8, dir);
+            }
+
+            break :root_dir try std.Io.Dir.cwd().realPathFileAlloc(process.io, ".", allocator);
+        };
 
         // If there's parsing error `parse` does not return the AST, but we can still use it however incomplete
         const ast = (parser.parse(
-            owned_src,
+            parse_src,
+            document_root_dir,
             owned_uri,
             document_script_name,
         ) catch parser.ast) orelse
@@ -178,6 +218,8 @@ const Document = struct {
             .arena = arena,
             .process = process,
             .src = owned_src,
+            .parse_src = parse_src,
+            .is_wrapped_manifest = package_document_kind != null,
             .uri = owned_uri,
             .ast = ast,
             .errors = errors.items,
@@ -204,6 +246,10 @@ const Document = struct {
     fn isClientToken(self: *const Document, token: Token) bool {
         if (!std.mem.eql(u8, token.script_name, self.uri)) {
             return false;
+        }
+
+        if (self.is_wrapped_manifest) {
+            return token.line != 0;
         }
 
         return true;
@@ -257,11 +303,19 @@ const Document = struct {
                 continue;
             }
 
-            try self.completion_labels.put(allocator, name, {});
-
             const location = locations[node];
             const end_location = end_locations[node];
             if (location >= ast_slice.tokens.len or end_location >= ast_slice.tokens.len) {
+                continue;
+            }
+
+            if (!self.isClientToken(ast_slice.tokens.get(location))) {
+                continue;
+            }
+
+            if (tags[node] == .VarDeclaration and
+                !self.isClientToken(ast_slice.tokens.get(components[node].VarDeclaration.name)))
+            {
                 continue;
             }
 
@@ -272,6 +326,8 @@ const Document = struct {
             if (!std.mem.eql(u8, script_names[location], self.uri)) {
                 continue;
             }
+
+            try self.completion_labels.put(allocator, name, {});
 
             switch (tags[node]) {
                 .VarDeclaration => {
@@ -1167,6 +1223,10 @@ const Document = struct {
             try type_def.toStringWithoutUnresolved(&inlay.writer, false);
             if (suffix) |sx| try inlay.writer.writeAll(sx);
 
+            if (!self.document.isClientToken(location)) {
+                return;
+            }
+
             try self.document.inlay_hints.append(
                 allocator,
                 .{
@@ -1593,6 +1653,119 @@ test "document owns source text across repeated reloads" {
         try std.testing.expectEqualStrings(case.source, doc.src);
         try std.testing.expect(doc.completion_labels.get(case.label) != null);
     }
+}
+
+test "document wraps only shallow package manifests" {
+    const allocator = std.testing.allocator;
+
+    var process_arena = std.heap.ArenaAllocator.init(allocator);
+    defer process_arena.deinit();
+
+    var environ_map = try std.process.Environ.createMap(std.testing.environ, allocator);
+    defer environ_map.deinit();
+
+    const argv = [_][*:0]const u8{"buzz_lsp_test"};
+    const process = std.process.Init{
+        .minimal = .{
+            .args = .{ .vector = &argv },
+            .environ = std.testing.environ,
+        },
+        .arena = &process_arena,
+        .gpa = allocator,
+        .io = std.testing.io,
+        .environ_map = &environ_map,
+        .preopens = try std.process.Preopens.init(process_arena.allocator()),
+    };
+
+    const manifest_source =
+        \\.{
+        \\    name = "test",
+        \\    version = .{ 1, 0, 0 },
+        \\    description = "some test",
+        \\    authors = [ "me" ],
+        \\    license = "MIT",
+        \\    tags = [ "hello", "world hey", "one" ],
+        \\    source = .{
+        \\        url = "somewhere",
+        \\    },
+        \\    rootDir = "src",
+        \\}
+    ;
+
+    var manifest_doc = try Document.init(
+        process,
+        allocator,
+        manifest_source,
+        "file:///tmp/manifest.buzz",
+    );
+    defer manifest_doc.deinit();
+
+    try std.testing.expectEqualStrings(manifest_source, manifest_doc.src);
+    try std.testing.expect(manifest_doc.parse_src.ptr != manifest_doc.src.ptr);
+    try std.testing.expect(std.mem.startsWith(
+        u8,
+        manifest_doc.parse_src,
+        "import \"buzz:manifest\" as _;final manifest: Manifest = .{",
+    ));
+    try std.testing.expectEqual(@as(usize, 0), manifest_doc.errors.len);
+    try std.testing.expect(manifest_doc.inlay_hints.items.len > 0);
+    try std.testing.expect(manifest_doc.completion_labels.get("manifest") == null);
+    for (manifest_doc.symbols.items) |symbol| {
+        try std.testing.expect(!std.mem.eql(u8, symbol.name, "manifest"));
+    }
+
+    const manifest_lock_source =
+        \\.{
+        \\    dependencies = {
+        \\        "dep": .{
+        \\            url = "somewhere",
+        \\            ref = "v1.0.0",
+        \\            hash = "abc",
+        \\        },
+        \\    },
+        \\}
+    ;
+
+    var manifest_lock_doc = try Document.init(
+        process,
+        allocator,
+        manifest_lock_source,
+        "file:///tmp/manifest.lock.buzz",
+    );
+    defer manifest_lock_doc.deinit();
+
+    try std.testing.expectEqualStrings(manifest_lock_source, manifest_lock_doc.src);
+    try std.testing.expect(manifest_lock_doc.parse_src.ptr != manifest_lock_doc.src.ptr);
+    try std.testing.expect(std.mem.startsWith(
+        u8,
+        manifest_lock_doc.parse_src,
+        "import \"buzz:manifest\" as _;final manifestLock: ManifestLock = .{",
+    ));
+    try std.testing.expectEqual(@as(usize, 0), manifest_lock_doc.errors.len);
+    try std.testing.expect(manifest_lock_doc.completion_labels.get("manifestLock") == null);
+    for (manifest_lock_doc.symbols.items) |symbol| {
+        try std.testing.expect(!std.mem.eql(u8, symbol.name, "manifestLock"));
+    }
+
+    var non_manifest_doc = try Document.init(
+        process,
+        allocator,
+        manifest_source,
+        "file:///tmp/not-manifest.buzz",
+    );
+    defer non_manifest_doc.deinit();
+
+    try std.testing.expect(non_manifest_doc.parse_src.ptr == non_manifest_doc.src.ptr);
+
+    var non_object_manifest_doc = try Document.init(
+        process,
+        allocator,
+        "final value = 1;\n",
+        "file:///tmp/manifest.buzz",
+    );
+    defer non_object_manifest_doc.deinit();
+
+    try std.testing.expect(non_object_manifest_doc.parse_src.ptr == non_object_manifest_doc.src.ptr);
 }
 
 extern fn getpid() std.os.linux.pid_t;
@@ -2558,6 +2731,28 @@ fn tokenToRange(ast: Ast.Slice, location: Ast.TokenIndex, end_location: Ast.Toke
             .character = @intCast(@max(1, columns[end_location]) - 1),
         },
     };
+}
+
+/// Returns the package wrapper kind for shallow bare manifest objects.
+fn packageDocumentKind(allocator: std.mem.Allocator, uri: []const u8, source: []const u8) !?PackageDocumentKind {
+    const file_name = if (try localPathFromFileUri(allocator, uri)) |path|
+        std.fs.path.basename(path)
+    else
+        std.fs.path.basename(uri);
+
+    if (!std.mem.startsWith(u8, std.mem.trim(u8, source, " \n\r\t"), ".{")) {
+        return null;
+    }
+
+    if (std.mem.eql(u8, file_name, Package.MANIFEST)) {
+        return .manifest;
+    }
+
+    if (std.mem.eql(u8, file_name, Package.MANIFEST_LOCK)) {
+        return .manifest_lock;
+    }
+
+    return null;
 }
 
 /// Converts a local `file://` document URI into the script path used by parser semantics.

@@ -1,5 +1,5 @@
-import "std";
-import "math";
+import "buzz:std";
+import "buzz:math";
 
 fun A(i: double, j: double) > double {
     final ij = i + j;

@@ -1,4 +1,4 @@
-import "std";
+import "buzz:std";
 
 fun count::<T>(list: [T]) > int {
     return list.len();

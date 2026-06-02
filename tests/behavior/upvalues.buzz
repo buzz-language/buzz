@@ -1,4 +1,4 @@
-import "std";
+import "buzz:std";
 
 fun upvals() > fun () {
     final upvalue = 12;

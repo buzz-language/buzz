@@ -14,6 +14,7 @@ const GC = @import("GC.zig");
 const TypeRegistry = @import("TypeRegistry.zig");
 const v = @import("value.zig");
 const Integer = v.Integer;
+const Double = v.Double;
 const Value = v.Value;
 const Token = @import("Token.zig");
 const is_wasm = builtin.cpu.arch.isWasm();
@@ -1457,22 +1458,6 @@ pub const ObjObjectInstance = struct {
         try gc.markObjDirty(&self.obj);
     }
 
-    /// Should not be called by runtime when possible
-    pub fn setFieldByName(self: *Self, gc: *GC, key: *ObjString, value: Value) !void {
-        const object_def = self.type_def.resolved_type.?.ObjectInstance.resolved_type.?.Object;
-        const index = std.mem.indexOf(
-            *ObjString,
-            object_def.fields.keys(),
-            key,
-        );
-
-        self.setField(
-            gc,
-            index,
-            value,
-        );
-    }
-
     pub fn init(
         vm: *VM,
         object: ?*ObjObject,
@@ -1530,6 +1515,38 @@ pub const ObjObjectInstance = struct {
         }
 
         return false;
+    }
+
+    pub fn getFieldValue(self: *Self, comptime field_name: []const u8) Value {
+        const idx = self.type_def.resolved_type.?.ObjectInstance
+            .of.resolved_type.?.Object
+            .fields.get(field_name).?.index;
+
+        return self.fields[idx];
+    }
+
+    /// Utility function to read a buzz object from zig, will break if field does not exists or type mismatch on the buzz side
+    pub fn get(self: *Self, comptime T: type, comptime field_name: []const u8) T {
+        const field = self.getFieldValue(field_name);
+        const is_optional = @typeInfo(T) == .optional;
+
+        if (is_optional and field.isNull()) return null;
+
+        const UT = if (is_optional)
+            @typeInfo(T).optional.child
+        else
+            T;
+
+        return switch (UT) {
+            []const u8 => field.obj().cast(ObjString, .String).?.string,
+            Integer => if (field.isObj())
+                field.obj().cast(ObjEnumInstance, .EnumInstance).?.case
+            else
+                field.integer(),
+            Double => field.double(),
+            bool => field.boolean(),
+            else => @compileError("Only scalar types are possible, got " ++ @typeName(T)),
+        };
     }
 };
 

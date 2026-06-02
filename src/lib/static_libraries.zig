@@ -25,6 +25,7 @@ pub const all = [_]Library{
     .{ .header = static_headers.gc, .zig_path = "buzz_gc.zig", .wasm_native = true },
     .{ .header = static_headers.http, .zig_path = "buzz_http.zig", .wasm_native = false },
     .{ .header = static_headers.io, .zig_path = "buzz_io.zig", .wasm_native = false },
+    .{ .header = static_headers.manifest, .zig_path = null, .wasm_native = false },
     .{ .header = static_headers.math, .zig_path = "buzz_math.zig", .wasm_native = true },
     .{ .header = static_headers.os, .zig_path = "buzz_os.zig", .wasm_native = false },
     .{ .header = static_headers.serialize, .zig_path = "buzz_serialize.zig", .wasm_native = true },

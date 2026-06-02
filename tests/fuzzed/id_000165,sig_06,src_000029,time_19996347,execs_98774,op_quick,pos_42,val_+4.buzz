@@ -1,4 +1,4 @@
-import "std";
+import "buzz:std";
 
 fun hello(
     name: mut [sr] = [ "John", "Doe" ],

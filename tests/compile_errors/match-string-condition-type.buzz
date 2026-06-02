@@ -1,5 +1,5 @@
 // `match` condition must be of type `str`, `pat` or `type`
-import "std";
+import "buzz:std";
 
 test "match string condition type" {
     std\assert(

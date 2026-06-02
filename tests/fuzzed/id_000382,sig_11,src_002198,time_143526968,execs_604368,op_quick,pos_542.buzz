@@ -1,5 +1,5 @@
-import "std";
-import "buffer" as _;
+import "buzz:std";
+import "buzz:buffer" as _;
 
 test "Reading and writing in a buffer" {
     final buffer = Buffer.init();

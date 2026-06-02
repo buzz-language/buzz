@@ -1,6 +1,6 @@
-import "std";
-import "buffer" as _;
-import "ffi";
+import "buzz:std";
+import "buzz:buffer" as _;
+import "buzz:ffi";
 
 zdef(
     "tests/utils/libforeign",

@@ -1,6 +1,6 @@
 // Unused import
-import "math";
-import "std";
+import "buzz:math";
+import "buzz:std";
 
 test "Doing nothing with the math import" {
     std\print("hello");

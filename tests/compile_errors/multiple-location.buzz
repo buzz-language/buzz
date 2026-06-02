@@ -1,5 +1,5 @@
 // Property `name` does not exists
-import "errors";
+import "buzz:errors";
 
 object Some {
     msg: str,

@@ -1,4 +1,4 @@
-import "std";
+import "buzz:std";
 
 test "list.forEach" {
     final data = [ 1, 2, 3, 4 ];

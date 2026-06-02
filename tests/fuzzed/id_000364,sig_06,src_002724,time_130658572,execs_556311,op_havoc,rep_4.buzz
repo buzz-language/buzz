@@ -1,4 +1,4 @@
-import "std";
+import "buzz:std";
 
 fun hey(name: str = "Joe", age: int =ver()) {
        ?, fourth: int = 1) > str => "Hello {name} you're {age} {father} {fourth}";

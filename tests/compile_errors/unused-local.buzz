@@ -1,5 +1,5 @@
 // Unused local of type `int`
-import "std";
+import "buzz:std";
 
 fun hey(unused: int) > void {
     print("hey you missed me");

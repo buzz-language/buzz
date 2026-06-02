@@ -1,4 +1,4 @@
-import "std";
+import "buzz:std";
 
 test "Bitwise (constant folded)" {
     std\assert(15 << 3 == 120, message: "<<");

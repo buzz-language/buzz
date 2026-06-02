@@ -1,6 +1,6 @@
-import "std";
-import "math";
-import "errors";
+import "buzz:std";
+import "buzz:math";
+import "buzz:errors";
 
 object Node {
     left: mut Node?,

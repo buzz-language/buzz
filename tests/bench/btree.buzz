@@ -1,5 +1,5 @@
-import "std";
-import "math";
+import "buzz:std";
+import "buzz:math";
 
 object Node {
     left: Node?,

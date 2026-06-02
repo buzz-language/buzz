@@ -113,7 +113,10 @@ fn parseBuzz(process: std.process.Init, allocator: Allocator, source: []const u8
     );
     defer parser.deinit();
 
-    const ast = try parser.parse(source, source_path, module_name) orelse {
+    const root_dir = try std.Io.Dir.cwd().realPathFileAlloc(process.io, ".", allocator);
+    defer allocator.free(root_dir);
+
+    const ast = try parser.parse(source, root_dir, source_path, module_name) orelse {
         return error.ParseFailed;
     };
 

@@ -1,4 +1,4 @@
-import "std";
+import "buzz:std";
 
 test "clone methods are available for matching mutability" {
     final immutableList: [int] = [ 1, 2 ];

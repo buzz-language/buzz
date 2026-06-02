@@ -1,4 +1,4 @@
-import "std";
+import "buzz:std";
 
 test "List checked subscript" {
     final list = [ 1, 2, 3 ];

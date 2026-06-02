@@ -22,6 +22,7 @@ const Value = @import("value.zig").Value;
 const o = @import("obj.zig");
 const disassembler = @import("disassembler.zig");
 const Perf = @import("Perf.zig");
+const Package = @import("Package.zig");
 
 const Runner = @This();
 
@@ -100,6 +101,7 @@ pub fn init(runner_ptr: *Runner, process: Init, allocator: std.mem.Allocator, fl
         flavor,
     );
     runner_ptr.parser.perf = perf;
+    runner_ptr.parser.root_dir = try runner_ptr.cwdRootDir();
 
     runner_ptr.codegen = CodeGen.init(
         process,
@@ -112,8 +114,47 @@ pub fn init(runner_ptr: *Runner, process: Init, allocator: std.mem.Allocator, fl
     runner_ptr.codegen.perf = perf;
 }
 
+/// Returns the absolute current directory to use for source-only parsing.
+fn cwdRootDir(runner: *Runner) ![]const u8 {
+    return try std.Io.Dir.cwd().realPathFileAlloc(
+        runner.process.io,
+        ".",
+        runner.gc.allocator,
+    );
+}
+
+/// Resolves the package root used for deterministic package imports.
+fn resolveRootDir(
+    runner: *Runner,
+    provided_root_dir: ?[]const u8,
+    absolute_file_path: []const u8,
+) ![]const u8 {
+    if (provided_root_dir) |root_dir| {
+        return try std.Io.Dir.cwd().realPathFileAlloc(
+            runner.process.io,
+            root_dir,
+            runner.gc.allocator,
+        );
+    }
+
+    // If the entry point lives under a `src` directory, its parent is the
+    // package root. This lets `buzz run src/main.buzz` work without `-r`.
+    if (std.fs.path.dirname(absolute_file_path)) |dir| {
+        var it = std.fs.path.componentIterator(dir);
+        var maybe_component = it.last();
+        while (maybe_component) |prev_dir| : (maybe_component = it.previous()) {
+            if (std.mem.eql(u8, prev_dir.name, "src")) {
+                return try runner.gc.allocator.dupe(u8, std.fs.path.dirname(prev_dir.path) orelse ".");
+            }
+        }
+    }
+
+    return try runner.cwdRootDir();
+}
+
 pub fn runFile(
     runner: *Runner,
+    provided_root_dir: ?[]const u8,
     file_name: []const u8,
     args: []const []const u8,
 ) !u8 {
@@ -129,13 +170,22 @@ pub fn runFile(
     };
     defer file.close(runner.process.io);
 
+    var absolute_file_path_buffer: [std.Io.Dir.max_path_bytes]u8 = undefined;
+    const absolute_file_path_len = try file.realPath(runner.process.io, &absolute_file_path_buffer);
+    const absolute_file_path = try runner.gc.allocator.dupe(
+        u8,
+        absolute_file_path_buffer[0..absolute_file_path_len],
+    );
+
+    const root_dir = try runner.resolveRootDir(provided_root_dir, absolute_file_path);
+
     const source = try runner.gc.allocator.alloc(u8, (try file.stat(runner.process.io)).size);
     defer if (runner.vm.debugger == null) runner.gc.allocator.free(source);
 
     _ = try file.readPositionalAll(runner.process.io, source, 0);
     file_io_scope.end();
 
-    if (try runner.parser.parse(source, null, file_name)) |ast| {
+    if (try runner.parser.parse(source, root_dir, null, absolute_file_path)) |ast| {
         if (runner.vm.flavor != .Fmt) {
             const ast_slice = ast.slice();
 
@@ -172,7 +222,7 @@ pub fn runFile(
 /// Evaluate source using the current parser and vm state and return the value produced if any
 /// Used by REPL and Debugger
 pub fn runSource(self: *Runner, source: []const u8, name: []const u8) !?Value {
-    if (try self.parser.parse(source, null, name)) |ast| {
+    if (try self.parser.parse(source, self.parser.root_dir, null, name)) |ast| {
         const ast_slice = ast.slice();
         if (try self.codegen.generate(ast_slice)) |function| {
             try self.vm.interpret(
@@ -195,6 +245,24 @@ pub fn runSource(self: *Runner, source: []const u8, name: []const u8) !?Value {
         return null;
     } else {
         return Parser.CompileError.Recoverable;
+    }
+
+    return null;
+}
+
+/// Run a manifest.buzz and get the produced manifest object
+pub fn runManifest(self: *Runner, source: []const u8, name: []const u8) !?Value {
+    if (try self.parser.parse(source, self.parser.root_dir, null, name)) |ast| {
+        const ast_slice = ast.slice();
+        if (try self.codegen.generate(ast_slice)) |function| {
+            try self.vm.interpret(
+                ast_slice,
+                function,
+                null,
+            );
+
+            return self.vm.globals.items[self.vm.globals_count];
+        }
     }
 
     return null;
@@ -295,7 +363,7 @@ pub fn evaluate(self: *Runner, parent_fiber: *Fiber, parent_frame: *CallFrame, e
     }
 
     // Compile it
-    if (try self.parser.parse(source.written(), null, "__eval")) |ast| {
+    if (try self.parser.parse(source.written(), self.parser.root_dir, null, "__eval")) |ast| {
         const ast_slice = ast.slice();
         self.vm.current_ast = ast_slice; // We still use the same AST, but the slice has changed
         if (try self.codegen.generate(ast_slice)) |function| {

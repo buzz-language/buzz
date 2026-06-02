@@ -1,5 +1,5 @@
-import "std";
-import "math";
+import "buzz:std";
+import "buzz:math";
 
 final pi = 3.141592653589793;
 final solarMass = 4.0 * pi * pi;

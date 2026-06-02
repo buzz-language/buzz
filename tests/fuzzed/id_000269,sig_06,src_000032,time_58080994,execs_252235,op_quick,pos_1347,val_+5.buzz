@@ -1,4 +1,4 @@
-import "std";
+import "buzz:std";
 
 fun main() > void !> any {
     // Async call, creates a new fiber, yield type must be nullable because resume will return null when nothing yielded

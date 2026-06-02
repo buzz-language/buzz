@@ -1,5 +1,5 @@
 // Could not compile pattern
-import "std";
+import "buzz:std";
 
 test "bad pattern" {
     final bad = $"bad\pattern";

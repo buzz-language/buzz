@@ -1,6 +1,6 @@
 namespace math;
 
-import "errors";
+import "buzz:errors";
 
 /// @return absolute value of n
 export extern fun abs(n: double) > double;

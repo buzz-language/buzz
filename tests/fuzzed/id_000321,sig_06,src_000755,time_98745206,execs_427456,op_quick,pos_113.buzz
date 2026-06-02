@@ -1,5 +1,5 @@
 import "Std";
-import "gc";
+import "buzz:gc";
 
 var collectorCalled = false;
 

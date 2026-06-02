@@ -1,5 +1,5 @@
 // Type mismatch: got type `str`, expected `void`
-import "std";
+import "buzz:std";
 
 fun one() > void *> str? {
     _ = yield "hello";

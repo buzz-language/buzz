@@ -1,4 +1,4 @@
-import "io";
+import "buzz:io";
 
 final list = [ 1, 2, 3 ];
 

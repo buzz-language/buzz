@@ -1,7 +1,7 @@
 namespace b;
 
-import "tests/utils/import-a";
-import "std";
+import "import-a";
+import "buzz:std";
 
 var hello = a\Hello{ message = "hello world" };
 

@@ -1,4 +1,4 @@
-import "std";
+import "buzz:std";
 
 test "for loop" {
     var sum = 0;

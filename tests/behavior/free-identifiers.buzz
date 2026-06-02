@@ -1,4 +1,4 @@
-import "std";
+import "buzz:std";
 
 test "Free identifiers" {
     final @"non-standard-identifier" = "hello world";

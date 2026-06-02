@@ -646,7 +646,10 @@ export fn bz_run(
         strings.deinit(self.gc.allocator);
     }
 
-    if (parser.parse(source.?[0..source_len], null, file_name.?[0..file_name_len]) catch null) |ast| {
+    const script_name = file_name.?[0..file_name_len];
+    const root_dir = std.fs.path.dirname(script_name) orelse ".";
+
+    if (parser.parse(source.?[0..source_len], root_dir, null, script_name) catch null) |ast| {
         const ast_slice = ast.slice();
         if (codegen.generate(ast_slice) catch null) |function| {
             self.interpret(ast_slice, function, null) catch {

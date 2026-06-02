@@ -1,6 +1,6 @@
 namespace io;
 
-import "errors";
+import "buzz:errors";
 
 /// @private
 extern fun FileOpen(

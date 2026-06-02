@@ -1,4 +1,4 @@
-import "std";
+import "buzz:std";
 
 fun main(args: [str]) > void {
     foreach (index, arg in args) {

@@ -1,4 +1,4 @@
-import "std";
+import "buzz:std";
 
 test "Wrapping call inside complex expressions" {
     final map = {

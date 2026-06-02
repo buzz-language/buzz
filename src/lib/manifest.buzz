@@ -1,0 +1,92 @@
+namespace manifest;
+
+/// Supported dependency version constraint operators.
+export enum VersionConstraint {
+    /// Require the candidate version to be lower than the requested version.
+    lessThan,
+    /// Require the candidate version to be lower than or equal to the requested version.
+    equalOrLessThan,
+    /// Require the candidate version to exactly match the requested version.
+    equalTo,
+    /// Require the candidate version to be greater than the requested version.
+    greaterThan,
+    /// Require the candidate version to be greater than or equal to the requested version.
+    equalOrGreater,
+    /// Compare only the major version and require it to be lower than requested.
+    majorLessThan,
+    /// Compare only the major version and require it to be lower than or equal to requested.
+    majorEqualOrLessThan,
+    /// Compare only the major version and require it to equal the requested major.
+    majorEqualTo,
+    /// Compare only the major version and require it to be greater than requested.
+    majorGreaterThan,
+    /// Compare only the major version and require it to be greater than or equal to requested.
+    majorEqualOrGreater,
+    /// Compare major and minor versions and require them to be lower than requested.
+    minorLessThan,
+    /// Compare major and minor versions and require them to be lower than or equal to requested.
+    minorEqualOrLessThan,
+    /// Compare major and minor versions and require them to equal the requested major and minor.
+    minorEqualTo,
+    /// Compare major and minor versions and require them to be greater than requested.
+    minorGreaterThan,
+    /// Compare major and minor versions and require them to be greater than or equal to requested.
+    minorEqualOrGreater,
+}
+
+/// Dependency source declared in a package manifest.
+export object Source {
+    /// Git URL, archive URL, or local directory path for the dependency.
+    url: str,
+    /// Optional git ref, tag, or commit to fetch.
+    ref: str?,
+    /// Optional semantic version constraint used to resolve a git tag.
+    version: obj{ :VersionConstraint, :int, :int, :int }?,
+}
+
+/// Package manifest describing a buzz package and its dependencies.
+export object Manifest {
+    /// Package name used by package imports.
+    name: str,
+    /// Package semantic version.
+    version: obj{ :int, :int, :int },
+    /// Source location of this package.
+    source: Source,
+    /// Runtime dependencies by package name.
+    dependencies: {str: Source} = {},
+    /// Development-only dependencies by package name.
+    devDependencies: {str: Source} = {},
+    /// Build commands to run by named build step.
+    build: {str: [[str]]} = {},
+    /// Directory containing the package buzz sources.
+    rootDir: str = "src",
+
+    /// Optional package summary.
+    description: str?,
+    /// Package authors.
+    authors: [str] = [],
+    /// Search or classification tags.
+    tags: [str] = [],
+    /// Package license identifier or text.
+    license: str?,
+    /// Package homepage URL.
+    homepage: str?,
+}
+
+/// Dependency source resolved and recorded in a manifest lock file.
+export object ResolvedSource {
+    /// Git URL, archive URL, or local directory path used to fetch the dependency.
+    url: str,
+    /// Resolved git ref, tag, or commit when applicable.
+    ref: str?,
+    /// SHA-256 content hash of the fetched dependency tree.
+    hash: str,
+}
+
+/// Lock file describing the exact dependency sources fetched for a package.
+export object ManifestLock {
+    /// Locked runtime dependencies by package name.
+    dependencies: {str: ResolvedSource} = {},
+    /// Locked development-only dependencies by package name.
+    devDependencies: {str: ResolvedSource} = {},
+}

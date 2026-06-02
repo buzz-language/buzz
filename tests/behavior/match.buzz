@@ -1,4 +1,4 @@
-import "std";
+import "buzz:std";
 
 object MatchBox {
     value: int = 1,

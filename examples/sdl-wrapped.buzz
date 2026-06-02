@@ -1,7 +1,7 @@
 namespace sdl;
 
-import "std";
-import "ffi";
+import "buzz:std";
+import "buzz:ffi";
 
 zdef("SDL2", `
     const SDL_Window = opaque{};

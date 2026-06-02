@@ -1,4 +1,4 @@
-import "std";
+import "buzz:std";
 
 test "Lambda/Anonymous functions" {
     final mul: fun (n: int) > int = fun (n: int) > int => n * 2;

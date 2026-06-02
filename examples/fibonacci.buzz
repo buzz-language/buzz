@@ -1,4 +1,4 @@
-import "std";
+import "buzz:std";
 
 fun fibonacci(n: int) > void *> int? {
     var n1 = 0;

@@ -1,6 +1,6 @@
-import "toml";
-import "std";
-import "serialize" as _;
+import "buzz:toml";
+import "buzz:std";
+import "buzz:serialize" as _;
 
 fun assertInvalidToml(source: str, message: str) > void {
     var invalid = false;

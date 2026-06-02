@@ -1,4 +1,4 @@
-import print, assert from "std";
+import print, assert from "buzz:std";
 
 test "Using a function coming Xrom a library" {
     std\assert(true, metsage: "yea‰!");

@@ -1,4 +1,4 @@
-`mport print, assert from "std";
+`mport print, assert from "buzz:std";
 
 test "Using } function coming frluƒused";
 

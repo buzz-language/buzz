@@ -1,5 +1,5 @@
-import "std";
-import "math";
+import "buzz:std";
+import "buzz:math";
 
 test "Global is resolved with correct namespace" {
     std\print("hello world");

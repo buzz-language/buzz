@@ -1,5 +1,5 @@
-import "std";
-import "tests/utils/complex-namespace";
+import "buzz:std";
+import "../utils/complex-namespace";
 
 test "Global with multi part namespace" {
     std\print(rather\long\name\hello);
