@@ -4401,14 +4401,26 @@ fn argumentList(self: *Self) ![]Ast.Call.Argument {
         }
     }
 
-    return arguments.items;
+    return try arguments.toOwnedSlice(self.gc.allocator);
 }
 
-fn call(self: *Self, _: bool, callee: Ast.Node.Index) Error!Ast.Node.Index {
+fn callExpression(self: *Self, callee: Ast.Node.Index, anon_obj_single_argument: ?Ast.Node.Index) Error!Ast.Node.Index {
     const start_location = self.ast.nodes.items(.location)[callee];
     const callee_type_def = self.ast.nodes.items(.type_def)[callee];
 
-    const arguments = try self.argumentList();
+    const arguments = if (anon_obj_single_argument) |single_arg| single: {
+        var arg_list = std.ArrayList(Ast.Call.Argument).empty;
+
+        try arg_list.append(
+            self.gc.allocator,
+            .{
+                .name = null,
+                .value = single_arg,
+            },
+        );
+
+        break :single try arg_list.toOwnedSlice(self.gc.allocator);
+    } else try self.argumentList();
     const catch_default = if (try self.match(.Catch))
         try self.expression(false)
     else
@@ -4479,6 +4491,10 @@ fn call(self: *Self, _: bool, callee: Ast.Node.Index) Error!Ast.Node.Index {
             },
         },
     );
+}
+
+fn call(self: *Self, _: bool, callee: Ast.Node.Index) Error!Ast.Node.Index {
+    return self.callExpression(callee, null);
 }
 
 fn map(self: *Self, _: bool) Error!Ast.Node.Index {
@@ -5021,6 +5037,14 @@ fn anonymousObjectInit(self: *Self, _: bool) Error!Ast.Node.Index {
 
 fn dot(self: *Self, can_assign: bool, callee: Ast.Node.Index) Error!Ast.Node.Index {
     const start_location = self.ast.nodes.items(.location)[callee];
+
+    // This is a call with an anonymouse object literal `callMe .{ ... }`
+    if (try self.match(.LeftBrace)) {
+        return try self.callExpression(
+            callee,
+            try self.anonymousObjectInit(can_assign),
+        );
+    }
 
     try self.consume(.Identifier, "Expected property name after `.`");
     const member_name_token = self.current_token.? - 1;

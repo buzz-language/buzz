@@ -12,6 +12,9 @@ This release brings a lot of useful tools to write buzz code: LSP, formatter and
 - First working version of the debugger that implements the [Debugger Adapter Protocol](https://microsoft.github.io/debug-adapter-protocol/) thanks to [buzz-language/dap-kit](https://github.com/buzz-language/dap-kit) (https://github.com/buzz-language/buzz/issues/88)
 - Code formatter (`buzz --fmt`) (https://github.com/buzz-language/buzz/issues/96)
 - `match` statement/expression for value matching with type-specific condition semantics (https://github.com/buzz-language/buzz/issues/80)
+- Enum name can be omitted if it can be inferred (`final list: [Locale] = [ .fr, .it, .en ]`) (https://github.com/buzz-language/buzz/issues/360)
+- Object initialization name can be omitted if it can be inferred (`final payload: Payload = .{ data "..." };`) (https://github.com/buzz-language/buzz/issues/373)
+- When function call as one anonymous object literal argument, the parentheses can be omitted (`callMe{.{ data = "..." }}` becomes `callMe .{ data = "..." }`) (https://github.com/buzz-language/buzz/issues/372)
 - File polling API: `File.getPoller`, `FilePoller` (see example https://github.com/buzz-language/buzz/blob/main/tests/manual/007-fd-poller.buzz)
 - _Shortcut_ operators: `+=`, `-=`, `*=`, etc. (https://github.com/buzz-language/buzz/issues/78)
 - `rg.contains`
@@ -29,7 +32,6 @@ This release brings a lot of useful tools to write buzz code: LSP, formatter and
 - `pattern.matchAgainst` returns now a list of `obj{ start: int, end: int, capture: str }` and `matchAllAgainst` a list of those lists
 - Selective import erases the imported namespace: `import print from "std"; ... print("hello world");`
 - Common part of imported namespace gets erased: il imported file as namesapce `a\b\c` and importing script has namespace `a\b`, only `c\` remains
-- Enum name can be omitted if it can be inferred (`final list: [Locale] = [ .fr, .it, .en ]`) (https://github.com/buzz-language/buzz/issues/360)
 
 ## Internal
 

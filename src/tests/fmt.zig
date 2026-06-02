@@ -490,6 +490,29 @@ test "fmt keeps multiline callback call opener after assignment when it fits" {
     );
 }
 
+test "fmt preserves anonymous object call parentheses choice" {
+    try expectFmtSource(
+        \\object Payload{data:str,}
+        \\fun callMe(payload:Payload)=>payload.data.len();
+        \\test "fmt"{_ = callMe .{data="hello"}; _ = callMe(.{data="hello"});}
+        \\
+    ,
+        \\object Payload {
+        \\    data: str,
+        \\}
+        \\
+        \\fun callMe(payload: Payload) => payload.data.len();
+        \\
+        \\test "fmt" {
+        \\    _ = callMe .{ data = "hello" };
+        \\    _ = callMe(.{ data = "hello" });
+        \\}
+        \\
+    ,
+        .{},
+    );
+}
+
 test "fmt handles optional typed parameters with defaults" {
     try expectFmtSource(
         \\object Style {}
