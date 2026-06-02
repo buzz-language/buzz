@@ -934,8 +934,11 @@ const Document = struct {
                     for (comp.properties) |property| {
                         const prop_type = if (comp.object) |object|
                             if (type_defs[object]) |type_def|
-                                if (type_def.resolved_type.?.Object.fields.get(lexemes[property.name])) |field|
-                                    field.type_def
+                                if (type_def.def_type == .Object)
+                                    if (type_def.resolved_type.?.Object.fields.get(lexemes[property.name])) |field|
+                                        field.type_def
+                                    else
+                                        null
                                 else
                                     null
                             else

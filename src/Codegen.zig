@@ -2770,7 +2770,7 @@ fn generateObjectInit(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error
                 .OP_SET_INSTANCE_PROPERTY
             else
                 .OP_SET_FCONTAINER_INSTANCE_PROPERTY,
-            @intCast(property_idx.?),
+            @intCast(property_idx orelse 0),
         );
         try self.OP_POP(location); // Pop property value
 
