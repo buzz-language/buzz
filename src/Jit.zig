@@ -5075,6 +5075,37 @@ fn generateUnwrap(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
     return value;
 }
 
+/// Finds the declared object global backing an inferred anonymous object init.
+fn objectGlobalSlotForInstanceType(self: *Self, type_def: *o.ObjTypeDef) ?usize {
+    if (type_def.def_type != .ObjectInstance) {
+        return null;
+    }
+
+    const object_def = type_def.resolved_type.?.ObjectInstance.of
+        .resolved_type.?.Object;
+    if (object_def.anonymous) {
+        return null;
+    }
+
+    for (self.state.?.closure.globals.items, 0..) |global, slot| {
+        if (!global.isObj()) {
+            continue;
+        }
+
+        const object = o.ObjObject.cast(global.obj()) orelse continue;
+        const global_object_def = object.type_def.resolved_type.?.Object;
+        if (std.mem.eql(
+            u8,
+            object_def.qualified_name.string,
+            global_object_def.qualified_name.string,
+        )) {
+            return slot;
+        }
+    }
+
+    return null;
+}
+
 fn generateObjectInit(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
     const lexemes = self.state.?.ast.tokens.items(.lexeme);
     const components = self.state.?.ast.nodes.items(.components)[node].ObjectInit;
@@ -5087,6 +5118,8 @@ fn generateObjectInit(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
 
     const object = if (components.object != null and type_defs[components.object.?].?.def_type == .Object)
         (try self.generateNode(components.object.?)).?
+    else if (self.objectGlobalSlotForInstanceType(type_def.?)) |slot|
+        try self.buildGetGlobal(slot)
     else
         m.MIR_new_uint_op(self.ctx, Value.Null.val);
 

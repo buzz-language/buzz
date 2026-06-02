@@ -11,31 +11,21 @@ export object Boxed {
     /// Creates a `Boxed` wrapper around serializable data.
     /// @param data Data to wrap
     /// @return A new `Boxed`
-    static fun init(data: any) > Boxed !> CircularReference, NotSerializable {
-        return Boxed{
-            data = serializeValue(data),
-        };
-    }
+    static fun init(data: any) !> CircularReference, NotSerializable => Boxed{
+        data = serializeValue(data),
+    };
 
     /// When wrapped data is a string
-    fun string() > str? {
-        return this.data as? str;
-    }
+    fun string() => this.data as? str;
 
     /// When wrapped data is a boolean
-    fun boolean() > bool? {
-        return this.data as? bool;
-    }
+    fun boolean() => this.data as? bool;
 
     /// When wrapped data is a int
-    fun integer() > int? {
-        return this.data as? int;
-    }
+    fun integer() => this.data as? int;
 
     /// When wrapped data is a double
-    fun float() > double? {
-        return this.data as? double;
-    }
+    fun float() => this.data as? double;
 
     /// When wrapped data is an object, object property values are themselves wrapped in a `Boxed`
     fun map() > {str: Boxed}? {
@@ -43,7 +33,7 @@ export object Boxed {
             var boxedMap: mut {str: Boxed} = mut {};
 
             foreach (key, value in dataMap) {
-                boxedMap[key] = Boxed{ data = value };
+                boxedMap[key] = .{ data = value };
             }
 
             return boxedMap;
@@ -58,7 +48,7 @@ export object Boxed {
             var boxedList: mut [Boxed] = mut [];
 
             foreach (element in dataList) {
-                boxedList.append(Boxed{ data = element });
+                boxedList.append(.{ data = element });
             }
 
             return boxedList;
@@ -395,6 +385,6 @@ export fun jsonEncode(data: Boxed) > str !> CircularReference, NotSerializable {
 /// @return Boxed
 export fun jsonDecode(
     json: str
-) > Boxed !> JsonParseError, buffer\WriteWhileReadingError {
-    return Boxed{ data = (mut JsonParser{ source = json }).next() };
-}
+) !> JsonParseError, buffer\WriteWhileReadingError => Boxed{
+    data = (mut JsonParser{ source = json }).next()
+};

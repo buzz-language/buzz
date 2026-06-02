@@ -1,0 +1,12 @@
+// Wrong variable type
+
+object ExtraFieldTarget {
+    data: str,
+}
+
+test "Anonymous object with extra field does not infer named object" {
+    _: ExtraFieldTarget = .{
+        data = "hello",
+        extra = 42,
+    };
+}

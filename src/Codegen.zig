@@ -2674,6 +2674,51 @@ fn generateObjectDeclaration(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks
     return null;
 }
 
+/// Finds the declared object global backing an inferred anonymous object init.
+fn objectGlobalSlotForInstanceType(self: *Self, type_def: *obj.ObjTypeDef) ?u24 {
+    if (type_def.def_type != .ObjectInstance) {
+        return null;
+    }
+
+    const object_def = type_def.resolved_type.?.ObjectInstance.of
+        .resolved_type.?.Object;
+    if (object_def.anonymous) {
+        return null;
+    }
+
+    const current_script = self.current.?.function.?.type_def
+        .resolved_type.?.Function.script_name.string;
+    const object_script = self.ast.tokens.get(object_def.location).script_name;
+
+    for (self.parser.globals.items, 0..) |global, slot| {
+        // When generating an imported script, its bytecode still addresses the
+        // global slots it had before import reindexing.
+        if (global.type_def.def_type != .Object) {
+            continue;
+        }
+
+        const global_object_def = global.type_def.resolved_type.?.Object;
+        if (std.mem.eql(
+            u8,
+            object_def.qualified_name.string,
+            global_object_def.qualified_name.string,
+        )) {
+            if (std.mem.eql(u8, current_script, object_script) and
+                self.ast.nodes.items(.tag)[global.node] == .ObjectDeclaration)
+            {
+                return @intCast(
+                    self.ast.nodes.items(.components)[global.node]
+                        .ObjectDeclaration.slot,
+                );
+            }
+
+            return @intCast(slot);
+        }
+    }
+
+    return null;
+}
+
 fn generateObjectInit(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.ObjFunction {
     const locations = self.ast.nodes.items(.location);
     const type_defs = self.ast.nodes.items(.type_def);
@@ -2685,7 +2730,11 @@ fn generateObjectInit(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error
     if (components.object != null and type_defs[components.object.?].?.def_type == .Object) {
         _ = try self.generateNode(components.object.?, breaks);
     } else if (node_type_def.def_type == .ObjectInstance) {
-        try self.OP_NULL(location);
+        if (self.objectGlobalSlotForInstanceType(node_type_def)) |slot| {
+            try self.OP_GET_GLOBAL(location, slot);
+        } else {
+            try self.OP_NULL(location);
+        }
     }
 
     try self.OP_CONSTANT(location, node_type_def.toValue());

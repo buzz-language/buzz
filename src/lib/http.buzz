@@ -122,11 +122,9 @@ export object Client {
 
     /// Creates a new HTTP client.
     /// @return A new `Client`
-    static fun init() > Client !> HttpError {
-        return Client{
-            client = HttpClientNew(),
-        };
-    }
+    static fun init() !> HttpError => Client{
+        client = HttpClientNew(),
+    };
 
     /// Sends a request and waits asynchronously for the response.
     /// @param request Request to send

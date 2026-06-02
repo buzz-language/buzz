@@ -139,14 +139,14 @@ export object Buffer {
     released: bool = false,
 
     /// @return A new `Buffer`
-    static fun init(capacity: int = 0) > Buffer {
-        return Buffer{ buffer = BufferNew(capacity) };
-    }
+    static fun init(capacity: int = 0) => mut Buffer{
+        buffer = BufferNew(capacity)
+    };
 
     /// Creates a buffer initialized with `string`.
     /// @param string Bytes to write into the new buffer
     /// @return A new `Buffer`
-    static fun fromStr(string: str) > Buffer {
+    static fun fromStr(string: str) > mut Buffer {
         final buffer = Buffer.init();
 
         // We're sure we did not read this buffer before
@@ -166,9 +166,7 @@ export object Buffer {
 
     /// Reads `n` bytes
     /// @return Read bytes or `null` if nothing to read
-    fun read(n: int = 1) > str? {
-        return BufferRead(this.buffer, n: n);
-    }
+    fun read(n: int = 1) => BufferRead(this.buffer, n: n);
 
     /// Writes a string
     /// @param bytes Bytes to write
@@ -201,17 +199,20 @@ export object Buffer {
     /// Reads a value using a Zig type layout.
     /// @param zigType Zig type expression
     /// @return Read value
-    fun readZ::<T>(zigType: str) > T !> ffi\FFITypeMismatchError {
-        return BufferReadZ::<T>(this.buffer, zigType: zigType);
-    }
+    fun readZ::<T>(zigType: str) !> ffi\FFITypeMismatchError => BufferReadZ::<T>(
+        this.buffer,
+        zigType: zigType
+    );
 
     /// Reads a value at `at` using a Zig type layout.
     /// @param at Offset from which to read
     /// @param zigType Zig type expression
     /// @return Read value
-    fun readZAt::<T>(at: int, zigType: str) > T !> ffi\FFITypeMismatchError {
-        return BufferReadZAt::<T>(this.buffer, at: at, zigType: zigType);
-    }
+    fun readZAt::<T>(at: int, zigType: str) !> ffi\FFITypeMismatchError => BufferReadZAt::<T>(
+        this.buffer,
+        at: at,
+        zigType: zigType
+    );
 
     /// Writes values using a Buzz object type as a Zig struct layout.
     /// @param structType Buzz object type to use as struct layout
@@ -243,27 +244,24 @@ export object Buffer {
     /// Reads a value using a Buzz object type as a Zig struct layout.
     /// @param structType Buzz object type to use as struct layout
     /// @return Read value
-    fun readStruct::<T>(structType: type) > T {
-        return BufferReadStruct::<T>(this.buffer, structType: structType);
-    }
+    fun readStruct::<T>(structType: type) => BufferReadStruct::<T>(
+        this.buffer,
+        structType: structType
+    );
 
     /// Reads a value at `at` using a Buzz object type as a Zig struct layout.
     /// @param structType Buzz object type to use as struct layout
     /// @param at Offset from which to read
     /// @return Read value
-    fun readStructAt::<T>(structType: type, at: int) > T {
-        return BufferReadStructAt::<T>(
-            this.buffer,
-            structType: structType,
-            at: at
-        );
-    }
+    fun readStructAt::<T>(structType: type, at: int) => BufferReadStructAt::<T>(
+        this.buffer,
+        structType: structType,
+        at: at
+    );
 
     /// Reads a boolean
     /// @return Boolean we read or `null` if nothing to read
-    fun readBoolean() > bool? {
-        return BufferReadBoolean(this.buffer);
-    }
+    fun readBoolean() => BufferReadBoolean(this.buffer);
 
     /// Writes a boolean
     /// @param boolean Boolean to write
@@ -273,9 +271,7 @@ export object Buffer {
 
     /// Reads an integer
     /// @return Read integer or `null` if nothing to read
-    fun readInt() > int? !> errors\ReadWriteError {
-        return BufferReadInt(this.buffer);
-    }
+    fun readInt() !> errors\ReadWriteError => BufferReadInt(this.buffer);
 
     /// Writes an integer
     /// @param number Integer to write
@@ -285,9 +281,9 @@ export object Buffer {
 
     /// Reads an ud
     /// @return Read ud or `null` if nothing to read
-    fun readUserData() > ud? !> errors\ReadWriteError {
-        return BufferReadUserData(this.buffer);
-    }
+    fun readUserData() !> errors\ReadWriteError => BufferReadUserData(
+        this.buffer
+    );
 
     /// Writes an ud
     /// @param number UserDataeger to write
@@ -297,9 +293,7 @@ export object Buffer {
 
     /// Reads a double
     /// @return Read double or `null` if nothing to read
-    fun readDouble() > double? !> errors\ReadWriteError {
-        return BufferReadDouble(this.buffer);
-    }
+    fun readDouble() !> errors\ReadWriteError => BufferReadDouble(this.buffer);
 
     /// Writes a double
     /// @param number Double to write
@@ -308,14 +302,10 @@ export object Buffer {
     }
 
     /// @return Length of the buffer
-    fun len(align: int = 1) > int {
-        return BufferLen(this.buffer, align: align);
-    }
+    fun len(align: int = 1) => BufferLen(this.buffer, align: align);
 
     /// @return Position of the reading cursor
-    fun cursor() > int {
-        return BufferCursor(this.buffer);
-    }
+    fun cursor() => BufferCursor(this.buffer);
 
     /// Empties the buffer
     fun empty() > void {
@@ -323,14 +313,14 @@ export object Buffer {
     }
 
     /// Get buffer as string
-    fun toString() > str {
-        return BufferBuffer(this.buffer);
-    }
+    fun toString() => BufferBuffer(this.buffer);
 
     /// Get buffer's ptr
-    fun ptr(at: int = 0, align: int = 1) > ud {
-        return BufferPtr(this.buffer, at: at, alignment: align);
-    }
+    fun ptr(at: int = 0, align: int = 1) => BufferPtr(
+        this.buffer,
+        at: at,
+        alignment: align
+    );
 
     /// Get byte at `index`
     fun at(index: int) > int !> OutOfBoundError {

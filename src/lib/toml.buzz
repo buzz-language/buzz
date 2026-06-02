@@ -318,7 +318,7 @@ object Scanner {
     static fun init(source: str) => mut Scanner{
         source,
         tokens = mut [],
-        current = mut Location{},
+        current = mut .{},
     };
 
     fun isEOF() => this.current.offset >= this.source.len();
@@ -456,7 +456,7 @@ object Scanner {
 
     fun makeToken(tag: TokenTag, error: str? = null) > Token {
         this.tokens.append(
-            Token{
+            .{
                 tag,
                 lexeme = this.source.sub(
                     this.current.start,

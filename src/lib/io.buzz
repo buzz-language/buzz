@@ -88,11 +88,9 @@ export object File {
     static fun open(
         filename: str,
         mode: FileMode
-    ) > mut File !> errors\FileSystemError, errors\UnexpectedError {
-        return mut File{
-            file = FileOpen(filename, mode: mode.value),
-        };
-    }
+    ) !> errors\FileSystemError, errors\UnexpectedError => mut File{
+        file = FileOpen(filename, mode: mode.value),
+    };
 
     /// Close file when it is collected.
     mut fun collect() > void {
@@ -111,33 +109,30 @@ export object File {
     /// @return Read data
     mut fun readAll(
         maxSize: int?
-    ) > str
-        !> errors\ReadWriteError, errors\FileSystemError, errors\UnexpectedError {
-        return FileReadAll(this.file, maxSize);
-    }
+    ) !> errors\ReadWriteError, errors\FileSystemError, errors\UnexpectedError => FileReadAll(
+        this.file,
+        maxSize
+    );
 
     /// Reads next line, returns null if nothing to read
     /// @return Read data
     mut fun readLine(
         maxSize: int?
-    ) > str?
-        !> errors\ReadWriteError, errors\FileSystemError, errors\UnexpectedError {
-        return FileReadLine(this.file, maxSize);
-    }
+    ) !> errors\ReadWriteError, errors\FileSystemError, errors\UnexpectedError => FileReadLine(
+        this.file,
+        maxSize
+    );
 
     /// Reads `n` bytes, returns null if nothing to read
     /// @param n how many bytes to read
     /// @return Read data
     mut fun read(
         n: int
-    ) > str?
-        !>
+    ) !>
         errors\ReadWriteError,
         errors\FileSystemError,
         errors\InvalidArgumentError,
-        errors\UnexpectedError {
-        return FileRead(this.file, n);
-    }
+        errors\UnexpectedError => FileRead(this.file, n);
 
     /// Write bytes
     /// @param bytes string to write
@@ -149,16 +144,12 @@ export object File {
     }
 
     /// @return true if file is TTY
-    fun isTTY() > bool {
-        return FileIsTTY(this.file);
-    }
+    fun isTTY() => FileIsTTY(this.file);
 
     /// @return FilePoller that can be used to poll incoming data on that file
-    fun getPoller() > mut FilePoller {
-        return mut FilePoller{
-            poller = FileGetPoller(this.file),
-        };
-    }
+    fun getPoller() => mut FilePoller{
+        poller = FileGetPoller(this.file),
+    };
 }
 
 /// Object used to poll incoming data on a file.
