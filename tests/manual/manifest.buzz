@@ -1,0 +1,60 @@
+namespace some;
+
+import "manifest" as _;
+
+// A buzz std lib
+// import "buzz:std"
+
+// A dependency (the script might be the root which exports all that the lib want to expose)
+// import "pkg:mydep/mydep.buzz"
+
+// Something from the current codebase
+// import "pkg:./something.buzz"
+// or
+// import "pkg:nameofthecurrentpackage/something.buzz"
+
+// Look at: https://github.com/luarocks/luarocks/blob/main/docs/rockspec_format.md
+export final manifest = Manifest{
+    name = "toml",
+    version = .{1,0,0},
+    description = "A toml parser in buzz",
+    authors = [
+        "giann <giann008@gmail.com>",
+    ],
+    license = "MIT",
+    homepage = "https://github.com/buzz-language/toml",
+    tags = [ "toml", "parser" ],
+    source = .{
+        url = "git:https://github.com/buzz-language/toml.git",
+        tag = "1.0.0",
+        hash = "2aae6c35c94fcfb415dbe95f408b9ce91ee846ed",
+    },
+    // Root directory of the exposed buzz code
+    rootDir = "src",
+    // Tells how to build native code
+    build = {
+        // List of cli commands that will be ran in the checked out repo
+        "parser": [
+            "zig build",
+            "cp zig-out/lib/parser.* src/"
+        ]
+    },
+    dependencies = {
+        "tty": .{
+            // We won't handle version to begin with because it requires a registry which is a whole problem on itself
+            version = .{
+               .majorEqualOrLessThan, 1, 1, 0,
+            },
+            // tag = "0.1.0", // or use explicit tag
+            url = "git:https://github.com/buzz-language/tty.git",
+            hash = "35e10a5e739edd72540c7cf0fa91c8257d128bfe",
+        },
+    },
+    devDependencies = {
+        "doc": .{
+            url = "git:https://github.com/buzz-language/docgen.git",
+            tag = "2.1.0",
+            hash = "f7f029ecb98abe979074a3ab45b74dbd9af02d42",
+        }
+    }
+};

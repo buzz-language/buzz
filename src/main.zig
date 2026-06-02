@@ -48,6 +48,7 @@ pub fn main(provided_init: Init) u8 {
     // FIXME: Use process.allocator everywhere?
     init.gpa = allocator;
 
+    // FIXME: everything should become a subcommand except for --line-width and --library
     const params = comptime clap.parseParamsComptime(
         \\-h, --help             Show help and exit
         \\-t, --test             Run test blocks in provided script

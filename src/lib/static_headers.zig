@@ -17,6 +17,7 @@ pub const fs = Header{ .name = "fs", .path = "fs.buzz" };
 pub const gc = Header{ .name = "gc", .path = "gc.buzz" };
 pub const http = Header{ .name = "http", .path = "http.buzz" };
 pub const io = Header{ .name = "io", .path = "io.buzz" };
+pub const manifest = Header{ .name = "manifest", .path = "manifest.buzz" };
 pub const math = Header{ .name = "math", .path = "math.buzz" };
 pub const os = Header{ .name = "os", .path = "os.buzz" };
 pub const serialize = Header{ .name = "serialize", .path = "serialize.buzz" };
@@ -35,6 +36,7 @@ pub const all = [_]Header{
     gc,
     http,
     io,
+    manifest,
     math,
     os,
     serialize,
