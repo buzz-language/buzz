@@ -1,0 +1,20 @@
+import "std";
+
+object Payload {
+    data: str,
+
+    fun len() => this.data.len();
+}
+
+fun callMe(payload: Payload) => payload.len();
+
+test "Parentheses around single object literal call argument can be omitted" {
+    final len = callMe .{
+        data = "hello",
+    };
+
+    std\assert(
+        len == 5,
+        message: "Could call function with signle object literal argument without parentheses"
+    );
+}
