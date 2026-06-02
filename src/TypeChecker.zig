@@ -100,6 +100,7 @@ fn inferType(ast: Ast.Slice, reporter: *Reporter, gc: *GC, value_node: Ast.Node.
 
     return switch (tags[value_node]) {
         .AnonymousEnumCase => populateAnonymousEnumCase(ast, reporter, value_node, inferred_target_type),
+        .ObjectInit => populateAnonymousObject(ast, gc, value_node, inferred_target_type),
         .List => try inferListType(ast, reporter, gc, value_node, inferred_target_type),
         .Map => try inferMapType(ast, reporter, gc, value_node, inferred_target_type),
         .Match => try inferMatchType(ast, reporter, gc, value_node, inferred_target_type),
@@ -306,6 +307,65 @@ fn populateAnonymousEnumCase(ast: Ast.Slice, reporter: *Reporter, value: Ast.Nod
     }
 
     return false;
+}
+
+fn populateAnonymousObject(ast: Ast.Slice, gc: *GC, value: Ast.Node.Index, target_type: *o.ObjTypeDef) error{OutOfMemory}!bool {
+    const type_defs = ast.nodes.items(.type_def);
+    const components = ast.nodes.items(.components);
+
+    if (target_type.def_type != .ObjectInstance or
+        components[value].ObjectInit.object != null or
+        type_defs[value] == null or
+        type_defs[value].?.def_type != .ObjectInstance)
+    {
+        return false;
+    }
+
+    const anon_fields = type_defs[value].?.resolved_type.?.ObjectInstance
+        .of.resolved_type.?.Object
+        .fields;
+
+    // Anonymous object literals only carry property values, so compatibility
+    // checks field types and lets the named object keep defaults/finality.
+    const target_fields = target_type.resolved_type.?.ObjectInstance
+        .of.resolved_type.?.Object
+        .fields;
+
+    var anon_it = anon_fields.iterator();
+    while (anon_it.next()) |entry| {
+        if (target_fields.get(entry.key_ptr.*)) |target_field| {
+            if (target_field.method or
+                target_field.static or
+                !target_field.type_def.eql(entry.value_ptr.type_def))
+            {
+                return false;
+            }
+        } else {
+            return false;
+        }
+    }
+
+    // Missing named-object properties are valid only when the object can fill
+    // them from defaults. Methods and static fields are supplied by the object.
+    var target_it = target_fields.iterator();
+    while (target_it.next()) |entry| {
+        if (!entry.value_ptr.method and
+            !entry.value_ptr.static and
+            anon_fields.get(entry.key_ptr.*) == null and
+            !entry.value_ptr.has_default)
+        {
+            return false;
+        }
+    }
+
+    // The object types are compatible, we populate with the actual type
+    // If mutability differ it will be caught later no need to report it here
+    type_defs[value] = target_type.cloneMutable(
+        &gc.type_registry,
+        type_defs[value].?.isMutable(),
+    ) catch return error.OutOfMemory;
+
+    return true;
 }
 
 fn checkBinary(ast: Ast.Slice, reporter: *Reporter, gc: *GC, _: ?Ast.Node.Index, node: Ast.Node.Index) error{OutOfMemory}!bool {

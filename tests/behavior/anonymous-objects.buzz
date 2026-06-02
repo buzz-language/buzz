@@ -41,7 +41,28 @@ fun getPayload::<T>(data: T) > obj{ data: T } {
 test "Anonymous object with generics" {
     final payload = getPayload::<int>(42);
 
-    std\assert(payload.data == 42, message: "Could use anonymous object with generic");
+    std\assert(
+        payload.data == 42,
+        message: "Could use anonymous object with generic"
+    );
+}
+
+object InferredPayload {
+    data: str,
+    suffix: str = "!",
+
+    fun describe() > str {
+        return "{this.data}{this.suffix}";
+    }
+}
+
+test "Anonymous object inferred as named object" {
+    final payload: InferredPayload = .{ data = "hello" };
+
+    std\assert(
+        payload.describe() == "hello!",
+        message: "Inferred anonymous object can use named object methods",
+    );
 }
 
 fun callMe(o: obj{ x: int, y: int }) > void {

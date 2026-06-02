@@ -117,23 +117,24 @@ export object Socket {
     /// Receive at most `n` bytes from the socket
     /// @param n How many bytes we're prepare to receive
     /// @return The bytes received or null if nothing to read
-    fun receive(
-        n: int
-    ) > str? !> errors\InvalidArgumentError, errors\ReadWriteError {
-        return SocketRead(this.fd, n: n);
-    }
+    fun receive(n: int) !> errors\InvalidArgumentError, errors\ReadWriteError => SocketRead(
+        this.fd,
+        n: n
+    );
 
     /// Receive from socket until it's closed or a linefeed is received
     /// @return The bytes received or null if nothing to read
-    fun receiveLine(maxSize: int?) > str? !> errors\ReadWriteError {
-        return SocketReadLine(this.fd, maxSize);
-    }
+    fun receiveLine(maxSize: int?) !> errors\ReadWriteError => SocketReadLine(
+        this.fd,
+        maxSize
+    );
 
     /// Receive from socket until it's closed
     /// @return The bytes received or null if nothing to read
-    fun receiveAll(maxSize: int?) > str? !> errors\ReadWriteError {
-        return SocketReadAll(this.fd, maxSize);
-    }
+    fun receiveAll(maxSize: int?) !> errors\ReadWriteError => SocketReadAll(
+        this.fd,
+        maxSize
+    );
 
     /// Send bytes on the socket
     /// @param bytes Bytes to send
@@ -167,11 +168,9 @@ export object TcpServer {
 
     /// Accept a new connection
     /// @return Socket opened with the client
-    fun accept() > Socket !> errors\SocketError, errors\UnexpectedError {
-        return Socket{
-            fd = SocketServerAccept(this.serverSocket.fd),
-        };
-    }
+    fun accept() !> errors\SocketError, errors\UnexpectedError => Socket{
+        fd = SocketServerAccept(this.serverSocket.fd),
+    };
 
     /// Close server
     fun close() > void {
