@@ -2298,9 +2298,9 @@ pub const Renderer = struct {
         );
 
         // identifier
-        try self.renderExpectedToken(
+        try self.renderOneOfExpectedToken(
             components.identifier,
-            .Identifier,
+            &.{ .Identifier, .IntegerValue },
             switch (components.member_kind) {
                 .Ref, .EnumCase => space,
                 .Value => .Space,

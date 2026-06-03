@@ -867,6 +867,7 @@ fn checkDot(ast: Ast.Slice, reporter: *Reporter, gc: *GC, _: ?Ast.Node.Index, no
     const locations = ast.nodes.items(.location);
     const end_locations = ast.nodes.items(.end_location);
     const tags = ast.tokens.items(.tag);
+    const lexemes = ast.tokens.items(.lexeme);
 
     var had_error = false;
 
@@ -907,10 +908,26 @@ fn checkDot(ast: Ast.Slice, reporter: *Reporter, gc: *GC, _: ?Ast.Node.Index, no
         had_error = true;
     }
 
+    if (tags[components.identifier] == .IntegerValue and
+        (callee_type.def_type != .ObjectInstance or
+            !callee_type.resolved_type.?.ObjectInstance.of
+                .resolved_type.?.Object
+                .is_tuple) and
+        callee_type.def_type != .Placeholder)
+    {
+        reporter.reportErrorAt(
+            .field_access,
+            ast.tokens.get(components.identifier),
+            ast.tokens.get(components.identifier),
+            "Tuple index shorthand is only allowed on tuples",
+        );
+        had_error = true;
+    }
+
     switch (callee_type.def_type) {
         .Fiber, .Pattern, .String => {},
         .ForeignContainer, .ObjectInstance, .Object => {
-            const field_name = ast.tokens.items(.lexeme)[components.identifier];
+            const field_name = lexemes[components.identifier];
             const field = switch (callee_type.def_type) {
                 .ObjectInstance => callee_type.resolved_type.?.ObjectInstance.of
                     .resolved_type.?.Object
@@ -1135,7 +1152,7 @@ fn checkDot(ast: Ast.Slice, reporter: *Reporter, gc: *GC, _: ?Ast.Node.Index, no
             }
         },
         .ProtocolInstance => if (components.member_kind == .Call) {
-            const field_name = ast.tokens.items(.lexeme)[components.identifier];
+            const field_name = lexemes[components.identifier];
             const field = callee_type.resolved_type.?.ProtocolInstance.of
                 .resolved_type.?.Protocol
                 .methods
@@ -1166,7 +1183,7 @@ fn checkDot(ast: Ast.Slice, reporter: *Reporter, gc: *GC, _: ?Ast.Node.Index, no
         .Enum => {},
         .EnumInstance => {},
         .List, .Map, .Range => if (components.member_kind == .Call) {
-            const identifier = ast.tokens.items(.lexeme)[components.identifier];
+            const identifier = lexemes[components.identifier];
 
             switch (callee_type.def_type) {
                 .List => if (callee_type.resolved_type.?.List.methods.get(identifier)) |member| {

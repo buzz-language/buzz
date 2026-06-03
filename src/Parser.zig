@@ -3777,6 +3777,7 @@ fn parseObjType(self: *Self, generic_types: ?std.AutoArrayHashMapUnmanaged(*obj.
     try self.consume(.RightBrace, "Expected `}` after object body.");
 
     object_type.optional = try self.match(.Question);
+    object_type.resolved_type.?.Object.is_tuple = obj_is_tuple;
 
     try object_type.resolved_type.?.Object.sortFieldIndexes(self.gc.allocator);
 
@@ -5012,6 +5013,8 @@ fn anonymousObjectInit(self: *Self, _: bool) Error!Ast.Node.Index {
         }
     }
 
+    object_type.resolved_type.?.Object.is_tuple = obj_is_tuple;
+
     try object_type.resolved_type.?.Object.sortFieldIndexes(self.gc.allocator);
 
     try self.consume(.RightBrace, "Expected `}` after object initialization.");
@@ -5046,7 +5049,24 @@ fn dot(self: *Self, can_assign: bool, callee: Ast.Node.Index) Error!Ast.Node.Ind
         );
     }
 
-    try self.consume(.Identifier, "Expected property name after `.`");
+    if (try self.match(.IntegerValue)) {
+        const index_token = self.current_token.? - 1;
+        const index = self.ast.tokens.items(.lexeme)[index_token];
+
+        // Tuple shorthand is validated semantically by the typechecker once
+        // placeholders can resolve; the parser only rejects non-decimal forms.
+        if (index.len != 1 or index[0] < '0' or index[0] > '3') {
+            self.reporter.reportErrorAt(
+                .syntax,
+                self.ast.tokens.get(index_token),
+                self.ast.tokens.get(index_token),
+                "Tuple property shorthand only accepts indexes 0, 1, 2 or 3",
+            );
+        }
+    } else {
+        try self.consume(.Identifier, "Expected property name after `.`");
+    }
+
     const member_name_token = self.current_token.? - 1;
     const member_name = self.ast.tokens.items(.lexeme)[member_name_token];
 
