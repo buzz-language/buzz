@@ -27,6 +27,20 @@ object Natural {
     natural: NaturalEnum = NaturalEnum.zero,
 }
 
+/// Object used to verify enum inference in anonymous object fields.
+object NaturalSetting {
+    /// Enum field inferred from an anonymous enum case.
+    natural: NaturalEnum,
+}
+
+/// Object used to verify nested anonymous object inference in maps.
+object NaturalSource {
+    /// Optional nested object inferred from a map value field.
+    setting: NaturalSetting?,
+    /// Required source URL.
+    url: str,
+}
+
 test "Enums" {
     std\assert(StrEnum.one.value == "one", message: "str enum");
 
@@ -55,5 +69,28 @@ test "Enum case as default value" {
     std\assert(
         Natural{}.natural == NaturalEnum.zero,
         message: "Could use enum case as object field default value"
+    );
+}
+
+test "Anonymous enum case inference" {
+    final setting: NaturalSetting = .{ natural = .two };
+
+    std\assert(
+        setting.natural == NaturalEnum.two,
+        message: "Could infer anonymous enum case in object field",
+    );
+
+    final sources: {str: NaturalSource} = {
+        "tty": .{
+            setting = .{
+                natural = .two,
+            },
+            url = "git:https://example.invalid/tty.git",
+        },
+    };
+
+    std\assert(
+        sources["tty"]?.setting?.natural == NaturalEnum.two,
+        message: "Could infer nested anonymous enum case in map object field",
     );
 }

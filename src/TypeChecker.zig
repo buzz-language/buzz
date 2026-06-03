@@ -100,7 +100,7 @@ fn inferType(ast: Ast.Slice, reporter: *Reporter, gc: *GC, value_node: Ast.Node.
 
     return switch (tags[value_node]) {
         .AnonymousEnumCase => populateAnonymousEnumCase(ast, reporter, value_node, inferred_target_type),
-        .ObjectInit => populateAnonymousObject(ast, gc, value_node, inferred_target_type),
+        .ObjectInit => populateAnonymousObject(ast, reporter, gc, value_node, inferred_target_type),
         .List => try inferListType(ast, reporter, gc, value_node, inferred_target_type),
         .Map => try inferMapType(ast, reporter, gc, value_node, inferred_target_type),
         .Match => try inferMatchType(ast, reporter, gc, value_node, inferred_target_type),
@@ -309,21 +309,21 @@ fn populateAnonymousEnumCase(ast: Ast.Slice, reporter: *Reporter, value: Ast.Nod
     return false;
 }
 
-fn populateAnonymousObject(ast: Ast.Slice, gc: *GC, value: Ast.Node.Index, target_type: *o.ObjTypeDef) error{OutOfMemory}!bool {
+fn populateAnonymousObject(ast: Ast.Slice, reporter: *Reporter, gc: *GC, value: Ast.Node.Index, target_type: *o.ObjTypeDef) error{OutOfMemory}!bool {
     const type_defs = ast.nodes.items(.type_def);
     const components = ast.nodes.items(.components);
+    const object_init = components[value].ObjectInit;
 
     if (target_type.def_type != .ObjectInstance or
-        components[value].ObjectInit.object != null or
+        object_init.object != null or
         type_defs[value] == null or
         type_defs[value].?.def_type != .ObjectInstance)
     {
         return false;
     }
 
-    const anon_fields = type_defs[value].?.resolved_type.?.ObjectInstance
-        .of.resolved_type.?.Object
-        .fields;
+    const anon_object_type = type_defs[value].?.resolved_type.?.ObjectInstance.of;
+    var anon_fields = &anon_object_type.resolved_type.?.Object.fields;
 
     // Anonymous object literals only carry property values, so compatibility
     // checks field types and lets the named object keep defaults/finality.
@@ -331,16 +331,23 @@ fn populateAnonymousObject(ast: Ast.Slice, gc: *GC, value: Ast.Node.Index, targe
         .of.resolved_type.?.Object
         .fields;
 
-    var anon_it = anon_fields.iterator();
-    while (anon_it.next()) |entry| {
-        if (target_fields.get(entry.key_ptr.*)) |target_field| {
-            if (target_field.method or
-                target_field.static or
-                !target_field.type_def.eql(entry.value_ptr.type_def))
-            {
-                return false;
-            }
-        } else {
+    for (object_init.properties) |property| {
+        const property_name = ast.tokens.items(.lexeme)[property.name];
+        const anon_field = anon_fields.getPtr(property_name) orelse return false;
+        const target_field = target_fields.get(property_name) orelse return false;
+
+        if (target_field.method or target_field.static) {
+            return false;
+        }
+
+        // Contextual inference can resolve nested anonymous enum/object/map/list
+        // values after the parser has already recorded the anonymous field type.
+        _ = try inferType(ast, reporter, gc, property.value, target_field.type_def);
+
+        const value_type_def = type_defs[property.value] orelse return false;
+        anon_field.type_def = value_type_def;
+
+        if (!target_field.type_def.eql(value_type_def)) {
             return false;
         }
     }
