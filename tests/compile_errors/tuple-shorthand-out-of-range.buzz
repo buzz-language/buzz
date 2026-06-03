@@ -1,0 +1,6 @@
+// Tuple property shorthand only accepts indexes 0, 1, 2 or 3
+test "Tuple shorthand rejects out-of-range index" {
+    final tuple = .{ 1, 2, 3, 4 };
+
+    _ = tuple.4;
+}

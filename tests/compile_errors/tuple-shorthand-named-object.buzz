@@ -1,0 +1,18 @@
+// Tuple index shorthand is only allowed on tuples
+
+/// Object used to verify tuple shorthand does not apply to named numeric fields.
+object NumericField {
+    /// Returns the numeric field using invalid tuple shorthand.
+    fun get() > int => this.0;
+
+    /// Field intentionally named like a tuple property.
+    @"0": int,
+}
+
+test "Tuple shorthand is tuple-only" {
+    final value = NumericField{
+        @"0" = 1,
+    };
+
+    _ = value.get();
+}

@@ -256,6 +256,7 @@ fn hashHelper(hasher: *std.hash.Wyhash, type_def: *const o.ObjTypeDef) void {
                 if (resolved.Object.anonymous) {
                     // If anonymous, we must take the whole type into account
                     // But since it'type_def anonymous, we only need to worry about fields type knowing there'type_def no method, static, etc.
+                    std.hash.autoHash(hasher, resolved.Object.is_tuple);
                     var it = resolved.Object.fields.iterator();
                     while (it.next()) |kv| {
                         std.hash.autoHash(

@@ -1796,6 +1796,8 @@ pub const ObjObject = struct {
         placeholders: std.StringHashMapUnmanaged(Placeholder),
         static_placeholders: std.StringHashMapUnmanaged(Placeholder),
         anonymous: bool,
+        /// True when an anonymous object was parsed with tuple notation.
+        is_tuple: bool,
         conforms_to: std.AutoHashMapUnmanaged(*ObjTypeDef, void),
 
         generic_types: std.AutoArrayHashMapUnmanaged(*ObjString, *ObjTypeDef),
@@ -1822,6 +1824,7 @@ pub const ObjObject = struct {
                 .placeholders = .{},
                 .static_placeholders = .{},
                 .anonymous = anonymous,
+                .is_tuple = false,
                 .conforms_to = .{},
                 .generic_types = .{},
             };
@@ -4566,6 +4569,7 @@ pub const ObjTypeDef = struct {
                     old_object_def.qualified_name,
                     old_object_def.anonymous,
                 );
+                resolved.is_tuple = old_object_def.is_tuple;
 
                 resolved.generic_types.deinit(type_registry.gc.allocator);
                 resolved.generic_types = try old_object_def.generic_types.clone(type_registry.gc.allocator);
@@ -5462,6 +5466,7 @@ pub const ObjTypeDef = struct {
                 // If both are anonymous object type, we can deeply compare them
                 if (!expected.Object.anonymous or
                     !actual.Object.anonymous or
+                    expected.Object.is_tuple != actual.Object.is_tuple or
                     expected.Object.fields.count() != actual.Object.fields.count())
                 {
                     return false;

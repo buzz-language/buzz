@@ -1,0 +1,8 @@
+// Tuple index shorthand is only allowed on tuples
+test "Tuple shorthand rejects anonymous numeric fields" {
+    final value = .{
+        @"0" = 1,
+    };
+
+    _ = value.0;
+}
