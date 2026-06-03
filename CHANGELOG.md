@@ -32,6 +32,7 @@ This release brings a lot of useful tools to write buzz code: LSP, formatter and
 - `pattern.matchAgainst` returns now a list of `obj{ start: int, end: int, capture: str }` and `matchAllAgainst` a list of those lists
 - Selective import erases the imported namespace: `import print from "std"; ... print("hello world");`
 - Common part of imported namespace gets erased: il imported file as namesapce `a\b\c` and importing script has namespace `a\b`, only `c\` remains
+- Tuples no longer require free form identifier to access their properties: `tuple.@"0"` can now be `tuple.0`
 
 ## Internal
 

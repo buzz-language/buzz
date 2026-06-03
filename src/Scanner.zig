@@ -276,6 +276,9 @@ fn atIdentifier(self: *Self) Token {
     }
 
     const string_token = self.string(false);
+    if (string_token.tag == .Error) {
+        return string_token;
+    }
 
     self.token_index += 1;
     return .{
@@ -609,6 +612,9 @@ pub fn highlight(self: *Self, out: *std.Io.Writer, true_color: bool) void {
     var previous_offset: usize = 0;
     var token = self.scanToken() catch unreachable;
     while (token.tag != .Eof and token.tag != .Error) {
+        const token_end = self.current.offset;
+        const source_lexeme = self.source[token.offset..token_end];
+
         // If there some whitespace or comments between tokens?
         // In gray because either whitespace or comment
         if (token.offset > previous_offset) {
@@ -754,12 +760,12 @@ pub fn highlight(self: *Self, out: *std.Io.Writer, true_color: bool) void {
                     .Docblock => if (true_color) Color.comment else Color.dim,
                     .Eof, .Error => unreachable,
                 },
-                token.lexeme,
+                source_lexeme,
                 Color.reset,
             },
         ) catch unreachable;
 
-        previous_offset = token.offset + token.lexeme.len;
+        previous_offset = token_end;
 
         token = self.scanToken() catch unreachable;
     }
@@ -767,6 +773,26 @@ pub fn highlight(self: *Self, out: *std.Io.Writer, true_color: bool) void {
     if (previous_offset < self.source.len) {
         out.writeAll(self.source[previous_offset..]) catch unreachable;
     }
+}
+
+test "highlight preserves free identifier source spelling" {
+    var out = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer out.deinit();
+
+    var scanner = Self.init(std.testing.allocator, "test", "@\"hello\"");
+    scanner.highlight(&out.writer, false);
+
+    try std.testing.expectEqualStrings("@\"hello\"\x1b[0m", out.written());
+}
+
+test "highlight preserves unterminated free identifier source" {
+    var out = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer out.deinit();
+
+    var scanner = Self.init(std.testing.allocator, "test", "@\"hello");
+    scanner.highlight(&out.writer, false);
+
+    try std.testing.expectEqualStrings("@\"hello", out.written());
 }
 
 pub const Color = struct {
