@@ -64,7 +64,6 @@ pub fn build(b: *Build) !void {
     const exe = b.addExecutable(
         .{
             .name = "buzz",
-            .use_llvm = true,
             .root_module = b.createModule(
                 .{
                     .target = target,
@@ -105,7 +104,6 @@ pub fn build(b: *Build) !void {
         b.addExecutable(
             .{
                 .name = "buzz_behavior",
-                .use_llvm = true,
                 .root_module = b.createModule(
                     .{
                         .root_source_file = b.path("src/behavior.zig"),
@@ -134,7 +132,6 @@ pub fn build(b: *Build) !void {
         b.addExecutable(
             .{
                 .name = "buzz_debugger",
-                .use_llvm = true,
                 .root_module = b.createModule(
                     .{
                         .root_source_file = b.path("src/Debugger.zig"),
@@ -159,7 +156,6 @@ pub fn build(b: *Build) !void {
         b.addExecutable(
             .{
                 .name = "buzz_lsp",
-                .use_llvm = true,
                 .root_module = b.createModule(
                     .{
                         .root_source_file = b.path("src/lsp.zig"),
@@ -188,7 +184,6 @@ pub fn build(b: *Build) !void {
     const lsp_tests = if (!is_wasm and target.result.os.tag != .windows)
         b.addTest(
             .{
-                .use_llvm = true,
                 .root_module = b.createModule(
                     .{
                         .root_source_file = b.path("src/lsp.zig"),
@@ -218,7 +213,6 @@ pub fn build(b: *Build) !void {
     const check_exe = b.addExecutable(
         .{
             .name = "buzz",
-            .use_llvm = true,
             .root_module = b.createModule(
                 .{
                     .root_source_file = b.path("src/main.zig"),
@@ -255,7 +249,6 @@ pub fn build(b: *Build) !void {
         .{
             .name = "buzz",
             .linkage = .dynamic,
-            .use_llvm = true,
             .root_module = b.createModule(
                 .{
                     .root_source_file = b.path("src/buzz_api.zig"),
@@ -275,7 +268,6 @@ pub fn build(b: *Build) !void {
         .{
             .name = "buzz",
             .linkage = .static,
-            .use_llvm = true,
             .root_module = b.createModule(
                 .{
                     .root_source_file = b.path("src/buzz_api.zig"),
@@ -290,7 +282,6 @@ pub fn build(b: *Build) !void {
         .{
             .name = "buzz",
             .linkage = .static,
-            .use_llvm = true,
             .root_module = b.createModule(
                 .{
                     .root_source_file = b.path("src/buzz_api.zig"),
@@ -306,7 +297,6 @@ pub fn build(b: *Build) !void {
     // Test
     const tests = b.addTest(
         .{
-            .use_llvm = true,
             .root_module = b.createModule(
                 .{
                     .root_source_file = b.path("src/main.zig"),
@@ -499,7 +489,6 @@ pub fn buildMimalloc(b: *Build, target: Build.ResolvedTarget, optimize: std.buil
         .{
             .name = "mimalloc",
             .linkage = .static,
-            .use_llvm = true,
             .root_module = b.createModule(
                 .{
                     .target = target,
@@ -562,7 +551,6 @@ pub fn buildLinenoise(b: *Build, target: Build.ResolvedTarget, optimize: std.bui
         .{
             .name = "linenoise",
             .linkage = .static,
-            .use_llvm = true,
             .root_module = b.createModule(
                 .{
                     .target = target,
@@ -602,7 +590,6 @@ fn buildTestLibraries(
         .{
             .name = "foreign",
             .linkage = .dynamic,
-            .use_llvm = true,
             .root_module = b.createModule(
                 .{
                     .root_source_file = b.path("tests/utils/foreign.zig"),
@@ -618,7 +605,6 @@ fn buildTestLibraries(
         .{
             .name = "hello",
             .linkage = .dynamic,
-            .use_llvm = true,
             .root_module = b.createModule(
                 .{
                     .root_source_file = b.path("tests/utils/hello.zig"),
@@ -646,7 +632,6 @@ fn buildTestLibraries(
         .{
             .name = "buzz_c_api",
             .linkage = .dynamic,
-            .use_llvm = true,
             .root_module = b.createModule(
                 .{
                     .target = target,
@@ -729,12 +714,15 @@ pub fn buildWasmReplDemo(b: *Build, exe: *Build.Step.Compile) void {
     b.getInstallStep().dependOn(&copyRepl.step);
 }
 
-pub fn buildMir(b: *Build, target: Build.ResolvedTarget, optimize: std.builtin.OptimizeMode) !*Build.Step.Compile {
+pub fn buildMir(
+    b: *Build,
+    target: Build.ResolvedTarget,
+    optimize: std.builtin.OptimizeMode,
+) !*Build.Step.Compile {
     const lib = b.addLibrary(
         .{
             .name = "mir",
             .linkage = .static,
-            .use_llvm = true,
             .root_module = b.createModule(
                 .{
                     .target = target,
