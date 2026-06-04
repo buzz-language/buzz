@@ -4983,22 +4983,29 @@ pub const ObjTypeDef = struct {
     }
 
     pub fn toString(self: *const Self, writer: anytype, qualified: bool) (Allocator.Error || std.fmt.BufPrintError || error{WriteFailed})!void {
-        try self.toStringRaw(writer, qualified);
+        try self.toStringRaw(writer, qualified, true);
+    }
+
+    pub fn toStringWithoutUnresolved(self: *const Self, writer: anytype, qualified: bool) (Allocator.Error || std.fmt.BufPrintError || error{WriteFailed})!void {
+        try self.toStringRaw(writer, qualified, false);
     }
 
     pub fn toStringUnqualified(self: *const Self, writer: anytype) (Allocator.Error || std.fmt.BufPrintError || error{WriteFailed})!void {
-        try self.toStringRaw(writer, false);
+        try self.toStringRaw(writer, false, true);
     }
 
-    fn toStringRaw(self: *const Self, writer: anytype, qualified: bool) (Allocator.Error || std.fmt.BufPrintError || error{WriteFailed})!void {
+    fn toStringRaw(self: *const Self, writer: anytype, qualified: bool, show_unresolved: bool) (Allocator.Error || std.fmt.BufPrintError || error{WriteFailed})!void {
         switch (self.def_type) {
-            .Generic => try writer.print(
-                "generic type #{}-{}",
-                .{
-                    self.resolved_type.?.Generic.origin,
-                    self.resolved_type.?.Generic.index,
-                },
-            ),
+            .Generic => if (show_unresolved)
+                try writer.print(
+                    "generic type #{}-{}",
+                    .{
+                        self.resolved_type.?.Generic.origin,
+                        self.resolved_type.?.Generic.index,
+                    },
+                )
+            else
+                try writer.print("(unknown)", .{}),
             .UserData => try writer.writeAll("ud"),
             .Boolean => try writer.writeAll("bool"),
             .Integer => try writer.writeAll("int"),
@@ -5009,9 +5016,17 @@ pub const ObjTypeDef = struct {
             .Range => try writer.writeAll("rg"),
             .Fiber => {
                 try writer.writeAll("fib<");
-                try self.resolved_type.?.Fiber.return_type.toStringRaw(writer, qualified);
+                try self.resolved_type.?.Fiber.return_type.toStringRaw(
+                    writer,
+                    qualified,
+                    show_unresolved,
+                );
                 try writer.writeAll(", ");
-                try self.resolved_type.?.Fiber.yield_type.toStringRaw(writer, qualified);
+                try self.resolved_type.?.Fiber.yield_type.toStringRaw(
+                    writer,
+                    qualified,
+                    show_unresolved,
+                );
                 try writer.writeAll(">");
             },
 
@@ -5026,7 +5041,11 @@ pub const ObjTypeDef = struct {
                     var i: usize = 0;
                     while (it.next()) |kv| {
                         try writer.print("{s}: ", .{kv.key_ptr.*});
-                        try kv.value_ptr.*.type_def.toStringRaw(writer, qualified);
+                        try kv.value_ptr.*.type_def.toStringRaw(
+                            writer,
+                            qualified,
+                            show_unresolved,
+                        );
 
                         if (i < count - 1) {
                             try writer.writeAll(", ");
@@ -5051,7 +5070,11 @@ pub const ObjTypeDef = struct {
                     var it = object_def.generic_types.iterator();
                     while (it.next()) |kv| : (i = i + 1) {
                         if (object_def.resolved_generics != null and i < object_def.resolved_generics.?.len) {
-                            try object_def.resolved_generics.?[i].toStringRaw(writer, qualified);
+                            try object_def.resolved_generics.?[i].toStringRaw(
+                                writer,
+                                qualified,
+                                show_unresolved,
+                            );
                         } else {
                             try writer.print("{s}", .{kv.key_ptr.*.string});
                         }
@@ -5101,7 +5124,11 @@ pub const ObjTypeDef = struct {
                     var i: usize = 0;
                     while (it.next()) |kv| {
                         try writer.print("{s}: ", .{kv.key_ptr.*});
-                        try kv.value_ptr.*.type_def.toStringRaw(writer, qualified);
+                        try kv.value_ptr.*.type_def.toStringRaw(
+                            writer,
+                            qualified,
+                            show_unresolved,
+                        );
 
                         if (i < count - 1) {
                             try writer.writeAll(", ");
@@ -5125,7 +5152,11 @@ pub const ObjTypeDef = struct {
                     var it = object_def.generic_types.iterator();
                     while (it.next()) |kv| : (i += 1) {
                         if (object_def.resolved_generics != null and i < object_def.resolved_generics.?.len) {
-                            try object_def.resolved_generics.?[i].toStringRaw(writer, qualified);
+                            try object_def.resolved_generics.?[i].toStringRaw(
+                                writer,
+                                qualified,
+                                show_unresolved,
+                            );
                         } else {
                             try writer.print("{s}", .{kv.key_ptr.*.string});
                         }
@@ -5182,7 +5213,11 @@ pub const ObjTypeDef = struct {
                             "",
                     },
                 );
-                try self.resolved_type.?.List.item_type.toStringRaw(writer, qualified);
+                try self.resolved_type.?.List.item_type.toStringRaw(
+                    writer,
+                    qualified,
+                    show_unresolved,
+                );
                 try writer.writeAll("]");
             },
             .Map => {
@@ -5196,9 +5231,17 @@ pub const ObjTypeDef = struct {
                     },
                 );
                 try writer.writeAll("{");
-                try self.resolved_type.?.Map.key_type.toStringRaw(writer, qualified);
+                try self.resolved_type.?.Map.key_type.toStringRaw(
+                    writer,
+                    qualified,
+                    show_unresolved,
+                );
                 try writer.writeAll(": ");
-                try self.resolved_type.?.Map.value_type.toStringRaw(writer, qualified);
+                try self.resolved_type.?.Map.value_type.toStringRaw(
+                    writer,
+                    qualified,
+                    show_unresolved,
+                );
                 try writer.writeAll("}");
             },
             .Function => {
@@ -5245,7 +5288,11 @@ pub const ObjTypeDef = struct {
                     while (it.next()) |kv| : (i = i + 1) {
                         try writer.writeAll(kv.key_ptr.*.string);
                         try writer.writeAll(": ");
-                        try kv.value_ptr.*.toStringRaw(writer, qualified);
+                        try kv.value_ptr.*.toStringRaw(
+                            writer,
+                            qualified,
+                            show_unresolved,
+                        );
 
                         if (i < size - 1) {
                             try writer.writeAll(", ");
@@ -5257,16 +5304,28 @@ pub const ObjTypeDef = struct {
 
                 if (function_def.yield_type.def_type != .Void) {
                     try writer.writeAll(" > ");
-                    try function_def.yield_type.toStringRaw(writer, qualified);
+                    try function_def.yield_type.toStringRaw(
+                        writer,
+                        qualified,
+                        show_unresolved,
+                    );
                 }
 
                 try writer.writeAll(" > ");
-                try function_def.return_type.toStringRaw(writer, qualified);
+                try function_def.return_type.toStringRaw(
+                    writer,
+                    qualified,
+                    show_unresolved,
+                );
 
                 if (function_def.error_types != null and function_def.error_types.?.len > 0) {
                     try writer.writeAll(" !> ");
                     for (function_def.error_types.?, 0..) |error_type, index| {
-                        try error_type.toStringRaw(writer, qualified);
+                        try error_type.toStringRaw(
+                            writer,
+                            qualified,
+                            show_unresolved,
+                        );
 
                         if (index < function_def.error_types.?.len - 1) {
                             try writer.writeAll(", ");
@@ -5277,7 +5336,7 @@ pub const ObjTypeDef = struct {
             .Type => try writer.writeAll("type"),
             .Void => try writer.writeAll("void"),
 
-            .Placeholder => {
+            .Placeholder => if (show_unresolved) {
                 const placeholder = self.resolved_type.?.Placeholder;
                 try writer.print(
                     "{{{s}Placeholder @{}",
@@ -5297,11 +5356,15 @@ pub const ObjTypeDef = struct {
                             @tagName(relation),
                         },
                     );
-                    try placeholder.parent.?.toStringRaw(writer, qualified);
+                    try placeholder.parent.?.toStringRaw(
+                        writer,
+                        qualified,
+                        show_unresolved,
+                    );
                 }
 
                 try writer.print("}}", .{});
-            },
+            } else try writer.print("(unknown)", .{}),
         }
 
         if (self.optional) {

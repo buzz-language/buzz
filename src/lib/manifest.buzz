@@ -1,0 +1,44 @@
+namespace manifest;
+
+import "std";
+
+export enum VersionConstraint {
+    lessThan,
+    equalOrLessThan,
+    equalTo,
+    greaterThan,
+    equalOrGreater,
+    majorLessThan,
+    majorEqualOrLessThan,
+    majorEqualTo,
+    majorGreaterThan,
+    majorEqualOrGreater,
+    minorLessThan,
+    minorEqualOrLessThan,
+    minorEqualTo,
+    minorGreaterThan,
+    minorEqualOrGreater,
+}
+
+export object Source {
+    url: str,
+    tag: str?,
+    hash: str?,
+    version: obj{ :VersionConstraint, :int, :int, :int }?,
+}
+
+export object Manifest {
+    name: str,
+    version: obj{ :int, :int, :int },
+    rootDir: str,
+    source: Source,
+    dependencies: {str: Source} = {},
+    devDependencies: {str: Source} = {},
+    build: {str: [str]} = {},
+
+    description: str?,
+    authors: [str] = [],
+    tags: [str] = [],
+    license: str?,
+    homepage: str?,
+}

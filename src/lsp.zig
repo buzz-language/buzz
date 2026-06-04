@@ -871,7 +871,7 @@ const Document = struct {
             var inlay = std.Io.Writer.Allocating.init(allocator);
 
             try inlay.writer.writeAll(prefix);
-            try type_def.toString(&inlay.writer, false);
+            try type_def.toStringWithoutUnresolved(&inlay.writer, false);
 
             try self.document.inlay_hints.append(
                 allocator,
