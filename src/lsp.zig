@@ -867,18 +867,21 @@ const Document = struct {
             type_def: *o.ObjTypeDef,
             location: Token,
             comptime prefix: []const u8,
+            comptime suffix: ?[]const u8,
+            offBy: u8,
         ) (std.mem.Allocator.Error || std.fmt.BufPrintError || error{WriteFailed})!void {
             var inlay = std.Io.Writer.Allocating.init(allocator);
 
             try inlay.writer.writeAll(prefix);
             try type_def.toStringWithoutUnresolved(&inlay.writer, false);
+            if (suffix) |sx| try inlay.writer.writeAll(sx);
 
             try self.document.inlay_hints.append(
                 allocator,
                 .{
                     .position = .{
                         .line = @intCast(location.line),
-                        .character = @intCast(@max(1, location.column + location.lexeme.len) - 1),
+                        .character = @intCast(@max(1, location.column + location.lexeme.len) - 1 - offBy),
                     },
                     .label = .{
                         .string = try inlay.toOwnedSlice(),
@@ -907,6 +910,8 @@ const Document = struct {
                             type_def.?,
                             name,
                             ": ",
+                            null,
+                            0,
                         );
                     }
                 },
@@ -923,6 +928,8 @@ const Document = struct {
                             fun_type_def.?.resolved_type.?.Function.return_type,
                             location,
                             " > ",
+                            null,
+                            0,
                         );
                     }
                 },
@@ -930,6 +937,7 @@ const Document = struct {
                     const comp = ast.nodes.items(.components)[node].ObjectInit;
                     const lexemes = ast.tokens.items(.lexeme);
                     const type_defs = ast.nodes.items(.type_def);
+                    const locations = ast.nodes.items(.location);
 
                     for (comp.properties) |property| {
                         const prop_type = if (comp.object) |object|
@@ -947,12 +955,27 @@ const Document = struct {
                             type_defs[property.value];
 
                         if (prop_type) |type_def| {
-                            try self.addTypeInlay(
-                                allocator,
-                                type_def,
-                                ast.tokens.get(property.name),
-                                ": ",
-                            );
+                            const name_token = ast.tokens.get(property.name);
+
+                            if (name_token.utility_token) {
+                                try self.addTypeInlay(
+                                    allocator,
+                                    type_def,
+                                    ast.tokens.get(locations[property.value]),
+                                    ":",
+                                    " ",
+                                    1,
+                                );
+                            } else {
+                                try self.addTypeInlay(
+                                    allocator,
+                                    type_def,
+                                    name_token,
+                                    ": ",
+                                    null,
+                                    0,
+                                );
+                            }
                         }
                     }
                 },
