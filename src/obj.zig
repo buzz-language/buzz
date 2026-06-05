@@ -1524,12 +1524,12 @@ pub const ObjObjectInstance = struct {
             .fields.get(field_name).?.index;
         const field = self.fields[idx];
 
-        return switch (type) {
+        return switch (T) {
             []const u8 => field.obj().cast(ObjString, .String).?.string,
             Integer => field.integer(),
             Double => field.double(),
             bool => field.boolean(),
-            else => @compileError("Only scalar types are possible"),
+            else => @compileError("Only scalar types are possible, got " ++ @typeName(T)),
         };
     }
 };

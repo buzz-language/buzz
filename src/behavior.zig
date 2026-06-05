@@ -172,7 +172,7 @@ fn testCompileErrors(process: std.process.Init, allocator: std.mem.Allocator, fa
             const run_result = try std.process.run(allocator, process.io, .{
                 .argv = &.{
                     arg0,
-                    "-t",
+                    "test",
                     file_name.written(),
                 },
             });
@@ -233,7 +233,7 @@ fn testFuzzCrashes(process: std.process.Init, allocator: std.mem.Allocator, fail
                 .{
                     .argv = &.{
                         arg0,
-                        "-t",
+                        "test",
                         file_name.written(),
                     },
                     .stdout_limit = .unlimited,

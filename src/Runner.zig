@@ -200,6 +200,24 @@ pub fn runSource(self: *Runner, source: []const u8, name: []const u8) !?Value {
     return null;
 }
 
+/// Run a manifest.buzz and get the produced manifest object
+pub fn runManifest(self: *Runner, source: []const u8, name: []const u8) !?Value {
+    if (try self.parser.parse(source, null, name)) |ast| {
+        const ast_slice = ast.slice();
+        if (try self.codegen.generate(ast_slice)) |function| {
+            try self.vm.interpret(
+                ast_slice,
+                function,
+                null,
+            );
+
+            return self.vm.globals.items[self.vm.globals_count];
+        }
+    }
+
+    return null;
+}
+
 pub fn frameTop(self: *Runner, fiber: *Fiber, frame: *CallFrame) [*]Value {
     return if (self.vm.currentFrame() == frame)
         fiber.stack_top

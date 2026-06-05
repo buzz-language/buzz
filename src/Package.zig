@@ -6,22 +6,18 @@ const is_windows = builtin.os.tag != .windows;
 const ln = if (is_windows) @import("linenoise.zig") else void;
 const bzio = @import("io.zig");
 
-const MANIFEST = "manifest.buzz";
+/// Standard package manifest filename.
+pub const MANIFEST = "manifest.buzz";
+const manifest_wrapper_prefix = "import \"manifest\" as _;final manifest: Manifest = ";
 const input_whitespace = " \n\r\t";
 
 pub fn wrapManifest(allocator: std.mem.Allocator, raw_source: []const u8) ![]const u8 {
     const source = std.mem.trim(u8, raw_source, " \n\r\t");
 
-    const manifest_source = std.ArrayList(u8).manifest_source;
+    var manifest_source = std.ArrayList(u8).empty;
     // Wrap into a script that will leave the manifest as the last global of the VM
     // We type the variable so that if user gives anything else, we get an error
-    try manifest_source.appendSlice(
-        allocator,
-        \\import "manifest" as _;
-        \\
-        \\final manifest: Manifest = 
-        ,
-    );
+    try manifest_source.appendSlice(allocator, manifest_wrapper_prefix);
     try manifest_source.appendSlice(allocator, source);
 
     if (!std.mem.endsWith(u8, source, ";")) {
@@ -31,14 +27,14 @@ pub fn wrapManifest(allocator: std.mem.Allocator, raw_source: []const u8) ![]con
     return try manifest_source.toOwnedSlice(allocator);
 }
 
-pub fn loadManifest(process: std.process.Init, gpa: std.mem.Allocator) !void {
+pub fn loadManifest(process: std.process.Init, gpa: std.mem.Allocator, manifest_path: []const u8) !void {
     var arena = std.heap.ArenaAllocator.init(gpa);
     defer arena.deinit();
     var allocator = arena.allocator();
 
     var file = try std.Io.Dir.cwd().openFile(
         process.io,
-        MANIFEST,
+        manifest_path,
         .{
             .mode = .read_only,
         },
@@ -58,12 +54,14 @@ pub fn loadManifest(process: std.process.Init, gpa: std.mem.Allocator) !void {
         null,
     );
 
-    if (try runner.runSource(manifest_source.items, "manifest")) |manifest| {
+    if (try runner.runManifest(manifest_source, "manifest")) |manifest| {
         // Buzz manifest to zig representation
         if (manifest.obj().cast(o.ObjObjectInstance, .ObjectInstance)) |instance| {
             const name = instance.get([]const u8, "name");
 
             std.debug.print("Package name is {s}\n", .{name});
+
+            return;
         }
     }
 

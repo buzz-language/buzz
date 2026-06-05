@@ -75,6 +75,10 @@ const help_params = clap.parseParamsComptime(
     \\<str>  Command for which you want help
 );
 
+const fetch_params = clap.parseParamsComptime(
+    \\-m, --manifest <str>  Path to manifest file (defaults to `./manifest.zig`)
+);
+
 const main_parsers = .{
     .command = clap.parsers.enumeration(SubCommand),
 };
@@ -220,7 +224,41 @@ pub fn main(provided_init: Init) u8 {
                 },
                 .{},
             ),
-            .fetch => 0,
+            .fetch => {
+                const sub_res = clap.parseEx(
+                    clap.Help,
+                    &fetch_params,
+                    clap.parsers.default,
+                    &arg_iter,
+                    .{
+                        .allocator = allocator,
+                        .diagnostic = &diag,
+                    },
+                ) catch |err| {
+                    // Report useful error and exit
+                    diag.report(&stderr.interface, err) catch {};
+                    return 1;
+                };
+
+                const manifest_path = sub_res.args.manifest orelse ("./" ++ Package.MANIFEST);
+
+                Package.loadManifest(
+                    init,
+                    allocator,
+                    manifest_path,
+                ) catch |err| {
+                    stderr.interface.print(
+                        "Could not load manifest at `{s}`: {s}\n",
+                        .{
+                            manifest_path,
+                            @errorName(err),
+                        },
+                    ) catch @panic("Could not load manifest");
+                    return 1;
+                };
+
+                return 0;
+            },
             .help => {
                 const sub_res = clap.parseEx(
                     clap.Help,
@@ -243,18 +281,7 @@ pub fn main(provided_init: Init) u8 {
                     sub_res.positionals[0],
                 );
             },
-            .init => {
-                Package.init(init) catch |err| {
-                    switch (err) {
-                        error.ManifestAlreadyCreated => stderr.interface.print("A `manifest.buzz` file already exists\n", .{}) catch @panic("Could not init buzz package"),
-                        else => stderr.interface.print("Could not initialize buzz package: {s}\n", .{@errorName(err)}) catch @panic("Could not init buzz package"),
-                    }
-
-                    return 1;
-                };
-
-                return 0;
-            },
+            .init => return initPackage(init),
             .version => {
                 _repl.printBanner(&stdout.interface, true);
 
@@ -266,6 +293,23 @@ pub fn main(provided_init: Init) u8 {
             return 1;
         };
     }
+
+    return 0;
+}
+
+fn initPackage(init: Init) u8 {
+    var stderr = io.stderrWriter(init.io);
+
+    Package.init(init) catch |err| {
+        switch (err) {
+            error.ManifestAlreadyCreated => stderr.interface.print("A `manifest.buzz` file already exists\n", .{}) catch
+                @panic("Could not init buzz package"),
+            else => stderr.interface.print("Could not initialize buzz package: {s}\n", .{@errorName(err)}) catch
+                @panic("Could not init buzz package"),
+        }
+
+        return 1;
+    };
 
     return 0;
 }
