@@ -80,13 +80,13 @@ zig build test
 Run a single Buzz file containing `test` blocks:
 
 ```sh
-zig build run -- -t tests/behavior/descriptive-name.buzz
+zig build run -- test tests/behavior/descriptive-name.buzz
 ```
 
 Run a regular Buzz script with a `main` function:
 
 ```sh
-zig build run -- path/to/file.buzz
+zig build run -- run path/to/file.buzz
 ```
 
 Prefer `zig build run` because it builds Buzz and then runs the script. Do not bother setting `BUZZ_PATH` manually.
@@ -104,7 +104,7 @@ Only Zig files need formatting checks for now.
 - If Zig code was touched, run `zig build` before finishing.
 - For language behavior changes, run `zig build test-behavior`.
 - For formatter changes, run `zig build test`.
-- For focused behavior work, first run the relevant file with `zig build run -- -t <testfile.buzz>`, then run the broader suite when appropriate.
+- For focused behavior work, first run the relevant file with `zig build run -- test <testfile.buzz>`, then run the broader suite when appropriate.
 - Tests are not expected to be flaky or platform-specific.
 - Supported platforms are macOS and Linux. Do not spend effort on Windows compatibility unless explicitly asked.
 - Do not test WASM unless the task is specifically WASM-related.
@@ -130,7 +130,7 @@ Only Zig files need formatting checks for now.
 - Any non-trivial code added must be properly commented in the code. Comments should explain intent, invariants, or tricky control flow, not restate obvious assignments.
 - Any new Zig file under `src/` must start with a file docblock (`//! ...`) describing the general role of the file.
 - Any new functions, structs, objects, properties, and enums introduced in Zig or Buzz code must have a docblock.
-- When modifying of creating a buzz file, always reformat it with `buzz -f`
+- When modifying of creating a buzz file, always reformat it with `buzz format`
 
 ## Runtime And GC Rules
 

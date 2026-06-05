@@ -25,6 +25,11 @@ This release brings a lot of useful tools to write buzz code: LSP, formatter and
 
 ## Changed
 
+- buzz binary now uses subcommands rather than options
+    - `buzz <script.buzz>` becomes `buzz run <script.buzz>`
+    - `buzz -t <script.buzz>` becomes `buzz test <script.buzz>`
+    - `buzz -f <script.buzz>` becomes `buzz format <script.buzz>`
+    - etc.
 - Extern libraries now must expose only one function which will be called by the compiler to lookup the functions of the library
 - `int` are now `i48` instead of `i32` (https://github.com/buzz-language/buzz/issues/306). If you're wondering why, it's because all buzz values live in a NaN boxed f64 and the maximum bits available for an integer in there is 48. However, C ABI does not understand `i48` so we're still stuck with `i32` in FFI for now.
 - `main` signature can omit `args` argument
