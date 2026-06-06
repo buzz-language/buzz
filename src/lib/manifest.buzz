@@ -28,7 +28,6 @@ export object Source {
 export object Manifest {
     name: str,
     version: obj{ :int, :int, :int },
-    rootDir: str,
     source: Source,
     dependencies: {str: Source} = {},
     devDependencies: {str: Source} = {},

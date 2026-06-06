@@ -9184,12 +9184,36 @@ fn searchZdefLibPaths(self: *Self, file_name: []const u8) ![][]const u8 {
     return try paths.toOwnedSlice(self.gc.allocator);
 }
 
-fn readStaticScript(self: *Self, file_name: []const u8) ?[2][]const u8 {
+pub const Import = struct {
+    path: []const u8,
+    source: []const u8,
+};
+
+/// Resolve a import path to a actual file path and read it
+pub fn resolveImportPath(self: *Self, path: []const u8) ?Import {
+    if (std.mem.startsWith(u8, path, "buzz:")) {
+        // A std lib
+        return self.readStaticScript(path["buzz:".len..]);
+    } else if (std.mem.startsWith(u8, path, "pkg:")) {
+        // A package path
+        const unprefixed = path["pkg:".len..];
+
+        if (std.mem.indexOf(u8, unprefixed, "/")) |first_slash| {
+            const pkg_name = unprefixed[0..first_slash];
+            _ = unprefixed[pkg_name.len + 1 ..];
+        }
+    }
+
+    // A relative path to cwd
+}
+
+fn readStaticScript(self: *Self, file_name: []const u8) ?Import {
     inline for (static_libraries.all) |library| {
         if (std.mem.eql(u8, file_name, library.header.name)) {
-            return [_][]const u8{
-                @embedFile("lib/" ++ library.header.path),
-                library.header.name,
+            return .{
+                // FIXME: on non wasm, read the file instead of @embedFile
+                .source = @embedFile("lib/" ++ library.header.path),
+                .path = library.header.name,
             };
         }
     }

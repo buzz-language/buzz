@@ -242,7 +242,7 @@ pub fn main(provided_init: Init) u8 {
 
                 const manifest_path = sub_res.args.manifest orelse ("./" ++ Package.MANIFEST);
 
-                Package.loadManifest(
+                _ = Package.loadManifest(
                     init,
                     allocator,
                     manifest_path,

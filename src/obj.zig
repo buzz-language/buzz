@@ -1517,16 +1517,32 @@ pub const ObjObjectInstance = struct {
         return false;
     }
 
-    /// Utility function to read a buzz object from zig, will break if field does not exists or type mismatch on the buzz side
-    pub fn get(self: *Self, comptime T: type, comptime field_name: []const u8) T {
+    pub fn getFieldValue(self: *Self, comptime field_name: []const u8) Value {
         const idx = self.type_def.resolved_type.?.ObjectInstance
             .of.resolved_type.?.Object
             .fields.get(field_name).?.index;
-        const field = self.fields[idx];
 
-        return switch (T) {
+        return self.fields[idx];
+    }
+
+    /// Utility function to read a buzz object from zig, will break if field does not exists or type mismatch on the buzz side
+    pub fn get(self: *Self, comptime T: type, comptime field_name: []const u8) T {
+        const field = self.getFieldValue(field_name);
+        const is_optional = @typeInfo(T) == .optional;
+
+        if (is_optional and field.isNull()) return null;
+
+        const UT = if (is_optional)
+            @typeInfo(T).optional.child
+        else
+            T;
+
+        return switch (UT) {
             []const u8 => field.obj().cast(ObjString, .String).?.string,
-            Integer => field.integer(),
+            Integer => if (field.isObj())
+                field.obj().cast(ObjEnumInstance, .EnumInstance).?.case
+            else
+                field.integer(),
             Double => field.double(),
             bool => field.boolean(),
             else => @compileError("Only scalar types are possible, got " ++ @typeName(T)),
