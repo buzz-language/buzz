@@ -1,5 +1,5 @@
-import "std";
-import "tests/utils/buzz_c_api";
+import "buzz:std";
+import "../utils/buzz_c_api";
 
 test "C buzz api library" {
     std\assert(

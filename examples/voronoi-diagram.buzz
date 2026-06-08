@@ -1,6 +1,6 @@
-import "std";
-import "examples/sdl-wrapped" as _;
-import "math";
+import "buzz:std";
+import "sdl-wrapped" as _;
+import "buzz:math";
 
 fun hypot(x: int, y: int) > int {
     return std\toInt(

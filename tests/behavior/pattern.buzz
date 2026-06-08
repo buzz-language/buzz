@@ -1,4 +1,4 @@
-import "std";
+import "buzz:std";
 
 test "pattern.matchAgainst" {
     final pattern = $"hello ([a-z]+)";

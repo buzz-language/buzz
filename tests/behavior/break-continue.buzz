@@ -1,4 +1,4 @@
-import "std";
+import "buzz:std";
 
 test "break statement" {
     var i = 0;

@@ -1,6 +1,6 @@
-import "http" as _;
-import "debug";
-import "errors";
+import "buzz:http" as _;
+import "buzz:debug";
+import "buzz:errors";
 
 fun main() > void !> any {
     final client = Client.init();

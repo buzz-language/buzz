@@ -1,7 +1,7 @@
 namespace testing;
 
-import "os";
-import "io";
+import "buzz:os";
+import "buzz:io";
 
 enum<int> Color {
     // attributes

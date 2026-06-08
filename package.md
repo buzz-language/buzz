@@ -14,3 +14,5 @@ The real question is: do we assume we run a buzz package/program from its packag
 -> or we're running from something like /usr/share/buzz/ which contains /vendors etc.
 
 => We must distinguish between cwd and root director from which we resolve buzz scripts
+
+!! call without parentheses unexpected with dot calls

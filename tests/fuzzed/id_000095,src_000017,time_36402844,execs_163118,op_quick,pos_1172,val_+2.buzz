@@ -1,4 +1,4 @@
-import "std";
+import "buzz:std";
 
 test "foreach on list" {
     final list = [ 1, 2, 3 ];

@@ -1,7 +1,7 @@
 namespace serialize;
 
-import "buffer";
-import "std";
+import "buzz:buffer";
+import "buzz:std";
 
 /// Utility object to manage deserialized data from, for example, decoded JSON
 export object Boxed {

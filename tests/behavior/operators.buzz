@@ -1,4 +1,4 @@
-import "std";
+import "buzz:std";
 
 test "Binary operators" {
     std\assert(12 == 12, message: "equality (number)");

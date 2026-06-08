@@ -229,7 +229,7 @@ pub fn repl(process: std.process.Init, allocator: std.mem.Allocator) !void {
     }
 
     // Import std and debug as commodity
-    _ = runner.runSource("import \"std\"; import \"debug\";", "REPL") catch unreachable;
+    _ = runner.runSource("import \"buzz:std\"; import \"buzz:debug\";", "REPL") catch unreachable;
 
     var previous_global_top = runner.vm.globals_count;
     var previous_parser_globals = try runner.parser.globals.clone(allocator);
@@ -305,7 +305,7 @@ pub fn repl(process: std.process.Init, allocator: std.mem.Allocator) !void {
             }
 
             const expr = expr: {
-                const maybe_ast = runner.parser.parse(source, null, "REPL") catch |err| {
+                const maybe_ast = runner.parser.parse(source, runner.parser.root_dir, null, "REPL") catch |err| {
                     if (BuildOptions.debug) {
                         stderr.print("Failed with error {}\n", .{err}) catch unreachable;
                     }

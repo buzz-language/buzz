@@ -1,4 +1,4 @@
-import èçint, assert from "std";
+import èçint, assert from "buzz:std";
 
 test "Using a function coming from a library" {
     std\assert(true, message: "yeah!");

@@ -99,6 +99,7 @@ fn testBehaviors(process: std.process.Init, allocator: std.mem.Allocator, fail_f
 
                 var failed = false;
                 _ = runner.runFile(
+                    null,
                     file_name.written(),
                     &[_][:0]u8{},
                 ) catch {

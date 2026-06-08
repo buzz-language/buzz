@@ -25,10 +25,10 @@
 // trying a move that doesn't change the board.
 // - Win condition.
 // - Lose condition.
-import "std";
-import "io";
-import "errors";
-import "os";
+import "buzz:std";
+import "buzz:io";
+import "buzz:errors";
+import "buzz:os";
 
 object Pair {
     srcX: int,

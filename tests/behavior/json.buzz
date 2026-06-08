@@ -1,5 +1,5 @@
-import "std";
-import "serialize";
+import "buzz:std";
+import "buzz:serialize";
 
 test "Json.encode" {
     final data = {

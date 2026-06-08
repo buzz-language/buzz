@@ -1,5 +1,5 @@
 // Code after return statement will never be reached
-import "std";
+import "buzz:std";
 
 test "Early return" {
     std\print("I sure hope i'm not interrupted...");

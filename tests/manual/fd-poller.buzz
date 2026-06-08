@@ -1,5 +1,5 @@
-import "std";
-import "io";
+import "buzz:std";
+import "buzz:io";
 
 fun main() > void !> any {
     final poller = io\stdin.getPoller();

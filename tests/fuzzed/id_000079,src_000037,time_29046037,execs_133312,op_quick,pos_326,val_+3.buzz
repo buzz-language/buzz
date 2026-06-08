@@ -1,4 +1,4 @@
-import "std";
+import "buzz:std";
 
 test "continue properly jumps and closes scope" {
     foreach (value in 1..5) {

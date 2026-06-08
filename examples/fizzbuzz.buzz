@@ -1,6 +1,6 @@
 namespace examples\fizzbuzz;
 
-import "std";
+import "buzz:std";
 
 fun fizzBuzz(n: int) > str {
     final fizz = n % 3 == 0;

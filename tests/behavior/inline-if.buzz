@@ -1,4 +1,4 @@
-import "std";
+import "buzz:std";
 
 test "ternary" {
     var value = if (true) 12 else 0;

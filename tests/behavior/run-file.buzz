@@ -1,5 +1,5 @@
-import "std";
-import "io";
+import "buzz:std";
+import "buzz:io";
 
 test "runFile" {
     io\runFile("tests/utils/testing.buzz");

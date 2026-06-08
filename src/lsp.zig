@@ -165,10 +165,30 @@ const Document = struct {
         const document_script_name = std_lib_script_name orelse
             (try localPathFromFileUri(allocator, owned_uri)) orelse
             owned_uri;
+        const document_root_dir = root_dir: {
+            if (std_lib_script_name != null) {
+                break :root_dir try std.Io.Dir.cwd().realPathFileAlloc(process.io, ".", allocator);
+            }
+
+            if (std.fs.path.dirname(document_script_name)) |dir| {
+                var it = std.fs.path.componentIterator(dir);
+                var maybe_component = it.last();
+                while (maybe_component) |prev_dir| : (maybe_component = it.previous()) {
+                    if (std.mem.eql(u8, prev_dir.name, "src")) {
+                        break :root_dir try allocator.dupe(u8, std.fs.path.dirname(prev_dir.path) orelse ".");
+                    }
+                }
+
+                break :root_dir try allocator.dupe(u8, dir);
+            }
+
+            break :root_dir try std.Io.Dir.cwd().realPathFileAlloc(process.io, ".", allocator);
+        };
 
         // If there's parsing error `parse` does not return the AST, but we can still use it however incomplete
         const ast = (parser.parse(
             parse_src,
+            document_root_dir,
             owned_uri,
             document_script_name,
         ) catch parser.ast) orelse
@@ -1676,7 +1696,7 @@ test "document wraps only shallow package manifests" {
     try std.testing.expect(std.mem.startsWith(
         u8,
         manifest_doc.parse_src,
-        "import \"manifest\" as _;final manifest: Manifest = .{",
+        "import \"buzz:manifest\" as _;final manifest: Manifest = .{",
     ));
     try std.testing.expectEqual(@as(usize, 0), manifest_doc.errors.len);
     try std.testing.expect(manifest_doc.inlay_hints.items.len > 0);

@@ -1,5 +1,5 @@
 // Expected `->` after `else`
-import "std";
+import "buzz:std";
 
 test "match else missing arrow" {
     std\assert(

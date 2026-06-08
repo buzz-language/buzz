@@ -1,7 +1,7 @@
 namespace http;
 
-import "buffer";
-import "errors";
+import "buzz:buffer";
+import "buzz:errors";
 
 /// Errors raised by HTTP client operations.
 export enum HttpError {

@@ -1,4 +1,4 @@
-import "std";
+import "buzz:std";
 
 fun dynamicInc(value: int) > int {
     return value + 1;

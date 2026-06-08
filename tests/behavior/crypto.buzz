@@ -1,5 +1,5 @@
-import "std";
-import "crypto" as _;
+import "buzz:std";
+import "buzz:crypto" as _;
 
 test "hash" {
     std\assert(

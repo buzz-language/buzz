@@ -1,4 +1,4 @@
-import "debug";
+import "buzz:debug";
 
 enum MyEnum {
     One,

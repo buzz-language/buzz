@@ -1,4 +1,4 @@
-import "std";
+import "buzz:std";
 
 fun mul(a: int, b: int) > int {
     return a * b;

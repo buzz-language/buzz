@@ -1,6 +1,6 @@
 namespace fs;
 
-import "errors";
+import "buzz:errors";
 
 /// Returns current directory absolute path
 /// @return current directory

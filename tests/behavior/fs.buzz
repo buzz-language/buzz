@@ -1,5 +1,5 @@
-import "std";
-import "fs";
+import "buzz:std";
+import "buzz:fs";
 
 test "cwd" {
     std\assert(fs\currentDirectory() != "", message: "Could get cwd");

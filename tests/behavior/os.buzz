@@ -1,5 +1,5 @@
-import "std";
-import "os" as os;
+import "buzz:std";
+import "buzz:os" as os;
 
 test "env" {
     std\assert(

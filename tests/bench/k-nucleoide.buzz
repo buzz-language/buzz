@@ -1,6 +1,6 @@
-import "std";
-import "io";
-import "errors";
+import "buzz:std";
+import "buzz:io";
+import "buzz:errors";
 
 fun readSequence() > str
     !> errors\ReadWriteError, errors\FileSystemError, errors\UnexpectedError {

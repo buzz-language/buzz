@@ -1,6 +1,6 @@
 namespace os;
 
-import "errors";
+import "buzz:errors";
 
 /// Sleep for the given amount of ms
 export extern fun sleep(ms: double) > void;

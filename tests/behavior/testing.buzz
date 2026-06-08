@@ -1,4 +1,4 @@
-import "testing" as _;
+import "buzz:test" as _;
 
 test "Test std lib" {
     final t = Tester.init(

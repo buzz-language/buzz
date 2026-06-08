@@ -1,6 +1,6 @@
-import "std";
-import "math";
-import "buffer" as _;
+import "buzz:std";
+import "buzz:math";
+import "buzz:buffer" as _;
 
 final IM = 139968.0;
 final IA = 3877.0;

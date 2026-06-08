@@ -4,9 +4,9 @@ Guidance for coding agents working in this repository.
 
 ## Project
 
-Buzz is a small/lightweight statically typed scripting language written in Zig.
+buzz is a small/lightweight statically typed scripting language written in Zig.
 
-Main Buzz implementation subsystems:
+Main buzz implementation subsystems:
 
 - Scanner: `src/Scanner.zig`
 - Parser and AST: `src/Parser.zig`, `src/Ast.zig`
@@ -75,21 +75,21 @@ Run formatter tests:
 zig build test
 ```
 
-`zig build test` currently tests the Buzz formatter. `zig build test-behavior` is the most important test suite for language behavior.
+`zig build test` currently tests the buzz formatter. `zig build test-behavior` is the most important test suite for language behavior.
 
-Run a single Buzz file containing `test` blocks:
+Run a single buzz file containing `test` blocks:
 
 ```sh
 zig build run -- test tests/behavior/descriptive-name.buzz
 ```
 
-Run a regular Buzz script with a `main` function:
+Run a regular buzz script with a `main` function:
 
 ```sh
 zig build run -- run path/to/file.buzz
 ```
 
-Prefer `zig build run` because it builds Buzz and then runs the script. Do not bother setting `BUZZ_PATH` manually.
+Prefer `zig build run` because it builds buzz and then runs the script. Do not bother setting `BUZZ_PATH` manually.
 
 Check Zig formatting:
 
@@ -116,11 +116,12 @@ Only Zig files need formatting checks for now.
 - Every language feature or bug fix should include a behavior test unless there is a clear reason not to.
 - Parser, typechecker, compiler, and crash fixes should include a reduced regression test when possible.
 - Do not add fuzzed crashes yourself.
-- Tests that intentionally trigger a Buzz compile error belong in `tests/compile_errors/`.
-- Compile-error tests must have a first-line comment containing the expected Buzz error message.
+- Tests that intentionally trigger a buzz compile error belong in `tests/compile_errors/`.
+- Compile-error tests must have a first-line comment containing the expected buzz error message.
 
 ## Style
 
+- Always write uncapitalized buzz and not Buzz
 - Keep patches minimal and localized.
 - Preserve existing naming and conventions, even if they look inconsistent, unless the task is specifically cleanup.
 - Do not break logic into small functions unless those small functions are used more than once.
@@ -129,7 +130,7 @@ Only Zig files need formatting checks for now.
 - Comments are encouraged for compiler/runtime logic, but keep them concise and useful.
 - Any non-trivial code added must be properly commented in the code. Comments should explain intent, invariants, or tricky control flow, not restate obvious assignments.
 - Any new Zig file under `src/` must start with a file docblock (`//! ...`) describing the general role of the file.
-- Any new functions, structs, objects, properties, and enums introduced in Zig or Buzz code must have a docblock.
+- Any new functions, structs, objects, properties, and enums introduced in Zig or buzz code must have a docblock.
 - When modifying of creating a buzz file, always reformat it with `buzz format`
 
 ## Runtime And GC Rules
@@ -137,7 +138,7 @@ Only Zig files need formatting checks for now.
 - Strings and types are interned.
 - Strings generally come from `gc.copyString`.
 - Types generally come from `gc.type_registry.getTypeDef`.
-- When doing work while the VM is running, temporary Buzz objects must be pushed on the stack so they are not collected by the GC.
+- When doing work while the VM is running, temporary buzz objects must be pushed on the stack so they are not collected by the GC.
 
 ## JIT And Debug Flags
 
@@ -174,5 +175,5 @@ The matrix writes timings and output-hash comparisons under `zig-cache/jit-bench
 - For parser/typechecker/codegen issues, prefer the smallest `.buzz` regression test that reproduces the behavior.
 - For VM or GC issues, check object lifetime and stack rooting before changing collection behavior.
 - For JIT issues, compare behavior with JIT enabled and disabled before changing JIT code.
-- For FFI issues, be careful with pointer lifetimes and ownership across the Zig/Buzz boundary.
+- For FFI issues, be careful with pointer lifetimes and ownership across the Zig/buzz boundary.
 - If a change may affect performance, mention that in the final response when relevant, but do not run benchmarks unless explicitly asked.

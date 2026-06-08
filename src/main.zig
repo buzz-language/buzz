@@ -42,7 +42,21 @@ const SubCommand = enum {
     help,
     init,
     run,
+    @"run-script",
     version,
+};
+
+/// Top-level command descriptions shown by `buzz help`.
+const command_summaries = .{
+    .check = .{ .name = "check", .description = "Parse and type-check a buzz script without running it." },
+    .fetch = .{ .name = "fetch", .description = "Prepare package vendor links from a manifest." },
+    .format = .{ .name = "format", .description = "Format a buzz script." },
+    .help = .{ .name = "help", .description = "Show global or command-specific help." },
+    .init = .{ .name = "init", .description = "Create a minimal buzz package in the current directory." },
+    .run = .{ .name = "run", .description = "Run src/main.buzz from the current package." },
+    .@"run-script" = .{ .name = "run-script", .description = "Run a standalone buzz script by path." },
+    .@"test" = .{ .name = "test", .description = "Run tests from a buzz script." },
+    .version = .{ .name = "version", .description = "Print buzz version information." },
 };
 
 const main_params = clap.parseParamsComptime(
@@ -51,22 +65,30 @@ const main_params = clap.parseParamsComptime(
 
 const test_params = clap.parseParamsComptime(
     \\-L, --library <str>... Add search path for external libraries
+    \\-r, --root-dir <str>   Root dir for package resolution
     \\<str>                  Script to test
 );
 
 const check_params = clap.parseParamsComptime(
     \\-L, --library <str>... Add search path for external libraries
+    \\-r, --root-dir <str>   Root dir for package resolution 
     \\<str>                  Script to check
 );
 
 const format_params = clap.parseParamsComptime(
     \\--line-width <u8>       Formatter line width (defaults to 80)
     \\-L, --library <str>...  Add search path for external libraries
+    \\-r, --root-dir <str>    Root dir for package resolution
     \\<str>                   Script to format
 );
 
 const run_params = clap.parseParamsComptime(
+    \\<str>...               Arguments to pass to src/main.buzz
+);
+
+const run_script_params = clap.parseParamsComptime(
     \\-L, --library <str>... Add search path for external libraries
+    \\-r, --root-dir <str>   Root dir for package resolution
     \\<str>                  Script to run
     \\<str>...               Arguments to pass to the script
 );
@@ -76,7 +98,7 @@ const help_params = clap.parseParamsComptime(
 );
 
 const fetch_params = clap.parseParamsComptime(
-    \\-m, --manifest <str>  Path to manifest file (defaults to `./manifest.zig`)
+    \\-m, --manifest <str>  Path to manifest file (defaults to `./manifest.buzz`)
 );
 
 const main_parsers = .{
@@ -204,13 +226,63 @@ pub fn main(provided_init: Init) u8 {
                     },
                 );
             },
-            .run => run(
+            .run => {
+                const sub_res = clap.parseEx(
+                    clap.Help,
+                    &run_params,
+                    clap.parsers.default,
+                    &arg_iter,
+                    .{
+                        .allocator = allocator,
+                        .diagnostic = &diag,
+                    },
+                ) catch |err| {
+                    // Report useful error and exit
+                    diag.report(&stderr.interface, err) catch {};
+                    return 1;
+                };
+
+                std.Io.Dir.cwd().access(init.io, Package.MANIFEST, .{ .read = true }) catch |err| {
+                    stderr.interface.print(
+                        "Could not find `{s}` in current directory: {s}\n",
+                        .{
+                            Package.MANIFEST,
+                            @errorName(err),
+                        },
+                    ) catch @panic("Could not check package manifest");
+                    return 1;
+                };
+
+                var perf: ?Perf = if (BuildOptions.show_perf) Perf.init(init.io) else null;
+                defer if (perf) |*p| p.report();
+
+                var runner: Runner = undefined;
+                runner.init(
+                    init,
+                    allocator,
+                    .Run,
+                    null,
+                    if (perf) |*p| p else null,
+                ) catch {
+                    return 1;
+                };
+                defer runner.deinit();
+
+                return runner.runFile(
+                    ".",
+                    "src/main.buzz",
+                    sub_res.positionals[0],
+                ) catch {
+                    return 1;
+                };
+            },
+            .@"run-script" => run(
                 init,
                 allocator,
                 command,
                 clap.parseEx(
                     clap.Help,
-                    &run_params,
+                    &run_script_params,
                     clap.parsers.default,
                     &arg_iter,
                     .{
@@ -242,7 +314,7 @@ pub fn main(provided_init: Init) u8 {
 
                 const manifest_path = sub_res.args.manifest orelse ("./" ++ Package.MANIFEST);
 
-                _ = Package.loadManifest(
+                const manifest = Package.loadManifest(
                     init,
                     allocator,
                     manifest_path,
@@ -254,6 +326,39 @@ pub fn main(provided_init: Init) u8 {
                             @errorName(err),
                         },
                     ) catch @panic("Could not load manifest");
+                    return 1;
+                };
+
+                const manifest_real_path = std.Io.Dir.cwd().realPathFileAlloc(
+                    init.io,
+                    manifest_path,
+                    allocator,
+                ) catch |err| {
+                    stderr.interface.print(
+                        "Could not resolve manifest root at `{s}`: {s}\n",
+                        .{
+                            manifest_path,
+                            @errorName(err),
+                        },
+                    ) catch @panic("Could not resolve manifest root");
+                    return 1;
+                };
+                defer allocator.free(manifest_real_path);
+
+                const manifest_root = std.fs.path.dirname(manifest_real_path) orelse ".";
+
+                Package.ensureSelfVendorSymlink(
+                    init,
+                    manifest_root,
+                    manifest.name,
+                ) catch |err| {
+                    stderr.interface.print(
+                        "Could not create self vendor link for `{s}`: {s}\n",
+                        .{
+                            manifest.name,
+                            @errorName(err),
+                        },
+                    ) catch @panic("Could not create self vendor link");
                     return 1;
                 };
 
@@ -314,7 +419,19 @@ fn initPackage(init: Init) u8 {
     return 0;
 }
 
-fn run(init: Init, allocator: std.mem.Allocator, command: SubCommand, sub_res: anytype, renderer_options: Renderer.Options) u8 {
+fn run(
+    init: Init,
+    allocator: std.mem.Allocator,
+    command: SubCommand,
+    sub_res: anytype,
+    renderer_options: Renderer.Options,
+) u8 {
+    if (command == .@"run-script" and sub_res.positionals[0] == null) {
+        var stderr = io.stderrWriter(init.io);
+        stderr.interface.writeAll("Missing script to run\n") catch {};
+        return 1;
+    }
+
     var perf: ?Perf = if (BuildOptions.show_perf) Perf.init(init.io) else null;
     defer if (perf) |*p| p.report();
 
@@ -326,7 +443,7 @@ fn run(init: Init, allocator: std.mem.Allocator, command: SubCommand, sub_res: a
             .@"test" => .Test,
             .check => .Check,
             .format => .Fmt,
-            .run => .Run,
+            .run, .@"run-script" => .Run,
             else => unreachable,
         },
         null,
@@ -348,6 +465,7 @@ fn run(init: Init, allocator: std.mem.Allocator, command: SubCommand, sub_res: a
     }
 
     return runner.runFile(
+        sub_res.args.@"root-dir",
         sub_res.positionals[0] orelse &.{},
         if (sub_res.positionals.len > 1) sub_res.positionals[1] else &.{},
     ) catch {
@@ -437,6 +555,67 @@ fn help(init: Init, stderr: *std.Io.Writer, subcommand_opt: ?[]const u8) u8 {
                     .spacing_between_parameters = 0,
                 },
             ) catch return 1;
+        } else if (std.mem.eql(u8, subcommand, "run-script")) {
+            clap.usage(
+                stderr,
+                clap.Help,
+                &run_script_params,
+            ) catch return 1;
+
+            io.print(init.io, "\n\n", .{});
+
+            clap.help(
+                stderr,
+                clap.Help,
+                &run_script_params,
+                .{
+                    .description_on_new_line = false,
+                    .description_indent = 4,
+                    .spacing_between_parameters = 0,
+                },
+            ) catch return 1;
+        } else if (std.mem.eql(u8, subcommand, "fetch")) {
+            clap.usage(
+                stderr,
+                clap.Help,
+                &fetch_params,
+            ) catch return 1;
+
+            io.print(init.io, "\n\n", .{});
+
+            clap.help(
+                stderr,
+                clap.Help,
+                &fetch_params,
+                .{
+                    .description_on_new_line = false,
+                    .description_indent = 4,
+                    .spacing_between_parameters = 0,
+                },
+            ) catch return 1;
+        } else if (std.mem.eql(u8, subcommand, "help")) {
+            clap.usage(
+                stderr,
+                clap.Help,
+                &help_params,
+            ) catch return 1;
+
+            io.print(init.io, "\n\n", .{});
+
+            clap.help(
+                stderr,
+                clap.Help,
+                &help_params,
+                .{
+                    .description_on_new_line = false,
+                    .description_indent = 4,
+                    .spacing_between_parameters = 0,
+                },
+            ) catch return 1;
+        } else if (std.mem.eql(u8, subcommand, "init")) {
+            io.print(init.io, "\n{s}\n", .{command_summaries.init.description});
+        } else if (std.mem.eql(u8, subcommand, "version")) {
+            io.print(init.io, "\n{s}\n", .{command_summaries.version.description});
         }
     } else {
         clap.usage(
@@ -447,16 +626,15 @@ fn help(init: Init, stderr: *std.Io.Writer, subcommand_opt: ?[]const u8) u8 {
 
         io.print(init.io, "\n\n", .{});
 
-        clap.help(
-            stderr,
-            clap.Help,
-            &main_params,
-            .{
-                .description_on_new_line = false,
-                .description_indent = 4,
-                .spacing_between_parameters = 0,
-            },
-        ) catch return 1;
+        io.print(init.io, "Commands:\n", .{});
+        inline for (std.meta.fields(@TypeOf(command_summaries))) |field| {
+            const command = @field(command_summaries, field.name);
+            io.print(init.io, "  {s:<11} {s}\n", .{
+                command.name,
+                command.description,
+            });
+        }
+        io.print(init.io, "\nUse `buzz help <command>` for command-specific help.\n", .{});
     }
 
     return 0;

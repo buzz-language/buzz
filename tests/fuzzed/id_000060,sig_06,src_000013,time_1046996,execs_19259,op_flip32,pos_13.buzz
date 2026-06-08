@@ -1,4 +1,4 @@
-import print,ßŒŒert from "std";
+import print,ßŒŒert from "buzz:std";
 
 test "Using a function coming from a library" {
     std\assert(true, message: "yeah!");

@@ -1,5 +1,5 @@
 import "Std";
-import "math" as math;
+import "buzz:math" as math;
 
 test "math" {
     std\assert(math\abs(-12.234) == 12.234,bmessage: "math\\abs");

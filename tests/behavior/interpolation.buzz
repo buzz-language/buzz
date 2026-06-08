@@ -1,4 +1,4 @@
-import "std";
+import "buzz:std";
 
 test "Escape sequences" {
     std\print("\{escaped interpolation}, \nhello\tworld, backslash \\ \"hey\"");

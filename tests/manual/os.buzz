@@ -1,4 +1,4 @@
-import "os";
+import "buzz:os";
 
 fun main() > void {
     os\exit(12);

@@ -131,7 +131,9 @@ gc: *GC,
 perf: ?*Perf = null,
 scanner: ?Scanner = null,
 current_token: ?Ast.TokenIndex = null,
-script_name: []const u8 = undefined,
+/// Absolute root directory of the package being run.
+root_dir: []const u8 = &.{},
+script_name: []const u8 = &.{},
 /// If true the script is being imported
 imported: bool = false,
 /// True when parsing a declaration inside an export statement
@@ -225,8 +227,8 @@ pub fn buzzPrefix(io: std.Io, env: *std.process.Environ.Map) []const u8 {
     }
 
     const path = if (!is_wasm) p: {
-        _ = std.process.executablePath(io, &_buzz_path_buffer) catch return defaultBuzzPrefix();
-        break :p _buzz_path_buffer[0..];
+        const path_len = std.process.executablePath(io, &_buzz_path_buffer) catch return defaultBuzzPrefix();
+        break :p _buzz_path_buffer[0..path_len];
     } else defaultBuzzPrefix();
 
     const path1 = std.Io.Dir.path.dirname(path) orelse defaultBuzzPrefix();
@@ -467,73 +469,6 @@ const ParseRule = struct {
     infix: ?InfixParseFn = null,
     precedence: Precedence = .None,
 };
-
-const search_paths = if (builtin.os.tag == .windows)
-    [_][]const u8{
-        "#/?.!",
-        "#/?/main.!",
-        "#/?/src/?.!",
-        "#/?/src/main.!",
-        "$/?.!",
-        "$/?/main.!",
-        "$/?/src/?.!",
-        "$/?/src/main.!",
-        "./?.!",
-        "./?/main.!",
-        "./?/src/main.!",
-        "./?/src/?.!",
-        "./src/?.!",
-        // TODO: what would be common windows paths for this?
-    }
-else
-    [_][]const u8{
-        "#/?.!",
-        "#/?/main.!",
-        "#/?/src/?.!",
-        "#/?/src/main.!",
-        "$/?.!",
-        "$/?/main.!",
-        "$/?/src/?.!",
-        "$/?/src/main.!",
-        "./?.!",
-        "./?/main.!",
-        "./?/src/main.!",
-        "./?/src/?.!",
-        "./src/?.!",
-        "/usr/share/buzz/?.!",
-        "/usr/share/buzz/?/main.!",
-        "/usr/share/buzz/?/src/main.!",
-        "/usr/local/share/buzz/?/src/?.!",
-        "/usr/local/share/buzz/?.!",
-        "/usr/local/share/buzz/?/main.!",
-        "/usr/local/share/buzz/?/src/main.!",
-        "/usr/local/share/buzz/?/src/?.!",
-    };
-
-const lib_search_paths = if (builtin.os.tag == .windows)
-    [_][]const u8{
-        "#/?.!",
-        "#/?/src/?.!",
-        "$/?.!",
-        "$/?/src/?.!",
-        "./?.!",
-        "./?/src/?.!",
-        "./src/?.!",
-    }
-else
-    [_][]const u8{
-        "#/lib?.!",
-        "#/?/src/lib?.!",
-        "$/lib?.!",
-        "$/?/src/lib?.!",
-        "./lib?.!",
-        "./?/src/lib?.!",
-        "./src/lib?.!",
-        "/usr/share/buzz/lib?.!",
-        "/usr/share/buzz/?/src/lib?.!",
-        "/usr/share/local/buzz/lib?.!",
-        "/usr/share/local/buzz/?/src/lib?.!",
-    };
 
 const zdef_search_paths = if (builtin.os.tag == .windows)
     [_][]const u8{
@@ -940,9 +875,17 @@ fn synchronize(self: *Self) !void {
     }
 }
 
-pub fn parse(self: *Self, source: []const u8, file_name: ?[]const u8, name: []const u8) !?Ast {
+pub fn parse(
+    self: *Self,
+    source: []const u8,
+    root_dir: []const u8,
+    file_name: ?[]const u8,
+    name: []const u8,
+) !?Ast {
     var perf_scope = Perf.start(self.perf, .parser);
     defer perf_scope.end();
+
+    self.root_dir = root_dir;
 
     if (self.scanner != null) {
         self.scanner = null;
@@ -6799,7 +6742,6 @@ fn function(
                     try self.importLibSymbol(
                         self.ast.nodes.items(.location)[function_node],
                         self.current_token.? - 1,
-                        self.script_name,
                         function_typedef.resolved_type.?.Function.name.string,
                     )
                 else
@@ -8859,227 +8801,6 @@ fn testStatement(self: *Self) Error!Ast.Node.Index {
     return @intCast(node_slot);
 }
 
-fn searchPaths(self: *Self, full_file_name: []const u8) ![][]const u8 {
-    const dir_name = std.fs.path.dirname(full_file_name);
-    const file_name = std.fs.path.basename(full_file_name);
-
-    var paths = std.ArrayList([]const u8).empty;
-
-    for (search_paths) |path| {
-        const filled = try std.mem.replaceOwned(
-            u8,
-            self.gc.allocator,
-            path,
-            "?",
-            file_name,
-        );
-        defer self.gc.allocator.free(filled);
-
-        const suffixed = try std.mem.replaceOwned(
-            u8,
-            self.gc.allocator,
-            filled,
-            "!",
-            "buzz",
-        );
-        defer self.gc.allocator.free(suffixed);
-
-        const cwd = if (dir_name) |dn|
-            if (!std.fs.path.isAbsolute(dn))
-                try std.mem.replaceOwned(
-                    u8,
-                    self.gc.allocator,
-                    suffixed,
-                    "#",
-                    "./#",
-                )
-            else
-                null
-        else
-            null;
-        defer if (cwd) |d| self.gc.allocator.free(d);
-
-        const dir = if (dir_name) |dn| try std.mem.replaceOwned(
-            u8,
-            self.gc.allocator,
-            cwd orelse suffixed,
-            "#",
-            dn,
-        ) else null;
-        defer if (dir) |d| self.gc.allocator.free(d);
-
-        const prefixed = try std.mem.replaceOwned(
-            u8,
-            self.gc.allocator,
-            dir orelse suffixed,
-            "$",
-            buzzLibPath(self.process.io, self.process.environ_map),
-        );
-
-        if (std.fs.path.sep != '/') {
-            const windows = try std.mem.replaceOwned(
-                u8,
-                self.gc.allocator,
-                prefixed,
-                "/",
-                std.fs.path.sep_str,
-            );
-            try paths.append(self.gc.allocator, windows);
-        } else {
-            try paths.append(self.gc.allocator, prefixed);
-        }
-    }
-
-    return try paths.toOwnedSlice(self.gc.allocator);
-}
-
-fn searchLibPaths(self: *Self, full_file_name: []const u8) ![][]const u8 {
-    const dir_name = std.fs.path.dirname(full_file_name);
-    const file_name = std.fs.path.basename(full_file_name);
-    const file_names = [_][]const u8{
-        file_name,
-        if (builtin.os.tag == .windows and std.mem.startsWith(u8, file_name, "lib"))
-            file_name["lib".len..]
-        else
-            "",
-    };
-
-    var paths = std.ArrayList([]const u8).empty;
-
-    for (file_names) |candidate_name| {
-        if (candidate_name.len == 0) {
-            continue;
-        }
-
-        for (lib_search_paths) |path| {
-            const filled = try std.mem.replaceOwned(
-                u8,
-                self.gc.allocator,
-                path,
-                "?",
-                candidate_name,
-            );
-            defer self.gc.allocator.free(filled);
-
-            const suffixed = try std.mem.replaceOwned(
-                u8,
-                self.gc.allocator,
-                filled,
-                "!",
-                switch (builtin.os.tag) {
-                    .linux, .freebsd, .openbsd => "so",
-                    .windows => "dll",
-                    .macos, .tvos, .watchos, .ios => "dylib",
-                    else => unreachable,
-                },
-            );
-            defer self.gc.allocator.free(suffixed);
-
-            const cwd = if (dir_name) |dn|
-                if (!std.fs.path.isAbsolute(dn))
-                    try std.mem.replaceOwned(
-                        u8,
-                        self.gc.allocator,
-                        suffixed,
-                        "#",
-                        "./#",
-                    )
-                else
-                    null
-            else
-                null;
-            defer if (cwd) |d| self.gc.allocator.free(d);
-
-            const dir = if (dir_name) |dn| try std.mem.replaceOwned(
-                u8,
-                self.gc.allocator,
-                cwd orelse suffixed,
-                "#",
-                dn,
-            ) else null;
-            defer if (dir) |d| self.gc.allocator.free(d);
-
-            const prefixed = try std.mem.replaceOwned(
-                u8,
-                self.gc.allocator,
-                dir orelse suffixed,
-                "$",
-                buzzLibPath(self.process.io, self.process.environ_map),
-            );
-
-            if (builtin.os.tag == .windows) {
-                const windows = try std.mem.replaceOwned(
-                    u8,
-                    self.gc.allocator,
-                    prefixed,
-                    "/",
-                    std.fs.path.sep_str,
-                );
-                try paths.append(self.gc.allocator, windows);
-            } else {
-                try paths.append(self.gc.allocator, prefixed);
-            }
-        }
-    }
-
-    for (user_library_paths orelse &[_][]const u8{}) |path| {
-        for (file_names) |candidate_name| {
-            if (candidate_name.len == 0) {
-                continue;
-            }
-
-            var filled = std.Io.Writer.Allocating.init(self.gc.allocator);
-
-            try filled.writer.print(
-                "{s}{s}{s}.{s}",
-                .{
-                    path,
-                    if (!std.mem.endsWith(u8, path, std.fs.path.sep_str))
-                        std.fs.path.sep_str
-                    else
-                        "",
-                    candidate_name,
-                    switch (builtin.os.tag) {
-                        .linux, .freebsd, .openbsd => "so",
-                        .windows => "dll",
-                        .macos, .tvos, .watchos, .ios => "dylib",
-                        else => unreachable,
-                    },
-                },
-            );
-
-            try paths.append(self.gc.allocator, try filled.toOwnedSlice());
-
-            var prefixed_filled = std.Io.Writer.Allocating.init(self.gc.allocator);
-
-            try prefixed_filled.writer.print(
-                "{s}{s}lib{s}.{s}",
-                .{
-                    path,
-                    if (!std.mem.endsWith(u8, path, std.fs.path.sep_str))
-                        std.fs.path.sep_str
-                    else
-                        "",
-                    candidate_name,
-                    switch (builtin.os.tag) {
-                        .linux, .freebsd, .openbsd => "so",
-                        .windows => "dll",
-                        .macos, .tvos, .watchos, .ios => "dylib",
-                        else => unreachable,
-                    },
-                },
-            );
-
-            try paths.append(
-                self.gc.allocator,
-                try prefixed_filled.toOwnedSlice(),
-            );
-        }
-    }
-
-    return try paths.toOwnedSlice(self.gc.allocator);
-}
-
 fn searchZdefLibPaths(self: *Self, file_name: []const u8) ![][]const u8 {
     const file_names = [_][]const u8{
         file_name,
@@ -9187,129 +8908,196 @@ fn searchZdefLibPaths(self: *Self, file_name: []const u8) ![][]const u8 {
 pub const Import = struct {
     path: []const u8,
     source: []const u8,
+    owned_path: bool = false,
+    owned_source: bool = false,
+
+    /// Frees data read for a resolved import that was not parsed.
+    pub fn deinit(self: Import, allocator: std.mem.Allocator) void {
+        if (self.owned_source) {
+            allocator.free(self.source);
+        }
+        if (self.owned_path) {
+            allocator.free(self.path);
+        }
+    }
 };
 
-/// Resolve a import path to a actual file path and read it
-pub fn resolveImportPath(self: *Self, path: []const u8) ?Import {
+/// Reports a missing script at the current import token.
+fn reportScriptNotFound(self: *Self, file_name: []const u8) void {
+    const location = self.ast.tokens.get(self.current_token.? - 1);
+    self.reporter.reportErrorFmt(
+        .script_not_found,
+        location,
+        location,
+        "buzz script `{s}` not found",
+        .{
+            file_name,
+        },
+    );
+}
+
+/// Resolve an import path to an actual script and read it.
+pub fn resolveImport(self: *Self, path: []const u8) Error!?Import {
     if (std.mem.startsWith(u8, path, "buzz:")) {
-        // A std lib
-        return self.readStaticScript(path["buzz:".len..]);
+        return try self.readStdLibScript(path["buzz:".len..], true);
     } else if (std.mem.startsWith(u8, path, "pkg:")) {
-        // A package path
+        if (is_wasm) {
+            self.reportScriptNotFound(path);
+            return null;
+        }
+
         const unprefixed = path["pkg:".len..];
 
         if (std.mem.indexOf(u8, unprefixed, "/")) |first_slash| {
             const pkg_name = unprefixed[0..first_slash];
-            _ = unprefixed[pkg_name.len + 1 ..];
+            const pkg_script_path = unprefixed[pkg_name.len + 1 ..];
+
+            const package_root = try std.fs.path.join(
+                self.gc.allocator,
+                &.{
+                    self.root_dir,
+                    "vendors",
+                    pkg_name,
+                },
+            );
+            defer self.gc.allocator.free(package_root);
+
+            const package_source_dir = try std.fs.path.join(
+                self.gc.allocator,
+                &.{
+                    package_root,
+                    "src",
+                },
+            );
+            defer self.gc.allocator.free(package_source_dir);
+
+            const full_path = try std.fs.path.join(
+                self.gc.allocator,
+                &.{
+                    package_source_dir,
+                    pkg_script_path,
+                },
+            );
+            defer self.gc.allocator.free(full_path);
+
+            return try self.readScript(full_path);
         }
+
+        self.reportScriptNotFound(path);
+
+        return null;
     }
 
-    // A relative path to cwd
+    if (is_wasm) {
+        self.reportScriptNotFound(path);
+        return null;
+    }
+
+    if (std.fs.path.isAbsolute(path)) {
+        return try self.readScript(path);
+    }
+
+    const relative_base = std.fs.path.dirname(self.script_name) orelse self.root_dir;
+    const full_path = try std.fs.path.join(
+        self.gc.allocator,
+        &.{
+            relative_base,
+            path,
+        },
+    );
+    defer self.gc.allocator.free(full_path);
+
+    return try self.readScript(full_path);
 }
 
-fn readStaticScript(self: *Self, file_name: []const u8) ?Import {
+fn readStdLibScript(self: *Self, file_name: []const u8, report_not_found: bool) Error!?Import {
     inline for (static_libraries.all) |library| {
         if (std.mem.eql(u8, file_name, library.header.name)) {
-            return .{
-                // FIXME: on non wasm, read the file instead of @embedFile
-                .source = @embedFile("lib/" ++ library.header.path),
-                .path = library.header.name,
-            };
+            if (is_wasm) {
+                return .{
+                    .source = @embedFile("lib/" ++ library.header.path),
+                    .path = library.header.name,
+                };
+            }
+
+            const full_path = try std.fs.path.join(
+                self.gc.allocator,
+                &.{
+                    buzzLibPath(self.process.io, self.process.environ_map),
+                    library.header.path,
+                },
+            );
+            defer self.gc.allocator.free(full_path);
+
+            var source_and_path = (try self.readScript(full_path)) orelse return null;
+            if (source_and_path.owned_path) {
+                self.gc.allocator.free(source_and_path.path);
+            }
+
+            source_and_path.path = library.header.name;
+            source_and_path.owned_path = false;
+
+            return source_and_path;
         }
     }
 
-    // If wasm it will not fallback to importing actual files
-    if (is_wasm) {
-        const location = self.ast.tokens.get(self.current_token.? - 1);
-        self.reporter.reportErrorFmt(
-            .script_not_found,
-            location,
-            location,
-            "buzz script `{s}` not found",
-            .{
-                file_name,
-            },
-        );
+    // Its a `buzz:...` path if we did not resolve this here, there's  no fallback
+    if (report_not_found) {
+        self.reportScriptNotFound(file_name);
     }
 
     return null;
 }
 
-fn readScript(self: *Self, file_name: []const u8) !?[2][]const u8 {
-    const paths = try self.searchPaths(file_name);
-    var selected_absolute_path_index: ?usize = null;
-    defer {
-        for (paths, 0..) |path, index| {
-            if (selected_absolute_path_index != null and selected_absolute_path_index.? == index) {
-                continue;
-            }
+fn readScript(self: *Self, raw_file_name: []const u8) Error!?Import {
+    const suffixed_file_name = if (std.mem.endsWith(u8, raw_file_name, ".buzz"))
+        null
+    else
+        try std.fmt.allocPrint(self.gc.allocator, "{s}.buzz", .{raw_file_name});
+    defer if (suffixed_file_name) |name| self.gc.allocator.free(name);
 
-            self.gc.allocator.free(path);
-        }
-        self.gc.allocator.free(paths);
+    const file_name = try self.gc.allocator.dupe(u8, suffixed_file_name orelse raw_file_name);
+    defer self.gc.allocator.free(file_name);
+
+    if (std.fs.path.sep != '/') {
+        std.mem.replaceScalar(u8, file_name, '/', std.fs.path.sep);
     }
 
-    // Find and read file
-    var file: ?std.Io.File = null;
-    var absolute_path: ?[]const u8 = null;
-    for (paths, 0..) |path, index| {
-        if (std.fs.path.isAbsolute(path)) {
-            file = std.Io.Dir.openFileAbsolute(self.process.io, path, .{}) catch null;
-            if (file != null) {
-                selected_absolute_path_index = index;
-                absolute_path = path;
-                break;
-            }
-        } else {
-            file = std.Io.Dir.cwd().openFile(self.process.io, path, .{}) catch null;
-            if (file != null) {
-                absolute_path = std.Io.Dir.cwd().realPathFileAlloc(self.process.io, path, self.gc.allocator) catch {
-                    return Error.ImportError;
-                };
-                break;
-            }
-        }
-    }
+    const file_opt = if (std.fs.path.isAbsolute(file_name))
+        std.Io.Dir.openFileAbsolute(self.process.io, file_name, .{}) catch null
+    else
+        std.Io.Dir.cwd().openFile(self.process.io, file_name, .{}) catch null;
 
-    if (file == null) {
-        var search_report = std.Io.Writer.Allocating.init(self.gc.allocator);
-        defer search_report.deinit();
-        for (paths) |path| {
-            try search_report.writer.print("    no file `{s}`\n", .{path});
-        }
+    if (file_opt) |file| {
+        defer file.close(self.process.io);
 
-        const location = self.ast.tokens.get(self.current_token.? - 1);
-        self.reporter.reportErrorFmt(
-            .script_not_found,
-            location,
-            location,
-            "buzz script `{s}` not found:\n{s}",
-            .{
-                file_name,
-                search_report.written(),
-            },
+        const source = try self.gc.allocator.alloc(
+            u8,
+            (file.stat(self.process.io) catch {
+                return Error.ImportError;
+            }).size,
         );
 
-        return null;
+        _ = file.readPositionalAll(self.process.io, source, 0) catch {
+            return Error.ImportError;
+        };
+
+        var absolute_path: [std.Io.Dir.max_path_bytes]u8 = undefined;
+        const len = file.realPath(self.process.io, &absolute_path) catch {
+            return Error.ImportError;
+        };
+
+        return .{
+            .source = source,
+            .path = try self.gc.allocator.dupe(u8, absolute_path[0..len]),
+            .owned_path = true,
+            .owned_source = true,
+        };
     }
 
-    defer file.?.close(self.process.io);
+    self.reportScriptNotFound(file_name);
 
-    const source = try self.gc.allocator.alloc(
-        u8,
-        (file.?.stat(self.process.io) catch {
-            return Error.ImportError;
-        }).size,
-    );
-
-    _ = file.?.readPositionalAll(self.process.io, source, 0) catch {
-        return Error.ImportError;
-    };
-
-    return [_][]const u8{
-        source,
-        absolute_path.?,
-    };
+    return null;
 }
 
 fn checkImportedNamespaceCollision(self: *Self, namespace: []const Ast.TokenIndex) Error!void {
@@ -9387,10 +9175,15 @@ fn importScript(
     prefix: ?[]const Ast.TokenIndex,
     imported_symbols: *std.StringHashMapUnmanaged(Ast.Node.Index),
 ) Error!?ScriptImport {
-    var import = self.imports.get(file_name);
+    const source_and_path = (try self.resolveImport(file_name)) orelse {
+        return null;
+    };
 
     var imported_namespace: ?[]const Ast.TokenIndex = null;
-    if (import) |*uimport| {
+    var import = self.imports.getPtr(source_and_path.path);
+    if (import) |uimport| {
+        source_and_path.deinit(self.gc.allocator);
+
         if (uimport.imported_by.get(self.current.?) != null) {
             const location = self.ast.tokens.get(path_token);
             self.reporter.reportErrorFmt(
@@ -9410,14 +9203,8 @@ fn importScript(
             {},
         );
     } else {
-        const source_and_path =
-            self.readStaticScript(file_name) orelse
-            if (!is_wasm)
-                try self.readScript(file_name)
-            else
-                null;
-
-        if (source_and_path == null) {
+        if (is_wasm and source_and_path.owned_source) {
+            source_and_path.deinit(self.gc.allocator);
             return null;
         }
 
@@ -9445,7 +9232,7 @@ fn importScript(
         self.ast.tokens.items(.utility_token)[self.current_token.?] = true;
         std.debug.assert(!token_before_import.utility_token);
 
-        if (try parser.parse(source_and_path.?[0], source_and_path.?[1], file_name)) |ast| {
+        if (try parser.parse(source_and_path.source, self.root_dir, null, source_and_path.path)) |ast| {
             self.ast = ast;
             self.ast.nodes.items(.components)[self.ast.root.?].Function.import_root = true;
 
@@ -9453,12 +9240,12 @@ fn importScript(
                 imported_namespace = try ast.slice().namespace(self.gc.allocator, ast.root.?);
             }
 
-            import = ScriptImport{
+            var new_import = ScriptImport{
                 .function = self.ast.root.?,
-                .absolute_path = try self.gc.copyString(source_and_path.?[1]),
+                .absolute_path = try self.gc.copyString(source_and_path.path),
             };
 
-            try import.?.imported_by.put(
+            try new_import.imported_by.put(
                 self.gc.allocator,
                 self.current.?,
                 {},
@@ -9476,17 +9263,18 @@ fn importScript(
                     global.hidden = true;
                 }
 
-                try import.?.globals.append(self.gc.allocator, global.*);
+                try new_import.globals.append(self.gc.allocator, global.*);
             }
 
             try self.imports.put(
                 self.gc.allocator,
-                file_name,
-                import.?,
+                new_import.absolute_path.string,
+                new_import,
             );
+            import = self.imports.getPtr(new_import.absolute_path.string).?;
             try self.script_imports.put(
                 self.gc.allocator,
-                file_name,
+                import.?.absolute_path.string,
                 .{
                     .location = path_token,
                     .end_location = path_token,
@@ -9560,7 +9348,7 @@ fn importScript(
                 };
             }
 
-            global.imported_from = file_name;
+            global.imported_from = imported.absolute_path.string;
 
             // TODO: we're forced to import all and hide some because globals are indexed and not looked up by name at runtime
             //       Only way to avoid this is to go back to named globals at runtime. Then again, is it worth it?
@@ -9579,7 +9367,7 @@ fn importScript(
         return Error.CantCompile;
     }
 
-    return import;
+    return import.?.*;
 }
 
 // This is used in the wasm build. There, we only allow the import of std libs by name
@@ -9600,11 +9388,74 @@ fn importStaticLibSymbol(self: *Self, file_name: []const u8, symbol: []const u8)
         null;
 }
 
+/// Returns the native dynamic library extension for the current target.
+fn dynamicLibraryExtension() []const u8 {
+    return switch (builtin.os.tag) {
+        .linux, .freebsd, .openbsd => "so",
+        .windows => "dll",
+        .macos, .tvos, .watchos, .ios => "dylib",
+        else => unreachable,
+    };
+}
+
+/// Returns the portion of `path` that is inside `dir`, if any.
+fn pathWithinDir(path: []const u8, dir: []const u8) ?[]const u8 {
+    if (std.mem.eql(u8, path, dir)) {
+        return path[path.len..];
+    }
+
+    if (path.len <= dir.len or !std.mem.startsWith(u8, path, dir)) {
+        return null;
+    }
+
+    if (path[dir.len] != std.fs.path.sep) {
+        return null;
+    }
+
+    return path[dir.len + 1 ..];
+}
+
+/// Returns whether a dynamic library path exists.
+fn nativeLibraryExists(self: *Self, library_path: []const u8) bool {
+    if (std.fs.path.isAbsolute(library_path)) {
+        std.Io.Dir.accessAbsolute(
+            self.process.io,
+            library_path,
+            .{ .read = true },
+        ) catch return false;
+
+        return true;
+    }
+
+    std.Io.Dir.cwd().access(self.process.io, library_path, .{ .read = true }) catch return false;
+
+    return true;
+}
+
+/// Opens a dynamic library path and extracts its Buzz native lookup helper.
+fn openNativeLibraryAt(self: *Self, library_path: []const u8, library_name: []const u8) !?Dlib {
+    var lib = DynLib.open(self.gc.allocator, library_path) catch return null;
+    errdefer lib.close();
+
+    const name = try self.gc.allocator.dupeZ(u8, library_name);
+    defer self.gc.allocator.free(name);
+
+    if (lib.lookup(Dlib.LookupFn, name)) |lookup_fn| {
+        return .{
+            .dynlib = lib,
+            .lookup_fn = lookup_fn,
+        };
+    }
+
+    lib.close();
+
+    return null;
+}
+
 fn importLibSymbol(
     self: *Self,
     location: Ast.TokenIndex,
     end_location: Ast.TokenIndex,
-    full_file_name: []const u8,
     symbol: []const u8,
 ) !?*obj.ObjNative {
     // Don't bother if we're not actually running the script
@@ -9612,96 +9463,180 @@ fn importLibSymbol(
         return undefined;
     }
 
-    // Remove .buzz extension, this occurs if this is the script being run or if the script was imported like so `import lib/std.buzz`
-    // We consider that any other extension is silly from the part of the user
-    const file_name = if (std.mem.endsWith(u8, full_file_name, ".buzz"))
-        full_file_name[0..(full_file_name.len - 5)]
+    // Native libraries are named after the Buzz script that declares the extern,
+    // not after the package. `src/date.buzz` expects `libdate.<ext>` and a `date`
+    // lookup function in that dynamic library.
+    const script_basename = std.fs.path.basename(self.script_name);
+    const native_name = if (std.mem.endsWith(u8, script_basename, ".buzz"))
+        script_basename[0 .. script_basename.len - ".buzz".len]
     else
-        full_file_name;
+        script_basename;
 
-    const file_basename = std.fs.path.basename(file_name);
+    // Loose scripts resolve their native library next to the script. Package
+    // scripts override this below so their libraries live at the package root.
+    var native_dir = std.fs.path.dirname(self.script_name) orelse self.root_dir;
+    var allow_user_fallback = true;
 
-    if (self.dlib_symbols.getEntry(file_basename) orelse dl: {
-        const paths = try self.searchLibPaths(file_name);
-        defer {
-            for (paths) |path| {
-                self.gc.allocator.free(path);
+    const vendors_dir = try std.fs.path.join(
+        self.gc.allocator,
+        &.{
+            self.root_dir,
+            "vendors",
+        },
+    );
+    defer self.gc.allocator.free(vendors_dir);
+
+    const root_source_dir = try std.fs.path.join(
+        self.gc.allocator,
+        &.{
+            self.root_dir,
+            "src",
+        },
+    );
+    defer self.gc.allocator.free(root_source_dir);
+
+    if (pathWithinDir(self.script_name, vendors_dir)) |vendor_relative| {
+        if (std.mem.indexOfScalar(u8, vendor_relative, std.fs.path.sep)) |pkg_name_len| {
+            const pkg_name = vendor_relative[0..pkg_name_len];
+            const pkg_relative = vendor_relative[pkg_name_len + 1 ..];
+
+            // Dependency package imports must be under
+            // `<root>/vendors/<package>/src/...`; their native libraries live in
+            // `<root>/vendors/<package>/`.
+            if (pkg_name.len > 0 and
+                pkg_relative.len > "src".len and
+                std.mem.startsWith(u8, pkg_relative, "src") and
+                pkg_relative["src".len] == std.fs.path.sep)
+            {
+                const package_root_end = vendors_dir.len + 1 + pkg_name.len;
+                native_dir = self.script_name[0..package_root_end];
+                allow_user_fallback = false;
             }
-            self.gc.allocator.free(paths);
         }
+    } else if (pathWithinDir(self.script_name, root_source_dir) != null) {
+        // Root package scripts use `<root>/lib<script-stem>.<ext>`, even when the
+        // declaring script is nested inside `src/`.
+        native_dir = self.root_dir;
+        allow_user_fallback = false;
+    }
 
-        var tried = std.ArrayList([]const u8).empty;
-        defer tried.deinit(self.gc.allocator);
+    if (self.dlib_symbols.getEntry(native_name) orelse dl: {
+        const library_file_name = try std.fmt.allocPrint(
+            self.gc.allocator,
+            "{s}{s}.{s}",
+            .{
+                if (builtin.os.tag == .windows) "" else "lib",
+                native_name,
+                dynamicLibraryExtension(),
+            },
+        );
+        defer self.gc.allocator.free(library_file_name);
 
-        var lib = lib: {
-            for (paths) |path| {
-                try tried.append(self.gc.allocator, path);
+        const primary_library_path = try std.fs.path.join(
+            self.gc.allocator,
+            &.{
+                native_dir,
+                library_file_name,
+            },
+        );
+        defer self.gc.allocator.free(primary_library_path);
 
-                var exists = true;
-                if (std.fs.path.isAbsolute(path)) {
-                    std.Io.Dir.accessAbsolute(
-                        self.process.io,
-                        path,
-                        .{ .read = true },
-                    ) catch {
-                        exists = false;
-                    };
-                } else {
-                    std.Io.Dir.cwd().access(self.process.io, path, .{ .read = true }) catch {
-                        exists = false;
-                    };
-                }
+        var search_report = std.Io.Writer.Allocating.init(self.gc.allocator);
+        defer search_report.deinit();
 
-                if (exists) {
-                    break :lib DynLib.open(self.gc.allocator, path) catch null;
-                }
-            }
-            break :lib null;
-        };
-
-        if (lib) |*dlib| {
-            const name = try self.gc.allocator.dupeZ(u8, file_basename);
-            defer self.gc.allocator.free(name);
-
-            // We search for the library helper which should have the same name as the library itself
-            if (dlib.lookup(Dlib.LookupFn, name)) |lookup_fn| {
-                const new = Dlib{
-                    .dynlib = dlib.*,
-                    .lookup_fn = lookup_fn,
-                };
-
+        const primary_exists = self.nativeLibraryExists(primary_library_path);
+        if (primary_exists) {
+            if (try self.openNativeLibraryAt(primary_library_path, native_name)) |dlib| {
                 try self.dlib_symbols.put(
                     self.gc.allocator,
-                    file_basename,
-                    new,
+                    native_name,
+                    dlib,
                 );
 
-                break :dl self.dlib_symbols.getEntry(file_basename).?;
+                break :dl self.dlib_symbols.getEntry(native_name).?;
             }
-        } else {
-            var search_report = std.Io.Writer.Allocating.init(self.gc.allocator);
-            defer search_report.deinit();
+        }
 
-            for (tried.items, 0..) |path, i| {
-                if (i == 0) try search_report.writer.print("\n", .{});
-                try search_report.writer.print("    no file `{s}`\n", .{path});
-            }
+        try search_report.writer.print(
+            "\n    {s} `{s}`\n",
+            .{
+                if (primary_exists) "could not load" else "no file",
+                primary_library_path,
+            },
+        );
 
-            self.reporter.reportErrorFmt(
-                .library_not_found,
-                self.ast.tokens.get(location),
-                self.ast.tokens.get(end_location),
-                "External library `{s}` not found: {s}{s}\n",
+        // `-L` paths are only for loose scripts, and only when the predictable
+        // adjacent path does not exist. If the predictable file exists but cannot
+        // be loaded, report that file instead of silently loading another one.
+        if (!primary_exists and allow_user_fallback) {
+            const alternate_file_name = try std.fmt.allocPrint(
+                self.gc.allocator,
+                "{s}.{s}",
                 .{
-                    file_basename,
-                    if (builtin.link_libc and builtin.os.tag != .windows)
-                        if (dlerror()) |err| std.mem.span(err) else ""
-                    else
-                        "",
-                    search_report.written(),
+                    native_name,
+                    dynamicLibraryExtension(),
                 },
             );
+            defer self.gc.allocator.free(alternate_file_name);
+
+            const candidate_names = [_][]const u8{
+                library_file_name,
+                if (!std.mem.eql(u8, library_file_name, alternate_file_name)) alternate_file_name else "",
+            };
+
+            for (user_library_paths orelse &[_][]const u8{}) |path| {
+                for (candidate_names) |candidate_name| {
+                    if (candidate_name.len == 0) {
+                        continue;
+                    }
+
+                    const library_path = try std.fs.path.join(
+                        self.gc.allocator,
+                        &.{
+                            path,
+                            candidate_name,
+                        },
+                    );
+                    defer self.gc.allocator.free(library_path);
+
+                    const library_exists = self.nativeLibraryExists(library_path);
+                    if (library_exists) {
+                        if (try self.openNativeLibraryAt(library_path, native_name)) |dlib| {
+                            try self.dlib_symbols.put(
+                                self.gc.allocator,
+                                native_name,
+                                dlib,
+                            );
+
+                            break :dl self.dlib_symbols.getEntry(native_name).?;
+                        }
+                    }
+
+                    try search_report.writer.print(
+                        "    {s} `{s}`\n",
+                        .{
+                            if (library_exists) "could not load" else "no file",
+                            library_path,
+                        },
+                    );
+                }
+            }
         }
+
+        self.reporter.reportErrorFmt(
+            .library_not_found,
+            self.ast.tokens.get(location),
+            self.ast.tokens.get(end_location),
+            "External library `{s}` not found: {s}{s}\n",
+            .{
+                native_name,
+                if (builtin.link_libc and builtin.os.tag != .windows)
+                    if (dlerror()) |err| std.mem.span(err) else ""
+                else
+                    "",
+                search_report.written(),
+            },
+        );
 
         break :dl null;
     }) |dlib_entry| {
@@ -9715,7 +9650,7 @@ fn importLibSymbol(
                 "Could not find symbol `{s}` in lib `{s}`",
                 .{
                     symbol,
-                    file_name,
+                    native_name,
                 },
             );
         }

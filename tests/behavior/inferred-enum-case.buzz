@@ -1,4 +1,4 @@
-import "std";
+import "buzz:std";
 
 enum Locale {
     fr,

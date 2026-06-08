@@ -92,7 +92,7 @@ pub export fn initRepl() *ReplCtx {
 
     // Import std and debug as commodity
     _ = runSource(
-        "import \"std\";import \"debug\";",
+        "import \"buzz:std\";import \"buzz:debug\";",
         "REPL",
         vm,
         codegen,
@@ -217,7 +217,7 @@ fn runSource(
     codegen: *CodeGen,
     parser: *Parser,
 ) !?Value {
-    if (try parser.parse(source, null, file_name)) |ast| {
+    if (try parser.parse(source, &.{}, null, file_name)) |ast| {
         const ast_slice = ast.slice();
         if (try codegen.generate(ast_slice)) |function| {
             try vm.interpret(

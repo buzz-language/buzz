@@ -150,7 +150,7 @@ pub fn report(self: *Self) void {
             duration_string,
             percent,
         }) catch return;
-        printBar(out, duration, elapsed, color(component)) catch return;
+        bz_io.printProgressBar(out, @intCast(duration), @intCast(elapsed), 24, color(component)) catch return;
         tryPrintChildren(out, children[component_index]) catch return;
         out.print("\n", .{}) catch return;
     }
@@ -239,23 +239,6 @@ fn formatDuration(buffer: *[32]u8, duration: i128) ![]const u8 {
     var writer: std.Io.Writer = .fixed(buffer);
     try printDuration(&writer, duration);
     return writer.buffered();
-}
-
-fn printBar(out: *std.Io.Writer, duration: i128, total: i128, bar_color: []const u8) !void {
-    const width = 24;
-    const filled: usize = @intCast(@min(width, @divTrunc(duration * width, total)));
-
-    try out.print("{s}", .{bar_color});
-    for (0..filled) |_| {
-        try out.writeAll("━");
-    }
-
-    try out.writeAll("\x1b[2m");
-    for (filled..width) |_| {
-        try out.writeAll("─");
-    }
-
-    try out.writeAll("\x1b[0m");
 }
 
 fn tryPrintChildren(out: *std.Io.Writer, component_children: [component_count]i128) !void {

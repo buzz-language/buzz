@@ -1,4 +1,4 @@
 // Type mismatch: got type `str`, expected `int`
-import "tests/compile_errors/utils/import-syntax-error";
+import "utils/import-syntax-error";
 
 test "imported syntax errors are reported" {}

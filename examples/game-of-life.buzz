@@ -1,6 +1,6 @@
-import "std";
-import "io";
-import "examples/sdl-wrapped" as _;
+import "buzz:std";
+import "buzz:io";
+import "sdl-wrapped" as _;
 
 /// buzz -L/path/to/SDL2.dylib/so/dll examples/game-of-life.buzz
 object World {

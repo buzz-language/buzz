@@ -1,4 +1,4 @@
-import "std";
+import "buzz:std";
 
 test "if statement" {
     if (2 > 1) {

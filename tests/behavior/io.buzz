@@ -1,6 +1,6 @@
-import "std";
-import "io";
-import "fs";
+import "buzz:std";
+import "buzz:io";
+import "buzz:fs";
 
 test "Write & read a file" {
     final file = io\File.open("./hello.txt", mode: .write);

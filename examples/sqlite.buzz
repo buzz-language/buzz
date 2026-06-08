@@ -1,10 +1,10 @@
 namespace sqlite;
 
-import "ffi";
-import "std";
-import "buffer";
-import "serialize" as _;
-import "errors";
+import "buzz:ffi";
+import "buzz:std";
+import "buzz:buffer";
+import "buzz:serialize" as _;
+import "buzz:errors";
 
 zdef(
     "sqlite3",

@@ -70,6 +70,33 @@ pub fn print(io: Io, comptime fmt: []const u8, args: anytype) void {
     }
 }
 
+/// Writes a fixed-width colored progress bar to an existing terminal writer.
+pub fn printProgressBar(
+    out: *std.Io.Writer,
+    completed: u128,
+    total: u128,
+    width: usize,
+    bar_color: []const u8,
+) !void {
+    const width_int: u128 = @intCast(width);
+    const filled: usize = if (total == 0)
+        width
+    else
+        @intCast(@min(width_int, @divTrunc(completed * width_int, total)));
+
+    try out.print("{s}", .{bar_color});
+    for (0..filled) |_| {
+        try out.writeAll("━");
+    }
+
+    try out.writeAll("\x1b[2m");
+    for (filled..width) |_| {
+        try out.writeAll("─");
+    }
+
+    try out.writeAll("\x1b[0m");
+}
+
 pub const AllocatedReader = struct {
     pub const Error = error{
         ReadFailed,

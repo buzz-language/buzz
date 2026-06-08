@@ -1,4 +1,4 @@
-import "std";
+import "buzz:std";
 
 fun main() > void {
     final list: mut [int] = mut [];

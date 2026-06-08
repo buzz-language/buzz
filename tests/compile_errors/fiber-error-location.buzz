@@ -1,5 +1,5 @@
 //:7:37
-import "std";
+import "buzz:std";
 
 fun count(n: int) > str *> int? {
     for (i: int = 0; i < n; i = i + 1) {

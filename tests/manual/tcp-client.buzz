@@ -1,5 +1,5 @@
-import "std";
-import "os";
+import "buzz:std";
+import "buzz:os";
 
 fun main() > void !> any {
     final socket = os\Socket.connect(

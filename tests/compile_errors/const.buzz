@@ -1,5 +1,5 @@
 // Can't assign to final variable
-import "std";
+import "buzz:std";
 
 test "`final` variable" {
     final yo = "yo";

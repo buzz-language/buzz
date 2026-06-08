@@ -1,5 +1,5 @@
-import "std";
-import "debug";
+import "buzz:std";
+import "buzz:debug";
 
 object A {}
 

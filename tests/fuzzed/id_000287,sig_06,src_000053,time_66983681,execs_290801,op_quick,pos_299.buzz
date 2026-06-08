@@ -1,4 +1,4 @@
-import "std";
+import "buzz:std";
 
 fun willFail() > void !> str {
     if (false) {

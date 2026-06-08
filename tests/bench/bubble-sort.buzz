@@ -1,4 +1,4 @@
-import "std";
+import "buzz:std";
 
 fun main(args: [str]) > void {
     final max = std\parseInt(args[?0] ?? "750") ?? 750;

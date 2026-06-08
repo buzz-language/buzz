@@ -1,4 +1,4 @@
-import "std";
+import "buzz:std";
 
 test "locals inside a foreach" {
     final hello = "";
