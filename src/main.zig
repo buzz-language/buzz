@@ -362,7 +362,20 @@ pub fn main(provided_init: Init) u8 {
                     return 1;
                 };
 
-                return 0;
+                if (manifest.fetch(init, manifest_root) catch |err| {
+                    stderr.interface.print(
+                        "Could fetch dependencies for `{s}`: {s}\n",
+                        .{
+                            manifest.name,
+                            @errorName(err),
+                        },
+                    ) catch @panic("Could not create self vendor link");
+                    return 1;
+                }) {
+                    return 0;
+                }
+
+                return 1;
             },
             .help => {
                 const sub_res = clap.parseEx(

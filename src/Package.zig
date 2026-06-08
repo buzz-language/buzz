@@ -7,8 +7,17 @@ const v = @import("value.zig");
 
 /// Standard package manifest filename.
 pub const MANIFEST = "manifest.buzz";
+pub const VENDORS = "vendors";
 const manifest_wrapper_prefix = "import \"buzz:manifest\" as _;final manifest: Manifest = ";
 const input_whitespace = " \n\r\t";
+
+fn exists(io: std.Io, path: []const u8) bool {
+    std.Io.Dir.cwd().access(io, path, .{ .read = true }) catch {
+        return false;
+    };
+
+    return true;
+}
 
 /// Must match src/lib/manifest.buzz
 pub const Manifest = struct {
@@ -24,6 +33,110 @@ pub const Manifest = struct {
     tags: [][]const u8 = &.{},
     license: ?[]const u8 = null,
     homepage: ?[]const u8 = null,
+
+    // pub const Dependency = struct {
+    //     source: Source,
+    //     name: []const u8,
+    // };
+
+    // FIXME: we will actually fill this function result to `fetch`
+    // Flatten out the dependency graph and errors out if multiple reference to the same dependency are not compatible
+    // pub fn resolveDependencies(self: Manifest) error{OutOfMemory}![]const Dependency {}
+
+    pub fn fetch(self: Manifest, process: std.process.Init, root_dir: []const u8) !bool {
+        var stdout = bzio.stdoutWriter(process.io);
+
+        const count = self.dependencies.count() + self.dev_dependencies.count();
+        if (count == 0) {
+            stdout.interface.writeAll("👨‍🚀 Nothing to do\n\n") catch {};
+        }
+
+        stdout.interface.writeAll("👨‍🚀 Fetching dependencies...\n\n") catch {};
+
+        var arena = std.heap.ArenaAllocator.init(process.gpa);
+        defer arena.deinit();
+        const allocator = arena.allocator();
+
+        var progress = InitProgress{
+            .out = &stdout.interface,
+            .total = count,
+        };
+
+        var failed = std.ArrayList(struct { package: []const u8, err: []const u8 }).empty;
+        defer failed.deinit(allocator);
+
+        var deps = self.dependencies.iterator();
+        while (deps.next()) |entry| {
+            entry.value_ptr.fetch(
+                process.io,
+                allocator,
+                root_dir,
+                entry.key_ptr.*,
+            ) catch |err| {
+                try failed.append(
+                    allocator,
+                    .{
+                        .package = entry.key_ptr.*,
+                        .err = @errorName(err),
+                    },
+                );
+            };
+
+            progress.advance(entry.key_ptr.*) catch {};
+        }
+
+        deps = self.dev_dependencies.iterator();
+        while (deps.next()) |entry| {
+            entry.value_ptr.fetch(
+                process.io,
+                allocator,
+                root_dir,
+                entry.key_ptr.*,
+            ) catch |err| {
+                try failed.append(
+                    allocator,
+                    .{
+                        .package = entry.key_ptr.*,
+                        .err = @errorName(err),
+                    },
+                );
+            };
+
+            progress.advance(entry.key_ptr.*) catch {};
+        }
+
+        progress.finish() catch {};
+
+        if (failed.items.len > 0) {
+            stdout.interface.print(
+                "\n⛔ {} packages could not be fetched.\n\n",
+                .{
+                    failed.items.len,
+                },
+            ) catch {};
+
+            for (failed.items) |failure| {
+                stdout.interface.print(
+                    "\t\x1b[31m{s}: {s}\x1b[0m\n",
+                    .{
+                        failure.package,
+                        failure.err,
+                    },
+                ) catch {};
+            }
+
+            stdout.interface.writeByte('\n') catch {};
+        } else {
+            stdout.interface.print(
+                "\n🎉 {} packages fetched.\n\n",
+                .{
+                    count,
+                },
+            ) catch {};
+        }
+
+        return failed.items.len == 0;
+    }
 
     pub fn fromValue(value: v.Value, allocator: std.mem.Allocator) !Manifest {
         const instance = value.obj().cast(o.ObjObjectInstance, .ObjectInstance).?;
@@ -112,10 +225,320 @@ pub const Manifest = struct {
 
     pub const Source = struct {
         url: []const u8,
-        tag: ?[]const u8,
+        ref: ?[]const u8,
         hash: ?[]const u8 = null,
         version: ?std.SemanticVersion = null,
         constraint: Constraint = .equalTo,
+
+        pub fn fetch(self: Source, io: std.Io, allocator: std.mem.Allocator, root_dir: []const u8, name: []const u8) !void {
+            var final_url = std.Io.Writer.Allocating.init(allocator);
+            defer final_url.deinit();
+
+            if (self.ref) |ref|
+                final_url.writer.print("{s}#{s}", .{ self.url, ref }) catch return error.OutOfMemory
+            else
+                final_url.writer.print("{s}", .{self.url}) catch return error.OutOfMemory;
+
+            var destination = std.Io.Writer.Allocating.init(allocator);
+            defer destination.deinit();
+
+            // <root_dir>/vendors/<package name>
+            destination.writer.print(
+                "{s}{c}{s}{c}{s}",
+                .{
+                    root_dir,
+                    std.Io.Dir.path.sep,
+                    VENDORS,
+                    std.Io.Dir.path.sep,
+                    name,
+                },
+            ) catch return error.OutOfMemory;
+
+            if (exists(io, destination.written())) {
+                return;
+            }
+
+            try fetchUrl(
+                io,
+                allocator,
+                final_url.written(),
+                destination.written(),
+            );
+        }
+
+        fn isGitUrl(url: []const u8) bool {
+            const query_index = std.mem.indexOfScalar(u8, url, '?') orelse url.len;
+            const fragment_index = std.mem.indexOfScalar(u8, url, '#') orelse url.len;
+            const source_path = url[0..@min(query_index, fragment_index)];
+
+            return std.ascii.startsWithIgnoreCase(url, "git:") or
+                std.ascii.startsWithIgnoreCase(url, "git@") or
+                std.ascii.startsWithIgnoreCase(url, "ssh://") or
+                std.ascii.startsWithIgnoreCase(url, "git+http://") or
+                std.ascii.startsWithIgnoreCase(url, "git+https://") or
+                std.ascii.endsWithIgnoreCase(source_path, ".git");
+        }
+
+        fn isArchive(url: []const u8) bool {
+            const query_index = std.mem.indexOfScalar(u8, url, '?') orelse url.len;
+            const fragment_index = std.mem.indexOfScalar(u8, url, '#') orelse url.len;
+            const source_path = url[0..@min(query_index, fragment_index)];
+
+            return std.ascii.endsWithIgnoreCase(source_path, ".tar.gz") or
+                std.ascii.endsWithIgnoreCase(source_path, ".tgz");
+        }
+
+        fn isHttp(url: []const u8) bool {
+            return std.ascii.startsWithIgnoreCase(url, "http://") or
+                std.ascii.startsWithIgnoreCase(url, "https://");
+        }
+
+        /// Fetches `url_or_path` into `destination`.
+        fn fetchUrl(io: std.Io, allocator: std.mem.Allocator, url_or_path: []const u8, destination: []const u8) !void {
+            const is_http = isHttp(url_or_path);
+
+            if (isArchive(url_or_path)) {
+                return try fetchArchive(
+                    io,
+                    allocator,
+                    url_or_path,
+                    destination,
+                    is_http,
+                );
+            }
+
+            if (isGitUrl(url_or_path)) {
+                return try fetchGit(
+                    io,
+                    allocator,
+                    url_or_path,
+                    destination,
+                );
+            }
+
+            if (is_http) {
+                return error.UnsupportedFetchSource;
+            }
+
+            return try fetchDirectory(
+                io,
+                allocator,
+                url_or_path,
+                destination,
+            );
+        }
+
+        /// Clones a Git source into `destination` as a bare repository.
+        fn fetchGit(io: std.Io, allocator: std.mem.Allocator, url_or_path: []const u8, destination: []const u8) !void {
+            if (std.fs.path.dirname(destination)) |parent| {
+                if (parent.len > 0) {
+                    try std.Io.Dir.cwd().createDirPath(io, parent);
+                }
+            }
+
+            const git_url = if (std.ascii.startsWithIgnoreCase(url_or_path, "git+"))
+                url_or_path["git+".len..]
+            else
+                url_or_path;
+
+            const result = try std.process.run(
+                allocator,
+                io,
+                .{
+                    .argv = &.{ "git", "clone", "--depth", "1", "--single-branch", git_url, destination },
+                    .stdout_limit = .limited(1024 * 1024),
+                    .stderr_limit = .limited(1024 * 1024),
+                },
+            );
+            defer allocator.free(result.stdout);
+            defer allocator.free(result.stderr);
+
+            switch (result.term) {
+                .exited => |code| if (code != 0) {
+                    return error.GitCloneFailed;
+                },
+                else => return error.GitCloneFailed,
+            }
+        }
+
+        /// Downloads a remote archive when needed and extracts it into `destination`.
+        fn fetchArchive(io: std.Io, allocator: std.mem.Allocator, url_or_path: []const u8, destination: []const u8, is_http: bool) !void {
+            const archive_path = if (is_http) archive: {
+                if (std.fs.path.dirname(destination)) |parent| {
+                    if (parent.len > 0) {
+                        try std.Io.Dir.cwd().createDirPath(io, parent);
+                    }
+                }
+
+                var random_bytes: [8]u8 = undefined;
+                io.random(&random_bytes);
+                const temporary_path = try std.fmt.allocPrint(
+                    allocator,
+                    "{s}.download-{x}.tar.gz",
+                    .{
+                        destination,
+                        std.mem.readInt(u64, &random_bytes, .little),
+                    },
+                );
+                errdefer allocator.free(temporary_path);
+                errdefer std.Io.Dir.cwd().deleteFile(io, temporary_path) catch {};
+
+                var file = try std.Io.Dir.cwd().createFile(io, temporary_path, .{ .exclusive = true });
+                defer file.close(io);
+
+                var file_buffer: [16 * 1024]u8 = undefined;
+                var file_writer = file.writer(io, &file_buffer);
+
+                var client: std.http.Client = .{
+                    .allocator = allocator,
+                    .io = io,
+                };
+                defer client.deinit();
+
+                const result = try client.fetch(.{
+                    .location = .{ .url = url_or_path },
+                    .response_writer = &file_writer.interface,
+                });
+                try file_writer.interface.flush();
+                if (result.status != .ok) {
+                    return error.HttpError;
+                }
+
+                break :archive temporary_path;
+            } else url_or_path;
+            defer if (is_http) {
+                std.Io.Dir.cwd().deleteFile(io, archive_path) catch {};
+                allocator.free(archive_path);
+            };
+
+            try std.Io.Dir.cwd().createDirPath(io, destination);
+
+            var destination_dir = try std.Io.Dir.cwd().openDir(io, destination, .{});
+            defer destination_dir.close(io);
+
+            var archive_file = try std.Io.Dir.cwd().openFile(io, archive_path, .{ .mode = .read_only });
+            defer archive_file.close(io);
+
+            var archive_buffer: [16 * 1024]u8 = undefined;
+            var archive_reader = archive_file.reader(io, &archive_buffer);
+
+            const inflate_buffer = try allocator.alloc(u8, std.compress.flate.max_window_len);
+            defer allocator.free(inflate_buffer);
+
+            var gzip = std.compress.flate.Decompress.init(
+                &archive_reader.interface,
+                .gzip,
+                inflate_buffer,
+            );
+
+            try std.tar.extract(io, destination_dir, &gzip.reader, .{
+                .strip_components = 1,
+            });
+        }
+
+        /// Copies a local directory into `destination`.
+        fn fetchDirectory(io: std.Io, allocator: std.mem.Allocator, url_or_path: []const u8, destination: []const u8) !void {
+            try std.Io.Dir.cwd().createDirPath(io, destination);
+
+            var source_dir = std.Io.Dir.cwd().openDir(io, url_or_path, .{ .iterate = true }) catch |err| switch (err) {
+                error.FileNotFound, error.NotDir => return error.UnsupportedFetchSource,
+                else => |e| return e,
+            };
+            defer source_dir.close(io);
+
+            var destination_dir = try std.Io.Dir.cwd().openDir(io, destination, .{ .iterate = true });
+            defer destination_dir.close(io);
+
+            var walker = try source_dir.walk(allocator);
+            defer walker.deinit();
+            while (try walker.next(io)) |entry| {
+                switch (entry.kind) {
+                    .directory => try destination_dir.createDirPath(io, entry.path),
+                    .file => try entry.dir.copyFile(
+                        entry.basename,
+                        destination_dir,
+                        entry.path,
+                        io,
+                        .{
+                            .make_path = true,
+                            .replace = false,
+                        },
+                    ),
+                    .sym_link => {
+                        var target_buffer: [std.Io.Dir.max_path_bytes]u8 = undefined;
+                        const target_len = try entry.dir.readLink(io, entry.basename, &target_buffer);
+                        const target = target_buffer[0..target_len];
+                        const stat = entry.dir.statFile(io, entry.basename, .{}) catch null;
+
+                        try destination_dir.symLink(io, target, entry.path, .{
+                            .is_directory = if (stat) |s| s.kind == .directory else false,
+                        });
+                    },
+                    else => return error.UnsupportedDirectoryEntry,
+                }
+            }
+        }
+
+        const GitTag = struct {
+            tag: []const u8,
+            commit: []const u8,
+
+            pub fn deinit(self: *GitTag, allocator: std.mem.Allocator) void {
+                allocator.free(self.tag);
+                allocator.free(self.commit);
+            }
+        };
+
+        /// List tags of a git repo
+        fn fetchGitTags(io: std.Io, allocator: std.mem.Allocator, url: []const u8) ![]GitTag {
+            const git_url = if (std.ascii.startsWithIgnoreCase(url, "git+"))
+                url["git+".len..]
+            else
+                url;
+
+            const result = try std.process.run(
+                allocator,
+                io,
+                .{
+                    .argv = &.{ "git", "ls-remote", "--tags", "--refs", git_url },
+                    .stdout_limit = .limited(1024 * 1024),
+                    .stderr_limit = .limited(1024 * 1024),
+                },
+            );
+            defer allocator.free(result.stdout);
+            defer allocator.free(result.stderr);
+
+            switch (result.term) {
+                .exited => |code| if (code != 0) {
+                    return error.GitLsRemoteFailed;
+                },
+                else => return error.GitLsRemoteFailed,
+            }
+
+            var tags = std.ArrayList(GitTag).empty;
+            var lines = std.mem.tokenizeScalar(u8, result.stdout, '\n');
+            while (lines.next()) |line| {
+                if (line.len == 0) continue;
+
+                var columns = std.mem.splitAny(u8, line, "refs/tags/");
+
+                try tags.append(
+                    allocator,
+                    .{
+                        .commit = try allocator.dupe(
+                            u8,
+                            std.mem.trim(u8, columns.next().?, " \t"),
+                        ),
+                        .tag = try allocator.dupe(
+                            u8,
+                            std.mem.trim(u8, columns.next().?, " \t"),
+                        ),
+                    },
+                );
+            }
+
+            return try tags.toOwnedSlice(allocator);
+        }
 
         pub fn fromValue(value: v.Value) Source {
             const instance = value.obj().cast(o.ObjObjectInstance, .ObjectInstance).?;
@@ -127,7 +550,7 @@ pub const Manifest = struct {
 
             return .{
                 .url = instance.get([]const u8, "url"),
-                .tag = instance.get(?[]const u8, "tag"),
+                .ref = instance.get(?[]const u8, "ref"),
                 .hash = instance.get(?[]const u8, "hash"),
                 .version = if (version) |version_instance| .{
                     .major = @intCast(version_instance.get(v.Integer, comptime "1")),
@@ -236,11 +659,7 @@ pub fn wrapManifest(allocator: std.mem.Allocator, raw_source: []const u8) ![]con
     return try manifest_source.toOwnedSlice(allocator);
 }
 
-pub fn loadManifest(process: std.process.Init, gpa: std.mem.Allocator, manifest_path: []const u8) !Manifest {
-    var arena = std.heap.ArenaAllocator.init(gpa);
-    defer arena.deinit();
-    var allocator = arena.allocator();
-
+pub fn loadManifest(process: std.process.Init, allocator: std.mem.Allocator, manifest_path: []const u8) !Manifest {
     var file = try std.Io.Dir.cwd().openFile(
         process.io,
         manifest_path,
@@ -257,7 +676,7 @@ pub fn loadManifest(process: std.process.Init, gpa: std.mem.Allocator, manifest_
     var runner: Runner = undefined;
     try runner.init(
         process,
-        gpa, // We want the parsed value to outlive this function
+        allocator, // We want the parsed value to outlive this function
         .Repl,
         null,
         null,
@@ -282,12 +701,12 @@ pub fn ensureSelfVendorSymlink(
         try std.Io.Dir.cwd().openDir(process.io, package_root, .{});
     defer root_dir.close(process.io);
 
-    root_dir.createDir(process.io, "vendors", .default_dir) catch |err| switch (err) {
+    root_dir.createDir(process.io, VENDORS, .default_dir) catch |err| switch (err) {
         error.PathAlreadyExists => {},
         else => return err,
     };
 
-    var vendors_dir = try root_dir.openDir(process.io, "vendors", .{});
+    var vendors_dir = try root_dir.openDir(process.io, VENDORS, .{});
     defer vendors_dir.close(process.io);
 
     vendors_dir.symLink(
@@ -597,12 +1016,7 @@ fn writePackageFiles(
 
 /// Init a new buzz package: writes a `manifest.buzz` and a minimal set of example files
 pub fn init(process: std.process.Init) !void {
-    var already_there = true;
-    std.Io.Dir.cwd().access(process.io, "./" ++ MANIFEST, .{ .read = true }) catch {
-        already_there = false;
-    };
-
-    if (already_there) {
+    if (exists(process.io, "./" ++ MANIFEST)) {
         return error.ManifestAlreadyCreated;
     }
 
@@ -766,7 +1180,7 @@ pub fn init(process: std.process.Init) !void {
         .version = version_value,
         .source = .{
             .url = git_repo,
-            .tag = null,
+            .ref = null,
         },
         .description = if (description.len > 0) description else null,
         .authors = try authors.toOwnedSlice(allocator),
@@ -791,18 +1205,20 @@ pub fn init(process: std.process.Init) !void {
         \\🎉 Buzz package created. Run `buzz run` to try it.
         \\.
         \\├── build.zig
-        \\├── manifest.buzz
+        \\├── {s}
         \\├── src
         \\│   ├── main.buzz
         \\│   ├── {s}.buzz
         \\│   └── {s}.zig
-        \\└── vendors
+        \\└── {s}
         \\    └── {s} -> .
         \\
     ,
         .{
+            MANIFEST,
             package_name,
             package_name,
+            VENDORS,
             package_name,
         },
     );

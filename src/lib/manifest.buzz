@@ -20,7 +20,7 @@ export enum VersionConstraint {
 
 export object Source {
     url: str,
-    tag: str?,
+    ref: str?,
     hash: str?,
     version: obj{ :VersionConstraint, :int, :int, :int }?,
 }
