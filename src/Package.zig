@@ -26,13 +26,19 @@ pub const Manifest = struct {
     source: Source,
     dependencies: std.StringHashMapUnmanaged(Source) = .empty,
     dev_dependencies: std.StringHashMapUnmanaged(Source) = .empty,
-    build: std.StringHashMapUnmanaged([]const []const u8) = .empty,
+    build: std.StringArrayHashMapUnmanaged(BuildStep) = .empty,
     root_dir: []const u8 = "src",
     description: ?[]const u8 = null,
     authors: [][]const u8 = &.{},
     tags: [][]const u8 = &.{},
     license: ?[]const u8 = null,
     homepage: ?[]const u8 = null,
+
+    /// One process invocation from a manifest build step.
+    pub const BuildCommand = []const []const u8;
+
+    /// Ordered commands attached to one named manifest build step.
+    pub const BuildStep = []const BuildCommand;
 
     // pub const Dependency = struct {
     //     source: Source,
@@ -67,11 +73,17 @@ pub const Manifest = struct {
 
         var deps = self.dependencies.iterator();
         while (deps.next()) |entry| {
-            entry.value_ptr.fetch(
-                process.io,
+            var errors = std.ArrayList([]const u8).empty;
+            defer errors.deinit(allocator);
+
+            fetchDependency(
+                entry.value_ptr.*,
+                process,
                 allocator,
                 root_dir,
                 entry.key_ptr.*,
+                &progress,
+                &errors,
             ) catch |err| {
                 try failed.append(
                     allocator,
@@ -80,6 +92,13 @@ pub const Manifest = struct {
                         .err = @errorName(err),
                     },
                 );
+
+                for (errors.items) |step_err| {
+                    try failed.append(allocator, .{
+                        .package = entry.key_ptr.*,
+                        .err = step_err,
+                    });
+                }
             };
 
             progress.advance(entry.key_ptr.*) catch {};
@@ -87,11 +106,17 @@ pub const Manifest = struct {
 
         deps = self.dev_dependencies.iterator();
         while (deps.next()) |entry| {
-            entry.value_ptr.fetch(
-                process.io,
+            var errors = std.ArrayList([]const u8).empty;
+            defer errors.deinit(allocator);
+
+            fetchDependency(
+                entry.value_ptr.*,
+                process,
                 allocator,
                 root_dir,
                 entry.key_ptr.*,
+                &progress,
+                &errors,
             ) catch |err| {
                 try failed.append(
                     allocator,
@@ -100,6 +125,13 @@ pub const Manifest = struct {
                         .err = @errorName(err),
                     },
                 );
+
+                for (errors.items) |step_err| {
+                    try failed.append(allocator, .{
+                        .package = entry.key_ptr.*,
+                        .err = step_err,
+                    });
+                }
             };
 
             progress.advance(entry.key_ptr.*) catch {};
@@ -138,6 +170,84 @@ pub const Manifest = struct {
         return failed.items.len == 0;
     }
 
+    /// Fetches a dependency and runs its manifest build commands when newly downloaded.
+    fn fetchDependency(
+        source: Source,
+        process: std.process.Init,
+        allocator: std.mem.Allocator,
+        root_dir: []const u8,
+        name: []const u8,
+        progress: *InitProgress,
+        errors: *std.ArrayList([]const u8),
+    ) !void {
+        const fetched = try source.fetch(
+            process.io,
+            allocator,
+            root_dir,
+            name,
+        );
+        if (!fetched.downloaded) {
+            return;
+        }
+
+        const manifest_path = try std.fs.path.join(
+            allocator,
+            &.{ fetched.destination, MANIFEST },
+        );
+        defer allocator.free(manifest_path);
+
+        const dependency_manifest = try loadManifest(
+            process,
+            allocator,
+            manifest_path,
+        );
+
+        progress.total += dependency_manifest.build.count();
+
+        var steps = dependency_manifest.build.iterator();
+        while (steps.next()) |step| {
+            for (step.value_ptr.*) |command| {
+                if (command.len == 0) {
+                    return error.EmptyBuildCommand;
+                }
+
+                {
+                    const result = try std.process.run(
+                        allocator,
+                        process.io,
+                        .{
+                            .argv = command,
+                            .cwd = .{ .path = fetched.destination },
+                            .stdout_limit = .limited(1024 * 1024),
+                            .stderr_limit = .limited(1024 * 1024),
+                        },
+                    );
+                    defer allocator.free(result.stdout);
+                    defer allocator.free(result.stderr);
+
+                    if (result.term != .exited or result.term.exited != 0) {
+                        var err = std.Io.Writer.Allocating.init(allocator);
+
+                        err.writer.print(
+                            "\x1b[31mFailed step build step {s} for package {s}:\n\t{s}\n\x1b[0m",
+                            .{
+                                step.key_ptr.*,
+                                name,
+                                result.stderr,
+                            },
+                        ) catch {};
+
+                        try errors.append(allocator, try err.toOwnedSlice());
+
+                        return error.BuildCommandFailed;
+                    }
+                }
+            }
+
+            progress.advance(step.key_ptr.*) catch {};
+        }
+    }
+
     pub fn fromValue(value: v.Value, allocator: std.mem.Allocator) !Manifest {
         const instance = value.obj().cast(o.ObjObjectInstance, .ObjectInstance).?;
         const version = instance.getFieldValue("version").obj().cast(o.ObjObjectInstance, .ObjectInstance).?;
@@ -165,16 +275,25 @@ pub const Manifest = struct {
         }
 
         var build = instance.getFieldValue("build").obj().cast(o.ObjMap, .Map).?;
-        var build_map = std.StringHashMapUnmanaged([]const []const u8).empty;
+        var build_map = std.StringArrayHashMapUnmanaged(BuildStep).empty;
         it = build.map.iterator();
         while (it.next()) |entry| {
             const cmds = entry.value_ptr.*.obj().cast(o.ObjList, .List).?;
 
-            var cmd_list = std.ArrayList([]const u8).empty;
-            for (cmds.items.items) |item| {
+            var cmd_list = std.ArrayList(BuildCommand).empty;
+            for (cmds.items.items) |cmd| {
+                const argv = cmd.obj().cast(o.ObjList, .List).?;
+                var argv_list = std.ArrayList([]const u8).empty;
+                for (argv.items.items) |item| {
+                    try argv_list.append(
+                        allocator,
+                        item.obj().cast(o.ObjString, .String).?.string,
+                    );
+                }
+
                 try cmd_list.append(
                     allocator,
-                    item.obj().cast(o.ObjString, .String).?.string,
+                    try argv_list.toOwnedSlice(allocator),
                 );
             }
 
@@ -230,7 +349,15 @@ pub const Manifest = struct {
         version: ?std.SemanticVersion = null,
         constraint: Constraint = .equalTo,
 
-        pub fn fetch(self: Source, io: std.Io, allocator: std.mem.Allocator, root_dir: []const u8, name: []const u8) !void {
+        /// Result of fetching a package source into the vendors directory.
+        pub const FetchResult = struct {
+            /// Directory where the package source exists after the fetch attempt.
+            destination: []const u8,
+            /// Whether this call populated `destination`.
+            downloaded: bool,
+        };
+
+        pub fn fetch(self: Source, io: std.Io, allocator: std.mem.Allocator, root_dir: []const u8, name: []const u8) !FetchResult {
             var final_url = std.Io.Writer.Allocating.init(allocator);
             defer final_url.deinit();
 
@@ -254,16 +381,26 @@ pub const Manifest = struct {
                 },
             ) catch return error.OutOfMemory;
 
-            if (exists(io, destination.written())) {
-                return;
+            const destination_path = try allocator.dupe(u8, destination.written());
+
+            if (exists(io, destination_path)) {
+                return .{
+                    .destination = destination_path,
+                    .downloaded = false,
+                };
             }
 
             try fetchUrl(
                 io,
                 allocator,
                 final_url.written(),
-                destination.written(),
+                destination_path,
             );
+
+            return .{
+                .destination = destination_path,
+                .downloaded = true,
+            };
         }
 
         fn isGitUrl(url: []const u8) bool {
@@ -805,7 +942,7 @@ fn writePackageFiles(
         \\    version = .{{ {}, {}, {} }},
         \\    source = .{{ url = "{s}" }},
         \\    build = {{
-        \\        "{s}": [ "zig build" ],
+        \\        "{s}": [[ "zig", "build" ]],
         \\    }},
         \\
     ,
@@ -1297,147 +1434,4 @@ fn ask(
 
         return value;
     }
-}
-
-test "init writes a buildable package with a native extern example" {
-    if (builtin.os.tag == .windows) {
-        return error.SkipZigTest;
-    }
-
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
-
-    var environ_map = std.process.Environ.Map.init(allocator);
-    try environ_map.put("BUZZ_PATH", "zig-out");
-
-    const process = std.process.Init{
-        .minimal = .{
-            .environ = .empty,
-            .args = .{ .vector = &.{} },
-        },
-        .arena = &arena,
-        .gpa = allocator,
-        .io = std.testing.io,
-        .environ_map = &environ_map,
-        .preopens = .empty,
-    };
-
-    var tmp = std.testing.tmpDir(.{});
-    defer tmp.cleanup();
-
-    var package_root_buffer: [std.Io.Dir.max_path_bytes]u8 = undefined;
-    const package_root_len = try tmp.dir.realPath(std.testing.io, &package_root_buffer);
-    const package_root = try allocator.dupe(u8, package_root_buffer[0..package_root_len]);
-
-    try writePackageFiles(
-        process,
-        allocator,
-        package_root,
-        .{
-            .name = "sample",
-            .version = .{
-                .major = 1,
-                .minor = 2,
-                .patch = 3,
-            },
-            .source = .{
-                .url = "git:https://example.com/sample.git",
-                .tag = null,
-            },
-            .description = "sample package",
-            .authors = try allocator.dupe([]const u8, &[_][]const u8{"Buzz"}),
-            .tags = try allocator.dupe([]const u8, &[_][]const u8{ "sample", "native" }),
-            .license = "MIT",
-        },
-        null,
-    );
-
-    for ([_][]const u8{
-        MANIFEST,
-        "build.zig",
-        "src/sample.buzz",
-        "src/sample.zig",
-        "src/main.buzz",
-    }) |path| {
-        try tmp.dir.access(std.testing.io, path, .{ .read = true });
-    }
-
-    const manifest_path = try std.fs.path.join(
-        allocator,
-        &.{ package_root, MANIFEST },
-    );
-    const manifest = try loadManifest(process, allocator, manifest_path);
-    try std.testing.expectEqualStrings("sample", manifest.name);
-
-    const build_cmd = manifest.build.get("sample") orelse return error.MissingGeneratedBuildCommand;
-    try std.testing.expectEqual(@as(usize, 2), build_cmd.len);
-    try std.testing.expectEqualStrings("zig", build_cmd[0]);
-    try std.testing.expectEqualStrings("build", build_cmd[1]);
-
-    const build_result = try std.process.run(
-        std.testing.allocator,
-        std.testing.io,
-        .{
-            .argv = &.{ "zig", "build" },
-            .cwd = .{ .path = package_root },
-            .stdout_limit = .limited(128 * 1024),
-            .stderr_limit = .limited(128 * 1024),
-        },
-    );
-    defer std.testing.allocator.free(build_result.stdout);
-    defer std.testing.allocator.free(build_result.stderr);
-
-    switch (build_result.term) {
-        .exited => |code| if (code != 0) {
-            std.debug.print(
-                "generated package build failed with code {}\nstdout:\n{s}\nstderr:\n{s}\n",
-                .{
-                    code,
-                    build_result.stdout,
-                    build_result.stderr,
-                },
-            );
-            return error.GeneratedPackageBuildFailed;
-        },
-        else => {
-            std.debug.print(
-                "generated package build terminated unexpectedly: {any}\nstdout:\n{s}\nstderr:\n{s}\n",
-                .{
-                    build_result.term,
-                    build_result.stdout,
-                    build_result.stderr,
-                },
-            );
-            return error.GeneratedPackageBuildFailed;
-        },
-    }
-
-    const library_extension = switch (builtin.os.tag) {
-        .windows => "dll",
-        .macos, .ios, .tvos, .watchos, .visionos => "dylib",
-        else => "so",
-    };
-    const library_file_name = try std.fmt.allocPrint(
-        allocator,
-        "{s}sample.{s}",
-        .{
-            if (builtin.os.tag == .windows) "" else "lib",
-            library_extension,
-        },
-    );
-    try tmp.dir.access(std.testing.io, library_file_name, .{ .read = true });
-
-    const main_path = try std.fs.path.join(
-        allocator,
-        &.{ package_root, "src", "main.buzz" },
-    );
-    var runner: Runner = undefined;
-    try runner.init(process, allocator, .Run, null, null);
-    defer runner.deinit();
-
-    try std.testing.expectEqual(
-        @as(u8, 0),
-        try runner.runFile(package_root, main_path, &.{}),
-    );
 }

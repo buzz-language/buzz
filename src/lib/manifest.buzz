@@ -31,7 +31,7 @@ export object Manifest {
     source: Source,
     dependencies: {str: Source} = {},
     devDependencies: {str: Source} = {},
-    build: {str: [str]} = {},
+    build: {str: [[str]]} = {},
     rootDir: str = "src",
 
     description: str?,
