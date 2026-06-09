@@ -21,7 +21,6 @@ export enum VersionConstraint {
 export object Source {
     url: str,
     ref: str?,
-    hash: str?,
     version: obj{ :VersionConstraint, :int, :int, :int }?,
 }
 
@@ -39,4 +38,15 @@ export object Manifest {
     tags: [str] = [],
     license: str?,
     homepage: str?,
+}
+
+export object ResolvedSource {
+    url: str,
+    ref: str?,
+    hash: str,
+}
+
+export object ManifestLock{
+    dependencies: {str: ResolvedSource} = {},
+    devDependencies: {str: ResolvedSource} = {},
 }

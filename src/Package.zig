@@ -50,6 +50,7 @@ pub const Manifest = struct {
     // pub fn resolveDependencies(self: Manifest) error{OutOfMemory}![]const Dependency {}
 
     pub fn fetch(self: Manifest, process: std.process.Init, root_dir: []const u8) !bool {
+        const started_at = std.Io.Clock.Timestamp.now(process.io, .awake);
         var stdout = bzio.stdoutWriter(process.io);
 
         const count = self.dependencies.count() + self.dev_dependencies.count();
@@ -67,6 +68,7 @@ pub const Manifest = struct {
             .out = &stdout.interface,
             .total = count,
         };
+        progress.tick("fetching dependencies") catch {};
 
         var failed = std.ArrayList(struct { package: []const u8, err: []const u8 }).empty;
         defer failed.deinit(allocator);
@@ -139,11 +141,13 @@ pub const Manifest = struct {
 
         progress.finish() catch {};
 
+        const elapsed = started_at.untilNow(process.io).raw;
         if (failed.items.len > 0) {
             stdout.interface.print(
-                "\n⛔ {} packages could not be fetched.\n\n",
+                "\n⛔ {} packages could not be fetched in {f}.\n\n",
                 .{
                     failed.items.len,
+                    elapsed,
                 },
             ) catch {};
 
@@ -160,9 +164,10 @@ pub const Manifest = struct {
             stdout.interface.writeByte('\n') catch {};
         } else {
             stdout.interface.print(
-                "\n🎉 {} packages fetched.\n\n",
+                "\n🎉 {} packages fetched in {f}.\n\n",
                 .{
                     count,
+                    elapsed,
                 },
             ) catch {};
         }
@@ -202,9 +207,14 @@ pub const Manifest = struct {
             manifest_path,
         );
 
-        progress.total += dependency_manifest.build.count();
-
+        var build_command_count: usize = 0;
         var steps = dependency_manifest.build.iterator();
+        while (steps.next()) |step| {
+            build_command_count += step.value_ptr.*.len;
+        }
+        progress.total += build_command_count;
+
+        steps = dependency_manifest.build.iterator();
         while (steps.next()) |step| {
             for (step.value_ptr.*) |command| {
                 if (command.len == 0) {
@@ -212,24 +222,23 @@ pub const Manifest = struct {
                 }
 
                 {
-                    const result = try std.process.run(
+                    const result = try runCommand(
+                        process,
                         allocator,
-                        process.io,
-                        .{
-                            .argv = command,
-                            .cwd = .{ .path = fetched.destination },
-                            .stdout_limit = .limited(1024 * 1024),
-                            .stderr_limit = .limited(1024 * 1024),
-                        },
+                        command,
+                        fetched.destination,
+                        progress,
+                        step.key_ptr.*,
                     );
-                    defer allocator.free(result.stdout);
-                    defer allocator.free(result.stderr);
+                    defer result.deinit(allocator);
 
-                    if (result.term != .exited or result.term.exited != 0) {
+                    progress.advance(step.key_ptr.*) catch {};
+
+                    if (result.exit_code == null or result.exit_code.? != 0) {
                         var err = std.Io.Writer.Allocating.init(allocator);
 
                         err.writer.print(
-                            "\x1b[31mFailed step build step {s} for package {s}:\n\t{s}\n\x1b[0m",
+                            "\x1b[31mFailed build step {s} for package {s}:\n\t{s}\n\x1b[0m",
                             .{
                                 step.key_ptr.*,
                                 name,
@@ -243,9 +252,99 @@ pub const Manifest = struct {
                     }
                 }
             }
-
-            progress.advance(step.key_ptr.*) catch {};
         }
+    }
+
+    /// Captured result of a spawned external command.
+    const CommandResult = struct {
+        /// Captured standard output owned by the caller.
+        stdout: []u8,
+        /// Captured standard error owned by the caller.
+        stderr: []u8,
+        /// Exit code when the command terminated normally.
+        exit_code: ?u8,
+
+        /// Releases captured output buffers.
+        fn deinit(self: CommandResult, allocator: std.mem.Allocator) void {
+            allocator.free(self.stdout);
+            allocator.free(self.stderr);
+        }
+    };
+
+    /// Runs `argv` in `cwd`, captures output, and keeps `progress` animated while the command is alive.
+    fn runCommand(
+        process: std.process.Init,
+        allocator: std.mem.Allocator,
+        argv: []const []const u8,
+        cwd: []const u8,
+        progress: *InitProgress,
+        label: []const u8,
+    ) !CommandResult {
+        const output_limit = 1024 * 1024;
+        const tick_timeout: std.Io.Timeout = .{
+            .duration = .{
+                .clock = .awake,
+                .raw = .fromMilliseconds(80),
+            },
+        };
+
+        var child = try std.process.spawn(process.io, .{
+            .argv = argv,
+            .cwd = .{ .path = cwd },
+            .stdin = .ignore,
+            .stdout = .pipe,
+            .stderr = .pipe,
+        });
+        errdefer child.kill(process.io);
+
+        var multi_reader_buffer: std.Io.File.MultiReader.Buffer(2) = undefined;
+        var multi_reader: std.Io.File.MultiReader = undefined;
+        multi_reader.init(
+            allocator,
+            process.io,
+            multi_reader_buffer.toStreams(),
+            &.{ child.stdout.?, child.stderr.? },
+        );
+        defer multi_reader.deinit();
+
+        const stdout_reader = multi_reader.reader(0);
+        const stderr_reader = multi_reader.reader(1);
+        while (true) {
+            multi_reader.fill(64, tick_timeout) catch |err| switch (err) {
+                error.Timeout => {
+                    progress.tick(label) catch {};
+
+                    continue;
+                },
+                error.EndOfStream => break,
+                else => |e| return e,
+            };
+
+            if (stdout_reader.buffered().len > output_limit or
+                stderr_reader.buffered().len > output_limit)
+            {
+                return error.StreamTooLong;
+            }
+
+            progress.tick(label) catch {};
+        }
+
+        try multi_reader.checkAnyError();
+
+        const term = try child.wait(process.io);
+        const stdout = try multi_reader.toOwnedSlice(0);
+        errdefer allocator.free(stdout);
+        const stderr = try multi_reader.toOwnedSlice(1);
+        errdefer allocator.free(stderr);
+
+        return .{
+            .stdout = stdout,
+            .stderr = stderr,
+            .exit_code = switch (term) {
+                .exited => |code| code,
+                else => null,
+            },
+        };
     }
 
     pub fn fromValue(value: v.Value, allocator: std.mem.Allocator) !Manifest {
@@ -342,10 +441,15 @@ pub const Manifest = struct {
         };
     }
 
+    pub const ResolvedSource = struct {
+        url: []const u8,
+        ref: ?[]const u8,
+        hash: []const u8,
+    };
+
     pub const Source = struct {
         url: []const u8,
         ref: ?[]const u8,
-        hash: ?[]const u8 = null,
         version: ?std.SemanticVersion = null,
         constraint: Constraint = .equalTo,
 
@@ -721,22 +825,40 @@ pub const Manifest = struct {
     };
 };
 
-/// Number of scaffold files generated by `buzz init`.
-const init_progress_file_count = 5;
-
-/// Spinner frames used while rewriting the `buzz init` progress line.
-const init_progress_frames = [_][]const u8{ "⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏" };
-
 /// Tracks and prints `buzz init` file creation progress.
 const InitProgress = struct {
+    /// Spinner frames used while rewriting the `buzz init` progress line.
+    const init_progress_frames = [_][]const u8{ "⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏" };
+
     /// Terminal writer used for progress output.
     out: *std.Io.Writer,
     /// Number of scaffold files already written.
     completed: usize = 0,
     /// Number of scaffold files expected.
-    total: usize = init_progress_file_count,
+    total: usize,
     /// Spinner frame to show for the next progress update.
     frame: usize = 0,
+
+    /// Redraws the progress display without completing another unit of work.
+    fn tick(self: *InitProgress, path: []const u8) !void {
+        try self.out.writeAll("\r\x1b[2K");
+        try self.out.print("  {s} {d}/{d} ", .{
+            init_progress_frames[self.frame % init_progress_frames.len],
+            self.completed,
+            self.total,
+        });
+        self.frame += 1;
+
+        try bzio.printProgressBar(
+            self.out,
+            @intCast(self.completed),
+            @intCast(self.total),
+            24,
+            "\x1b[36m",
+        );
+        try self.out.print(" {s}", .{path});
+        try self.out.flush();
+    }
 
     /// Redraws the single-line progress display for a completed scaffold file.
     fn advance(self: *InitProgress, path: []const u8) !void {
@@ -1326,7 +1448,10 @@ pub fn init(process: std.process.Init) !void {
     };
 
     try stdout.interface.writeAll("\n📥 Preparing package files\n");
-    var progress = InitProgress{ .out = &stdout.interface };
+    var progress = InitProgress{
+        .out = &stdout.interface,
+        .total = 5,
+    };
 
     try writePackageFiles(
         process,
