@@ -54,6 +54,12 @@ const MemberDocblockKey = struct {
     }
 };
 
+/// Package document kind that needs an LSP-only parser wrapper.
+const PackageDocumentKind = enum {
+    manifest,
+    manifest_lock,
+};
+
 const Document = struct {
     pub const Definition = struct {
         location: lsp.types.Location,
@@ -133,9 +139,12 @@ const Document = struct {
         const allocator = arena.allocator();
         const owned_src = try allocator.dupeZ(u8, src);
         const owned_uri = try allocator.dupe(u8, uri);
-        const wrap_manifest = try shouldWrapPackageManifest(allocator, owned_uri, owned_src);
-        const parse_src = if (wrap_manifest)
-            try allocator.dupeZ(u8, try Package.wrapManifest(allocator, owned_src))
+        const package_document_kind = try packageDocumentKind(allocator, owned_uri, owned_src);
+        const parse_src = if (package_document_kind) |kind|
+            switch (kind) {
+                .manifest => try allocator.dupeZ(u8, try Package.wrapManifest(allocator, owned_src)),
+                .manifest_lock => try allocator.dupeZ(u8, try Package.wrapManifestLock(allocator, owned_src)),
+            }
         else
             owned_src;
 
@@ -210,7 +219,7 @@ const Document = struct {
             .process = process,
             .src = owned_src,
             .parse_src = parse_src,
-            .is_wrapped_manifest = wrap_manifest,
+            .is_wrapped_manifest = package_document_kind != null,
             .uri = owned_uri,
             .ast = ast,
             .errors = errors.items,
@@ -1705,6 +1714,39 @@ test "document wraps only shallow package manifests" {
         try std.testing.expect(!std.mem.eql(u8, symbol.name, "manifest"));
     }
 
+    const manifest_lock_source =
+        \\.{
+        \\    dependencies = {
+        \\        "dep": .{
+        \\            url = "somewhere",
+        \\            ref = "v1.0.0",
+        \\            hash = "abc",
+        \\        },
+        \\    },
+        \\}
+    ;
+
+    var manifest_lock_doc = try Document.init(
+        process,
+        allocator,
+        manifest_lock_source,
+        "file:///tmp/manifest.lock.buzz",
+    );
+    defer manifest_lock_doc.deinit();
+
+    try std.testing.expectEqualStrings(manifest_lock_source, manifest_lock_doc.src);
+    try std.testing.expect(manifest_lock_doc.parse_src.ptr != manifest_lock_doc.src.ptr);
+    try std.testing.expect(std.mem.startsWith(
+        u8,
+        manifest_lock_doc.parse_src,
+        "import \"buzz:manifest\" as _;final manifestLock: ManifestLock = .{",
+    ));
+    try std.testing.expectEqual(@as(usize, 0), manifest_lock_doc.errors.len);
+    try std.testing.expect(manifest_lock_doc.completion_labels.get("manifestLock") == null);
+    for (manifest_lock_doc.symbols.items) |symbol| {
+        try std.testing.expect(!std.mem.eql(u8, symbol.name, "manifestLock"));
+    }
+
     var non_manifest_doc = try Document.init(
         process,
         allocator,
@@ -2691,18 +2733,26 @@ fn tokenToRange(ast: Ast.Slice, location: Ast.TokenIndex, end_location: Ast.Toke
     };
 }
 
-/// Returns true when an opened document should be parsed through the package manifest wrapper.
-fn shouldWrapPackageManifest(allocator: std.mem.Allocator, uri: []const u8, source: []const u8) !bool {
+/// Returns the package wrapper kind for shallow bare manifest objects.
+fn packageDocumentKind(allocator: std.mem.Allocator, uri: []const u8, source: []const u8) !?PackageDocumentKind {
     const file_name = if (try localPathFromFileUri(allocator, uri)) |path|
         std.fs.path.basename(path)
     else
         std.fs.path.basename(uri);
 
-    if (!std.mem.eql(u8, file_name, Package.MANIFEST)) {
-        return false;
+    if (!std.mem.startsWith(u8, std.mem.trim(u8, source, " \n\r\t"), ".{")) {
+        return null;
     }
 
-    return std.mem.startsWith(u8, std.mem.trim(u8, source, " \n\r\t"), ".{");
+    if (std.mem.eql(u8, file_name, Package.MANIFEST)) {
+        return .manifest;
+    }
+
+    if (std.mem.eql(u8, file_name, Package.MANIFEST_LOCK)) {
+        return .manifest_lock;
+    }
+
+    return null;
 }
 
 /// Converts a local `file://` document URI into the script path used by parser semantics.

@@ -7,8 +7,11 @@ const v = @import("value.zig");
 
 /// Standard package manifest filename.
 pub const MANIFEST = "manifest.buzz";
+/// Standard package manifest lock filename.
+pub const MANIFEST_LOCK = "manifest.lock.buzz";
 pub const VENDORS = "vendors";
 const manifest_wrapper_prefix = "import \"buzz:manifest\" as _;final manifest: Manifest = ";
+const manifest_lock_wrapper_prefix = "import \"buzz:manifest\" as _;final manifestLock: ManifestLock = ";
 const input_whitespace = " \n\r\t";
 
 fn exists(io: std.Io, path: []const u8) bool {
@@ -18,6 +21,154 @@ fn exists(io: std.Io, path: []const u8) bool {
 
     return true;
 }
+
+/// Fully resolved package source recorded in `manifest.lock.buzz`.
+pub const ResolvedSource = struct {
+    /// Original source URL or local path.
+    url: []const u8,
+    /// Git ref, tag, or commit used to fetch the source.
+    ref: ?[]const u8,
+    /// SHA-256 content hash of the fetched package tree.
+    hash: []const u8,
+
+    /// Parses a `ResolvedSource` buzz object value.
+    pub fn fromValue(value: v.Value) ResolvedSource {
+        const instance = value.obj().cast(o.ObjObjectInstance, .ObjectInstance).?;
+
+        return .{
+            .url = instance.get([]const u8, "url"),
+            .ref = instance.get(?[]const u8, "ref"),
+            .hash = instance.get([]const u8, "hash"),
+        };
+    }
+
+    /// Fetches this locked source and verifies its content hash.
+    pub fn fetch(
+        self: ResolvedSource,
+        process: std.process.Init,
+        allocator: std.mem.Allocator,
+        root_dir: []const u8,
+        name: []const u8,
+        progress: *InitProgress,
+    ) !FetchResult {
+        const result = try Manifest.Source.fetchResolved(
+            process,
+            allocator,
+            root_dir,
+            name,
+            self.url,
+            self.ref,
+            progress,
+        );
+        errdefer allocator.free(result.destination);
+        defer allocator.free(result.resolved_source.hash);
+
+        if (!std.mem.eql(u8, result.resolved_source.hash, self.hash)) {
+            return error.ManifestLockHashMismatch;
+        }
+
+        return .{
+            .destination = result.destination,
+            .downloaded = result.downloaded,
+            .resolved_source = self,
+        };
+    }
+};
+
+/// Parsed `manifest.lock.buzz` content.
+pub const ManifestLock = struct {
+    /// Locked regular dependencies by package name.
+    dependencies: std.StringHashMapUnmanaged(ResolvedSource) = .empty,
+    /// Locked development dependencies by package name.
+    dev_dependencies: std.StringHashMapUnmanaged(ResolvedSource) = .empty,
+
+    /// Parses a `ManifestLock` buzz object value.
+    pub fn fromValue(value: v.Value, allocator: std.mem.Allocator) !ManifestLock {
+        const instance = value.obj().cast(o.ObjObjectInstance, .ObjectInstance).?;
+
+        const dependencies = instance.getFieldValue("dependencies").obj().cast(o.ObjMap, .Map).?;
+        var dep_list = std.StringHashMapUnmanaged(ResolvedSource).empty;
+        var it = dependencies.map.iterator();
+        while (it.next()) |entry| {
+            try dep_list.put(
+                allocator,
+                entry.key_ptr.*.obj().cast(o.ObjString, .String).?.string,
+                .fromValue(entry.value_ptr.*),
+            );
+        }
+
+        const dev_dependencies = instance.getFieldValue("devDependencies").obj().cast(o.ObjMap, .Map).?;
+        var dev_dep_list = std.StringHashMapUnmanaged(ResolvedSource).empty;
+        it = dev_dependencies.map.iterator();
+        while (it.next()) |entry| {
+            try dev_dep_list.put(
+                allocator,
+                entry.key_ptr.*.obj().cast(o.ObjString, .String).?.string,
+                .fromValue(entry.value_ptr.*),
+            );
+        }
+
+        return .{
+            .dependencies = dep_list,
+            .dev_dependencies = dev_dep_list,
+        };
+    }
+
+    /// Serializes the lock file as deterministic bare buzz object source.
+    pub fn toSource(self: ManifestLock, allocator: std.mem.Allocator) ![]const u8 {
+        var source = std.ArrayList(u8).empty;
+        errdefer source.deinit(allocator);
+
+        try source.appendSlice(allocator, ".{\n");
+        try appendLockMap(allocator, &source, "dependencies", self.dependencies);
+        try appendLockMap(allocator, &source, "devDependencies", self.dev_dependencies);
+        try source.appendSlice(allocator, "}\n");
+
+        return try source.toOwnedSlice(allocator);
+    }
+
+    /// Writes the lock file at `path`.
+    pub fn write(self: ManifestLock, io: std.Io, allocator: std.mem.Allocator, path: []const u8) !void {
+        const source = try self.toSource(allocator);
+        defer allocator.free(source);
+
+        const parent = std.fs.path.dirname(path) orelse ".";
+        const basename = std.fs.path.basename(path);
+        var dir = if (std.fs.path.isAbsolute(parent))
+            try std.Io.Dir.openDirAbsolute(io, parent, .{})
+        else
+            try std.Io.Dir.cwd().openDir(io, parent, .{});
+        defer dir.close(io);
+
+        try dir.writeFile(io, .{
+            .sub_path = basename,
+            .data = source,
+        });
+    }
+};
+
+/// Result of fetching a dependency source into the vendors directory.
+const FetchResult = struct {
+    /// Directory where the package source exists after the fetch attempt.
+    destination: []const u8,
+    /// Whether this call populated `destination`.
+    downloaded: bool,
+    /// Source data to persist in the lock file.
+    resolved_source: ResolvedSource,
+};
+
+/// Path and kind for one deterministic package hash input.
+const HashEntry = struct {
+    /// Path relative to the hashed package directory.
+    path: []const u8,
+    /// Filesystem kind to distinguish files from symlinks.
+    kind: std.Io.File.Kind,
+
+    /// Sorts hash entries by path for stable hashing.
+    fn lessThan(_: void, lhs: HashEntry, rhs: HashEntry) bool {
+        return std.mem.lessThan(u8, lhs.path, rhs.path);
+    }
+};
 
 /// Must match src/lib/manifest.buzz
 pub const Manifest = struct {
@@ -40,15 +191,6 @@ pub const Manifest = struct {
     /// Ordered commands attached to one named manifest build step.
     pub const BuildStep = []const BuildCommand;
 
-    // pub const Dependency = struct {
-    //     source: Source,
-    //     name: []const u8,
-    // };
-
-    // FIXME: we will actually fill this function result to `fetch`
-    // Flatten out the dependency graph and errors out if multiple reference to the same dependency are not compatible
-    // pub fn resolveDependencies(self: Manifest) error{OutOfMemory}![]const Dependency {}
-
     pub fn fetch(self: Manifest, process: std.process.Init, root_dir: []const u8) !bool {
         const started_at = std.Io.Clock.Timestamp.now(process.io, .awake);
         var stdout = bzio.stdoutWriter(process.io);
@@ -63,6 +205,16 @@ pub const Manifest = struct {
         var arena = std.heap.ArenaAllocator.init(process.gpa);
         defer arena.deinit();
         const allocator = arena.allocator();
+
+        const lock_path = try std.fs.path.join(
+            allocator,
+            &.{ root_dir, MANIFEST_LOCK },
+        );
+        var manifest_lock = if (exists(process.io, lock_path))
+            try loadManifestLock(process, allocator, lock_path)
+        else
+            ManifestLock{};
+        var lock_dirty = false;
 
         var progress = InitProgress{
             .out = &stdout.interface,
@@ -84,6 +236,8 @@ pub const Manifest = struct {
                 allocator,
                 root_dir,
                 entry.key_ptr.*,
+                &manifest_lock.dependencies,
+                &lock_dirty,
                 &progress,
                 &errors,
             ) catch |err| {
@@ -117,6 +271,8 @@ pub const Manifest = struct {
                 allocator,
                 root_dir,
                 entry.key_ptr.*,
+                &manifest_lock.dev_dependencies,
+                &lock_dirty,
                 &progress,
                 &errors,
             ) catch |err| {
@@ -137,6 +293,10 @@ pub const Manifest = struct {
             };
 
             progress.advance(entry.key_ptr.*) catch {};
+        }
+
+        if (failed.items.len == 0 and lock_dirty) {
+            try manifest_lock.write(process.io, allocator, lock_path);
         }
 
         progress.finish() catch {};
@@ -182,15 +342,34 @@ pub const Manifest = struct {
         allocator: std.mem.Allocator,
         root_dir: []const u8,
         name: []const u8,
+        lock_entries: *std.StringHashMapUnmanaged(ResolvedSource),
+        lock_dirty: *bool,
         progress: *InitProgress,
         errors: *std.ArrayList([]const u8),
     ) !void {
-        const fetched = try source.fetch(
-            process.io,
-            allocator,
-            root_dir,
-            name,
-        );
+        const fetched = if (lock_entries.get(name)) |locked| fetched: {
+            try source.validateLock(locked);
+            break :fetched try locked.fetch(
+                process,
+                allocator,
+                root_dir,
+                name,
+                progress,
+            );
+        } else fetched: {
+            const result = try source.fetch(
+                process,
+                allocator,
+                root_dir,
+                name,
+                progress,
+            );
+            try lock_entries.put(allocator, name, result.resolved_source);
+            lock_dirty.* = true;
+
+            break :fetched result;
+        };
+
         if (!fetched.downloaded) {
             return;
         }
@@ -441,39 +620,80 @@ pub const Manifest = struct {
         };
     }
 
-    pub const ResolvedSource = struct {
-        url: []const u8,
-        ref: ?[]const u8,
-        hash: []const u8,
-    };
-
     pub const Source = struct {
         url: []const u8,
         ref: ?[]const u8,
         version: ?std.SemanticVersion = null,
         constraint: Constraint = .equalTo,
 
-        /// Result of fetching a package source into the vendors directory.
-        pub const FetchResult = struct {
-            /// Directory where the package source exists after the fetch attempt.
-            destination: []const u8,
-            /// Whether this call populated `destination`.
-            downloaded: bool,
-        };
-
-        pub fn fetch(self: Source, io: std.Io, allocator: std.mem.Allocator, root_dir: []const u8, name: []const u8) !FetchResult {
-            var final_url = std.Io.Writer.Allocating.init(allocator);
-            defer final_url.deinit();
-
-            if (self.ref) |ref|
-                final_url.writer.print("{s}#{s}", .{ self.url, ref }) catch return error.OutOfMemory
+        /// Fetches this source, resolving version constraints when needed.
+        pub fn fetch(
+            self: Source,
+            process: std.process.Init,
+            allocator: std.mem.Allocator,
+            root_dir: []const u8,
+            name: []const u8,
+            progress: *InitProgress,
+        ) !FetchResult {
+            const resolved_ref = if (self.version != null)
+                try self.resolveVersionRef(process.io, allocator)
             else
-                final_url.writer.print("{s}", .{self.url}) catch return error.OutOfMemory;
+                self.ref;
 
+            return try fetchResolved(
+                process,
+                allocator,
+                root_dir,
+                name,
+                self.url,
+                resolved_ref,
+                progress,
+            );
+        }
+
+        /// Fetches a URL/ref pair into the package vendors directory.
+        fn fetchResolved(
+            process: std.process.Init,
+            allocator: std.mem.Allocator,
+            root_dir: []const u8,
+            name: []const u8,
+            url: []const u8,
+            ref: ?[]const u8,
+            progress: *InitProgress,
+        ) !FetchResult {
+            const io = process.io;
+            const destination_path = try destinationPath(allocator, root_dir, name);
+            const downloaded = !exists(io, destination_path);
+
+            if (downloaded) {
+                try fetchUrl(
+                    process,
+                    allocator,
+                    url,
+                    ref,
+                    destination_path,
+                    progress,
+                );
+            }
+
+            const hash = try hashPackageTree(io, allocator, destination_path);
+
+            return .{
+                .destination = destination_path,
+                .downloaded = downloaded,
+                .resolved_source = .{
+                    .url = url,
+                    .ref = ref,
+                    .hash = hash,
+                },
+            };
+        }
+
+        /// Returns `<root_dir>/vendors/<package name>`.
+        fn destinationPath(allocator: std.mem.Allocator, root_dir: []const u8, name: []const u8) ![]const u8 {
             var destination = std.Io.Writer.Allocating.init(allocator);
             defer destination.deinit();
 
-            // <root_dir>/vendors/<package name>
             destination.writer.print(
                 "{s}{c}{s}{c}{s}",
                 .{
@@ -485,26 +705,7 @@ pub const Manifest = struct {
                 },
             ) catch return error.OutOfMemory;
 
-            const destination_path = try allocator.dupe(u8, destination.written());
-
-            if (exists(io, destination_path)) {
-                return .{
-                    .destination = destination_path,
-                    .downloaded = false,
-                };
-            }
-
-            try fetchUrl(
-                io,
-                allocator,
-                final_url.written(),
-                destination_path,
-            );
-
-            return .{
-                .destination = destination_path,
-                .downloaded = true,
-            };
+            return try allocator.dupe(u8, destination.written());
         }
 
         fn isGitUrl(url: []const u8) bool {
@@ -514,9 +715,8 @@ pub const Manifest = struct {
 
             return std.ascii.startsWithIgnoreCase(url, "git:") or
                 std.ascii.startsWithIgnoreCase(url, "git@") or
+                std.ascii.startsWithIgnoreCase(url, "git+") or
                 std.ascii.startsWithIgnoreCase(url, "ssh://") or
-                std.ascii.startsWithIgnoreCase(url, "git+http://") or
-                std.ascii.startsWithIgnoreCase(url, "git+https://") or
                 std.ascii.endsWithIgnoreCase(source_path, ".git");
         }
 
@@ -535,10 +735,22 @@ pub const Manifest = struct {
         }
 
         /// Fetches `url_or_path` into `destination`.
-        fn fetchUrl(io: std.Io, allocator: std.mem.Allocator, url_or_path: []const u8, destination: []const u8) !void {
+        fn fetchUrl(
+            process: std.process.Init,
+            allocator: std.mem.Allocator,
+            url_or_path: []const u8,
+            ref: ?[]const u8,
+            destination: []const u8,
+            progress: *InitProgress,
+        ) !void {
+            const io = process.io;
             const is_http = isHttp(url_or_path);
 
             if (isArchive(url_or_path)) {
+                if (ref != null) {
+                    return error.UnsupportedFetchSource;
+                }
+
                 return try fetchArchive(
                     io,
                     allocator,
@@ -550,14 +762,20 @@ pub const Manifest = struct {
 
             if (isGitUrl(url_or_path)) {
                 return try fetchGit(
-                    io,
+                    process,
                     allocator,
                     url_or_path,
+                    ref,
                     destination,
+                    progress,
                 );
             }
 
             if (is_http) {
+                return error.UnsupportedFetchSource;
+            }
+
+            if (ref != null) {
                 return error.UnsupportedFetchSource;
             }
 
@@ -569,8 +787,17 @@ pub const Manifest = struct {
             );
         }
 
-        /// Clones a Git source into `destination` as a bare repository.
-        fn fetchGit(io: std.Io, allocator: std.mem.Allocator, url_or_path: []const u8, destination: []const u8) !void {
+        /// Clones a Git source into `destination` and checks out `ref` when provided.
+        fn fetchGit(
+            process: std.process.Init,
+            allocator: std.mem.Allocator,
+            url_or_path: []const u8,
+            ref: ?[]const u8,
+            destination: []const u8,
+            progress: *InitProgress,
+        ) !void {
+            const io = process.io;
+
             if (std.fs.path.dirname(destination)) |parent| {
                 if (parent.len > 0) {
                     try std.Io.Dir.cwd().createDirPath(io, parent);
@@ -582,23 +809,114 @@ pub const Manifest = struct {
             else
                 url_or_path;
 
-            const result = try std.process.run(
-                allocator,
-                io,
-                .{
-                    .argv = &.{ "git", "clone", "--depth", "1", "--single-branch", git_url, destination },
-                    .stdout_limit = .limited(1024 * 1024),
-                    .stderr_limit = .limited(1024 * 1024),
-                },
-            );
-            defer allocator.free(result.stdout);
-            defer allocator.free(result.stderr);
+            if (ref) |git_ref| {
+                // Branches and tags can usually be cloned directly at depth 1.
+                // This is the fastest path and keeps history out of vendors.
+                const clone_result = try Manifest.runCommand(
+                    process,
+                    allocator,
+                    &.{ "git", "clone", "--depth", "1", "--single-branch", "--branch", git_ref, git_url, destination },
+                    ".",
+                    progress,
+                    destination,
+                );
+                defer clone_result.deinit(allocator);
+                const clone_succeeded = clone_result.exit_code != null and clone_result.exit_code.? == 0;
 
-            switch (result.term) {
-                .exited => |code| if (code != 0) {
+                if (!clone_succeeded) {
+                    // `git clone --branch` refuses some valid lock refs, especially raw
+                    // commits. Remove any partial clone, then fetch that exact ref into
+                    // an empty repository at depth 1 instead of doing a full clone.
+                    std.Io.Dir.cwd().deleteTree(io, destination) catch {};
+                    try std.Io.Dir.cwd().createDirPath(io, destination);
+
+                    const init_result = try Manifest.runCommand(
+                        process,
+                        allocator,
+                        &.{ "git", "init", destination },
+                        ".",
+                        progress,
+                        destination,
+                    );
+                    defer init_result.deinit(allocator);
+
+                    if (init_result.exit_code == null or init_result.exit_code.? != 0) {
+                        return error.GitCloneFailed;
+                    }
+
+                    const remote_result = try Manifest.runCommand(
+                        process,
+                        allocator,
+                        &.{ "git", "-C", destination, "remote", "add", "origin", git_url },
+                        ".",
+                        progress,
+                        destination,
+                    );
+                    defer remote_result.deinit(allocator);
+
+                    if (remote_result.exit_code == null or remote_result.exit_code.? != 0) {
+                        return error.GitFetchFailed;
+                    }
+
+                    const fetch_result = try Manifest.runCommand(
+                        process,
+                        allocator,
+                        &.{ "git", "-C", destination, "fetch", "--depth", "1", "origin", git_ref },
+                        ".",
+                        progress,
+                        destination,
+                    );
+                    defer fetch_result.deinit(allocator);
+
+                    if (fetch_result.exit_code == null or fetch_result.exit_code.? != 0) {
+                        return error.GitFetchFailed;
+                    }
+
+                    const checkout_result = try Manifest.runCommand(
+                        process,
+                        allocator,
+                        &.{ "git", "-C", destination, "checkout", "--detach", "FETCH_HEAD" },
+                        ".",
+                        progress,
+                        destination,
+                    );
+                    defer checkout_result.deinit(allocator);
+
+                    if (checkout_result.exit_code == null or checkout_result.exit_code.? != 0) {
+                        return error.GitCheckoutFailed;
+                    }
+                }
+            } else {
+                // Without an explicit ref, clone the remote HEAD at depth 1
+                const result = try Manifest.runCommand(
+                    process,
+                    allocator,
+                    &.{ "git", "clone", "--depth", "1", "--single-branch", git_url, destination },
+                    ".",
+                    progress,
+                    destination,
+                );
+                defer result.deinit(allocator);
+
+                if (result.exit_code == null or result.exit_code.? != 0) {
                     return error.GitCloneFailed;
-                },
-                else => return error.GitCloneFailed,
+                }
+            }
+
+            // This is a no-op for repos without submodules, so avoid a separate
+            // `.gitmodules` probe and let git populate nested dependencies.
+            const submodule_result = try Manifest.runCommand(
+                process,
+                allocator,
+                &.{ "git", "-C", destination, "submodule", "update", "--init", "--recursive", "--depth", "1" },
+                ".",
+                progress,
+                destination,
+            );
+            defer submodule_result.deinit(allocator);
+
+            if (submodule_result.exit_code == null or submodule_result.exit_code.? != 0) {
+                return error.GitSubmoduleUpdateFailed;
             }
         }
 
@@ -730,7 +1048,7 @@ pub const Manifest = struct {
             }
         };
 
-        /// List tags of a git repo
+        /// Lists tags of a git repo, preferring peeled commits for annotated tags.
         fn fetchGitTags(io: std.Io, allocator: std.mem.Allocator, url: []const u8) ![]GitTag {
             const git_url = if (std.ascii.startsWithIgnoreCase(url, "git+"))
                 url["git+".len..]
@@ -741,7 +1059,7 @@ pub const Manifest = struct {
                 allocator,
                 io,
                 .{
-                    .argv = &.{ "git", "ls-remote", "--tags", "--refs", git_url },
+                    .argv = &.{ "git", "ls-remote", "--tags", git_url },
                     .stdout_limit = .limited(1024 * 1024),
                     .stderr_limit = .limited(1024 * 1024),
                 },
@@ -761,24 +1079,97 @@ pub const Manifest = struct {
             while (lines.next()) |line| {
                 if (line.len == 0) continue;
 
-                var columns = std.mem.splitAny(u8, line, "refs/tags/");
+                var columns = std.mem.tokenizeAny(u8, line, " \t");
+                const commit = columns.next() orelse continue;
+                const ref_name = columns.next() orelse continue;
+                if (!std.mem.startsWith(u8, ref_name, "refs/tags/")) {
+                    continue;
+                }
 
-                try tags.append(
-                    allocator,
-                    .{
-                        .commit = try allocator.dupe(
-                            u8,
-                            std.mem.trim(u8, columns.next().?, " \t"),
-                        ),
-                        .tag = try allocator.dupe(
-                            u8,
-                            std.mem.trim(u8, columns.next().?, " \t"),
-                        ),
-                    },
-                );
+                const raw_tag = ref_name["refs/tags/".len..];
+                const peeled = std.mem.endsWith(u8, raw_tag, "^{}");
+                const tag = if (peeled) raw_tag[0 .. raw_tag.len - 3] else raw_tag;
+
+                for (tags.items) |*existing| {
+                    if (std.mem.eql(u8, existing.tag, tag)) {
+                        if (peeled) {
+                            allocator.free(existing.commit);
+                            existing.commit = try allocator.dupe(u8, commit);
+                        }
+
+                        break;
+                    }
+                } else {
+                    try tags.append(
+                        allocator,
+                        .{
+                            .commit = try allocator.dupe(u8, commit),
+                            .tag = try allocator.dupe(u8, tag),
+                        },
+                    );
+                }
             }
 
             return try tags.toOwnedSlice(allocator);
+        }
+
+        /// Resolves this source version constraint to the highest matching semver tag.
+        fn resolveVersionRef(self: Source, io: std.Io, allocator: std.mem.Allocator) ![]const u8 {
+            const requested_version = self.version orelse return error.MissingVersionConstraint;
+            if (!isGitUrl(self.url)) {
+                return error.UnsupportedVersionConstraint;
+            }
+
+            const tags = try fetchGitTags(io, allocator, self.url);
+            defer {
+                for (tags) |*tag| {
+                    tag.deinit(allocator);
+                }
+                allocator.free(tags);
+            }
+
+            var best_index: ?usize = null;
+            var best_version: ?std.SemanticVersion = null;
+            for (tags, 0..) |tag, index| {
+                const tag_version = parseSemverTag(tag.tag) orelse continue;
+                if (!self.constraint.matches(requested_version, tag_version)) {
+                    continue;
+                }
+
+                if (best_version == null or best_version.?.order(tag_version) == .lt) {
+                    best_version = tag_version;
+                    best_index = index;
+                }
+            }
+
+            const index = best_index orelse return error.NoMatchingGitTag;
+
+            return try allocator.dupe(u8, tags[index].tag);
+        }
+
+        /// Validates that a lock entry still matches this manifest source.
+        fn validateLock(self: Source, locked: ResolvedSource) !void {
+            if (!std.mem.eql(u8, self.url, locked.url)) {
+                return error.ManifestLockDrift;
+            }
+
+            if (self.version) |requested_version| {
+                const locked_ref = locked.ref orelse return error.ManifestLockDrift;
+                const locked_version = parseSemverTag(locked_ref) orelse return error.ManifestLockDrift;
+                if (!self.constraint.matches(requested_version, locked_version)) {
+                    return error.ManifestLockDrift;
+                }
+
+                return;
+            }
+
+            if ((self.ref == null and locked.ref != null) or
+                (self.ref != null and locked.ref == null) or
+                (self.ref != null and locked.ref != null and
+                    !std.mem.eql(u8, self.ref.?, locked.ref.?)))
+            {
+                return error.ManifestLockDrift;
+            }
         }
 
         pub fn fromValue(value: v.Value) Source {
@@ -792,7 +1183,6 @@ pub const Manifest = struct {
             return .{
                 .url = instance.get([]const u8, "url"),
                 .ref = instance.get(?[]const u8, "ref"),
-                .hash = instance.get(?[]const u8, "hash"),
                 .version = if (version) |version_instance| .{
                     .major = @intCast(version_instance.get(v.Integer, comptime "1")),
                     .minor = @intCast(version_instance.get(v.Integer, comptime "2")),
@@ -821,20 +1211,54 @@ pub const Manifest = struct {
             minorEqualTo,
             minorGreaterThan,
             minorEqualOrGreater,
+
+            /// Checks whether `candidate` satisfies this constraint against `requested`.
+            fn matches(self: Constraint, requested: std.SemanticVersion, candidate: std.SemanticVersion) bool {
+                const order = switch (self) {
+                    .lessThan,
+                    .equalOrLessThan,
+                    .equalTo,
+                    .greaterThan,
+                    .equalOrGreater,
+                    => candidate.order(requested),
+
+                    .majorLessThan,
+                    .majorEqualOrLessThan,
+                    .majorEqualTo,
+                    .majorGreaterThan,
+                    .majorEqualOrGreater,
+                    => std.math.order(candidate.major, requested.major),
+
+                    .minorLessThan,
+                    .minorEqualOrLessThan,
+                    .minorEqualTo,
+                    .minorGreaterThan,
+                    .minorEqualOrGreater,
+                    => minorVersionOrder(candidate, requested),
+                };
+
+                return switch (self) {
+                    .lessThan, .majorLessThan, .minorLessThan => order == .lt,
+                    .equalOrLessThan, .majorEqualOrLessThan, .minorEqualOrLessThan => order != .gt,
+                    .equalTo, .majorEqualTo, .minorEqualTo => order == .eq,
+                    .greaterThan, .majorGreaterThan, .minorGreaterThan => order == .gt,
+                    .equalOrGreater, .majorEqualOrGreater, .minorEqualOrGreater => order != .lt,
+                };
+            }
         };
     };
 };
 
-/// Tracks and prints `buzz init` file creation progress.
+/// Tracks and prints single-line package operation progress.
 const InitProgress = struct {
-    /// Spinner frames used while rewriting the `buzz init` progress line.
+    /// Spinner frames used while rewriting the progress line.
     const init_progress_frames = [_][]const u8{ "⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏" };
 
     /// Terminal writer used for progress output.
     out: *std.Io.Writer,
-    /// Number of scaffold files already written.
+    /// Number of completed work units.
     completed: usize = 0,
-    /// Number of scaffold files expected.
+    /// Number of expected work units.
     total: usize,
     /// Spinner frame to show for the next progress update.
     frame: usize = 0,
@@ -860,7 +1284,7 @@ const InitProgress = struct {
         try self.out.flush();
     }
 
-    /// Redraws the single-line progress display for a completed scaffold file.
+    /// Redraws the single-line progress display for a completed work unit.
     fn advance(self: *InitProgress, path: []const u8) !void {
         self.completed += 1;
 
@@ -902,13 +1326,18 @@ const InitProgress = struct {
     }
 };
 
-pub fn wrapManifest(allocator: std.mem.Allocator, raw_source: []const u8) ![]const u8 {
+/// Wraps a bare package object into typed buzz source.
+fn wrapManifestObject(
+    allocator: std.mem.Allocator,
+    raw_source: []const u8,
+    wrapper_prefix: []const u8,
+) ![]const u8 {
     const source = std.mem.trim(u8, raw_source, " \n\r\t");
 
     var manifest_source = std.ArrayList(u8).empty;
     // Wrap into a script that will leave the manifest as the last global of the VM
     // We type the variable so that if user gives anything else, we get an error
-    try manifest_source.appendSlice(allocator, manifest_wrapper_prefix);
+    try manifest_source.appendSlice(allocator, wrapper_prefix);
     try manifest_source.appendSlice(allocator, source);
 
     if (!std.mem.endsWith(u8, source, ";")) {
@@ -916,6 +1345,15 @@ pub fn wrapManifest(allocator: std.mem.Allocator, raw_source: []const u8) ![]con
     }
 
     return try manifest_source.toOwnedSlice(allocator);
+}
+
+pub fn wrapManifest(allocator: std.mem.Allocator, raw_source: []const u8) ![]const u8 {
+    return try wrapManifestObject(allocator, raw_source, manifest_wrapper_prefix);
+}
+
+/// Wraps a bare manifest lock object into valid buzz code.
+pub fn wrapManifestLock(allocator: std.mem.Allocator, raw_source: []const u8) ![]const u8 {
+    return try wrapManifestObject(allocator, raw_source, manifest_lock_wrapper_prefix);
 }
 
 pub fn loadManifest(process: std.process.Init, allocator: std.mem.Allocator, manifest_path: []const u8) !Manifest {
@@ -946,6 +1384,37 @@ pub fn loadManifest(process: std.process.Init, allocator: std.mem.Allocator, man
     }
 
     return error.ManifestNotProduced;
+}
+
+/// Loads and parses a package lock manifest from disk.
+pub fn loadManifestLock(process: std.process.Init, allocator: std.mem.Allocator, manifest_lock_path: []const u8) !ManifestLock {
+    var file = try std.Io.Dir.cwd().openFile(
+        process.io,
+        manifest_lock_path,
+        .{
+            .mode = .read_only,
+        },
+    );
+    defer file.close(process.io);
+
+    const raw_source = try allocator.alloc(u8, (try file.stat(process.io)).size);
+    _ = try file.readPositionalAll(process.io, raw_source, 0);
+    const manifest_source = try wrapManifestLock(allocator, raw_source);
+
+    var runner: Runner = undefined;
+    try runner.init(
+        process,
+        allocator, // We want the parsed value to outlive this function
+        .Repl,
+        null,
+        null,
+    );
+
+    if (try runner.runManifest(manifest_source, "manifestLock")) |manifest_lock| {
+        return try .fromValue(manifest_lock, allocator);
+    }
+
+    return error.ManifestLockNotProduced;
 }
 
 /// Ensures `vendors/<package_name>` points back to the package root.
@@ -1511,6 +1980,205 @@ fn appendOptionalStringField(
     try buffer.appendSlice(allocator, ",\n");
 }
 
+/// Appends one lock map with stable package-name ordering.
+fn appendLockMap(
+    allocator: std.mem.Allocator,
+    buffer: *std.ArrayList(u8),
+    comptime name: []const u8,
+    map: std.StringHashMapUnmanaged(ResolvedSource),
+) !void {
+    try buffer.print(allocator, "    {s} = ", .{name});
+
+    if (map.count() == 0) {
+        try buffer.appendSlice(allocator, "{},\n");
+
+        return;
+    }
+
+    try buffer.appendSlice(allocator, "{\n");
+
+    var keys = std.ArrayList([]const u8).empty;
+    defer keys.deinit(allocator);
+
+    var it = map.iterator();
+    while (it.next()) |entry| {
+        try keys.append(allocator, entry.key_ptr.*);
+    }
+    std.mem.sort([]const u8, keys.items, {}, stringLessThan);
+
+    for (keys.items) |key| {
+        const source = map.get(key).?;
+
+        try buffer.appendSlice(allocator, "        ");
+        try appendEscapedBuzzStringLiteral(allocator, buffer, key);
+        try buffer.appendSlice(allocator, ": .{\n            url = ");
+        try appendEscapedBuzzStringLiteral(allocator, buffer, source.url);
+        try buffer.appendSlice(allocator, ",\n");
+
+        if (source.ref) |ref| {
+            try buffer.appendSlice(allocator, "            ref = ");
+            try appendEscapedBuzzStringLiteral(allocator, buffer, ref);
+            try buffer.appendSlice(allocator, ",\n");
+        }
+
+        try buffer.appendSlice(allocator, "            hash = ");
+        try appendEscapedBuzzStringLiteral(allocator, buffer, source.hash);
+        try buffer.appendSlice(allocator, ",\n        },\n");
+    }
+
+    try buffer.appendSlice(allocator, "    },\n");
+}
+
+/// Appends a buzz string literal, escaping generated values as needed.
+fn appendEscapedBuzzStringLiteral(
+    allocator: std.mem.Allocator,
+    buffer: *std.ArrayList(u8),
+    value: []const u8,
+) !void {
+    try buffer.append(allocator, '"');
+    for (value) |byte| {
+        switch (byte) {
+            '\\' => try buffer.appendSlice(allocator, "\\\\"),
+            '"' => try buffer.appendSlice(allocator, "\\\""),
+            '{' => try buffer.appendSlice(allocator, "\\{"),
+            '\n' => try buffer.appendSlice(allocator, "\\n"),
+            '\r' => try buffer.appendSlice(allocator, "\\r"),
+            '\t' => try buffer.appendSlice(allocator, "\\t"),
+            else => if (byte < 0x20 or byte == 0x7f) {
+                try buffer.print(allocator, "\\{d}", .{byte});
+            } else {
+                try buffer.append(allocator, byte);
+            },
+        }
+    }
+    try buffer.append(allocator, '"');
+}
+
+/// Sorts byte strings lexicographically.
+fn stringLessThan(_: void, lhs: []const u8, rhs: []const u8) bool {
+    return std.mem.lessThan(u8, lhs, rhs);
+}
+
+/// Parses semver tags with an optional leading `v`.
+fn parseSemverTag(tag: []const u8) ?std.SemanticVersion {
+    const version_text = if (tag.len > 0 and tag[0] == 'v')
+        tag[1..]
+    else
+        tag;
+    const version = std.SemanticVersion.parse(version_text) catch return null;
+    if (version.pre != null or version.build != null) {
+        return null;
+    }
+
+    return version;
+}
+
+/// Compares the major/minor prefix of two semantic versions.
+fn minorVersionOrder(candidate: std.SemanticVersion, requested: std.SemanticVersion) std.math.Order {
+    if (candidate.major < requested.major) return .lt;
+    if (candidate.major > requested.major) return .gt;
+    if (candidate.minor < requested.minor) return .lt;
+    if (candidate.minor > requested.minor) return .gt;
+
+    return .eq;
+}
+
+/// Updates a SHA-256 tree hash with a little-endian integer.
+fn updatePackageHashInt(hasher: *std.crypto.hash.sha2.Sha256, value: u64) void {
+    var buffer: [8]u8 = undefined;
+    std.mem.writeInt(u64, &buffer, value, .little);
+    hasher.update(&buffer);
+}
+
+/// Computes a deterministic SHA-256 hash of package content, excluding `.git`.
+fn hashPackageTree(io: std.Io, allocator: std.mem.Allocator, path: []const u8) ![]const u8 {
+    var dir = try std.Io.Dir.cwd().openDir(io, path, .{ .iterate = true });
+    defer dir.close(io);
+
+    var entries = std.ArrayList(HashEntry).empty;
+    defer {
+        for (entries.items) |entry| {
+            allocator.free(entry.path);
+        }
+        entries.deinit(allocator);
+    }
+
+    var walker = try dir.walk(allocator);
+    defer walker.deinit();
+    while (try walker.next(io)) |entry| {
+        var components = std.fs.path.componentIterator(entry.path);
+        var contains_git_dir = false;
+        while (components.next()) |component| {
+            if (std.mem.eql(u8, component.name, ".git")) {
+                contains_git_dir = true;
+
+                break;
+            }
+        }
+        if (contains_git_dir) {
+            continue;
+        }
+
+        switch (entry.kind) {
+            .directory => {},
+            .file, .sym_link => try entries.append(allocator, .{
+                .path = try allocator.dupe(u8, entry.path),
+                .kind = entry.kind,
+            }),
+            else => return error.UnsupportedDirectoryEntry,
+        }
+    }
+    std.mem.sort(HashEntry, entries.items, {}, HashEntry.lessThan);
+
+    var hasher = std.crypto.hash.sha2.Sha256.init(.{});
+    for (entries.items) |entry| {
+        const kind_marker: [1]u8 = .{switch (entry.kind) {
+            .file => 'F',
+            .sym_link => 'L',
+            else => unreachable,
+        }};
+        hasher.update(&kind_marker);
+        updatePackageHashInt(&hasher, @intCast(entry.path.len));
+        hasher.update(entry.path);
+
+        switch (entry.kind) {
+            .file => {
+                var file = try dir.openFile(io, entry.path, .{ .mode = .read_only });
+                defer file.close(io);
+
+                const stat = try file.stat(io);
+                updatePackageHashInt(&hasher, stat.size);
+
+                var file_reader_buffer: [16 * 1024]u8 = undefined;
+                var file_reader = file.reader(io, &file_reader_buffer);
+                var read_buffer: [16 * 1024]u8 = undefined;
+                while (true) {
+                    const bytes_read = try file_reader.interface.readSliceShort(&read_buffer);
+                    if (bytes_read == 0) {
+                        break;
+                    }
+
+                    hasher.update(read_buffer[0..bytes_read]);
+                }
+            },
+            .sym_link => {
+                var target_buffer: [std.Io.Dir.max_path_bytes]u8 = undefined;
+                const target_len = try dir.readLink(io, entry.path, &target_buffer);
+                const target = target_buffer[0..target_len];
+                updatePackageHashInt(&hasher, @intCast(target.len));
+                hasher.update(target);
+            },
+            else => unreachable,
+        }
+    }
+
+    var digest: [std.crypto.hash.sha2.Sha256.digest_length]u8 = undefined;
+    hasher.final(&digest);
+    const hex = std.fmt.bytesToHex(digest, .lower);
+
+    return try allocator.dupe(u8, hex[0..]);
+}
+
 /// Prompts until the response is valid, and until a value is present for required prompts.
 fn ask(
     process: std.process.Init,
@@ -1559,4 +2227,310 @@ fn ask(
 
         return value;
     }
+}
+
+/// Builds a minimal process init for package tests.
+fn testingProcess(
+    allocator: std.mem.Allocator,
+    process_arena: *std.heap.ArenaAllocator,
+    environ_map: *std.process.Environ.Map,
+    argv: []const [*:0]const u8,
+) !std.process.Init {
+    return .{
+        .minimal = .{
+            .args = .{ .vector = argv },
+            .environ = std.testing.environ,
+        },
+        .arena = process_arena,
+        .gpa = allocator,
+        .io = std.testing.io,
+        .environ_map = environ_map,
+        .preopens = try std.process.Preopens.init(process_arena.allocator()),
+    };
+}
+
+/// Returns the absolute path of a temporary test directory.
+fn testingTmpPath(allocator: std.mem.Allocator, dir: std.Io.Dir) ![]const u8 {
+    var buffer: [std.Io.Dir.max_path_bytes]u8 = undefined;
+    const len = try dir.realPath(std.testing.io, &buffer);
+
+    return try allocator.dupe(u8, buffer[0..len]);
+}
+
+/// Runs a test command and fails when it exits unsuccessfully.
+fn expectCommandOk(allocator: std.mem.Allocator, argv: []const []const u8, cwd: []const u8) !void {
+    const result = try std.process.run(
+        allocator,
+        std.testing.io,
+        .{
+            .argv = argv,
+            .cwd = .{ .path = cwd },
+            .stdout_limit = .limited(1024 * 1024),
+            .stderr_limit = .limited(1024 * 1024),
+        },
+    );
+    defer allocator.free(result.stdout);
+    defer allocator.free(result.stderr);
+
+    switch (result.term) {
+        .exited => |code| if (code != 0) {
+            std.debug.print(
+                "command failed: {s}\nstdout:\n{s}\nstderr:\n{s}\n",
+                .{
+                    argv[0],
+                    result.stdout,
+                    result.stderr,
+                },
+            );
+
+            return error.TestCommandFailed;
+        },
+        else => return error.TestCommandFailed,
+    }
+}
+
+test "manifest lock wraps and parses bare object" {
+    const allocator = std.testing.allocator;
+
+    var process_arena = std.heap.ArenaAllocator.init(allocator);
+    defer process_arena.deinit();
+
+    var environ_map = try std.process.Environ.createMap(std.testing.environ, allocator);
+    defer environ_map.deinit();
+
+    const argv = [_][*:0]const u8{"package_test"};
+    const process = try testingProcess(allocator, &process_arena, &environ_map, &argv);
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    const source =
+        \\.{
+        \\    dependencies = {
+        \\        "dep": .{
+        \\            url = "somewhere",
+        \\            ref = "v1.0.0",
+        \\            hash = "abc",
+        \\        },
+        \\    },
+        \\}
+    ;
+
+    const wrapped = try wrapManifestLock(allocator, source);
+    defer allocator.free(wrapped);
+    try std.testing.expect(std.mem.startsWith(
+        u8,
+        wrapped,
+        "import \"buzz:manifest\" as _;final manifestLock: ManifestLock = .{",
+    ));
+
+    try tmp.dir.writeFile(std.testing.io, .{
+        .sub_path = MANIFEST_LOCK,
+        .data = source,
+    });
+
+    const tmp_path = try testingTmpPath(allocator, tmp.dir);
+    defer allocator.free(tmp_path);
+    const lock_path = try std.fs.path.join(allocator, &.{ tmp_path, MANIFEST_LOCK });
+    defer allocator.free(lock_path);
+
+    const lock = try loadManifestLock(process, process_arena.allocator(), lock_path);
+    const dep = lock.dependencies.get("dep").?;
+    try std.testing.expectEqualStrings("somewhere", dep.url);
+    try std.testing.expectEqualStrings("v1.0.0", dep.ref.?);
+    try std.testing.expectEqualStrings("abc", dep.hash);
+}
+
+test "manifest lock serialization is deterministic" {
+    const allocator = std.testing.allocator;
+
+    var lock = ManifestLock{};
+    defer lock.dependencies.deinit(allocator);
+    defer lock.dev_dependencies.deinit(allocator);
+
+    try lock.dependencies.put(allocator, "z", .{
+        .url = "last",
+        .ref = null,
+        .hash = "hash-z",
+    });
+    try lock.dependencies.put(allocator, "a", .{
+        .url = "first",
+        .ref = "v1.0.0",
+        .hash = "hash-a",
+    });
+
+    const source = try lock.toSource(allocator);
+    defer allocator.free(source);
+
+    try std.testing.expectEqualStrings(
+        \\.{
+        \\    dependencies = {
+        \\        "a": .{
+        \\            url = "first",
+        \\            ref = "v1.0.0",
+        \\            hash = "hash-a",
+        \\        },
+        \\        "z": .{
+        \\            url = "last",
+        \\            hash = "hash-z",
+        \\        },
+        \\    },
+        \\    devDependencies = {},
+        \\}
+        \\
+    ,
+        source,
+    );
+}
+
+test "version constraints use full major and minor comparisons" {
+    const requested: std.SemanticVersion = .{ .major = 1, .minor = 2, .patch = 3 };
+
+    try std.testing.expect(Manifest.Source.Constraint.equalTo.matches(
+        requested,
+        .{ .major = 1, .minor = 2, .patch = 3 },
+    ));
+    try std.testing.expect(!Manifest.Source.Constraint.equalTo.matches(
+        requested,
+        .{ .major = 1, .minor = 2, .patch = 4 },
+    ));
+    try std.testing.expect(Manifest.Source.Constraint.majorEqualTo.matches(
+        requested,
+        .{ .major = 1, .minor = 9, .patch = 0 },
+    ));
+    try std.testing.expect(!Manifest.Source.Constraint.majorEqualTo.matches(
+        requested,
+        .{ .major = 2, .minor = 0, .patch = 0 },
+    ));
+    try std.testing.expect(Manifest.Source.Constraint.minorEqualTo.matches(
+        requested,
+        .{ .major = 1, .minor = 2, .patch = 99 },
+    ));
+    try std.testing.expect(!Manifest.Source.Constraint.minorEqualTo.matches(
+        requested,
+        .{ .major = 1, .minor = 3, .patch = 0 },
+    ));
+}
+
+test "git version constraint selects highest matching semver tag" {
+    const allocator = std.testing.allocator;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    const repo_path = try testingTmpPath(allocator, tmp.dir);
+    defer allocator.free(repo_path);
+
+    try expectCommandOk(allocator, &.{ "git", "init" }, repo_path);
+    try expectCommandOk(allocator, &.{ "git", "config", "user.email", "test@example.com" }, repo_path);
+    try expectCommandOk(allocator, &.{ "git", "config", "user.name", "Test User" }, repo_path);
+
+    try tmp.dir.writeFile(std.testing.io, .{ .sub_path = "value.txt", .data = "one" });
+    try expectCommandOk(allocator, &.{ "git", "add", "value.txt" }, repo_path);
+    try expectCommandOk(allocator, &.{ "git", "commit", "-m", "one" }, repo_path);
+    try expectCommandOk(allocator, &.{ "git", "tag", "v1.0.0" }, repo_path);
+
+    try tmp.dir.writeFile(std.testing.io, .{ .sub_path = "value.txt", .data = "two" });
+    try expectCommandOk(allocator, &.{ "git", "add", "value.txt" }, repo_path);
+    try expectCommandOk(allocator, &.{ "git", "commit", "-m", "two" }, repo_path);
+    try expectCommandOk(allocator, &.{ "git", "tag", "1.2.0" }, repo_path);
+
+    try tmp.dir.writeFile(std.testing.io, .{ .sub_path = "value.txt", .data = "three" });
+    try expectCommandOk(allocator, &.{ "git", "add", "value.txt" }, repo_path);
+    try expectCommandOk(allocator, &.{ "git", "commit", "-m", "three" }, repo_path);
+    try expectCommandOk(allocator, &.{ "git", "tag", "v1.3.0" }, repo_path);
+
+    try tmp.dir.writeFile(std.testing.io, .{ .sub_path = "value.txt", .data = "four" });
+    try expectCommandOk(allocator, &.{ "git", "add", "value.txt" }, repo_path);
+    try expectCommandOk(allocator, &.{ "git", "commit", "-m", "four" }, repo_path);
+    try expectCommandOk(allocator, &.{ "git", "tag", "2.0.0" }, repo_path);
+
+    const source: Manifest.Source = .{
+        .url = try std.fmt.allocPrint(allocator, "git+{s}", .{repo_path}),
+        .ref = null,
+        .version = .{ .major = 1, .minor = 0, .patch = 0 },
+        .constraint = .majorEqualTo,
+    };
+    defer allocator.free(source.url);
+    const resolved_ref = try source.resolveVersionRef(std.testing.io, allocator);
+    defer allocator.free(resolved_ref);
+
+    try std.testing.expectEqualStrings("v1.3.0", resolved_ref);
+}
+
+test "source fetch writes and validates lock file" {
+    const allocator = std.testing.allocator;
+
+    var process_arena = std.heap.ArenaAllocator.init(allocator);
+    defer process_arena.deinit();
+
+    var environ_map = try std.process.Environ.createMap(std.testing.environ, allocator);
+    defer environ_map.deinit();
+
+    const argv = [_][*:0]const u8{"package_test"};
+    const process = try testingProcess(allocator, &process_arena, &environ_map, &argv);
+
+    var progress_output = std.Io.Writer.Allocating.init(allocator);
+    defer progress_output.deinit();
+    var progress = InitProgress{
+        .out = &progress_output.writer,
+        .total = 1,
+    };
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    try tmp.dir.createDir(std.testing.io, "dep", .default_dir);
+    var dep_dir = try tmp.dir.openDir(std.testing.io, "dep", .{});
+    defer dep_dir.close(std.testing.io);
+
+    try dep_dir.writeFile(std.testing.io, .{
+        .sub_path = "data.txt",
+        .data = "hello",
+    });
+
+    const root_path = try testingTmpPath(allocator, tmp.dir);
+    defer allocator.free(root_path);
+    const dep_path = try std.fs.path.join(allocator, &.{ root_path, "dep" });
+    defer allocator.free(dep_path);
+
+    const source: Manifest.Source = .{
+        .url = dep_path,
+        .ref = null,
+    };
+
+    const fetched = try source.fetch(process, allocator, root_path, "dep", &progress);
+    defer allocator.free(fetched.destination);
+    defer allocator.free(fetched.resolved_source.hash);
+
+    var lock = ManifestLock{};
+    defer lock.dependencies.deinit(allocator);
+    defer lock.dev_dependencies.deinit(allocator);
+    try lock.dependencies.put(allocator, "dep", fetched.resolved_source);
+
+    const lock_path = try std.fs.path.join(allocator, &.{ root_path, MANIFEST_LOCK });
+    defer allocator.free(lock_path);
+    try lock.write(std.testing.io, allocator, lock_path);
+
+    const loaded_lock = try loadManifestLock(process, process_arena.allocator(), lock_path);
+    const locked_dep = loaded_lock.dependencies.get("dep").?;
+    try std.testing.expectEqualStrings(dep_path, locked_dep.url);
+    try std.testing.expect(locked_dep.ref == null);
+    try std.testing.expectEqual(@as(usize, 64), locked_dep.hash.len);
+
+    const vendor_dep_path = try std.fs.path.join(allocator, &.{ root_path, VENDORS, "dep" });
+    defer allocator.free(vendor_dep_path);
+    const vendor_hash = try hashPackageTree(std.testing.io, allocator, vendor_dep_path);
+    defer allocator.free(vendor_hash);
+    try std.testing.expectEqualStrings(vendor_hash, locked_dep.hash);
+
+    const locked_fetch = try locked_dep.fetch(process, allocator, root_path, "dep", &progress);
+    defer allocator.free(locked_fetch.destination);
+    try std.testing.expect(!locked_fetch.downloaded);
+
+    try source.validateLock(locked_dep);
+    try std.testing.expectError(error.ManifestLockDrift, (Manifest.Source{
+        .url = "/somewhere/else",
+        .ref = null,
+    }).validateLock(locked_dep));
 }
