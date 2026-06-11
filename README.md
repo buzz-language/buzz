@@ -29,7 +29,9 @@ A small/lightweight statically typed scripting language written in Zig
     - [VS Code extension](https://marketplace.visualstudio.com/items?itemName=giann.buzz)
     - Helix support thanks to [tree-sitter grammar](https://github.com/buzz-language/tree-sitter-buzz)
     - LSP
+    - DAP
     - Formatter
+    - Package manager
 
 ## How to build and install
 
@@ -38,13 +40,16 @@ A small/lightweight statically typed scripting language written in Zig
 - Since this is built with Zig, you should be able to build buzz on a wide variety of architectures even though this has only been tested on x86/M1.
 - Linux or macOS (Windows support [is coming](https://github.com/buzz-language/buzz/issues/74))
 - libc
-- zig master
 
 ### Build
 1. Clone the project: `git clone https://github.com/buzz-language/buzz <buzz_dir>`
 2. Checkout submodules: `git submodule update --init`
-3. Have fun: `zig build run -- <myscript.buzz>` to run a script  or `zig build run` to start the REPL
-
+3. Build it `zig build -Doptimize=ReleaseSafe`
+4. Have fun (with `BUZZ_PATH=./zig-out`)
+    - `buzz` launches the REPL
+    - `buzz run-script` to run a lone script
+    - `buzz init` to start a buzz package
+ 
 ### Install
 
 ```bash

@@ -47,6 +47,29 @@ fun count(n: int) > str *> int? {
     return "Counting is done!";
 }
 
+/// Task used to verify that yield operands include member calls.
+object FiberTask {
+    /// Score yielded by the fiber.
+    points: int,
+
+    /// Returns the task score.
+    fun score() > int => this.points;
+}
+
+/// Yields a method call result without requiring parentheses around the call.
+fun yieldTaskScore(task: FiberTask) > str *> int? {
+    _ = yield task.score();
+
+    return "Scored task";
+}
+
+test "yield operand includes method calls" {
+    final fiber = &yieldTaskScore(.{ points = 8 });
+
+    std\assert(resume fiber == 8, message: "Yielded method call result");
+    std\assert(resolve fiber == "Scored task", message: "Resolved yielding fiber");
+}
+
 fun fail() > bool !> str {
     throw "This fiber failed";
 

@@ -49,7 +49,7 @@ This release brings a lot of useful tools to write buzz code: LSP, formatter and
     - `buzz:<name>` will look for a buzz's standard library `<name>`
     - `pkg:<name>/path/to/<script.buzz>` will look for the script under `vendors/<name>/src/path/to/<script.buzz>`
 - Selective import erases the imported namespace: `import print from "buzz:std"; ... print("hello world");`
-- Common part of imported namespace gets erased: il imported file as namesapce `a\b\c` and importing script has namespace `a\b`, only `c\` remains
+- Common part of imported namespace gets erased: il imported file as namespace `a\b\c` and importing script has namespace `a\b`, only `c\` remains
 
 ## Internal
 
