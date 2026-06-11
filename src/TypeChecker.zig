@@ -1561,6 +1561,68 @@ fn checkForEach(ast: Ast.Slice, reporter: *Reporter, gc: *GC, _: ?Ast.Node.Index
     return had_error;
 }
 
+/// Checks a return value expression against the declared return type of its function.
+fn checkReturnValue(
+    ast: Ast.Slice,
+    reporter: *Reporter,
+    gc: *GC,
+    function_node: Ast.Node.Index,
+    value: ?Ast.Node.Index,
+    fallback_location: Ast.Node.Index,
+) error{OutOfMemory}!bool {
+    const type_defs = ast.nodes.items(.type_def);
+    const locations = ast.nodes.items(.location);
+    const end_locations = ast.nodes.items(.end_location);
+    const current_function_type_def = type_defs[function_node].?.resolved_type.?.Function;
+
+    if (value) |value_node| {
+        // Function return types provide context for inferred return values.
+        _ = try inferType(ast, reporter, gc, value_node, current_function_type_def.return_type);
+        const value_type_def = type_defs[value_node];
+
+        if (value_type_def == null) {
+            reporter.reportErrorAt(
+                .undefined,
+                ast.tokens.get(locations[value_node]),
+                ast.tokens.get(end_locations[value_node]),
+                "Unknown type.",
+            );
+
+            return true;
+        }
+
+        if (!current_function_type_def.return_type.eql(value_type_def.?)) {
+            reporter.reportTypeCheck(
+                .return_type,
+                ast.tokens.get(locations[function_node]),
+                ast.tokens.get(end_locations[function_node]),
+                current_function_type_def.return_type,
+                ast.tokens.get(locations[value_node]),
+                ast.tokens.get(end_locations[value_node]),
+                value_type_def.?,
+                "Return value",
+            );
+
+            return true;
+        }
+    } else if (current_function_type_def.return_type.def_type != .Void) {
+        reporter.reportTypeCheck(
+            .return_type,
+            ast.tokens.get(locations[function_node]),
+            ast.tokens.get(end_locations[function_node]),
+            current_function_type_def.return_type,
+            ast.tokens.get(locations[fallback_location]),
+            ast.tokens.get(end_locations[fallback_location]),
+            gc.type_registry.void_type,
+            "Return value",
+        );
+
+        return true;
+    }
+
+    return false;
+}
+
 fn checkFunction(ast: Ast.Slice, reporter: *Reporter, gc: *GC, _: ?Ast.Node.Index, node: Ast.Node.Index) error{OutOfMemory}!bool {
     const node_components = ast.nodes.items(.components);
     const type_defs = ast.nodes.items(.type_def);
@@ -1628,6 +1690,17 @@ fn checkFunction(ast: Ast.Slice, reporter: *Reporter, gc: *GC, _: ?Ast.Node.Inde
                 had_error = true;
             }
         }
+    }
+
+    if (function_def.lambda and function_def.return_type.def_type != .Void) {
+        had_error = (try checkReturnValue(
+            ast,
+            reporter,
+            gc,
+            node,
+            components.body,
+            node,
+        )) or had_error;
     }
 
     return had_error;
@@ -2601,53 +2674,15 @@ fn checkResume(ast: Ast.Slice, reporter: *Reporter, gc: *GC, _: ?Ast.Node.Index,
 
 fn checkReturn(ast: Ast.Slice, reporter: *Reporter, gc: *GC, current_function_node: ?Ast.Node.Index, node: Ast.Node.Index) error{OutOfMemory}!bool {
     const components = ast.nodes.items(.components)[node].Return;
-    const type_defs = ast.nodes.items(.type_def);
-    const locations = ast.nodes.items(.location);
-    const end_locations = ast.nodes.items(.end_location);
-    const current_function_type_def = type_defs[current_function_node.?].?.resolved_type.?.Function;
 
-    var had_error = false;
-
-    if (components.value) |value| {
-        // Function return types provide context for inferred return values.
-        _ = try inferType(ast, reporter, gc, value, current_function_type_def.return_type);
-        const value_type_def = type_defs[value];
-        if (value_type_def == null) {
-            reporter.reportErrorAt(
-                .undefined,
-                ast.tokens.get(locations[value]),
-                ast.tokens.get(end_locations[value]),
-                "Unknown type.",
-            );
-            had_error = true;
-        } else if (current_function_node != null and !current_function_type_def.return_type.eql(value_type_def.?)) {
-            reporter.reportTypeCheck(
-                .return_type,
-                ast.tokens.get(locations[current_function_node.?]),
-                ast.tokens.get(end_locations[current_function_node.?]),
-                current_function_type_def.return_type,
-                ast.tokens.get(locations[value]),
-                ast.tokens.get(end_locations[value]),
-                value_type_def.?,
-                "Return value",
-            );
-            had_error = true;
-        }
-    } else if (current_function_node != null and current_function_type_def.return_type.def_type != .Void) {
-        reporter.reportTypeCheck(
-            .return_type,
-            ast.tokens.get(locations[current_function_node.?]),
-            ast.tokens.get(end_locations[current_function_node.?]),
-            current_function_type_def.return_type,
-            ast.tokens.get(locations[node]),
-            ast.tokens.get(end_locations[node]),
-            gc.type_registry.void_type,
-            "Return value",
-        );
-        had_error = true;
-    }
-
-    return had_error;
+    return try checkReturnValue(
+        ast,
+        reporter,
+        gc,
+        current_function_node.?,
+        components.value,
+        node,
+    );
 }
 
 fn checkSubscript(ast: Ast.Slice, reporter: *Reporter, gc: *GC, _: ?Ast.Node.Index, node: Ast.Node.Index) error{OutOfMemory}!bool {

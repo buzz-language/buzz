@@ -1,0 +1,12 @@
+// Return value: got type `int?`, expected `int`
+namespace return_type;
+
+/// Returns an optional branch through a declared non-optional function.
+fun score(points: int?) > int => match (true) {
+    true -> points,
+    false -> 0,
+};
+
+test "arrow return match optional" {
+    _ = score(1);
+}
