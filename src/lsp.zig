@@ -80,8 +80,8 @@ const Document = struct {
     /// Cache for node under position
     node_under_position: std.AutoHashMapUnmanaged(lsp.types.Position, ?Ast.Node.Index) = .empty,
 
-    /// Cache for hover
-    node_hover: std.AutoHashMapUnmanaged(Ast.Node.Index, []const u8) = .empty,
+    /// Cache for hover markup keyed by the hovered source token.
+    token_hover: std.AutoHashMapUnmanaged(Ast.TokenIndex, []const u8) = .empty,
 
     /// Object member docblocks indexed by object and member token lexemes.
     object_member_docblocks: MemberDocblockKey.HashMap(Ast.TokenIndex) = .empty,
@@ -98,6 +98,26 @@ const Document = struct {
         type_def: ?*o.ObjTypeDef,
         /// Docblock token rendered before the type, when available.
         docblock: ?Ast.TokenIndex,
+    };
+
+    /// Kind of hover target selected from the node under the cursor.
+    const HoverTargetKind = enum {
+        /// Generic node hover using the node type and definition docblock.
+        node,
+        /// Dot member or enum case hover using the member token.
+        dot_member,
+        /// Object initializer field hover using the assigned field token.
+        object_init_field,
+    };
+
+    /// Hover target selected after resolving the node under the cursor.
+    const HoverTarget = struct {
+        /// Node that owns or resolves the hover target.
+        node: Ast.Node.Index,
+        /// Source token under the cursor.
+        token: Ast.TokenIndex,
+        /// How hover information should be built for this target.
+        kind: HoverTargetKind,
     };
 
     pub fn init(process: std.process.Init, parent_allocator: std.mem.Allocator, src: []const u8, uri: []const u8) !Document {
@@ -163,12 +183,13 @@ const Document = struct {
             .errors = errors.items,
         };
 
-        try doc.collectGlobalSymbols(allocator, parser.globals.items);
+        const doc_allocator = doc.arena.allocator();
+        try doc.collectGlobalSymbols(doc_allocator, parser.globals.items);
 
         // Keywords are document-independent, so store them with the precomputed
         // global labels once instead of rebuilding them on every completion.
         for (Token.keywords.keys()) |keyword| {
-            try doc.completion_labels.put(allocator, keyword, {});
+            try doc.completion_labels.put(doc_allocator, keyword, {});
         }
 
         if (ast.root != null) {
@@ -177,6 +198,15 @@ const Document = struct {
         }
 
         return doc;
+    }
+
+    /// Returns true for tokens that belong to the served client document.
+    fn isClientToken(self: *const Document, token: Token) bool {
+        if (!std.mem.eql(u8, token.script_name, self.uri)) {
+            return false;
+        }
+
+        return true;
     }
 
     /// Collects current-file document symbols and all global completion labels from parser globals.
@@ -532,30 +562,36 @@ const Document = struct {
     };
 
     pub fn nodeUnderPosition(self: *Document, position: lsp.types.Position) !?Ast.Node.Index {
-        if (self.ast.root == null) {
-            return null;
-        }
-
         const allocator = self.arena.allocator();
 
         const nodeEntry = try self.node_under_position.getOrPut(allocator, position);
 
         if (!nodeEntry.found_existing) {
-            var node_ctx = NodeUnderPositionContext{
-                .uri = self.uri,
-                .position = position,
+            const result = if (self.hasErrors())
+                self.findNodeContainingRange(.{
+                    .start = position,
+                    .end = position,
+                })
+            else clean_ast: {
+                const root = self.ast.root orelse break :clean_ast null;
+                var node_ctx = NodeUnderPositionContext{
+                    .uri = self.uri,
+                    .position = position,
+                };
+
+                self.ast.slice().walk(
+                    allocator,
+                    &node_ctx,
+                    root,
+                    .breadthFirst,
+                ) catch |err| {
+                    log.err("nodeUnderPosition: {any}", .{err});
+                };
+
+                break :clean_ast node_ctx.result;
             };
 
-            self.ast.slice().walk(
-                allocator,
-                &node_ctx,
-                self.ast.root.?,
-                .breadthFirst,
-            ) catch |err| {
-                log.err("nodeUnderPosition: {any}", .{err});
-            };
-
-            if (node_ctx.result) |res| {
+            if (result) |res| {
                 log.debug(
                     "Found node {} {s} under position {},{}",
                     .{
@@ -567,7 +603,7 @@ const Document = struct {
                 );
             }
 
-            nodeEntry.value_ptr.* = node_ctx.result;
+            nodeEntry.value_ptr.* = result;
         }
 
         return nodeEntry.value_ptr.*;
@@ -643,31 +679,6 @@ const Document = struct {
         return false;
     }
 
-    /// Finds a dot node when the position is inside its member token.
-    fn dotMemberNodeForNode(
-        self: *Document,
-        position: lsp.types.Position,
-        node_index: Ast.Node.Index,
-    ) ?Ast.Node.Index {
-        const tags = self.ast.nodes.items(.tag);
-        const components = self.ast.nodes.items(.components);
-        if (tags[node_index] != .Dot) {
-            return null;
-        }
-
-        const dot = components[node_index].Dot;
-        const script_names = self.ast.tokens.items(.script_name);
-        if (!std.mem.eql(u8, script_names[dot.identifier], self.uri)) {
-            return null;
-        }
-
-        if (!self.positionInToken(position, dot.identifier)) {
-            return null;
-        }
-
-        return node_index;
-    }
-
     /// Builds object member and enum case hover data for a dot node.
     fn dotMemberHoverInfo(self: *Document, node_index: Ast.Node.Index) !HoverInfo {
         var docblock: ?Ast.TokenIndex = null;
@@ -681,66 +692,122 @@ const Document = struct {
         };
     }
 
-    /// Walking context for clean AST dot-member hover lookup.
-    const DotMemberHoverContext = struct {
-        /// Document whose dot members are being checked.
-        document: *Document,
-        /// LSP position requested by the client.
+    /// Finds an object initializer field token when the cursor is on its assigned name.
+    fn objectInitFieldToken(
+        self: *Document,
         position: lsp.types.Position,
-        /// Dot node found while walking.
-        result: ?Ast.Node.Index = null,
-
-        /// Captures the current dot node when it owns the hovered member token.
-        pub fn processNode(
-            self: *DotMemberHoverContext,
-            _: std.mem.Allocator,
-            _: Ast.Slice,
-            node: Ast.Node.Index,
-        ) std.mem.Allocator.Error!bool {
-            if (self.result != null) {
-                return true;
-            }
-
-            if (self.document.dotMemberNodeForNode(self.position, node)) |dot_node| {
-                self.result = dot_node;
-                return true;
-            }
-
-            return false;
-        }
-    };
-
-    /// Recovers dot-member hover lookup by scanning all nodes when the AST may be incomplete.
-    fn scanDotMemberNode(self: *Document, position: lsp.types.Position) ?Ast.Node.Index {
-        for (self.ast.nodes.items(.tag), 0..) |_, node_index| {
-            if (self.dotMemberNodeForNode(position, @intCast(node_index))) |dot_node| {
-                return dot_node;
+        node_index: Ast.Node.Index,
+    ) ?Ast.TokenIndex {
+        const object_init = self.ast.nodes.items(.components)[node_index].ObjectInit;
+        for (object_init.properties) |property| {
+            if (self.isClientToken(self.ast.tokens.get(property.name)) and
+                self.positionInToken(position, property.name))
+            {
+                return property.name;
             }
         }
 
         return null;
     }
 
-    /// Finds a dot node whose object member or enum case is under the cursor.
-    fn dotMemberNode(self: *Document, position: lsp.types.Position) !?Ast.Node.Index {
-        if (!self.hasErrors()) {
-            const root = self.ast.root orelse return null;
-            var ctx = DotMemberHoverContext{
-                .document = self,
-                .position = position,
-            };
+    /// Resolves the cache token and hover kind from the node under the cursor.
+    fn hoverTargetForNode(
+        self: *Document,
+        position: lsp.types.Position,
+        node_index: Ast.Node.Index,
+    ) ?HoverTarget {
+        const tags = self.ast.nodes.items(.tag);
+        const components = self.ast.nodes.items(.components);
+        const locations = self.ast.nodes.items(.location);
 
-            try self.ast.slice().walk(
-                self.arena.allocator(),
-                &ctx,
-                root,
-                .breadthFirst,
-            );
-
-            return ctx.result;
+        switch (tags[node_index]) {
+            .Dot => {
+                const token = components[node_index].Dot.identifier;
+                if (self.isClientToken(self.ast.tokens.get(token)) and
+                    self.positionInToken(position, token))
+                {
+                    return .{
+                        .node = node_index,
+                        .token = token,
+                        .kind = .dot_member,
+                    };
+                }
+            },
+            .ObjectInit => {
+                if (self.objectInitFieldToken(position, node_index)) |token| {
+                    return .{
+                        .node = node_index,
+                        .token = token,
+                        .kind = .object_init_field,
+                    };
+                }
+            },
+            else => {},
         }
 
-        return self.scanDotMemberNode(position);
+        if (self.ast.nodes.items(.type_def)[node_index] == null) {
+            return null;
+        }
+
+        const token = locations[node_index];
+        if (!self.isClientToken(self.ast.tokens.get(token))) {
+            return null;
+        }
+
+        return .{
+            .node = node_index,
+            .token = token,
+            .kind = .node,
+        };
+    }
+
+    /// Builds hover data from a typed AST node and its definition docblock.
+    fn nodeHoverInfo(self: *Document, node_index: Ast.Node.Index) !?HoverInfo {
+        const type_def = self.ast.nodes.items(.type_def)[node_index] orelse return null;
+        var docblock = self.ast.nodes.items(.docblock)[node_index];
+        if (docblock == null) {
+            const def = try self.definition(node_index);
+            if (def) |udef| {
+                docblock = udef.docblock orelse self.ast.nodes.items(.docblock)[udef.def_node];
+            }
+        }
+
+        return .{
+            .type_def = type_def,
+            .docblock = docblock,
+        };
+    }
+
+    /// Builds hover data for a field name assigned by an object initializer.
+    fn objectInitFieldHoverInfo(self: *Document, node_index: Ast.Node.Index, token: Ast.TokenIndex) ?HoverInfo {
+        const ast_slice = self.ast.slice();
+        const type_def = ast_slice.nodes.items(.type_def)[node_index] orelse return null;
+        if (type_def.def_type != .ObjectInstance) {
+            return null;
+        }
+
+        const object_def = type_def.resolved_type.?.ObjectInstance.of.resolved_type.?.Object;
+        const field = object_def.fields.get(ast_slice.tokens.items(.lexeme)[token]) orelse return null;
+
+        return .{
+            .type_def = field.type_def,
+            .docblock = self.object_member_docblocks.getContext(
+                .{
+                    .owner = object_def.location,
+                    .member = field.location,
+                },
+                .{ .ast = ast_slice },
+            ),
+        };
+    }
+
+    /// Builds hover data for a selected hover target.
+    fn hoverInfoForTarget(self: *Document, target: HoverTarget) !?HoverInfo {
+        return switch (target.kind) {
+            .node => try self.nodeHoverInfo(target.node),
+            .dot_member => try self.dotMemberHoverInfo(target.node),
+            .object_init_field => self.objectInitFieldHoverInfo(target.node, target.token),
+        };
     }
 
     /// Builds markdown hover contents from a docblock and optional Buzz type.
@@ -775,43 +842,17 @@ const Document = struct {
     fn hoverMarkupAtPosition(self: *Document, position: lsp.types.Position) !?[]const u8 {
         const allocator = self.arena.allocator();
 
-        if (try self.dotMemberNode(position)) |node| {
-            const markupEntry = try self.node_hover.getOrPut(allocator, node);
-            if (!markupEntry.found_existing) {
-                const hover_info = try self.dotMemberHoverInfo(node);
-                markupEntry.value_ptr.* = (try self.buildHoverMarkup(allocator, hover_info)).?;
-            }
-
-            return markupEntry.value_ptr.*;
+        const node = (try self.nodeUnderPosition(position)) orelse return null;
+        const target = self.hoverTargetForNode(position, node) orelse return null;
+        if (self.token_hover.get(target.token)) |markup| {
+            return markup;
         }
 
-        if (try self.nodeUnderPosition(position)) |origin| {
-            if (self.ast.nodes.items(.type_def)[origin]) |type_def| {
-                const markupEntry = try self.node_hover.getOrPut(allocator, origin);
+        const hover_info = (try self.hoverInfoForTarget(target)) orelse return null;
+        const markup = (try self.buildHoverMarkup(allocator, hover_info)) orelse return null;
+        try self.token_hover.put(allocator, target.token, markup);
 
-                if (!markupEntry.found_existing) {
-                    var docblock = self.ast.nodes.items(.docblock)[origin];
-                    if (docblock == null) {
-                        const def = try self.definition(origin);
-                        if (def) |udef| {
-                            docblock = udef.docblock orelse self.ast.nodes.items(.docblock)[udef.def_node];
-                        }
-                    }
-
-                    markupEntry.value_ptr.* = (try self.buildHoverMarkup(
-                        allocator,
-                        .{
-                            .type_def = type_def,
-                            .docblock = docblock,
-                        },
-                    )).?;
-                }
-
-                return markupEntry.value_ptr.*;
-            }
-        }
-
-        return null;
+        return markup;
     }
 
     fn isRangeWithinNode(self: *Document, node: Ast.Node.Index, range: lsp.types.Range) bool {
@@ -1389,6 +1430,7 @@ test "document hover uses member docblocks at object and enum access sites" {
         \\final selected_name = widget.name;
         \\final selected_title = widget.title();
         \\final selected_mode = Mode.fast;
+        \\final initialized = Widget { name = "from init" };
         \\
     ;
 
@@ -1405,11 +1447,16 @@ test "document hover uses member docblocks at object and enum access sites" {
     try expectHoverDoc(&doc, .{ .line = 1, .character = 8 }, "Widget docs.", "Name field docs.");
     try expectHoverDoc(&doc, .{ .line = 10, .character = 6 }, "Mode docs.", "Fast case docs.");
     try expectHoverDoc(&doc, .{ .line = 16, .character = 30 }, "Name field docs.", "Widget docs.");
-    const hover_cache_count = doc.node_hover.count();
+    const hover_cache_count = doc.token_hover.count();
     try expectHoverDoc(&doc, .{ .line = 16, .character = 30 }, "Name field docs.", "Widget docs.");
-    try std.testing.expectEqual(hover_cache_count, doc.node_hover.count());
+    try std.testing.expectEqual(hover_cache_count, doc.token_hover.count());
     try expectHoverDoc(&doc, .{ .line = 17, .character = 32 }, "Title method docs.", "Widget docs.");
     try expectHoverDoc(&doc, .{ .line = 18, .character = 28 }, "Fast case docs.", "Mode docs.");
+    try expectHoverDoc(&doc, .{ .line = 19, .character = 22 }, "Widget docs.", "Name field docs.");
+    try expectHoverDoc(&doc, .{ .line = 19, .character = 31 }, "Name field docs.", "Widget docs.");
+    const init_hover_cache_count = doc.token_hover.count();
+    try expectHoverDoc(&doc, .{ .line = 19, .character = 31 }, "Name field docs.", "Widget docs.");
+    try std.testing.expectEqual(init_hover_cache_count, doc.token_hover.count());
 }
 
 test "document owns source text across repeated reloads" {
