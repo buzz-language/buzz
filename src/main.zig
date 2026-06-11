@@ -123,7 +123,13 @@ pub fn main(provided_init: Init) u8 {
     var stderr = io.stderrWriter(init.io);
     var stdout = io.stdoutWriter(init.io);
 
-    var arg_iter = try init.minimal.args.iterateAllocator(init.gpa);
+    var arg_iter = init.minimal.args.iterateAllocator(init.gpa) catch |err| {
+        stderr.interface.print(
+            "Could not initialize command line arguments: {s}\n",
+            .{@errorName(err)},
+        ) catch @panic("Could not initialize command line arguments");
+        return 1;
+    };
     defer arg_iter.deinit();
 
     _ = arg_iter.next();
@@ -352,6 +358,19 @@ pub fn main(provided_init: Init) u8 {
                     manifest_root,
                     manifest.name,
                 ) catch |err| {
+                    if (builtin.os.tag == .windows) {
+                        switch (err) {
+                            error.WindowsSymlinkPermission => {
+                                stderr.interface.print(
+                                    "Could not create self vendor link for `{s}`: Windows requires Developer Mode or an elevated shell to create directory symlinks.\n",
+                                    .{manifest.name},
+                                ) catch @panic("Could not create self vendor link");
+                                return 1;
+                            },
+                            else => {},
+                        }
+                    }
+
                     stderr.interface.print(
                         "Could not create self vendor link for `{s}`: {s}\n",
                         .{
@@ -419,6 +438,17 @@ fn initPackage(init: Init) u8 {
     var stderr = io.stderrWriter(init.io);
 
     Package.init(init) catch |err| {
+        if (builtin.os.tag == .windows) {
+            switch (err) {
+                error.WindowsSymlinkPermission => {
+                    stderr.interface.print("Could not initialize buzz package: Windows requires Developer Mode or an elevated shell to create directory symlinks.\n", .{}) catch
+                        @panic("Could not init buzz package");
+                    return 1;
+                },
+                else => {},
+            }
+        }
+
         switch (err) {
             error.ManifestAlreadyCreated => stderr.interface.print("A `manifest.buzz` file already exists\n", .{}) catch
                 @panic("Could not init buzz package"),

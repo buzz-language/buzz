@@ -1444,6 +1444,7 @@ pub fn ensureSelfVendorSymlink(
         .{ .is_directory = true },
     ) catch |err| switch (err) {
         error.PathAlreadyExists => {},
+        error.AccessDenied => if (builtin.os.tag == .windows) return error.WindowsSymlinkPermission else return err,
         else => return err,
     };
 }
