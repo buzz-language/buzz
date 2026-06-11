@@ -140,7 +140,13 @@ const Document = struct {
         kind: HoverTargetKind,
     };
 
-    pub fn init(process: std.process.Init, parent_allocator: std.mem.Allocator, src: []const u8, uri: []const u8) !Document {
+    pub fn init(
+        process: std.process.Init,
+        parent_allocator: std.mem.Allocator,
+        workspace_roots: []const []const u8,
+        src: []const u8,
+        uri: []const u8,
+    ) !Document {
         var arena = std.heap.ArenaAllocator.init(parent_allocator);
         errdefer arena.deinit();
 
@@ -185,6 +191,58 @@ const Document = struct {
         const document_root_dir = root_dir: {
             if (std_lib_script_name != null) {
                 break :root_dir try std.Io.Dir.cwd().realPathFileAlloc(process.io, ".", allocator);
+            }
+
+            // Dependency documents opened through goto-definition still need
+            // package imports resolved from the workspace package root.
+            for (workspace_roots) |root| {
+                // Convert the opened file path to a workspace-relative path.
+                // A prefix match alone is not enough: `/tmp/foo2` is not inside
+                // `/tmp/foo`, so require an exact match or a separator boundary.
+                const relative = relative: {
+                    if (std.mem.eql(u8, document_script_name, root)) {
+                        break :relative document_script_name[document_script_name.len..];
+                    }
+
+                    if (document_script_name.len <= root.len or !std.mem.startsWith(u8, document_script_name, root)) {
+                        continue;
+                    }
+
+                    if (document_script_name[root.len] != std.fs.path.sep) {
+                        continue;
+                    }
+
+                    break :relative document_script_name[root.len + 1 ..];
+                };
+
+                // Only dependency package files should inherit the workspace
+                // root. Regular package sources keep the existing nearest-`src`
+                // heuristic below.
+                if (!std.mem.startsWith(u8, relative, Package.VENDORS)) {
+                    continue;
+                }
+
+                if (relative.len <= Package.VENDORS.len or relative[Package.VENDORS.len] != std.fs.path.sep) {
+                    continue;
+                }
+
+                const package_relative = relative[Package.VENDORS.len + 1 ..];
+                const package_name_end = std.mem.indexOfScalar(u8, package_relative, std.fs.path.sep) orelse continue;
+                if (package_name_end == 0) {
+                    continue;
+                }
+
+                // Package imports are defined against `<root>/vendors/<pkg>/src`.
+                // When the opened document is already under that directory, the
+                // parser root must stay at `<root>` to avoid appending another
+                // `vendors/<pkg>` segment.
+                const source_relative = package_relative[package_name_end + 1 ..];
+                if (source_relative.len > "src".len and
+                    std.mem.startsWith(u8, source_relative, "src") and
+                    source_relative["src".len] == std.fs.path.sep)
+                {
+                    break :root_dir try allocator.dupe(u8, root);
+                }
             }
 
             if (std.fs.path.dirname(document_script_name)) |dir| {
@@ -1496,6 +1554,9 @@ pub fn main(init: std.process.Init) !void {
         .allocator = allocator,
         .transport = &stdio_transport.transport,
     };
+    // Handler state owns per-session document arenas and workspace roots, so
+    // release it even when the LSP loop exits through an `exit` notification.
+    defer handler.deinit();
 
     try lsp.basic_server.run(
         init.io,
@@ -1510,10 +1571,23 @@ const Handler = struct {
     process: std.process.Init,
     allocator: std.mem.Allocator,
     transport: *lsp.Transport,
+    /// Local workspace roots received during initialize.
+    workspace_roots: []const []const u8 = &.{},
     documents: std.StringHashMapUnmanaged(Document) = .empty,
 
+    /// Releases cached documents and workspace roots owned by the handler.
+    fn deinit(self: *Handler) void {
+        var documents_it = self.documents.iterator();
+        while (documents_it.next()) |document| {
+            self.allocator.free(document.key_ptr.*);
+            document.value_ptr.deinit();
+        }
+        self.documents.deinit(self.allocator);
+        self.freeWorkspaceRoots();
+    }
+
     pub fn initialize(
-        _: *Handler,
+        self: *Handler,
         allocator: std.mem.Allocator,
         params: lsp.types.requests.get("initialize").?.Params.?,
     ) !lsp.types.requests.get("initialize").?.Result {
@@ -1525,6 +1599,68 @@ const Handler = struct {
                 if (params.clientInfo) |ci| ci.version orelse "???" else "???",
             },
         );
+
+        self.freeWorkspaceRoots();
+        self.workspace_roots = roots: {
+            // Prefer workspaceFolders, then rootUri, then the legacy rootPath.
+            // All values are canonicalized so later document parsing can do
+            // stable prefix checks against opened file paths.
+            var roots = std.ArrayList([]const u8).empty;
+            errdefer {
+                for (roots.items) |root| {
+                    self.allocator.free(root);
+                }
+                roots.deinit(self.allocator);
+            }
+
+            var uri_arena = std.heap.ArenaAllocator.init(self.allocator);
+            defer uri_arena.deinit();
+            const uri_allocator = uri_arena.allocator();
+
+            // URI decoding can allocate; keep those temporary decoded paths
+            // separate from the canonical roots stored on the handler.
+            if (params.workspaceFolders) |workspace_folders| {
+                for (workspace_folders) |workspace_folder| {
+                    try appendWorkspaceRootFromUri(
+                        self.process,
+                        self.allocator,
+                        uri_allocator,
+                        &roots,
+                        workspace_folder.uri,
+                    );
+                }
+            }
+
+            if (roots.items.len == 0) {
+                if (params.rootUri) |root_uri| {
+                    try appendWorkspaceRootFromUri(
+                        self.process,
+                        self.allocator,
+                        uri_allocator,
+                        &roots,
+                        root_uri,
+                    );
+                }
+            }
+
+            if (roots.items.len == 0) {
+                if (params.rootPath) |root_path| {
+                    try appendWorkspaceRootFromPath(
+                        self.process,
+                        self.allocator,
+                        &roots,
+                        root_path,
+                    );
+                }
+            }
+
+            if (roots.items.len == 0) {
+                roots.deinit(self.allocator);
+                break :roots &.{};
+            }
+
+            break :roots try roots.toOwnedSlice(self.allocator);
+        };
 
         var version = std.Io.Writer.Allocating.init(allocator);
 
@@ -1618,6 +1754,7 @@ const Handler = struct {
         var doc = try Document.init(
             self.process,
             self.allocator,
+            self.workspace_roots,
             src,
             uri,
         );
@@ -2242,6 +2379,17 @@ const Handler = struct {
 
         log.warn("received response from client with id '{s}' that has no handler!", .{id});
     }
+
+    /// Releases workspace roots owned by the handler.
+    fn freeWorkspaceRoots(self: *Handler) void {
+        if (self.workspace_roots.len > 0) {
+            for (self.workspace_roots) |root| {
+                self.allocator.free(root);
+            }
+            self.allocator.free(self.workspace_roots);
+            self.workspace_roots = &.{};
+        }
+    }
 };
 
 /// Prefix text and replacement range for a completion request at the cursor.
@@ -2430,6 +2578,42 @@ fn packageDocumentKind(allocator: std.mem.Allocator, uri: []const u8, source: []
     }
 
     return null;
+}
+
+/// Appends a local file URI workspace root when it resolves to an existing path.
+fn appendWorkspaceRootFromUri(
+    process: std.process.Init,
+    allocator: std.mem.Allocator,
+    uri_allocator: std.mem.Allocator,
+    roots: *std.ArrayList([]const u8),
+    uri: []const u8,
+) !void {
+    const path = (try localPathFromFileUri(uri_allocator, uri)) orelse return;
+
+    try appendWorkspaceRootFromPath(process, allocator, roots, path);
+}
+
+/// Appends a canonical workspace root path unless it is already present.
+fn appendWorkspaceRootFromPath(
+    process: std.process.Init,
+    allocator: std.mem.Allocator,
+    roots: *std.ArrayList([]const u8),
+    path: []const u8,
+) !void {
+    var root_buffer: [std.Io.Dir.max_path_bytes]u8 = undefined;
+    const root_len = std.Io.Dir.cwd().realPathFile(process.io, path, &root_buffer) catch return;
+
+    const root = try allocator.dupe(u8, root_buffer[0..root_len]);
+    errdefer allocator.free(root);
+
+    for (roots.items) |existing| {
+        if (std.mem.eql(u8, existing, root)) {
+            allocator.free(root);
+            return;
+        }
+    }
+
+    try roots.append(allocator, root);
 }
 
 /// Converts a local `file://` document URI into the script path used by parser semantics.
