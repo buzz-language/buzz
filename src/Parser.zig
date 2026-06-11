@@ -7145,7 +7145,7 @@ fn yield(self: *Self, _: bool) Error!Ast.Node.Index {
         );
     }
 
-    const expr = try self.parsePrecedence(.Primary, false);
+    const expr = try self.parsePrecedence(.Unary, false);
 
     return try self.ast.appendNode(
         .{
