@@ -92,6 +92,14 @@ const Document = struct {
     /// Cache for inlay hints
     inlay_hints: std.ArrayList(lsp.types.InlayHint) = .empty, // I tried to make this a simple slice but the data was lost I don't know why
 
+    /// Resolved information needed to render a hover response.
+    const HoverInfo = struct {
+        /// Buzz type rendered in the hover code block, when available.
+        type_def: ?*o.ObjTypeDef,
+        /// Docblock token rendered before the type, when available.
+        docblock: ?Ast.TokenIndex,
+    };
+
     pub fn init(process: std.process.Init, parent_allocator: std.mem.Allocator, src: []const u8, uri: []const u8) !Document {
         var arena = std.heap.ArenaAllocator.init(parent_allocator);
         errdefer arena.deinit();
@@ -605,6 +613,207 @@ const Document = struct {
         return null;
     }
 
+    /// Returns true when the LSP position is inside the token lexeme.
+    fn positionInToken(self: *Document, position: lsp.types.Position, token_index: Ast.TokenIndex) bool {
+        const token = self.ast.tokens.get(token_index);
+        if (position.line != token.line) {
+            return false;
+        }
+
+        const start: u32 = @intCast(@max(1, token.column) - 1);
+        const end = start + @as(u32, @intCast(token.lexeme.len));
+
+        return position.character >= start and position.character < end;
+    }
+
+    /// Returns true when parser or codegen diagnostics contain an error.
+    fn hasErrors(self: *const Document) bool {
+        for (self.errors) |report| {
+            if (report.items.len == 0) {
+                return true;
+            }
+
+            for (report.items) |item| {
+                if (item.kind == .@"error") {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    /// Finds a dot node when the position is inside its member token.
+    fn dotMemberNodeForNode(
+        self: *Document,
+        position: lsp.types.Position,
+        node_index: Ast.Node.Index,
+    ) ?Ast.Node.Index {
+        const tags = self.ast.nodes.items(.tag);
+        const components = self.ast.nodes.items(.components);
+        if (tags[node_index] != .Dot) {
+            return null;
+        }
+
+        const dot = components[node_index].Dot;
+        const script_names = self.ast.tokens.items(.script_name);
+        if (!std.mem.eql(u8, script_names[dot.identifier], self.uri)) {
+            return null;
+        }
+
+        if (!self.positionInToken(position, dot.identifier)) {
+            return null;
+        }
+
+        return node_index;
+    }
+
+    /// Builds object member and enum case hover data for a dot node.
+    fn dotMemberHoverInfo(self: *Document, node_index: Ast.Node.Index) !HoverInfo {
+        var docblock: ?Ast.TokenIndex = null;
+        if (try self.definition(node_index)) |def| {
+            docblock = def.docblock orelse self.ast.nodes.items(.docblock)[def.def_node];
+        }
+
+        return .{
+            .type_def = self.ast.nodes.items(.type_def)[node_index],
+            .docblock = docblock,
+        };
+    }
+
+    /// Walking context for clean AST dot-member hover lookup.
+    const DotMemberHoverContext = struct {
+        /// Document whose dot members are being checked.
+        document: *Document,
+        /// LSP position requested by the client.
+        position: lsp.types.Position,
+        /// Dot node found while walking.
+        result: ?Ast.Node.Index = null,
+
+        /// Captures the current dot node when it owns the hovered member token.
+        pub fn processNode(
+            self: *DotMemberHoverContext,
+            _: std.mem.Allocator,
+            _: Ast.Slice,
+            node: Ast.Node.Index,
+        ) std.mem.Allocator.Error!bool {
+            if (self.result != null) {
+                return true;
+            }
+
+            if (self.document.dotMemberNodeForNode(self.position, node)) |dot_node| {
+                self.result = dot_node;
+                return true;
+            }
+
+            return false;
+        }
+    };
+
+    /// Recovers dot-member hover lookup by scanning all nodes when the AST may be incomplete.
+    fn scanDotMemberNode(self: *Document, position: lsp.types.Position) ?Ast.Node.Index {
+        for (self.ast.nodes.items(.tag), 0..) |_, node_index| {
+            if (self.dotMemberNodeForNode(position, @intCast(node_index))) |dot_node| {
+                return dot_node;
+            }
+        }
+
+        return null;
+    }
+
+    /// Finds a dot node whose object member or enum case is under the cursor.
+    fn dotMemberNode(self: *Document, position: lsp.types.Position) !?Ast.Node.Index {
+        if (!self.hasErrors()) {
+            const root = self.ast.root orelse return null;
+            var ctx = DotMemberHoverContext{
+                .document = self,
+                .position = position,
+            };
+
+            try self.ast.slice().walk(
+                self.arena.allocator(),
+                &ctx,
+                root,
+                .breadthFirst,
+            );
+
+            return ctx.result;
+        }
+
+        return self.scanDotMemberNode(position);
+    }
+
+    /// Builds markdown hover contents from a docblock and optional Buzz type.
+    fn buildHoverMarkup(self: *Document, allocator: std.mem.Allocator, hover_info: HoverInfo) !?[]const u8 {
+        if (hover_info.type_def == null and hover_info.docblock == null) {
+            return null;
+        }
+
+        var markup = std.Io.Writer.Allocating.init(allocator);
+
+        if (hover_info.docblock) |docblock_token| {
+            const doc = self.ast.tokens.items(.lexeme)[docblock_token];
+
+            var it = std.mem.tokenizeSequence(u8, doc, "/// ");
+            while (it.next()) |text| {
+                try markup.writer.print("{s}", .{text});
+            }
+        }
+
+        if (hover_info.type_def) |type_def| {
+            try markup.writer.writeAll("\n```buzz\n");
+            type_def.toString(&markup.writer, false) catch |err| {
+                log.err("textDocument/hover: {any}", .{err});
+            };
+            try markup.writer.writeAll("\n```");
+        }
+
+        return try markup.toOwnedSlice();
+    }
+
+    /// Produces markdown hover contents for an LSP position.
+    fn hoverMarkupAtPosition(self: *Document, position: lsp.types.Position) !?[]const u8 {
+        const allocator = self.arena.allocator();
+
+        if (try self.dotMemberNode(position)) |node| {
+            const markupEntry = try self.node_hover.getOrPut(allocator, node);
+            if (!markupEntry.found_existing) {
+                const hover_info = try self.dotMemberHoverInfo(node);
+                markupEntry.value_ptr.* = (try self.buildHoverMarkup(allocator, hover_info)).?;
+            }
+
+            return markupEntry.value_ptr.*;
+        }
+
+        if (try self.nodeUnderPosition(position)) |origin| {
+            if (self.ast.nodes.items(.type_def)[origin]) |type_def| {
+                const markupEntry = try self.node_hover.getOrPut(allocator, origin);
+
+                if (!markupEntry.found_existing) {
+                    var docblock = self.ast.nodes.items(.docblock)[origin];
+                    if (docblock == null) {
+                        const def = try self.definition(origin);
+                        if (def) |udef| {
+                            docblock = udef.docblock orelse self.ast.nodes.items(.docblock)[udef.def_node];
+                        }
+                    }
+
+                    markupEntry.value_ptr.* = (try self.buildHoverMarkup(
+                        allocator,
+                        .{
+                            .type_def = type_def,
+                            .docblock = docblock,
+                        },
+                    )).?;
+                }
+
+                return markupEntry.value_ptr.*;
+            }
+        }
+
+        return null;
+    }
+
     fn isRangeWithinNode(self: *Document, node: Ast.Node.Index, range: lsp.types.Range) bool {
         const locations = self.ast.nodes.items(.location);
         const location_idx = locations[node];
@@ -1086,6 +1295,41 @@ const Document = struct {
     }
 };
 
+/// Stable argv backing storage for LSP unit-test process initialization.
+const lsp_test_argv = [_][*:0]const u8{"buzz_lsp_test"};
+
+/// Creates a minimal process context for document-only LSP unit tests.
+fn initLspTestProcess(
+    allocator: std.mem.Allocator,
+    process_arena: *std.heap.ArenaAllocator,
+    environ_map: *std.process.Environ.Map,
+) !std.process.Init {
+    return .{
+        .minimal = .{
+            .args = .{ .vector = &lsp_test_argv },
+            .environ = std.testing.environ,
+        },
+        .arena = process_arena,
+        .gpa = allocator,
+        .io = std.testing.io,
+        .environ_map = environ_map,
+        .preopens = try std.process.Preopens.init(process_arena.allocator()),
+    };
+}
+
+/// Asserts that hover markup exists and contains the expected doc text.
+fn expectHoverDoc(
+    doc: *Document,
+    position: lsp.types.Position,
+    expected: []const u8,
+    unexpected: []const u8,
+) !void {
+    const hover = try doc.hoverMarkupAtPosition(position);
+    try std.testing.expect(hover != null);
+    try std.testing.expect(std.mem.indexOf(u8, hover.?, expected) != null);
+    try std.testing.expect(std.mem.indexOf(u8, hover.?, unexpected) == null);
+}
+
 test "document inlay hints tolerate incomplete function signatures" {
     const allocator = std.testing.allocator;
 
@@ -1095,18 +1339,7 @@ test "document inlay hints tolerate incomplete function signatures" {
     var environ_map = try std.process.Environ.createMap(std.testing.environ, allocator);
     defer environ_map.deinit();
 
-    const argv = [_][*:0]const u8{"buzz_lsp_test"};
-    const process = std.process.Init{
-        .minimal = .{
-            .args = .{ .vector = &argv },
-            .environ = std.testing.environ,
-        },
-        .arena = &process_arena,
-        .gpa = allocator,
-        .io = std.testing.io,
-        .environ_map = &environ_map,
-        .preopens = try std.process.Preopens.init(process_arena.allocator()),
-    };
+    const process = try initLspTestProcess(allocator, &process_arena, &environ_map);
 
     const source =
         \\fun bad() > {
@@ -1125,6 +1358,60 @@ test "document inlay hints tolerate incomplete function signatures" {
     try std.testing.expect(doc.errors.len > 0);
 }
 
+test "document hover uses member docblocks at object and enum access sites" {
+    const allocator = std.testing.allocator;
+
+    var process_arena = std.heap.ArenaAllocator.init(allocator);
+    defer process_arena.deinit();
+
+    var environ_map = try std.process.Environ.createMap(std.testing.environ, allocator);
+    defer environ_map.deinit();
+
+    const process = try initLspTestProcess(allocator, &process_arena, &environ_map);
+
+    const source =
+        \\/// Widget docs.
+        \\object Widget {
+        \\    /// Name field docs.
+        \\    name: str = "demo",
+        \\
+        \\    /// Title method docs.
+        \\    fun title() => this.name;
+        \\}
+        \\
+        \\/// Mode docs.
+        \\enum Mode {
+        \\    /// Fast case docs.
+        \\    fast,
+        \\}
+        \\
+        \\final widget = Widget{};
+        \\final selected_name = widget.name;
+        \\final selected_title = widget.title();
+        \\final selected_mode = Mode.fast;
+        \\
+    ;
+
+    var doc = try Document.init(
+        process,
+        allocator,
+        source,
+        "file:///tmp/member-hover.buzz",
+    );
+    defer doc.deinit();
+
+    try std.testing.expectEqual(@as(usize, 0), doc.errors.len);
+
+    try expectHoverDoc(&doc, .{ .line = 1, .character = 8 }, "Widget docs.", "Name field docs.");
+    try expectHoverDoc(&doc, .{ .line = 10, .character = 6 }, "Mode docs.", "Fast case docs.");
+    try expectHoverDoc(&doc, .{ .line = 16, .character = 30 }, "Name field docs.", "Widget docs.");
+    const hover_cache_count = doc.node_hover.count();
+    try expectHoverDoc(&doc, .{ .line = 16, .character = 30 }, "Name field docs.", "Widget docs.");
+    try std.testing.expectEqual(hover_cache_count, doc.node_hover.count());
+    try expectHoverDoc(&doc, .{ .line = 17, .character = 32 }, "Title method docs.", "Widget docs.");
+    try expectHoverDoc(&doc, .{ .line = 18, .character = 28 }, "Fast case docs.", "Mode docs.");
+}
+
 test "document owns source text across repeated reloads" {
     const allocator = std.testing.allocator;
 
@@ -1134,18 +1421,7 @@ test "document owns source text across repeated reloads" {
     var environ_map = try std.process.Environ.createMap(std.testing.environ, allocator);
     defer environ_map.deinit();
 
-    const argv = [_][*:0]const u8{"buzz_lsp_test"};
-    const process = std.process.Init{
-        .minimal = .{
-            .args = .{ .vector = &argv },
-            .environ = std.testing.environ,
-        },
-        .arena = &process_arena,
-        .gpa = allocator,
-        .io = std.testing.io,
-        .environ_map = &environ_map,
-        .preopens = try std.process.Preopens.init(process_arena.allocator()),
-    };
+    const process = try initLspTestProcess(allocator, &process_arena, &environ_map);
 
     const cases = [_]struct {
         source: []const u8,
@@ -1848,52 +2124,15 @@ const Handler = struct {
         notification: lsp.types.requests.get("textDocument/hover").?.Params.?,
     ) !lsp.types.requests.get("textDocument/hover").?.Result {
         if (self.documents.getPtr(notification.textDocument.uri)) |document| {
-            const allocator = document.arena.allocator();
-
-            if (try document.nodeUnderPosition(notification.position)) |origin| {
-                const type_def = document.ast.nodes.items(.type_def)[origin];
-
-                if (type_def) |td| {
-                    const markupEntry = try document.node_hover.getOrPut(allocator, origin);
-
-                    if (!markupEntry.found_existing) {
-                        var markup = std.Io.Writer.Allocating.init(self.allocator);
-
-                        var docblock = document.ast.nodes.items(.docblock)[origin];
-                        if (docblock == null) {
-                            const def = try document.definition(origin);
-                            if (def) |udef| {
-                                docblock = udef.docblock orelse document.ast.nodes.items(.docblock)[udef.def_node];
-                            }
-                        }
-
-                        if (docblock) |docblock_token| {
-                            const doc = document.ast.tokens.items(.lexeme)[docblock_token];
-
-                            var it = std.mem.tokenizeSequence(u8, doc, "/// ");
-                            while (it.next()) |text| {
-                                try markup.writer.print("{s}", .{text});
-                            }
-                        }
-
-                        try markup.writer.writeAll("\n```buzz\n");
-                        td.toString(&markup.writer, false) catch |err| {
-                            log.err("textDocument/hover: {any}", .{err});
-                        };
-                        try markup.writer.writeAll("\n```");
-
-                        markupEntry.value_ptr.* = try markup.toOwnedSlice();
-                    }
-
-                    return .{
-                        .contents = .{
-                            .markup_content = .{
-                                .kind = .markdown,
-                                .value = markupEntry.value_ptr.*,
-                            },
+            if (try document.hoverMarkupAtPosition(notification.position)) |markup| {
+                return .{
+                    .contents = .{
+                        .markup_content = .{
+                            .kind = .markdown,
+                            .value = markup,
                         },
-                    };
-                }
+                    },
+                };
             }
         }
         return null;
