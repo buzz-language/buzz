@@ -25,6 +25,7 @@ const io = @import("io.zig");
 const Runner = @import("Runner.zig");
 const Perf = @import("Perf.zig");
 const Package = @import("Package.zig");
+const Bundle = @import("Bundle.zig");
 
 pub export const initRepl_export = wasm_repl.initRepl;
 pub export const runLine_export = wasm_repl.runLine;
@@ -37,6 +38,7 @@ else
 const SubCommand = enum {
     @"test",
     check,
+    compile,
     fetch,
     format,
     help,
@@ -49,6 +51,7 @@ const SubCommand = enum {
 /// Top-level command descriptions shown by `buzz help`.
 const command_summaries = .{
     .check = .{ .name = "check", .description = "Parse and type-check a buzz script without running it." },
+    .compile = .{ .name = "compile", .description = "Bundle a buzz script into a standalone executable." },
     .fetch = .{ .name = "fetch", .description = "Prepare package vendor links from a manifest." },
     .format = .{ .name = "format", .description = "Format a buzz script." },
     .help = .{ .name = "help", .description = "Show global or command-specific help." },
@@ -80,6 +83,11 @@ const format_params = clap.parseParamsComptime(
     \\-L, --library <str>...  Add search path for external libraries
     \\-r, --root-dir <str>    Root dir for package resolution
     \\<str>                   Script to format
+);
+
+const compile_params = clap.parseParamsComptime(
+    \\-o, --output <str>     Path of the executable to produce (defaults to the script name without extension)
+    \\<str>                  Script to bundle
 );
 
 const run_params = clap.parseParamsComptime(
@@ -119,6 +127,13 @@ pub fn main(provided_init: Init) u8 {
         init.gpa;
     // FIXME: Use process.allocator everywhere?
     init.gpa = allocator;
+
+    // If this executable was produced by `buzz compile`, it has a script glued
+    // to its tail (see Bundle.zig / issue #302). Run that and skip the CLI.
+    if (Bundle.read(allocator, init.io)) |payload| {
+        defer payload.deinit(allocator);
+        return runBundle(init, allocator, payload);
+    }
 
     var stderr = io.stderrWriter(init.io);
     var stdout = io.stdoutWriter(init.io);
@@ -419,6 +434,23 @@ pub fn main(provided_init: Init) u8 {
                 );
             },
             .init => return initPackage(init),
+            .compile => {
+                const sub_res = clap.parseEx(
+                    clap.Help,
+                    &compile_params,
+                    clap.parsers.default,
+                    &arg_iter,
+                    .{
+                        .allocator = allocator,
+                        .diagnostic = &diag,
+                    },
+                ) catch |err| {
+                    diag.report(&stderr.interface, err) catch {};
+                    return 1;
+                };
+
+                return compileScript(init, allocator, sub_res);
+            },
             .version => {
                 _repl.printBanner(&stdout.interface, true);
 
@@ -460,6 +492,57 @@ fn initPackage(init: Init) u8 {
     };
 
     return 0;
+}
+
+fn compileScript(init: Init, allocator: std.mem.Allocator, sub_res: anytype) u8 {
+    var stderr = io.stderrWriter(init.io);
+
+    const script = sub_res.positionals[0] orelse {
+        stderr.interface.writeAll("Missing script to compile\n") catch {};
+        return 1;
+    };
+
+    // Default output name: the script's basename without its extension.
+    const output = sub_res.args.output orelse std.fs.path.stem(script);
+
+    Bundle.write(allocator, init.io, script, output) catch |err| {
+        stderr.interface.print(
+            "Could not compile `{s}`: {s}\n",
+            .{ script, @errorName(err) },
+        ) catch @panic("Could not compile script");
+        return 1;
+    };
+
+    io.print(init.io, "👨‍🚀 Wrote executable `{s}`\n", .{output});
+
+    return 0;
+}
+
+fn runBundle(init: Init, allocator: std.mem.Allocator, payload: Bundle.Payload) u8 {
+    var perf: ?Perf = if (BuildOptions.show_perf) Perf.init(init.io) else null;
+    defer if (perf) |*p| p.report();
+
+    var runner: Runner = undefined;
+    runner.init(
+        init,
+        allocator,
+        .Run,
+        null,
+        if (perf) |*p| p else null,
+    ) catch {
+        return 1;
+    };
+    defer runner.deinit();
+
+    // TODO: forward this process' argv to the script.
+    return runner.runEmbedded(
+        payload.root_dir,
+        payload.name,
+        payload.source,
+        &.{},
+    ) catch {
+        return 1;
+    };
 }
 
 fn run(
@@ -630,6 +713,25 @@ fn help(init: Init, stderr: *std.Io.Writer, subcommand_opt: ?[]const u8) u8 {
                 stderr,
                 clap.Help,
                 &fetch_params,
+                .{
+                    .description_on_new_line = false,
+                    .description_indent = 4,
+                    .spacing_between_parameters = 0,
+                },
+            ) catch return 1;
+        } else if (std.mem.eql(u8, subcommand, "compile")) {
+            clap.usage(
+                stderr,
+                clap.Help,
+                &compile_params,
+            ) catch return 1;
+
+            io.print(init.io, "\n\n", .{});
+
+            clap.help(
+                stderr,
+                clap.Help,
+                &compile_params,
                 .{
                     .description_on_new_line = false,
                     .description_indent = 4,

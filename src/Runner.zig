@@ -219,6 +219,31 @@ pub fn runFile(
     return runner.vm.exit_code;
 }
 
+/// Run a program from in-memory source rather than a file on disk.
+/// Used by bundled executables (see Bundle.zig / issue #302), where the source
+/// is read from the binary's own tail. Mirrors `runFile` minus the file I/O.
+pub fn runEmbedded(
+    runner: *Runner,
+    root_dir: []const u8,
+    name: []const u8,
+    source: []const u8,
+    args: []const []const u8,
+) !u8 {
+    if (try runner.parser.parse(source, root_dir, null, name)) |ast| {
+        const ast_slice = ast.slice();
+
+        if (try runner.codegen.generate(ast_slice)) |function| {
+            try runner.vm.interpret(ast_slice, function, args);
+        } else {
+            return Parser.CompileError.Recoverable;
+        }
+    } else {
+        return Parser.CompileError.Recoverable;
+    }
+
+    return runner.vm.exit_code;
+}
+
 /// Evaluate source using the current parser and vm state and return the value produced if any
 /// Used by REPL and Debugger
 pub fn runSource(self: *Runner, source: []const u8, name: []const u8) !?Value {
