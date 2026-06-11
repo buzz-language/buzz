@@ -1076,12 +1076,12 @@ fn generateCall(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj
                 },
                 @intCast(
                     switch (callee_def_type) {
-                        .String => obj.ObjString.members_name.get(member_lexeme).?,
-                        .Pattern => obj.ObjPattern.members_name.get(member_lexeme).?,
-                        .Fiber => obj.ObjFiber.members_name.get(member_lexeme).?,
-                        .List => obj.ObjList.members_name.get(member_lexeme).?,
-                        .Map => obj.ObjMap.members_name.get(member_lexeme).?,
-                        .Range => obj.ObjRange.members_name.get(member_lexeme).?,
+                        .String => obj.ObjString.memberIndexByName(member_lexeme).?,
+                        .Pattern => obj.ObjPattern.memberIndexByName(member_lexeme).?,
+                        .Fiber => obj.ObjFiber.memberIndexByName(member_lexeme).?,
+                        .List => obj.ObjList.memberIndexByName(member_lexeme).?,
+                        .Map => obj.ObjMap.memberIndexByName(member_lexeme).?,
+                        .Range => obj.ObjRange.memberIndexByName(member_lexeme).?,
                         else => unexpected: {
                             std.debug.assert(self.reporter.last_error != null);
                             break :unexpected 0;
@@ -1154,9 +1154,9 @@ fn generateDot(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.
                     locations[node],
                     get_code.?,
                     switch (callee_type.def_type) {
-                        .Fiber => @intCast(obj.ObjFiber.members_name.get(identifier_lexeme).?),
-                        .Pattern => @intCast(obj.ObjPattern.members_name.get(identifier_lexeme).?),
-                        .String => @intCast(obj.ObjString.members_name.get(identifier_lexeme).?),
+                        .Fiber => @intCast(obj.ObjFiber.memberIndexByName(identifier_lexeme).?),
+                        .Pattern => @intCast(obj.ObjPattern.memberIndexByName(identifier_lexeme).?),
+                        .String => @intCast(obj.ObjString.memberIndexByName(identifier_lexeme).?),
                         else => unreachable,
                     },
                 );
@@ -1323,9 +1323,9 @@ fn generateDot(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.
                     locations[node],
                     get_code.?,
                     switch (callee_type.def_type) {
-                        .List => @intCast(obj.ObjList.members_name.get(identifier_lexeme).?),
-                        .Map => @intCast(obj.ObjMap.members_name.get(identifier_lexeme).?),
-                        .Range => @intCast(obj.ObjRange.members_name.get(identifier_lexeme).?),
+                        .List => @intCast(obj.ObjList.memberIndexByName(identifier_lexeme).?),
+                        .Map => @intCast(obj.ObjMap.memberIndexByName(identifier_lexeme).?),
+                        .Range => @intCast(obj.ObjRange.memberIndexByName(identifier_lexeme).?),
                         else => unreachable,
                     },
                 );
@@ -2121,7 +2121,7 @@ fn matchNumberInRange(self: *Self, condition: Ast.Node.Index, breaks: ?*Breaks) 
     try self.emitCodeArg(
         location,
         .OP_RANGE_INVOKE,
-        @intCast(obj.ObjRange.members_name.get("contains").?),
+        @intCast(obj.ObjRange.memberIndexByName("contains").?),
     );
     try self.emitTwo(
         location,
@@ -2145,7 +2145,7 @@ fn matchStringMatchesPattern(self: *Self, condition: Ast.Node.Index, breaks: ?*B
     try self.emitCodeArg(
         location,
         .OP_PATTERN_INVOKE,
-        @intCast(obj.ObjPattern.members_name.get("matchAgainst").?),
+        @intCast(obj.ObjPattern.memberIndexByName("matchAgainst").?),
     );
     try self.emitTwo(
         location,
@@ -2170,7 +2170,7 @@ fn matchPatternMatchesString(self: *Self, condition: Ast.Node.Index, breaks: ?*B
     try self.emitCodeArg(
         location,
         .OP_PATTERN_INVOKE,
-        @intCast(obj.ObjPattern.members_name.get("matchAgainst").?),
+        @intCast(obj.ObjPattern.memberIndexByName("matchAgainst").?),
     );
     try self.emitTwo(
         location,

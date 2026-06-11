@@ -758,28 +758,34 @@ pub const ObjFiber = struct {
         return obj.cast(Self, .Fiber);
     }
 
-    pub const members = [_]NativeFn{
-        buzz_builtin.fiber.cancel,
-        buzz_builtin.fiber.isMain,
-        buzz_builtin.fiber.over,
-    };
-
-    pub const members_typedef = [_][]const u8{
-        "extern fun cancel() > void",
-        "extern fun isMain() > bool",
-        "extern fun over() > bool",
-    };
-
-    pub const members_name = std.StaticStringMap(usize).initComptime(
+    pub const member_defs = [_]BuiltinMember{
         .{
-            .{ "cancel", 0 },
-            .{ "isMain", 1 },
-            .{ "over", 2 },
+            .name = "cancel",
+            .native = buzz_builtin.fiber.cancel,
+            .typedef = "extern fun cancel() > void",
+            .doc = "Cancels the fiber.",
         },
-    );
+        .{
+            .name = "isMain",
+            .native = buzz_builtin.fiber.isMain,
+            .typedef = "extern fun isMain() > bool",
+            .doc = "Returns whether the fiber is the main fiber.",
+        },
+        .{
+            .name = "over",
+            .native = buzz_builtin.fiber.over,
+            .typedef = "extern fun over() > bool",
+            .doc = "Returns whether the fiber has finished running.",
+        },
+    };
+
+    /// Returns the native fiber member index for a canonical name or alias.
+    pub fn memberIndexByName(name: []const u8) ?usize {
+        return builtinMemberIndex(Self.member_defs[0..], name);
+    }
 
     pub fn memberByName(vm: *VM, name: []const u8) !?Value {
-        return if (members_name.get(name)) |idx|
+        return if (memberIndexByName(name)) |idx|
             try member(vm, idx)
         else
             null;
@@ -792,8 +798,7 @@ pub const ObjFiber = struct {
 
         var native = try vm.gc.allocateObject(
             ObjNative{
-                // Complains about const qualifier discard otherwise
-                .native = @as(*anyopaque, @ptrFromInt(@intFromPtr(members[method_idx]))),
+                .native = builtinMemberNative(Self.member_defs[0..], method_idx),
             },
         );
 
@@ -806,7 +811,7 @@ pub const ObjFiber = struct {
     }
 
     pub fn memberDefByName(parser: *Parser, name: []const u8) !?*ObjTypeDef {
-        return if (members_name.get(name)) |idx|
+        return if (memberIndexByName(name)) |idx|
             try memberDef(parser, idx)
         else
             null;
@@ -817,7 +822,7 @@ pub const ObjFiber = struct {
             return umethod;
         }
 
-        const native_type = try parser.parseTypeDefFrom(members_typedef[method_idx]);
+        const native_type = try parser.parseTypeDefFrom(Self.member_defs[method_idx].typedef.?);
 
         parser.gc.objfiber_memberDefs[method_idx] = native_type;
 
@@ -869,46 +874,53 @@ pub const ObjPattern = struct {
         return obj.cast(Self, .Pattern);
     }
 
-    pub const members = if (!is_wasm)
-        [_]NativeFn{
-            buzz_builtin.pattern.matchAgainst,
-            buzz_builtin.pattern.matchAllAgainst,
-            buzz_builtin.pattern.replace,
-            buzz_builtin.pattern.replaceAll,
-        }
-    else
-        [_]NativeFn{
-            buzz_builtin.pattern.replace,
-            buzz_builtin.pattern.replaceAll,
-        };
-
-    const members_typedef = if (!is_wasm)
-        [_][]const u8{
-            "extern fun matchAgainst(subject: str) > [obj{ capture: str, start: int, end: int }]?",
-            "extern fun matchAllAgainst(subject: str) > [[obj{ capture: str, start: int, end: int }]]?",
-            "extern fun replace(subject: str, with: str) > str",
-            "extern fun replaceAll(subject: str, with: str) > str",
-        }
-    else
-        [_][]const u8{
-            "extern fun replace(subject: str, with: str) > str",
-            "extern fun replaceAll(subject: str, with: str) > str",
-        };
-
-    pub const members_name = std.StaticStringMap(usize).initComptime(
-        if (!is_wasm)
+    pub const member_defs = if (!is_wasm)
+        [_]BuiltinMember{
             .{
-                .{ "matchAgainst", 0 },
-                .{ "matchAllAgainst", 1 },
-                .{ "replace", 2 },
-                .{ "replaceAll", 3 },
-            }
-        else
-            .{
-                .{ "replace", 0 },
-                .{ "replaceAll", 1 },
+                .name = "matchAgainst",
+                .native = buzz_builtin.pattern.matchAgainst,
+                .typedef = "extern fun matchAgainst(subject: str) > [obj{ capture: str, start: int, end: int }]?",
+                .doc = "Returns the first match against `subject`, including captures and byte offsets, or null when it does not match.",
             },
-    );
+            .{
+                .name = "matchAllAgainst",
+                .native = buzz_builtin.pattern.matchAllAgainst,
+                .typedef = "extern fun matchAllAgainst(subject: str) > [[obj{ capture: str, start: int, end: int }]]?",
+                .doc = "Returns all matches against `subject`, including captures and byte offsets, or null when there are no matches.",
+            },
+            .{
+                .name = "replace",
+                .native = buzz_builtin.pattern.replace,
+                .typedef = "extern fun replace(subject: str, with: str) > str",
+                .doc = "Replaces the first match in `subject` with `with` and returns the new string.",
+            },
+            .{
+                .name = "replaceAll",
+                .native = buzz_builtin.pattern.replaceAll,
+                .typedef = "extern fun replaceAll(subject: str, with: str) > str",
+                .doc = "Replaces every match in `subject` with `with` and returns the new string.",
+            },
+        }
+    else
+        [_]BuiltinMember{
+            .{
+                .name = "replace",
+                .native = buzz_builtin.pattern.replace,
+                .typedef = "extern fun replace(subject: str, with: str) > str",
+                .doc = "Replaces the first match in `subject` with `with` and returns the new string.",
+            },
+            .{
+                .name = "replaceAll",
+                .native = buzz_builtin.pattern.replaceAll,
+                .typedef = "extern fun replaceAll(subject: str, with: str) > str",
+                .doc = "Replaces every match in `subject` with `with` and returns the new string.",
+            },
+        };
+
+    /// Returns the native pattern member index for a canonical name or alias.
+    pub fn memberIndexByName(name: []const u8) ?usize {
+        return builtinMemberIndex(Self.member_defs[0..], name);
+    }
 
     pub fn member(vm: *VM, method_idx: usize) !Value {
         if (vm.gc.objpattern_members[method_idx]) |umethod| {
@@ -917,8 +929,7 @@ pub const ObjPattern = struct {
 
         var native = try vm.gc.allocateObject(
             ObjNative{
-                // Complains about const qualifier discard otherwise
-                .native = @as(*anyopaque, @ptrFromInt(@intFromPtr(members[method_idx]))),
+                .native = builtinMemberNative(Self.member_defs[0..], method_idx),
             },
         );
 
@@ -931,7 +942,7 @@ pub const ObjPattern = struct {
     }
 
     pub fn memberByName(vm: *VM, name: []const u8) !?Value {
-        return if (members_name.get(name)) |idx|
+        return if (memberIndexByName(name)) |idx|
             try member(vm, idx)
         else
             null;
@@ -942,7 +953,7 @@ pub const ObjPattern = struct {
             return umethod;
         }
 
-        const native_type = try parser.parseTypeDefFrom(members_typedef[method_idx]);
+        const native_type = try parser.parseTypeDefFrom(Self.member_defs[method_idx].typedef.?);
 
         parser.gc.objpattern_memberDefs[method_idx] = native_type;
 
@@ -950,7 +961,7 @@ pub const ObjPattern = struct {
     }
 
     pub fn memberDefByName(parser: *Parser, name: []const u8) !?*ObjTypeDef {
-        return if (members_name.get(name)) |idx|
+        return if (memberIndexByName(name)) |idx|
             try memberDef(parser, idx)
         else
             null;
@@ -1031,76 +1042,130 @@ pub const ObjString = struct {
         }
     }
 
-    pub const members = [_]NativeFn{
-        buzz_builtin.str.bin,
-        buzz_builtin.str.byte,
-        buzz_builtin.str.decodeBase64,
-        buzz_builtin.str.encodeBase64,
-        buzz_builtin.str.endsWith,
-        buzz_builtin.str.hex,
-        buzz_builtin.str.indexOf,
-        buzz_builtin.str.len,
-        buzz_builtin.str.lower,
-        buzz_builtin.str.repeat,
-        buzz_builtin.str.replace,
-        buzz_builtin.str.split,
-        buzz_builtin.str.startsWith,
-        buzz_builtin.str.sub,
-        buzz_builtin.str.trim,
-        buzz_builtin.str.upper,
-        buzz_builtin.str.utf8Codepoints,
-        buzz_builtin.str.utf8Len,
-        buzz_builtin.str.utf8Valid,
-    };
-
-    pub const members_typedef = [_][]const u8{
-        "extern fun bin() > str",
-        "extern fun byte(at: int = 0) > int",
-        "extern fun decodeBase64() > str",
-        "extern fun encodeBase64() > str",
-        "extern fun endsWith(needle: str) > bool",
-        "extern fun hex() > str",
-        "extern fun indexOf(needle: str) > int?",
-        "extern fun len() > int",
-        "extern fun lower() > str",
-        "extern fun repeat(n: int) > str",
-        "extern fun replace(needle: str, with: str) > str",
-        "extern fun split(separator: str) > [str]",
-        "extern fun startsWith(needle: str) > bool",
-        "extern fun sub(start: int, len: int?) > str",
-        "extern fun trim() > str",
-        "extern fun upper() > str",
-        "extern fun utf8Codepoints() > [str]",
-        "extern fun utf8Len() > int",
-        "extern fun utf8Valid() > bool",
-    };
-
-    pub const members_name = std.StaticStringMap(usize).initComptime(
+    pub const member_defs = [_]BuiltinMember{
         .{
-            .{ "bin", 0 },
-            .{ "byte", 1 },
-            .{ "decodeBase64", 2 },
-            .{ "encodeBase64", 3 },
-            .{ "endsWith", 4 },
-            .{ "hex", 5 },
-            .{ "indexOf", 6 },
-            .{ "len", 7 },
-            .{ "lower", 8 },
-            .{ "repeat", 9 },
-            .{ "replace", 10 },
-            .{ "split", 11 },
-            .{ "startsWith", 12 },
-            .{ "sub", 13 },
-            .{ "trim", 14 },
-            .{ "upper", 15 },
-            .{ "utf8Codepoints", 16 },
-            .{ "utf8Len", 17 },
-            .{ "utf8Valid", 18 },
+            .name = "bin",
+            .native = buzz_builtin.str.bin,
+            .typedef = "extern fun bin() > str",
+            .doc = "Returns the binary representation of the string bytes.",
         },
-    );
+        .{
+            .name = "byte",
+            .native = buzz_builtin.str.byte,
+            .typedef = "extern fun byte(at: int = 0) > int",
+            .doc = "Returns the byte value at `at`; the default position is the first byte.",
+        },
+        .{
+            .name = "decodeBase64",
+            .native = buzz_builtin.str.decodeBase64,
+            .typedef = "extern fun decodeBase64() > str",
+            .doc = "Decodes the string as base64 and returns the decoded string.",
+        },
+        .{
+            .name = "encodeBase64",
+            .native = buzz_builtin.str.encodeBase64,
+            .typedef = "extern fun encodeBase64() > str",
+            .doc = "Encodes the string as base64.",
+        },
+        .{
+            .name = "endsWith",
+            .native = buzz_builtin.str.endsWith,
+            .typedef = "extern fun endsWith(needle: str) > bool",
+            .doc = "Returns whether the string ends with `needle`.",
+        },
+        .{
+            .name = "hex",
+            .native = buzz_builtin.str.hex,
+            .typedef = "extern fun hex() > str",
+            .doc = "Returns the hexadecimal representation of the string bytes.",
+        },
+        .{
+            .name = "indexOf",
+            .native = buzz_builtin.str.indexOf,
+            .typedef = "extern fun indexOf(needle: str) > int?",
+            .doc = "Returns the byte index of the first `needle` occurrence, or null when absent.",
+        },
+        .{
+            .name = "len",
+            .native = buzz_builtin.str.len,
+            .typedef = "extern fun len() > int",
+            .doc = "Returns the byte length of the string.",
+        },
+        .{
+            .name = "lower",
+            .native = buzz_builtin.str.lower,
+            .typedef = "extern fun lower() > str",
+            .doc = "Returns a lowercase copy of the string.",
+        },
+        .{
+            .name = "repeat",
+            .native = buzz_builtin.str.repeat,
+            .typedef = "extern fun repeat(n: int) > str",
+            .doc = "Returns the string repeated `n` times.",
+        },
+        .{
+            .name = "replace",
+            .native = buzz_builtin.str.replace,
+            .typedef = "extern fun replace(needle: str, with: str) > str",
+            .doc = "Replaces occurrences of `needle` with `with` and returns the new string.",
+        },
+        .{
+            .name = "split",
+            .native = buzz_builtin.str.split,
+            .typedef = "extern fun split(separator: str) > [str]",
+            .doc = "Splits the string around `separator` and returns the parts.",
+        },
+        .{
+            .name = "startsWith",
+            .native = buzz_builtin.str.startsWith,
+            .typedef = "extern fun startsWith(needle: str) > bool",
+            .doc = "Returns whether the string starts with `needle`.",
+        },
+        .{
+            .name = "sub",
+            .native = buzz_builtin.str.sub,
+            .typedef = "extern fun sub(start: int, len: int?) > str",
+            .doc = "Returns a byte slice starting at `start` with optional length `len`.",
+        },
+        .{
+            .name = "trim",
+            .native = buzz_builtin.str.trim,
+            .typedef = "extern fun trim() > str",
+            .doc = "Returns the string without leading or trailing whitespace.",
+        },
+        .{
+            .name = "upper",
+            .native = buzz_builtin.str.upper,
+            .typedef = "extern fun upper() > str",
+            .doc = "Returns an uppercase copy of the string.",
+        },
+        .{
+            .name = "utf8Codepoints",
+            .native = buzz_builtin.str.utf8Codepoints,
+            .typedef = "extern fun utf8Codepoints() > [str]",
+            .doc = "Splits the string into UTF-8 codepoint strings.",
+        },
+        .{
+            .name = "utf8Len",
+            .native = buzz_builtin.str.utf8Len,
+            .typedef = "extern fun utf8Len() > int",
+            .doc = "Returns the number of UTF-8 codepoints in the string.",
+        },
+        .{
+            .name = "utf8Valid",
+            .native = buzz_builtin.str.utf8Valid,
+            .typedef = "extern fun utf8Valid() > bool",
+            .doc = "Returns whether the string contains valid UTF-8.",
+        },
+    };
+
+    /// Returns the native string member index for a canonical name or alias.
+    pub fn memberIndexByName(name: []const u8) ?usize {
+        return builtinMemberIndex(Self.member_defs[0..], name);
+    }
 
     pub fn memberByName(vm: *VM, name: []const u8) !?Value {
-        return if (members_name.get(name)) |idx|
+        return if (memberIndexByName(name)) |idx|
             try member(vm, idx)
         else
             null;
@@ -1113,8 +1178,7 @@ pub const ObjString = struct {
 
         var native = try vm.gc.allocateObject(
             ObjNative{
-                // Complains about const qualifier discard otherwise
-                .native = @as(*anyopaque, @ptrFromInt(@intFromPtr(members[method_idx]))),
+                .native = builtinMemberNative(Self.member_defs[0..], method_idx),
             },
         );
 
@@ -1127,7 +1191,7 @@ pub const ObjString = struct {
     }
 
     pub fn memberDefByName(parser: *Parser, name: []const u8) !?*ObjTypeDef {
-        return if (members_name.get(name)) |idx|
+        return if (memberIndexByName(name)) |idx|
             try memberDef(parser, idx)
         else
             null;
@@ -1138,7 +1202,7 @@ pub const ObjString = struct {
             return umethod;
         }
 
-        const native_type = try parser.parseTypeDefFrom(members_typedef[method_idx]);
+        const native_type = try parser.parseTypeDefFrom(Self.member_defs[method_idx].typedef.?);
 
         parser.gc.objstring_memberDefs[method_idx] = native_type;
 
@@ -1250,6 +1314,42 @@ pub const NativeCtx = extern struct {
 // 1 = return value on stack, 0 = no return value, -1 = error
 pub const Native = fn (ctx: *NativeCtx) callconv(.c) c_int;
 pub const NativeFn = *const Native;
+
+/// Metadata for one dot-callable built-in native member.
+pub const BuiltinMember = struct {
+    /// Canonical member name used in signatures and completions.
+    name: []const u8,
+    /// Extra names that resolve to this same member index.
+    aliases: []const []const u8 = &.{},
+    /// Native implementation called by the VM.
+    native: NativeFn,
+    /// Static buzz typedef source for non-generic built-in members.
+    typedef: ?[]const u8 = null,
+    /// Hover documentation shown by the LSP.
+    doc: []const u8,
+};
+
+/// Returns the native member index for a canonical name or alias.
+pub fn builtinMemberIndex(member_defs: []const BuiltinMember, name: []const u8) ?usize {
+    for (member_defs, 0..) |member_def, index| {
+        if (mem.eql(u8, member_def.name, name)) {
+            return index;
+        }
+
+        for (member_def.aliases) |alias| {
+            if (mem.eql(u8, alias, name)) {
+                return index;
+            }
+        }
+    }
+
+    return null;
+}
+
+/// Returns the VM-storable native function pointer for a built-in member.
+pub fn builtinMemberNative(member_defs: []const BuiltinMember, method_idx: usize) *anyopaque {
+    return @as(*anyopaque, @ptrFromInt(@intFromPtr(member_defs[method_idx].native)));
+}
 
 pub const Compiled = fn (ctx: *NativeCtx) callconv(.c) Value;
 pub const CompiledFn = *const Compiled;
@@ -1983,11 +2083,11 @@ pub const ObjList = struct {
             .type_def = type_def,
             .methods = try allocator.alloc(
                 ?*ObjNative,
-                Self.members.len,
+                Self.member_defs.len,
             ),
         };
 
-        for (0..Self.members.len) |i| {
+        for (0..Self.member_defs.len) |i| {
             self.methods[i] = null;
         }
 
@@ -2024,53 +2124,105 @@ pub const ObjList = struct {
         return obj.cast(Self, .List);
     }
 
-    pub const members = [_]NativeFn{
-        buzz_builtin.list.append,
-        buzz_builtin.list.fill,
-        buzz_builtin.list.filter,
-        buzz_builtin.list.forEach,
-        buzz_builtin.list.indexOf,
-        buzz_builtin.list.insert,
-        buzz_builtin.list.join,
-        buzz_builtin.list.len,
-        buzz_builtin.list.map,
-        buzz_builtin.list.next,
-        buzz_builtin.list.pop,
-        buzz_builtin.list.reduce,
-        buzz_builtin.list.remove,
-        buzz_builtin.list.reverse,
-        buzz_builtin.list.sort,
-        buzz_builtin.list.sub,
-        buzz_builtin.list.cloneMutable,
-        buzz_builtin.list.cloneImmutable,
+    pub const member_defs = [_]BuiltinMember{
+        .{
+            .name = "append",
+            .native = buzz_builtin.list.append,
+            .doc = "Appends `value` to the list.",
+        },
+        .{
+            .name = "fill",
+            .native = buzz_builtin.list.fill,
+            .doc = "Sets every list item to `value` and returns the list.",
+        },
+        .{
+            .name = "filter",
+            .native = buzz_builtin.list.filter,
+            .doc = "Returns a list containing the items for which the callback returns true.",
+        },
+        .{
+            .name = "forEach",
+            .native = buzz_builtin.list.forEach,
+            .doc = "Calls the callback once for each item.",
+        },
+        .{
+            .name = "indexOf",
+            .native = buzz_builtin.list.indexOf,
+            .doc = "Returns the index of the first matching item, or null when absent.",
+        },
+        .{
+            .name = "insert",
+            .native = buzz_builtin.list.insert,
+            .doc = "Inserts `value` at `at` and returns the inserted value.",
+        },
+        .{
+            .name = "join",
+            .native = buzz_builtin.list.join,
+            .doc = "Joins string items using `separator`.",
+        },
+        .{
+            .name = "len",
+            .native = buzz_builtin.list.len,
+            .doc = "Returns the number of items in the list.",
+        },
+        .{
+            .name = "map",
+            .native = buzz_builtin.list.map,
+            .doc = "Returns a list made from applying the callback to each item.",
+        },
+        .{
+            .name = "next",
+            .native = buzz_builtin.list.next,
+            .doc = "Returns the next iteration index, or null at the end.",
+        },
+        .{
+            .name = "pop",
+            .native = buzz_builtin.list.pop,
+            .doc = "Removes and returns the last item, or null when the list is empty.",
+        },
+        .{
+            .name = "reduce",
+            .native = buzz_builtin.list.reduce,
+            .doc = "Reduces the list by passing each item and the accumulator to the callback.",
+        },
+        .{
+            .name = "remove",
+            .native = buzz_builtin.list.remove,
+            .doc = "Removes and returns the item at `at`, or null when out of bounds.",
+        },
+        .{
+            .name = "reverse",
+            .native = buzz_builtin.list.reverse,
+            .doc = "Returns a new list with the items in reverse order.",
+        },
+        .{
+            .name = "sort",
+            .native = buzz_builtin.list.sort,
+            .doc = "Sorts the list in place with the comparison callback and returns the list.",
+        },
+        .{
+            .name = "sub",
+            .native = buzz_builtin.list.sub,
+            .doc = "Returns a list slice starting at `start` with optional length `len`.",
+        },
+        .{
+            .name = "cloneMutable",
+            .aliases = &.{"copyMutable"},
+            .native = buzz_builtin.list.cloneMutable,
+            .doc = "Returns a mutable shallow copy of the list.",
+        },
+        .{
+            .name = "cloneImmutable",
+            .aliases = &.{"copyImmutable"},
+            .native = buzz_builtin.list.cloneImmutable,
+            .doc = "Returns an immutable shallow copy of the list.",
+        },
     };
 
-    // TODO: could probably build this in a comptime block?
-    pub const members_name = std.StaticStringMap(usize).initComptime(
-        .{
-            .{ "append", 0 },
-            .{ "fill", 1 },
-            .{ "filter", 2 },
-            .{ "forEach", 3 },
-            .{ "indexOf", 4 },
-            .{ "insert", 5 },
-            .{ "join", 6 },
-            .{ "len", 7 },
-            .{ "map", 8 },
-            .{ "next", 9 },
-            .{ "pop", 10 },
-            .{ "reduce", 11 },
-            .{ "remove", 12 },
-            .{ "reverse", 13 },
-            .{ "sort", 14 },
-            .{ "sub", 15 },
-            .{ "cloneMutable", 16 },
-            .{ "cloneImmutable", 17 },
-            // The difference between clone and copy is only a semantic one so we use the same functions
-            .{ "copyMutable", 16 },
-            .{ "copyImmutable", 17 },
-        },
-    );
+    /// Returns the native list member index for a canonical name or alias.
+    pub fn memberIndexByName(name: []const u8) ?usize {
+        return builtinMemberIndex(Self.member_defs[0..], name);
+    }
 
     pub fn member(self: *Self, vm: *VM, method_idx: usize) !Value {
         if (self.methods[method_idx]) |native| {
@@ -2079,8 +2231,7 @@ pub const ObjList = struct {
 
         var native = try vm.gc.allocateObject(
             ObjNative{
-                // Complains about const qualifier discard otherwise
-                .native = @as(*anyopaque, @ptrFromInt(@intFromPtr(members[method_idx]))),
+                .native = builtinMemberNative(Self.member_defs[0..], method_idx),
             },
         );
 
@@ -3133,46 +3284,70 @@ pub const ObjRange = struct {
         return obj.cast(Self, .Range);
     }
 
-    pub const members = [_]NativeFn{
-        buzz_builtin.range.high,
-        buzz_builtin.range.intersect,
-        buzz_builtin.range.invert,
-        buzz_builtin.range.len,
-        buzz_builtin.range.low,
-        buzz_builtin.range.subsetOf,
-        buzz_builtin.range.toList,
-        buzz_builtin.range.@"union",
-        buzz_builtin.range.contains,
-    };
-
-    const members_typedef = [_][]const u8{
-        "extern fun high() > int",
-        "extern fun intersect(other: rg) > rg",
-        "extern fun invert() > rg",
-        "extern fun len() > int",
-        "extern fun low() > int",
-        "extern fun subsetOf(other: rg) > bool",
-        "extern fun toList() > [int]",
-        "extern fun union(other: rg) > rg",
-        "extern fun contains(value: int) > bool",
-    };
-
-    pub const members_name = std.StaticStringMap(usize).initComptime(
+    pub const member_defs = [_]BuiltinMember{
         .{
-            .{ "high", 0 },
-            .{ "intersect", 1 },
-            .{ "invert", 2 },
-            .{ "len", 3 },
-            .{ "low", 4 },
-            .{ "subsetOf", 5 },
-            .{ "toList", 6 },
-            .{ "union", 7 },
-            .{ "contains", 8 },
+            .name = "high",
+            .native = buzz_builtin.range.high,
+            .typedef = "extern fun high() > int",
+            .doc = "Returns the range upper bound.",
         },
-    );
+        .{
+            .name = "intersect",
+            .native = buzz_builtin.range.intersect,
+            .typedef = "extern fun intersect(other: rg) > rg",
+            .doc = "Returns the intersection with `other`.",
+        },
+        .{
+            .name = "invert",
+            .native = buzz_builtin.range.invert,
+            .typedef = "extern fun invert() > rg",
+            .doc = "Returns a range with the bounds reversed.",
+        },
+        .{
+            .name = "len",
+            .native = buzz_builtin.range.len,
+            .typedef = "extern fun len() > int",
+            .doc = "Returns the number of integer values covered by the range.",
+        },
+        .{
+            .name = "low",
+            .native = buzz_builtin.range.low,
+            .typedef = "extern fun low() > int",
+            .doc = "Returns the range lower bound.",
+        },
+        .{
+            .name = "subsetOf",
+            .native = buzz_builtin.range.subsetOf,
+            .typedef = "extern fun subsetOf(other: rg) > bool",
+            .doc = "Returns whether the range is fully contained in `other`.",
+        },
+        .{
+            .name = "toList",
+            .native = buzz_builtin.range.toList,
+            .typedef = "extern fun toList() > [int]",
+            .doc = "Returns the range values as an integer list.",
+        },
+        .{
+            .name = "union",
+            .native = buzz_builtin.range.@"union",
+            .typedef = "extern fun union(other: rg) > rg",
+            .doc = "Returns the smallest range that contains this range and `other`.",
+        },
+        .{
+            .name = "contains",
+            .native = buzz_builtin.range.contains,
+            .typedef = "extern fun contains(value: int) > bool",
+            .doc = "Returns whether `value` is inside the range.",
+        },
+    };
+
+    /// Returns the native range member index for a canonical name or alias.
+    pub fn memberIndexByName(name: []const u8) ?usize {
+        return builtinMemberIndex(Self.member_defs[0..], name);
+    }
 
     pub fn memberByName(vm: *VM, name: []const u8) !?Value {
-        return if (members_name.get(name)) |idx|
+        return if (memberIndexByName(name)) |idx|
             try member(vm, idx)
         else
             null;
@@ -3185,8 +3360,7 @@ pub const ObjRange = struct {
 
         var native = try vm.gc.allocateObject(
             ObjNative{
-                // Complains about const qualifier discard otherwise
-                .native = @as(*anyopaque, @ptrFromInt(@intFromPtr(members[method_idx]))),
+                .native = builtinMemberNative(Self.member_defs[0..], method_idx),
             },
         );
 
@@ -3199,7 +3373,7 @@ pub const ObjRange = struct {
     }
 
     pub fn memberDefByName(parser: *Parser, name: []const u8) !?*ObjTypeDef {
-        return if (members_name.get(name)) |idx|
+        return if (memberIndexByName(name)) |idx|
             try memberDef(parser, idx)
         else
             null;
@@ -3210,7 +3384,7 @@ pub const ObjRange = struct {
             return umethod;
         }
 
-        const native_type = try parser.parseTypeDefFrom(members_typedef[method_idx]);
+        const native_type = try parser.parseTypeDefFrom(Self.member_defs[method_idx].typedef.?);
 
         parser.gc.objrange_memberDefs[method_idx] = native_type;
 
@@ -3238,11 +3412,11 @@ pub const ObjMap = struct {
             .type_def = type_def,
             .methods = try allocator.alloc(
                 ?*ObjNative,
-                Self.members.len,
+                Self.member_defs.len,
             ),
         };
 
-        for (0..Self.members.len) |i| {
+        for (0..Self.member_defs.len) |i| {
             self.methods[i] = null;
         }
 
@@ -3258,45 +3432,85 @@ pub const ObjMap = struct {
         try gc.markObjDirty(&self.obj);
     }
 
-    pub const members = [_]NativeFn{
-        buzz_builtin.map.cloneMutable,
-        buzz_builtin.map.diff,
-        buzz_builtin.map.filter,
-        buzz_builtin.map.forEach,
-        buzz_builtin.map.intersect,
-        buzz_builtin.map.keys,
-        buzz_builtin.map.map,
-        buzz_builtin.map.reduce,
-        buzz_builtin.map.remove,
-        buzz_builtin.map.size,
-        buzz_builtin.map.sort,
-        buzz_builtin.map.values,
-        buzz_builtin.map.cloneImmutable,
-        buzz_builtin.map.cloneMutable,
-        buzz_builtin.map.cloneImmutable,
-        buzz_builtin.map.hasKey,
+    pub const member_defs = [_]BuiltinMember{
+        .{
+            .name = "cloneMutable",
+            .aliases = &.{"copyMutable"},
+            .native = buzz_builtin.map.cloneMutable,
+            .doc = "Returns a mutable shallow copy of the map.",
+        },
+        .{
+            .name = "diff",
+            .native = buzz_builtin.map.diff,
+            .doc = "Returns a map containing entries whose keys are not present in `other`.",
+        },
+        .{
+            .name = "filter",
+            .native = buzz_builtin.map.filter,
+            .doc = "Returns a map containing entries for which the callback returns true.",
+        },
+        .{
+            .name = "forEach",
+            .native = buzz_builtin.map.forEach,
+            .doc = "Calls the callback once for each key-value pair.",
+        },
+        .{
+            .name = "intersect",
+            .native = buzz_builtin.map.intersect,
+            .doc = "Returns a map containing entries whose keys are also present in `other`.",
+        },
+        .{
+            .name = "keys",
+            .native = buzz_builtin.map.keys,
+            .doc = "Returns the map keys as a list.",
+        },
+        .{
+            .name = "map",
+            .native = buzz_builtin.map.map,
+            .doc = "Returns a map made from applying the callback to each key-value pair.",
+        },
+        .{
+            .name = "reduce",
+            .native = buzz_builtin.map.reduce,
+            .doc = "Reduces the map by passing each key, value, and accumulator to the callback.",
+        },
+        .{
+            .name = "remove",
+            .native = buzz_builtin.map.remove,
+            .doc = "Removes `at` and returns its value, or null when the key is absent.",
+        },
+        .{
+            .name = "size",
+            .native = buzz_builtin.map.size,
+            .doc = "Returns the number of entries in the map.",
+        },
+        .{
+            .name = "sort",
+            .native = buzz_builtin.map.sort,
+            .doc = "Sorts the map key order in place with the comparison callback and returns the map.",
+        },
+        .{
+            .name = "values",
+            .native = buzz_builtin.map.values,
+            .doc = "Returns the map values as a list.",
+        },
+        .{
+            .name = "cloneImmutable",
+            .aliases = &.{"copyImmutable"},
+            .native = buzz_builtin.map.cloneImmutable,
+            .doc = "Returns an immutable shallow copy of the map.",
+        },
+        .{
+            .name = "hasKey",
+            .native = buzz_builtin.map.hasKey,
+            .doc = "Returns whether the map contains `key`.",
+        },
     };
 
-    pub const members_name = std.StaticStringMap(usize).initComptime(
-        .{
-            .{ "cloneMutable", 0 },
-            .{ "diff", 1 },
-            .{ "filter", 2 },
-            .{ "forEach", 3 },
-            .{ "intersect", 4 },
-            .{ "keys", 5 },
-            .{ "map", 6 },
-            .{ "reduce", 7 },
-            .{ "remove", 8 },
-            .{ "size", 9 },
-            .{ "sort", 10 },
-            .{ "values", 11 },
-            .{ "cloneImmutable", 12 },
-            .{ "copyMutable", 13 },
-            .{ "copyImmutable", 14 },
-            .{ "hasKey", 15 },
-        },
-    );
+    /// Returns the native map member index for a canonical name or alias.
+    pub fn memberIndexByName(name: []const u8) ?usize {
+        return builtinMemberIndex(Self.member_defs[0..], name);
+    }
 
     pub fn member(self: *Self, vm: *VM, method_idx: usize) !Value {
         if (self.methods[method_idx]) |native| {
@@ -3305,8 +3519,7 @@ pub const ObjMap = struct {
 
         const native = try vm.gc.allocateObject(
             ObjNative{
-                // Complains about const qualifier discard otherwise
-                .native = @constCast(members[method_idx]),
+                .native = builtinMemberNative(Self.member_defs[0..], method_idx),
             },
         );
 

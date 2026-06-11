@@ -2419,12 +2419,12 @@ fn generateCall(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
                         m.MIR_new_uint_op(
                             self.ctx,
                             switch (invoked_on.?) {
-                                .String => o.ObjString.members_name.get(member_lexeme).?,
-                                .Pattern => o.ObjPattern.members_name.get(member_lexeme).?,
-                                .Fiber => o.ObjFiber.members_name.get(member_lexeme).?,
-                                .Range => o.ObjRange.members_name.get(member_lexeme).?,
-                                .List => o.ObjList.members_name.get(member_lexeme).?,
-                                .Map => o.ObjMap.members_name.get(member_lexeme).?,
+                                .String => o.ObjString.memberIndexByName(member_lexeme).?,
+                                .Pattern => o.ObjPattern.memberIndexByName(member_lexeme).?,
+                                .Fiber => o.ObjFiber.memberIndexByName(member_lexeme).?,
+                                .Range => o.ObjRange.memberIndexByName(member_lexeme).?,
+                                .List => o.ObjList.memberIndexByName(member_lexeme).?,
+                                .Map => o.ObjMap.memberIndexByName(member_lexeme).?,
                                 else => unreachable,
                             },
                         ),
@@ -4037,7 +4037,7 @@ fn generateDot(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
                             (try self.generateNode(components.callee)).?,
                             m.MIR_new_uint_op(
                                 self.ctx,
-                                o.ObjFiber.members_name.get(member_lexeme).?,
+                                o.ObjFiber.memberIndexByName(member_lexeme).?,
                             ),
                             m.MIR_new_uint_op(self.ctx, 1),
                         },
@@ -4064,7 +4064,7 @@ fn generateDot(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
                             (try self.generateNode(components.callee)).?,
                             m.MIR_new_uint_op(
                                 self.ctx,
-                                o.ObjPattern.members_name.get(member_lexeme).?,
+                                o.ObjPattern.memberIndexByName(member_lexeme).?,
                             ),
                             m.MIR_new_uint_op(self.ctx, 1),
                         },
@@ -4091,7 +4091,7 @@ fn generateDot(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
                             (try self.generateNode(components.callee)).?,
                             m.MIR_new_uint_op(
                                 self.ctx,
-                                o.ObjString.members_name.get(member_lexeme).?,
+                                o.ObjString.memberIndexByName(member_lexeme).?,
                             ),
                             m.MIR_new_uint_op(self.ctx, 1),
                         },
@@ -4118,7 +4118,7 @@ fn generateDot(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
                             (try self.generateNode(components.callee)).?,
                             m.MIR_new_uint_op(
                                 self.ctx,
-                                o.ObjRange.members_name.get(member_lexeme).?,
+                                o.ObjRange.memberIndexByName(member_lexeme).?,
                             ),
                             m.MIR_new_uint_op(self.ctx, 1),
                         },
@@ -4489,7 +4489,7 @@ fn generateDot(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
                         &.{
                             m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
                             (try self.generateNode(components.callee)).?,
-                            m.MIR_new_uint_op(self.ctx, o.ObjList.members_name.get(member_lexeme).?),
+                            m.MIR_new_uint_op(self.ctx, o.ObjList.memberIndexByName(member_lexeme).?),
                             m.MIR_new_uint_op(self.ctx, 1),
                         },
                     );
@@ -4513,7 +4513,7 @@ fn generateDot(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
                         &.{
                             m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
                             (try self.generateNode(components.callee)).?,
-                            m.MIR_new_uint_op(self.ctx, o.ObjMap.members_name.get(member_lexeme).?),
+                            m.MIR_new_uint_op(self.ctx, o.ObjMap.memberIndexByName(member_lexeme).?),
                             m.MIR_new_uint_op(self.ctx, 1),
                         },
                     );

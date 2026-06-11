@@ -73,32 +73,32 @@ pub fn init(allocator: std.mem.Allocator) !GC {
         .type_registry = undefined,
         .debugger = if (BuildOptions.gc_debug_access) Debugger.init(allocator) else null,
 
-        .objfiber_members = try allocator.alloc(?*o.ObjNative, o.ObjFiber.members.len),
-        .objfiber_memberDefs = try allocator.alloc(?*o.ObjTypeDef, o.ObjFiber.members.len),
-        .objpattern_members = try allocator.alloc(?*o.ObjNative, o.ObjPattern.members.len),
-        .objpattern_memberDefs = try allocator.alloc(?*o.ObjTypeDef, o.ObjPattern.members.len),
-        .objstring_members = try allocator.alloc(?*o.ObjNative, o.ObjString.members.len),
-        .objstring_memberDefs = try allocator.alloc(?*o.ObjTypeDef, o.ObjString.members.len),
-        .objrange_members = try allocator.alloc(?*o.ObjNative, o.ObjRange.members.len),
-        .objrange_memberDefs = try allocator.alloc(?*o.ObjTypeDef, o.ObjRange.members.len),
+        .objfiber_members = try allocator.alloc(?*o.ObjNative, o.ObjFiber.member_defs.len),
+        .objfiber_memberDefs = try allocator.alloc(?*o.ObjTypeDef, o.ObjFiber.member_defs.len),
+        .objpattern_members = try allocator.alloc(?*o.ObjNative, o.ObjPattern.member_defs.len),
+        .objpattern_memberDefs = try allocator.alloc(?*o.ObjTypeDef, o.ObjPattern.member_defs.len),
+        .objstring_members = try allocator.alloc(?*o.ObjNative, o.ObjString.member_defs.len),
+        .objstring_memberDefs = try allocator.alloc(?*o.ObjTypeDef, o.ObjString.member_defs.len),
+        .objrange_members = try allocator.alloc(?*o.ObjNative, o.ObjRange.member_defs.len),
+        .objrange_memberDefs = try allocator.alloc(?*o.ObjTypeDef, o.ObjRange.member_defs.len),
     };
 
-    for (0..o.ObjFiber.members.len) |i| {
+    for (0..o.ObjFiber.member_defs.len) |i| {
         self.objfiber_members[i] = null;
         self.objfiber_memberDefs[i] = null;
     }
 
-    for (0..o.ObjPattern.members.len) |i| {
+    for (0..o.ObjPattern.member_defs.len) |i| {
         self.objpattern_members[i] = null;
         self.objpattern_memberDefs[i] = null;
     }
 
-    for (0..o.ObjString.members.len) |i| {
+    for (0..o.ObjString.member_defs.len) |i| {
         self.objstring_members[i] = null;
         self.objstring_memberDefs[i] = null;
     }
 
-    for (0..o.ObjRange.members.len) |i| {
+    for (0..o.ObjRange.member_defs.len) |i| {
         self.objrange_members[i] = null;
         self.objrange_memberDefs[i] = null;
     }

@@ -104,12 +104,20 @@ const Document = struct {
     /// Cache for inlay hints
     inlay_hints: std.ArrayList(lsp.types.InlayHint) = .empty, // I tried to make this a simple slice but the data was lost I don't know why
 
+    /// Documentation source rendered in a hover response.
+    const HoverDoc = union(enum) {
+        /// Parsed source docblock token for user-defined declarations.
+        token: Ast.TokenIndex,
+        /// Static documentation for built-in native members.
+        text: []const u8,
+    };
+
     /// Resolved information needed to render a hover response.
     const HoverInfo = struct {
         /// Buzz type rendered in the hover code block, when available.
         type_def: ?*o.ObjTypeDef,
-        /// Docblock token rendered before the type, when available.
-        docblock: ?Ast.TokenIndex,
+        /// Documentation rendered before the type, when available.
+        doc: ?HoverDoc,
     };
 
     /// Kind of hover target selected from the node under the cursor.
@@ -749,16 +757,38 @@ const Document = struct {
         return false;
     }
 
-    /// Builds object member and enum case hover data for a dot node.
+    /// Returns built-in native member documentation for a dot node.
+    fn builtinMemberDoc(self: *Document, node_index: Ast.Node.Index) ?[]const u8 {
+        const ast_slice = self.ast.slice();
+        const comp = ast_slice.nodes.items(.components)[node_index].Dot;
+        const callee_type_def = ast_slice.nodes.items(.type_def)[comp.callee] orelse return null;
+        const member_name = ast_slice.tokens.items(.lexeme)[comp.identifier];
+
+        return switch (callee_type_def.def_type) {
+            .List => if (o.ObjList.memberIndexByName(member_name)) |idx| o.ObjList.member_defs[idx].doc else null,
+            .Map => if (o.ObjMap.memberIndexByName(member_name)) |idx| o.ObjMap.member_defs[idx].doc else null,
+            .String => if (o.ObjString.memberIndexByName(member_name)) |idx| o.ObjString.member_defs[idx].doc else null,
+            .Range => if (o.ObjRange.memberIndexByName(member_name)) |idx| o.ObjRange.member_defs[idx].doc else null,
+            .Pattern => if (o.ObjPattern.memberIndexByName(member_name)) |idx| o.ObjPattern.member_defs[idx].doc else null,
+            .Fiber => if (o.ObjFiber.memberIndexByName(member_name)) |idx| o.ObjFiber.member_defs[idx].doc else null,
+            else => null,
+        };
+    }
+
+    /// Builds object member, enum case, and built-in member hover data for a dot node.
     fn dotMemberHoverInfo(self: *Document, node_index: Ast.Node.Index) !HoverInfo {
-        var docblock: ?Ast.TokenIndex = null;
-        if (try self.definition(node_index)) |def| {
-            docblock = def.docblock orelse self.ast.nodes.items(.docblock)[def.def_node];
+        var doc: ?HoverDoc = null;
+        if (self.builtinMemberDoc(node_index)) |builtin_doc| {
+            doc = .{ .text = builtin_doc };
+        } else if (try self.definition(node_index)) |def| {
+            if (def.docblock orelse self.ast.nodes.items(.docblock)[def.def_node]) |docblock| {
+                doc = .{ .token = docblock };
+            }
         }
 
         return .{
             .type_def = self.ast.nodes.items(.type_def)[node_index],
-            .docblock = docblock,
+            .doc = doc,
         };
     }
 
@@ -844,7 +874,7 @@ const Document = struct {
 
         return .{
             .type_def = type_def,
-            .docblock = docblock,
+            .doc = if (docblock) |doc| .{ .token = doc } else null,
         };
     }
 
@@ -861,13 +891,13 @@ const Document = struct {
 
         return .{
             .type_def = field.type_def,
-            .docblock = self.object_member_docblocks.getContext(
+            .doc = if (self.object_member_docblocks.getContext(
                 .{
                     .owner = object_def.location,
                     .member = field.location,
                 },
                 .{ .ast = ast_slice },
-            ),
+            )) |doc| .{ .token = doc } else null,
         };
     }
 
@@ -880,20 +910,25 @@ const Document = struct {
         };
     }
 
-    /// Builds markdown hover contents from a docblock and optional Buzz type.
+    /// Builds markdown hover contents from documentation and optional buzz type.
     fn buildHoverMarkup(self: *Document, allocator: std.mem.Allocator, hover_info: HoverInfo) !?[]const u8 {
-        if (hover_info.type_def == null and hover_info.docblock == null) {
+        if (hover_info.type_def == null and hover_info.doc == null) {
             return null;
         }
 
         var markup = std.Io.Writer.Allocating.init(allocator);
 
-        if (hover_info.docblock) |docblock_token| {
-            const doc = self.ast.tokens.items(.lexeme)[docblock_token];
+        if (hover_info.doc) |doc| {
+            switch (doc) {
+                .token => |docblock_token| {
+                    const docblock = self.ast.tokens.items(.lexeme)[docblock_token];
 
-            var it = std.mem.tokenizeSequence(u8, doc, "/// ");
-            while (it.next()) |text| {
-                try markup.writer.print("{s}", .{text});
+                    var it = std.mem.tokenizeSequence(u8, docblock, "/// ");
+                    while (it.next()) |text| {
+                        try markup.writer.print("{s}", .{text});
+                    }
+                },
+                .text => |text| try markup.writer.writeAll(text),
             }
         }
 
@@ -1870,64 +1905,22 @@ const Handler = struct {
 
                 switch (callee_type_def.def_type) {
                     .List => {
-                        for (o.ObjList.members_name.keys()) |key| {
-                            try appendCompletionItem(
-                                result,
-                                allocator,
-                                key,
-                                prefix,
-                            );
-                        }
+                        try appendBuiltinMemberCompletions(result, allocator, o.ObjList.member_defs[0..], prefix);
                     },
                     .Map => {
-                        for (o.ObjMap.members_name.keys()) |key| {
-                            try appendCompletionItem(
-                                result,
-                                allocator,
-                                key,
-                                prefix,
-                            );
-                        }
+                        try appendBuiltinMemberCompletions(result, allocator, o.ObjMap.member_defs[0..], prefix);
                     },
                     .String => {
-                        for (o.ObjString.members_name.keys()) |key| {
-                            try appendCompletionItem(
-                                result,
-                                allocator,
-                                key,
-                                prefix,
-                            );
-                        }
+                        try appendBuiltinMemberCompletions(result, allocator, o.ObjString.member_defs[0..], prefix);
                     },
                     .Range => {
-                        for (o.ObjRange.members_name.keys()) |key| {
-                            try appendCompletionItem(
-                                result,
-                                allocator,
-                                key,
-                                prefix,
-                            );
-                        }
+                        try appendBuiltinMemberCompletions(result, allocator, o.ObjRange.member_defs[0..], prefix);
                     },
                     .Pattern => {
-                        for (o.ObjPattern.members_name.keys()) |key| {
-                            try appendCompletionItem(
-                                result,
-                                allocator,
-                                key,
-                                prefix,
-                            );
-                        }
+                        try appendBuiltinMemberCompletions(result, allocator, o.ObjPattern.member_defs[0..], prefix);
                     },
                     .Fiber => {
-                        for (o.ObjFiber.members_name.keys()) |key| {
-                            try appendCompletionItem(
-                                result,
-                                allocator,
-                                key,
-                                prefix,
-                            );
-                        }
+                        try appendBuiltinMemberCompletions(result, allocator, o.ObjFiber.member_defs[0..], prefix);
                     },
                     .Object => {
                         var it = callee_type_def.resolved_type.?.Object.fields.iterator();
@@ -2289,6 +2282,21 @@ fn appendCompletionItem(
             allocator,
             .{ .label = label },
         );
+    }
+}
+
+/// Appends canonical and alias completion items from built-in member metadata.
+fn appendBuiltinMemberCompletions(
+    result: *std.ArrayList(lsp.types.completion.Item),
+    allocator: std.mem.Allocator,
+    member_defs: []const o.BuiltinMember,
+    prefix: ?CompletionPrefix,
+) !void {
+    for (member_defs) |member_def| {
+        try appendCompletionItem(result, allocator, member_def.name, prefix);
+        for (member_def.aliases) |alias| {
+            try appendCompletionItem(result, allocator, alias, prefix);
+        }
     }
 }
 
