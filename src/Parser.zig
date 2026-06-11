@@ -197,6 +197,20 @@ pub fn deinit(self: *Self) void {
     self.reporter.deinit();
 }
 
+/// Reserves a node index for declarations that must be referenceable before parsing finishes.
+fn reserveNode(self: *Self, location: Ast.TokenIndex) Error!Ast.Node.Index {
+    return try self.ast.appendNode(
+        .{
+            .tag = .Null,
+            .location = location,
+            .end_location = location,
+            .components = .{
+                .Null = {},
+            },
+        },
+    );
+}
+
 extern fn dlerror() callconv(.c) ?[*:0]u8;
 
 pub fn defaultBuzzPrefix() []const u8 {
@@ -3797,7 +3811,7 @@ fn parseObjType(self: *Self, generic_types: ?std.AutoArrayHashMapUnmanaged(*obj.
 }
 
 fn parseUserType(self: *Self, instance: bool, mutable: bool) Error!Ast.Node.Index {
-    const node_slot = try self.ast.nodes.addOne(self.ast.allocator);
+    const node_slot = try self.reserveNode(self.current_token.?);
 
     const user_type_name = try self.qualifiedName();
     var var_type: ?*obj.ObjTypeDef = null;
@@ -5849,9 +5863,8 @@ fn @"and"(self: *Self, _: bool, left: Ast.Node.Index) Error!Ast.Node.Index {
 }
 
 fn @"if"(self: *Self, is_statement: bool, loop_scope: ?LoopScope) Error!Ast.Node.Index {
-    const node_slot = try self.ast.nodes.addOne(self.ast.allocator);
-
     const start_location = self.current_token.? - 1;
+    const node_slot = try self.reserveNode(start_location);
 
     try self.consume(.LeftParen, "Expected `(` after `if`.");
 
@@ -6208,8 +6221,8 @@ fn string(self: *Self, _: bool) Error!Ast.Node.Index {
 }
 
 fn namedVariable(self: *Self, qualified_name: Ast.QualifiedName, can_assign: bool) Error!Ast.Node.Index {
-    const node_slot = try self.ast.nodes.addOne(self.ast.allocator);
     const start_location = qualified_name.firstToken();
+    const node_slot = try self.reserveNode(start_location);
 
     var var_def: ?*obj.ObjTypeDef = null;
     var slot: usize = undefined;
@@ -7501,7 +7514,7 @@ fn funDeclaration(self: *Self) Error!Ast.Node.Index {
         }
     }
 
-    const node_slot = try self.ast.nodes.addOne(self.gc.allocator);
+    const node_slot = try self.reserveNode(start_location);
 
     const slot: usize = try self.declareVariable(
         @intCast(node_slot),
@@ -7534,8 +7547,8 @@ fn funDeclaration(self: *Self) Error!Ast.Node.Index {
 }
 
 fn exportStatement(self: *Self, docblock: ?Ast.TokenIndex) Error!Ast.Node.Index {
-    const node_slot = try self.ast.nodes.addOne(self.gc.allocator);
     const start_location = self.current_token.? - 1;
+    const node_slot = try self.reserveNode(start_location);
 
     if (self.namespace == null) {
         const location = self.ast.tokens.get(self.current_token.? - 1);
@@ -8145,7 +8158,7 @@ fn objectDeclaration(self: *Self) Error!Ast.Node.Index {
 
     const scope_end = try self.endScope();
 
-    const node_slot = try self.ast.nodes.addOne(self.gc.allocator);
+    const node_slot = try self.reserveNode(start_location);
 
     const slot = try self.declareVariable(
         @intCast(node_slot),
@@ -8329,7 +8342,7 @@ fn protocolDeclaration(self: *Self) Error!Ast.Node.Index {
 
     const scope_end = try self.endScope();
 
-    const node_slot = try self.ast.nodes.addOne(self.gc.allocator);
+    const node_slot = try self.reserveNode(start_location);
 
     const slot = try self.declareVariable(
         @intCast(node_slot),
@@ -8367,8 +8380,8 @@ fn protocolDeclaration(self: *Self) Error!Ast.Node.Index {
 }
 
 fn enumDeclaration(self: *Self) Error!Ast.Node.Index {
-    const node_slot = try self.ast.nodes.addOne(self.gc.allocator);
     const start_location = self.current_token.? - 1;
+    const node_slot = try self.reserveNode(start_location);
 
     if (self.current.?.scope_depth > 0) {
         const location = self.ast.tokens.get(self.current_token.? - 1);
@@ -8616,7 +8629,13 @@ fn varDeclaration(
     should_assign: bool,
     type_provided_later: bool,
 ) Error!Ast.Node.Index {
-    const node_slot = try self.ast.nodes.addOne(self.gc.allocator);
+    const start_location = if (omits_qualifier)
+        identifier.?
+    else if (identifier) |id|
+        id - 1
+    else
+        self.current_token.? - 2;
+    const node_slot = try self.reserveNode(start_location);
     var var_type = if (parsed_type) |ptype|
         try self.ast.nodes.items(.type_def)[ptype].?.toInstance(
             &self.gc.type_registry,
@@ -8624,13 +8643,6 @@ fn varDeclaration(
         )
     else
         self.gc.type_registry.any_type; // When var type omitted, will be replaced by the value type bellow
-
-    const start_location = if (omits_qualifier)
-        identifier.?
-    else if (identifier) |id|
-        id - 1
-    else
-        self.current_token.? - 2;
 
     const slot: usize = try self.parseVariable(
         @intCast(node_slot),
@@ -8757,7 +8769,7 @@ fn implicitVarDeclaration(
     final: bool,
     mutable: bool,
 ) Error!Ast.Node.Index {
-    const node_slot = try self.ast.nodes.addOne(self.gc.allocator);
+    const node_slot = try self.reserveNode(name);
     const var_type = try parsed_type.toInstance(
         &self.gc.type_registry,
         mutable,
@@ -8798,8 +8810,8 @@ fn implicitVarDeclaration(
 
 // `test` is just like a function but we don't parse arguments and we don't care about its return type
 fn testStatement(self: *Self) Error!Ast.Node.Index {
-    const node_slot = try self.ast.nodes.addOne(self.gc.allocator);
     const start_location = self.current_token.? - 1;
+    const node_slot = try self.reserveNode(start_location);
 
     try self.consume(.String, "Expected test name");
     const name_token = self.current_token.? - 1;
@@ -9819,8 +9831,8 @@ fn zdefStatement(self: *Self) Error!Ast.Node.Index {
         );
     }
 
-    const node_slot = try self.ast.nodes.addOne(self.gc.allocator);
     const start_location = self.current_token.? - 1;
+    const node_slot = try self.reserveNode(start_location);
 
     try self.consume(.LeftParen, "Expected `(` after `zdef`.");
     try self.consume(.String, "Expected identifier after `zdef(`.");
@@ -9963,8 +9975,8 @@ fn zdefStatement(self: *Self) Error!Ast.Node.Index {
 
 // FIXME: this is almost the same as parseUserType!
 fn userVarDeclaration(self: *Self, identifier: Ast.TokenIndex, final: bool, mutable: bool, omits_qualifier: bool) Error!Ast.Node.Index {
-    const node_slot = try self.ast.nodes.addOne(self.gc.allocator);
     const start_location = self.current_token.? - 1;
+    const node_slot = try self.reserveNode(start_location);
     var var_type: ?*obj.ObjTypeDef = null;
 
     var generic_resolve: ?Ast.Node.Index = null;
@@ -10225,8 +10237,8 @@ fn forStatement(self: *Self) Error!Ast.Node.Index {
 }
 
 fn forEachStatement(self: *Self) Error!Ast.Node.Index {
-    const node_slot = try self.ast.nodes.addOne(self.gc.allocator);
     const start_location = self.current_token.? - 1;
+    const node_slot = try self.reserveNode(start_location);
 
     try self.consume(.LeftParen, "Expected `(` after `foreach`.");
 
@@ -10673,8 +10685,8 @@ fn namespaceStatement(self: *Self) Error!Ast.Node.Index {
 }
 
 fn tryStatement(self: *Self) Error!Ast.Node.Index {
-    const node_slot = try self.ast.nodes.addOne(self.gc.allocator);
     const start_location = self.current_token.? - 1;
+    const node_slot = try self.reserveNode(start_location);
 
     if (self.current.?.in_try) {
         const location = self.ast.tokens.get(self.current_token.? - 1);

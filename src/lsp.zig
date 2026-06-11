@@ -485,20 +485,27 @@ const Document = struct {
         ) (std.mem.Allocator.Error || std.fmt.BufPrintError)!bool {
             const locations = ast.nodes.items(.location);
             const end_locations = ast.nodes.items(.end_location);
-            const location = ast.tokens.get(locations[node]);
-            const end_location = ast.tokens.get(end_locations[node]);
+            const location_idx = locations[node];
+            const end_location_idx = end_locations[node];
             const script_names = ast.tokens.items(.script_name);
 
             // Ignore root node
-            if (locations[node] == 0) {
+            if (location_idx == 0) {
                 return false;
             }
+
+            if (location_idx >= ast.tokens.len or end_location_idx >= ast.tokens.len) {
+                return true;
+            }
+
+            const location = ast.tokens.get(location_idx);
+            const end_location = ast.tokens.get(end_location_idx);
 
             // Walking from the document root must only visit document-local
             // nodes. Imported scripts share the backing token/node lists, so
             // assert the parser did not attach an imported token to this range.
-            std.debug.assert(std.mem.eql(u8, script_names[locations[node]], self.uri));
-            std.debug.assert(std.mem.eql(u8, script_names[end_locations[node]], self.uri));
+            std.debug.assert(std.mem.eql(u8, script_names[location_idx], self.uri));
+            std.debug.assert(std.mem.eql(u8, script_names[end_location_idx], self.uri));
 
             // If outside of the node range, don't go deeper
             if (self.position.line < location.line or
@@ -530,20 +537,27 @@ const Document = struct {
         ) (std.mem.Allocator.Error || std.fmt.BufPrintError)!bool {
             const locations = ast.nodes.items(.location);
             const end_locations = ast.nodes.items(.end_location);
-            const location = ast.tokens.get(locations[node]);
-            const end_location = ast.tokens.get(end_locations[node]);
+            const location_idx = locations[node];
+            const end_location_idx = end_locations[node];
             const script_names = ast.tokens.items(.script_name);
 
             // Ignore root node
-            if (locations[node] == 0) {
+            if (location_idx == 0) {
                 return false;
             }
+
+            if (location_idx >= ast.tokens.len or end_location_idx >= ast.tokens.len) {
+                return true;
+            }
+
+            const location = ast.tokens.get(location_idx);
+            const end_location = ast.tokens.get(end_location_idx);
 
             // Walking from the document root must only visit document-local
             // nodes. Imported scripts share the backing token/node lists, so
             // assert the parser did not attach an imported token to this range.
-            std.debug.assert(std.mem.eql(u8, script_names[locations[node]], self.uri));
-            std.debug.assert(std.mem.eql(u8, script_names[end_locations[node]], self.uri));
+            std.debug.assert(std.mem.eql(u8, script_names[location_idx], self.uri));
+            std.debug.assert(std.mem.eql(u8, script_names[end_location_idx], self.uri));
 
             // If outside of the node range, don't go deeper
             if (self.range.start.line < location.line or
@@ -855,7 +869,33 @@ const Document = struct {
         return markup;
     }
 
+    /// Returns true when a node has an in-bounds token range in this document.
+    fn nodeHasClientRange(self: *Document, node: Ast.Node.Index) bool {
+        if (node == 0 or node >= self.ast.nodes.len) {
+            return false;
+        }
+
+        const locations = self.ast.nodes.items(.location);
+        const end_locations = self.ast.nodes.items(.end_location);
+        const location_idx = locations[node];
+        const end_location_idx = end_locations[node];
+
+        if (location_idx == 0 or
+            location_idx >= self.ast.tokens.len or
+            end_location_idx >= self.ast.tokens.len)
+        {
+            return false;
+        }
+
+        return self.isClientToken(self.ast.tokens.get(location_idx)) and
+            self.isClientToken(self.ast.tokens.get(end_location_idx));
+    }
+
     fn isRangeWithinNode(self: *Document, node: Ast.Node.Index, range: lsp.types.Range) bool {
+        if (!self.nodeHasClientRange(node)) {
+            return false;
+        }
+
         const locations = self.ast.nodes.items(.location);
         const location_idx = locations[node];
         const end_locations = self.ast.nodes.items(.end_location);
@@ -871,6 +911,10 @@ const Document = struct {
     }
 
     fn isNodeWithinOtherNode(self: *Document, node: Ast.Node.Index, other: Ast.Node.Index) bool {
+        if (!self.nodeHasClientRange(node) or !self.nodeHasClientRange(other)) {
+            return false;
+        }
+
         const locations = self.ast.nodes.items(.location);
         const end_locations = self.ast.nodes.items(.end_location);
 
@@ -890,24 +934,21 @@ const Document = struct {
     /// A normal walk would miss nodes that were not added to the tree because of a parsing error
     pub fn findNodeContainingRange(self: *Document, range: lsp.types.Range) ?Ast.Node.Index {
         const locations = self.ast.nodes.items(.location);
-        const script_names = self.ast.tokens.items(.script_name);
 
         var result: ?Ast.Node.Index = null;
-        for (locations, 0..) |location_idx, node| {
-            if (node == 0 or !std.mem.eql(u8, script_names[location_idx], self.uri)) {
+        for (locations, 0..) |_, node| {
+            const node_index: Ast.Node.Index = @intCast(node);
+            if (!self.nodeHasClientRange(node_index) or !self.isRangeWithinNode(node_index, range)) {
                 continue;
             }
 
-            result = if (result) |previous|
-                if (self.isNodeWithinOtherNode(@intCast(node), previous) and
-                    self.isRangeWithinNode(@intCast(node), range))
-                    @intCast(node)
-                else
-                    result
-            else if (self.isRangeWithinNode(@intCast(node), range))
-                @intCast(node)
-            else
-                null;
+            result = if (result) |previous| result: {
+                if (self.isNodeWithinOtherNode(node_index, previous)) {
+                    break :result node_index;
+                }
+
+                break :result result;
+            } else node_index;
         }
 
         return result;
@@ -1397,6 +1438,46 @@ test "document inlay hints tolerate incomplete function signatures" {
     defer doc.deinit();
 
     try std.testing.expect(doc.errors.len > 0);
+}
+
+test "document range lookup tolerates incomplete reserved parser nodes" {
+    const allocator = std.testing.allocator;
+
+    var process_arena = std.heap.ArenaAllocator.init(allocator);
+    defer process_arena.deinit();
+
+    var environ_map = try std.process.Environ.createMap(std.testing.environ, allocator);
+    defer environ_map.deinit();
+
+    const process = try initLspTestProcess(allocator, &process_arena, &environ_map);
+
+    const source =
+        \\if (
+        \\
+    ;
+    var doc = try Document.init(
+        process,
+        allocator,
+        source,
+        "file:///tmp/incomplete-if.buzz",
+    );
+    defer doc.deinit();
+
+    try std.testing.expect(doc.errors.len > 0);
+
+    for (doc.ast.nodes.items(.location), doc.ast.nodes.items(.end_location)) |location, end_location| {
+        if (location == 0) {
+            continue;
+        }
+
+        try std.testing.expect(location < doc.ast.tokens.len);
+        try std.testing.expect(end_location < doc.ast.tokens.len);
+    }
+
+    _ = doc.findNodeContainingRange(.{
+        .start = .{ .line = 0, .character = 0 },
+        .end = .{ .line = 0, .character = 1 },
+    });
 }
 
 test "document hover uses member docblocks at object and enum access sites" {
