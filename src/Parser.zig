@@ -4498,6 +4498,47 @@ fn call(self: *Self, _: bool, callee: Ast.Node.Index) Error!Ast.Node.Index {
     return self.callExpression(callee, null);
 }
 
+/// Parses the omitted-parentheses anonymous object argument suffix after a dot member.
+fn anonymousObjectCallArgument(self: *Self, can_assign: bool) Error!?Ast.Node.Index {
+    if (!self.check(.Dot) or !(try self.checkAhead(.LeftBrace, 0))) {
+        return null;
+    }
+
+    _ = try self.match(.Dot);
+    try self.consume(.LeftBrace, "Expected `{` after `.`.");
+
+    return try self.anonymousObjectInit(can_assign);
+}
+
+/// Finalizes a dot member as a call when `(` or a single `.{ ... }` argument is present.
+fn finishDotCallIfPresent(
+    self: *Self,
+    dot_node: Ast.Node.Index,
+    member_type: ?*obj.ObjTypeDef,
+    can_assign: bool,
+) Error!bool {
+    const anon_obj_argument = try self.anonymousObjectCallArgument(can_assign);
+    if (anon_obj_argument == null and !(try self.match(.LeftParen))) {
+        return false;
+    }
+
+    self.ast.nodes.items(.type_def)[dot_node] = member_type;
+    var components = self.ast.nodes.items(.components);
+    components[dot_node].Dot.member_kind = .Call;
+    components[dot_node].Dot.member_type_def = member_type orelse self.gc.type_registry.any_type;
+
+    const call_node = try self.callExpression(dot_node, anon_obj_argument);
+    components = self.ast.nodes.items(.components);
+    components[dot_node].Dot.value_or_call_or_enum = .{
+        .Call = call_node,
+    };
+
+    // Node type is the return type of the call.
+    self.ast.nodes.items(.type_def)[dot_node] = self.ast.nodes.items(.type_def)[call_node];
+
+    return true;
+}
+
 fn map(self: *Self, _: bool) Error!Ast.Node.Index {
     const start_location = self.current_token.? - 1;
 
@@ -5107,24 +5148,7 @@ fn dot(self: *Self, can_assign: bool, callee: Ast.Node.Index) Error!Ast.Node.Ind
                     else
                         member_type_def;
 
-                    if (try self.match(.LeftParen)) {
-                        // `call` will look to the parent node for the function definition
-                        self.ast.nodes.items(.type_def)[dot_node] = member;
-                        var components = self.ast.nodes.items(.components);
-                        components[dot_node].Dot.member_type_def = member.?;
-                        components[dot_node].Dot.member_kind = .Call;
-                        const dot_call = try self.call(
-                            can_assign,
-                            dot_node,
-                        );
-                        components = self.ast.nodes.items(.components);
-                        components[dot_node].Dot.value_or_call_or_enum = .{
-                            .Call = dot_call,
-                        };
-
-                        // Node type is the return type of the call
-                        self.ast.nodes.items(.type_def)[dot_node] = self.ast.nodes.items(.type_def)[components[dot_node].Dot.value_or_call_or_enum.Call];
-                    } else {
+                    if (!(try self.finishDotCallIfPresent(dot_node, member, can_assign))) {
                         // String has only native functions
                         self.ast.nodes.items(.components)[dot_node].Dot.member_kind = .Ref;
                         self.ast.nodes.items(.type_def)[dot_node] = member;
@@ -5153,24 +5177,7 @@ fn dot(self: *Self, can_assign: bool, callee: Ast.Node.Index) Error!Ast.Node.Ind
                     else
                         member_type_def;
 
-                    if (try self.match(.LeftParen)) {
-                        // `call` will look to the parent node for the function definition
-                        self.ast.nodes.items(.type_def)[dot_node] = member;
-                        var components = self.ast.nodes.items(.components);
-                        components[dot_node].Dot.member_type_def = member.?;
-                        components[dot_node].Dot.member_kind = .Call;
-                        const dot_call = try self.call(
-                            can_assign,
-                            dot_node,
-                        );
-                        components = self.ast.nodes.items(.components);
-                        components[dot_node].Dot.value_or_call_or_enum = .{
-                            .Call = dot_call,
-                        };
-
-                        // Node type is the return type of the call
-                        self.ast.nodes.items(.type_def)[dot_node] = self.ast.nodes.items(.type_def)[components[dot_node].Dot.value_or_call_or_enum.Call];
-                    } else {
+                    if (!(try self.finishDotCallIfPresent(dot_node, member, can_assign))) {
                         // Range has only native functions
                         self.ast.nodes.items(.components)[dot_node].Dot.member_kind = .Ref;
                         self.ast.nodes.items(.type_def)[dot_node] = member;
@@ -5199,24 +5206,7 @@ fn dot(self: *Self, can_assign: bool, callee: Ast.Node.Index) Error!Ast.Node.Ind
                     else
                         member_type_def;
 
-                    if (try self.match(.LeftParen)) {
-                        // `call` will look to the parent node for the function definition
-                        self.ast.nodes.items(.type_def)[dot_node] = member;
-                        var components = self.ast.nodes.items(.components);
-                        components[dot_node].Dot.member_type_def = member.?;
-                        components[dot_node].Dot.member_kind = .Call;
-                        const dot_call = try self.call(
-                            can_assign,
-                            dot_node,
-                        );
-                        components = self.ast.nodes.items(.components);
-                        components[dot_node].Dot.value_or_call_or_enum = .{
-                            .Call = dot_call,
-                        };
-
-                        // Node type is the return type of the call
-                        self.ast.nodes.items(.type_def)[dot_node] = self.ast.nodes.items(.type_def)[components[dot_node].Dot.value_or_call_or_enum.Call];
-                    } else {
+                    if (!(try self.finishDotCallIfPresent(dot_node, member, can_assign))) {
                         // Pattern has only native functions members
                         self.ast.nodes.items(.components)[dot_node].Dot.member_kind = .Ref;
                         self.ast.nodes.items(.type_def)[dot_node] = member;
@@ -5245,24 +5235,7 @@ fn dot(self: *Self, can_assign: bool, callee: Ast.Node.Index) Error!Ast.Node.Ind
                     else
                         member_type_def;
 
-                    if (try self.match(.LeftParen)) {
-                        // `call` will look to the parent node for the function definition
-                        self.ast.nodes.items(.type_def)[dot_node] = member;
-                        var components = self.ast.nodes.items(.components);
-                        components[dot_node].Dot.member_kind = .Call;
-                        components[dot_node].Dot.member_type_def = member.?;
-                        const dot_call = try self.call(
-                            can_assign,
-                            dot_node,
-                        );
-                        components = self.ast.nodes.items(.components);
-                        components[dot_node].Dot.value_or_call_or_enum = .{
-                            .Call = dot_call,
-                        };
-
-                        // Node type is the return type of the call
-                        self.ast.nodes.items(.type_def)[dot_node] = self.ast.nodes.items(.type_def)[components[dot_node].Dot.value_or_call_or_enum.Call];
-                    } else {
+                    if (!(try self.finishDotCallIfPresent(dot_node, member, can_assign))) {
                         // Fiber has only native functions members
                         self.ast.nodes.items(.components)[dot_node].Dot.member_kind = .Ref;
                         self.ast.nodes.items(.type_def)[dot_node] = member;
@@ -5380,20 +5353,7 @@ fn dot(self: *Self, can_assign: bool, callee: Ast.Node.Index) Error!Ast.Node.Ind
                         },
                     };
                     self.ast.nodes.items(.type_def)[dot_node] = property_type;
-                } else if (try self.match(.LeftParen)) { // Do we call it
-                    // `call` will look to the parent node for the function definition
-                    self.ast.nodes.items(.type_def)[dot_node] = property_type;
-                    components[dot_node].Dot.member_type_def = property_type orelse self.gc.type_registry.any_type;
-                    const call_node = try self.call(can_assign, dot_node);
-                    components = self.ast.nodes.items(.components); // ptr might have been invalidated
-                    components[dot_node].Dot.member_kind = .Call;
-                    components[dot_node].Dot.value_or_call_or_enum = .{
-                        .Call = call_node,
-                    };
-
-                    // Node type is the return type of the call
-                    self.ast.nodes.items(.type_def)[dot_node] = self.ast.nodes.items(.type_def)[call_node];
-                } else { // access only
+                } else if (!(try self.finishDotCallIfPresent(dot_node, property_type, can_assign))) { // access only
                     components[dot_node].Dot.member_kind = .Ref;
                     self.ast.nodes.items(.type_def)[dot_node] = property_type;
                 }
@@ -5524,20 +5484,7 @@ fn dot(self: *Self, can_assign: bool, callee: Ast.Node.Index) Error!Ast.Node.Ind
                     };
 
                     self.ast.nodes.items(.type_def)[dot_node] = property_type;
-                } else if (try self.match(.LeftParen)) { // If it's a method or placeholder we can call it
-                    // `call` will look to the parent node for the function definition
-                    self.ast.nodes.items(.type_def)[dot_node] = property_type;
-                    components[dot_node].Dot.member_kind = .Call;
-                    components[dot_node].Dot.member_type_def = property_type orelse self.gc.type_registry.any_type;
-                    const call_node = try self.call(can_assign, dot_node);
-                    components = self.ast.nodes.items(.components); // ptr might have been invalidated
-                    components[dot_node].Dot.value_or_call_or_enum = .{
-                        .Call = call_node,
-                    };
-
-                    // Node type is the return type of the call
-                    self.ast.nodes.items(.type_def)[dot_node] = self.ast.nodes.items(.type_def)[call_node];
-                } else {
+                } else if (!(try self.finishDotCallIfPresent(dot_node, property_type, can_assign))) {
                     components[dot_node].Dot.member_kind = .Ref;
                     self.ast.nodes.items(.type_def)[dot_node] = property_type;
                 }
@@ -5577,20 +5524,7 @@ fn dot(self: *Self, can_assign: bool, callee: Ast.Node.Index) Error!Ast.Node.Ind
 
                 // Only call is allowed
                 var components = self.ast.nodes.items(.components);
-                if (try self.match(.LeftParen)) {
-                    // `call` will look to the parent node for the function definition
-                    self.ast.nodes.items(.type_def)[dot_node] = method_type;
-                    components[dot_node].Dot.member_kind = .Call;
-                    components[dot_node].Dot.member_type_def = method_type orelse self.gc.type_registry.any_type;
-                    const call_node = try self.call(can_assign, dot_node);
-                    components = self.ast.nodes.items(.components); // ptr might have been invalidated
-                    components[dot_node].Dot.value_or_call_or_enum = .{
-                        .Call = call_node,
-                    };
-
-                    // Node type is the return type of the call
-                    self.ast.nodes.items(.type_def)[dot_node] = self.ast.nodes.items(.type_def)[call_node];
-                } else {
+                if (!(try self.finishDotCallIfPresent(dot_node, method_type, can_assign))) {
                     components[dot_node].Dot.member_kind = .Ref;
                     self.ast.nodes.items(.type_def)[dot_node] = method_type;
                 }
@@ -5672,21 +5606,8 @@ fn dot(self: *Self, can_assign: bool, callee: Ast.Node.Index) Error!Ast.Node.Ind
                         member_def.type_def;
 
                     var components = self.ast.nodes.items(.components);
-                    if (try self.match(.LeftParen)) {
-                        // `call` will look to the parent node for the function definition
-                        self.ast.nodes.items(.type_def)[dot_node] = member;
-                        components[dot_node].Dot.member_kind = .Call;
-                        components[dot_node].Dot.member_type_def = member.?;
-                        const call_node = try self.call(can_assign, dot_node);
-                        components = self.ast.nodes.items(.components); // ptr might have been invalidated
-                        components[dot_node].Dot.value_or_call_or_enum = .{
-                            .Call = call_node,
-                        };
-
-                        // Node type is the return type of the call
-
-                        self.ast.nodes.items(.type_def)[dot_node] = self.ast.nodes.items(.type_def)[call_node];
-                    } else {
+                    if (!(try self.finishDotCallIfPresent(dot_node, member, can_assign))) {
+                        components = self.ast.nodes.items(.components);
                         components[dot_node].Dot.member_kind = .Ref;
                         self.ast.nodes.items(.type_def)[dot_node] = member;
                     }
@@ -5717,20 +5638,8 @@ fn dot(self: *Self, can_assign: bool, callee: Ast.Node.Index) Error!Ast.Node.Ind
                     else
                         member_def.type_def;
 
-                    if (try self.match(.LeftParen)) {
-                        // `call` will look to the parent node for the function definition
-                        self.ast.nodes.items(.type_def)[dot_node] = member;
-                        components[dot_node].Dot.member_kind = .Call;
-                        components[dot_node].Dot.member_type_def = member.?;
-                        const call_node = try self.call(can_assign, dot_node);
-                        components = self.ast.nodes.items(.components); // ptr might have been invalidated
-                        components[dot_node].Dot.value_or_call_or_enum = .{
-                            .Call = call_node,
-                        };
-
-                        // Node type is the return type of the call
-                        self.ast.nodes.items(.type_def)[dot_node] = self.ast.nodes.items(.type_def)[call_node];
-                    } else {
+                    if (!(try self.finishDotCallIfPresent(dot_node, member, can_assign))) {
+                        components = self.ast.nodes.items(.components);
                         components[dot_node].Dot.member_kind = .Ref;
                         self.ast.nodes.items(.type_def)[dot_node] = member;
                     }
@@ -5790,21 +5699,8 @@ fn dot(self: *Self, can_assign: bool, callee: Ast.Node.Index) Error!Ast.Node.Ind
                             .assign_token = assign_token,
                         },
                     };
-                } else if (try self.match(.LeftParen)) {
-                    // `call` will look to the parent node for the function definition
-                    self.ast.nodes.items(.type_def)[dot_node] = placeholder;
-                    components[dot_node].Dot.member_kind = .Call;
-                    components[dot_node].Dot.member_type_def = placeholder;
-                    const call_node = try self.call(can_assign, dot_node);
-                    components = self.ast.nodes.items(.components); // ptr might have been invalidated
-                    components[dot_node].Dot.value_or_call_or_enum = .{
-                        .Call = call_node,
-                    };
-                    // TODO: here maybe we invoke instead of call??
-
-                    // Node type is the return type of the call
-                    self.ast.nodes.items(.type_def)[dot_node] = self.ast.nodes.items(.type_def)[call_node];
-                } else {
+                } else if (!(try self.finishDotCallIfPresent(dot_node, placeholder, can_assign))) {
+                    components = self.ast.nodes.items(.components);
                     components[dot_node].Dot.member_kind = .Ref;
                     self.ast.nodes.items(.type_def)[dot_node] = placeholder;
                 }

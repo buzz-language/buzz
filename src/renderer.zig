@@ -1779,12 +1779,15 @@ pub const Renderer = struct {
         defer self.ais.popIndent();
 
         if (opening_tag == .Dot) {
-            // `call .{ ... }` is stored as a normal Call node; the source token
-            // after the callee tells the formatter that parentheses were omitted.
-            assert(!invoked);
+            // The source token after the callee tells the formatter that a
+            // single anonymous object argument omitted parentheses.
             assert(comp.arguments.len == 1);
             assert(comp.arguments[0].name == null);
             assert(tags[comp.arguments[0].value] == .ObjectInit);
+
+            if (invoked) {
+                try self.ais.writeByte(' ');
+            }
 
             try self.renderNode(
                 comp.arguments[0].value,

@@ -492,20 +492,25 @@ test "fmt keeps multiline callback call opener after assignment when it fits" {
 
 test "fmt preserves anonymous object call parentheses choice" {
     try expectFmtSource(
-        \\object Payload{data:str,}
+        \\object Payload{data:str, fun join(other:Payload)=>"{this.data}:{other.data}";}
         \\fun callMe(payload:Payload)=>payload.data.len();
-        \\test "fmt"{_ = callMe .{data="hello"}; _ = callMe(.{data="hello"});}
+        \\test "fmt"{final payload=Payload{data="hello"}; _ = callMe .{data="hello"}; _ = callMe(.{data="hello"}); _ = payload.join .{data="world"}; _ = payload.join(.{data="world"});}
         \\
     ,
         \\object Payload {
         \\    data: str,
+        \\
+        \\    fun join(other: Payload) => "{this.data}:{other.data}";
         \\}
         \\
         \\fun callMe(payload: Payload) => payload.data.len();
         \\
         \\test "fmt" {
+        \\    final payload = Payload{ data = "hello" };
         \\    _ = callMe .{ data = "hello" };
         \\    _ = callMe(.{ data = "hello" });
+        \\    _ = payload.join .{ data = "world" };
+        \\    _ = payload.join(.{ data = "world" });
         \\}
         \\
     ,

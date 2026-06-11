@@ -4,6 +4,9 @@ object Payload {
     data: str,
 
     fun len() => this.data.len();
+
+    /// Joins this payload data with another payload.
+    fun join(other: Payload) => "{this.data}:{other.data}";
 }
 
 fun callMe(payload: Payload) => payload.len();
@@ -16,5 +19,20 @@ test "Parentheses around single object literal call argument can be omitted" {
     std\assert(
         len == 5,
         message: "Could call function with signle object literal argument without parentheses"
+    );
+}
+
+test "Parentheses around single object literal method call argument can be omitted" {
+    final payload = Payload{
+        data = "hello",
+    };
+
+    final joined = payload.join .{
+        data = "world",
+    };
+
+    std\assert(
+        joined == "hello:world",
+        message: "Could call method with single object literal argument without parentheses"
     );
 }
