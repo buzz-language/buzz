@@ -5407,6 +5407,35 @@ pub const VM = struct {
     ) !Value {
         const method = object.fields[method_idx];
 
+        // Enforce that an object's `collect` destructor runs at most once per
+        // instance, no matter how often it is called (see #338).
+        if (!object.collect_method_resolved) {
+            object.collect_method_resolved = true;
+            if (object.type_def.resolved_type.?.Object.fields.get("collect")) |field| {
+                if (field.method and !field.static) {
+                    object.collect_method_idx = field.index;
+                }
+            }
+        }
+        if (object.collect_method_idx) |collect_idx| {
+            if (collect_idx == method_idx) {
+                const instance = self.peek(arg_count)
+                    .obj().access(obj.ObjObjectInstance, .ObjectInstance, self.gc).?;
+
+                if (instance.collected) {
+                    // Already collected: skip the call and leave the void result
+                    // a normal `collect() > void` call would have produced.
+                    const result_slot = self.current_fiber.stack_top - arg_count - 1;
+                    result_slot[0] = Value.Void;
+                    self.current_fiber.stack_top = result_slot + 1;
+
+                    return method;
+                }
+
+                instance.collected = true;
+            }
+        }
+
         if (tail_call)
             try self.tailCall(
                 method,

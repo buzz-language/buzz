@@ -1,0 +1,26 @@
+import "buzz:std";
+
+var collectCount = 0;
+
+object Resource {
+    mut fun collect() > void {
+        collectCount = collectCount + 1;
+    }
+}
+
+test "collect runs at most once per instance" {
+    collectCount = 0;
+
+    final resource = mut Resource{};
+
+    // The VM must enforce that `collect` runs only once, even when called
+    // explicitly several times.
+    resource.collect();
+    resource.collect();
+    resource.collect();
+
+    std\assert(
+        collectCount == 1,
+        message: "collect should run at most once",
+    );
+}

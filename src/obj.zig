@@ -1552,6 +1552,9 @@ pub const ObjObjectInstance = struct {
     fields: []Value,
     /// VM in which the instance was created, we need this so the instance destructor can be called in the appropriate vm
     vm: *VM,
+    /// Set once the `collect` destructor has run, so the VM can enforce that it
+    /// runs at most once per instance (see #338).
+    collected: bool = false,
 
     pub fn setField(self: *Self, gc: *GC, key: usize, value: Value) !void {
         self.fields[key] = value;
@@ -1750,6 +1753,12 @@ pub const ObjObject = struct {
 
     /// To avoid counting object fields that are instance properties
     property_count: ?usize = 0,
+
+    /// Index of the instance `collect` destructor in `fields`, resolved lazily.
+    /// Stays null when the object has no `collect` method (see #338).
+    collect_method_idx: ?usize = null,
+    /// Whether `collect_method_idx` has been resolved yet.
+    collect_method_resolved: bool = false,
 
     pub fn init(allocator: Allocator, type_def: *ObjTypeDef) !Self {
         const self = Self{

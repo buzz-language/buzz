@@ -486,27 +486,30 @@ fn freeObj(self: *GC, obj: *o.Obj) (std.mem.Allocator.Error || std.fmt.BufPrintE
         .ObjectInstance => {
             var obj_objectinstance = o.ObjObjectInstance.cast(obj).?;
 
-            // Calling eventual destructor method
+            // Calling eventual destructor method, unless `collect` has already
+            // run for this instance (see #338).
             if (obj_objectinstance.object) |object| {
-                if (object.type_def.resolved_type.?.Object.fields.get("collect")) |field| {
-                    if (field.method and !field.static) {
-                        if (BuildOptions.gc_debug_access) {
-                            self.debugger.?.invoking_collector = true;
-                        }
-                        buzz_api.bz_invoke(
-                            obj_objectinstance.vm,
-                            obj_objectinstance.toValue(),
-                            field.index,
-                            null,
-                            0,
-                            null,
-                        );
-                        if (BuildOptions.gc_debug_access) {
-                            self.debugger.?.invoking_collector = false;
-                        }
+                if (!obj_objectinstance.collected) {
+                    if (object.type_def.resolved_type.?.Object.fields.get("collect")) |field| {
+                        if (field.method and !field.static) {
+                            if (BuildOptions.gc_debug_access) {
+                                self.debugger.?.invoking_collector = true;
+                            }
+                            buzz_api.bz_invoke(
+                                obj_objectinstance.vm,
+                                obj_objectinstance.toValue(),
+                                field.index,
+                                null,
+                                0,
+                                null,
+                            );
+                            if (BuildOptions.gc_debug_access) {
+                                self.debugger.?.invoking_collector = false;
+                            }
 
-                        // Remove void result of the collect call
-                        _ = obj_objectinstance.vm.pop();
+                            // Remove void result of the collect call
+                            _ = obj_objectinstance.vm.pop();
+                        }
                     }
                 }
             }
