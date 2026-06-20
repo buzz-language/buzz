@@ -827,9 +827,12 @@ fn generateCall(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj
         const current_function_type = current_function_typedef.function_type;
         const current_function_yield_type = current_function_typedef.yield_type;
         switch (current_function_type) {
-            // Event though a function can call a yieldable function without wraping it in a fiber, the function itself could be called in a fiber
+            // Even though a function can call a yieldable function without wrapping it in a fiber, the function itself could be called in a fiber
             .Function, .Method, .Anonymous => {
-                if (!current_function_yield_type.eql(yield_type)) {
+                // `void?` is used by inferred function types but does not carry a yielded value.
+                const compatible_void_yield = current_function_yield_type.def_type == .Void and yield_type.def_type == .Void;
+
+                if (!compatible_void_yield and !current_function_yield_type.strictEql(yield_type)) {
                     self.reporter.reportTypeCheck(
                         .yield_type,
                         self.ast.tokens.get(locations[self.current.?.function_node]),

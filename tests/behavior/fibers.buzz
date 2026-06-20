@@ -119,3 +119,210 @@ test "Wrapping call inside complex expressions" {
         message: "Could warp function call in a complex expression"
     );
 }
+
+/// Top level of a regular-call chain that yields from its deepest callee.
+fun deepYieldA(events: mut [str]) > str *> int? {
+    events.append("a:start");
+
+    final fromB = deepYieldB(events, base: 10);
+    events.append("a:after:{fromB}");
+
+    return "done {fromB}";
+}
+
+/// Second level of a regular-call chain that propagates the yield type.
+fun deepYieldB(events: mut [str], base: int) > int *> int? {
+    final local = base + 1;
+    events.append("b:start:{local}");
+
+    final fromC = deepYieldC(events, value: local);
+    events.append("b:after:{fromC}");
+
+    return fromC + local;
+}
+
+/// Third level of a regular-call chain that propagates the yield type.
+fun deepYieldC(events: mut [str], value: int) > int *> int? {
+    final local = value + 2;
+    events.append("c:start:{local}");
+
+    final fromD = deepYieldD(events, value: local);
+    events.append("c:after:{fromD}");
+
+    return fromD + local;
+}
+
+/// Deepest regular callee that actually yields values.
+fun deepYieldD(events: mut [str], value: int) > int *> int? {
+    var local = value + 3;
+    events.append("d:start:{local}");
+
+    _ = yield local;
+
+    local = local + 1;
+    events.append("d:after-first:{local}");
+
+    _ = yield local;
+
+    local = local + 1;
+    events.append("d:done:{local}");
+
+    return local;
+}
+
+test "Yield from deep regular calls" {
+    final events: mut [str] = mut [];
+    final fiber = &deepYieldA(events);
+
+    std\assert(resume fiber == 16, message: "Deep callee yielded first value");
+    std\assert(events.len() == 4, message: "Stopped at the first deep yield");
+    std\assert(events[0] == "a:start", message: "Entry frame started");
+    std\assert(events[1] == "b:start:11", message: "Second frame started");
+    std\assert(events[2] == "c:start:13", message: "Third frame started");
+    std\assert(events[3] == "d:start:16", message: "Leaf frame started");
+
+    std\assert(resume fiber == 17, message: "Deep callee yielded again");
+    std\assert(events.len() == 5, message: "Resumed in the leaf frame");
+    std\assert(
+        events[4] == "d:after-first:17",
+        message: "Leaf locals survived the first yield"
+    );
+
+    std\assert(resume fiber == null, message: "Finished after deep callee returned");
+    std\assert(fiber.over(), message: "Fiber is over after final resume");
+    std\assert(resolve fiber == "done 42", message: "Fiber return value survived");
+    std\assert(events.len() == 9, message: "All deferred frames completed");
+    std\assert(events[5] == "d:done:18", message: "Leaf completed after resume");
+    std\assert(events[6] == "c:after:18", message: "Third frame received return");
+    std\assert(events[7] == "b:after:31", message: "Second frame received return");
+    std\assert(events[8] == "a:after:42", message: "Entry frame received return");
+}
+
+test "Resolve dismisses deep regular-call yields" {
+    final events: mut [str] = mut [];
+
+    std\assert(
+        resolve &deepYieldA(events) == "done 42",
+        message: "Resolved deep-yielding fiber"
+    );
+    std\assert(events.len() == 9, message: "Resolve ran through every deep yield");
+    std\assert(events[0] == "a:start", message: "Resolved entry started");
+    std\assert(
+        events[4] == "d:after-first:17",
+        message: "Resolved past first yield"
+    );
+    std\assert(events[8] == "a:after:42", message: "Resolved entry completed");
+}
+
+/// Worker used to verify deep yields through regular method calls.
+object FiberDepthWorker {
+    /// Value used by the method chain.
+    base: int,
+
+    /// Method fiber entry that calls another method normally.
+    fun entry(events: mut [str]) > str *> int? {
+        events.append("method:entry");
+
+        final total = this.step(events);
+        events.append("method:after:{total}");
+
+        return "method {total}";
+    }
+
+    /// Intermediate method that propagates the yield type.
+    fun step(events: mut [str]) > int *> int? {
+        events.append("method:step");
+
+        return fiberDepthMethodLeaf(events, value: this.base + 1);
+    }
+}
+
+/// Leaf function called by a method chain that yields once.
+fun fiberDepthMethodLeaf(events: mut [str], value: int) > int *> int? {
+    events.append("method:leaf:{value}");
+
+    _ = yield value;
+
+    events.append("method:leaf-after:{value + 10}");
+
+    return value + 10;
+}
+
+test "Yield from deep method calls" {
+    final events: mut [str] = mut [];
+    final worker = FiberDepthWorker{ base = 20 };
+    final fiber = &worker.entry(events);
+
+    std\assert(resume fiber == 21, message: "Method leaf yielded");
+    std\assert(events.len() == 3, message: "Stopped inside method leaf");
+    std\assert(events[0] == "method:entry", message: "Method entry ran");
+    std\assert(events[1] == "method:step", message: "Regular method call ran");
+    std\assert(events[2] == "method:leaf:21", message: "Method leaf ran");
+
+    std\assert(resume fiber == null, message: "Method chain completed");
+    std\assert(resolve fiber == "method 31", message: "Method entry returned");
+    std\assert(events.len() == 5, message: "Method frames completed");
+    std\assert(events[3] == "method:leaf-after:31", message: "Method leaf resumed");
+    std\assert(events[4] == "method:after:31", message: "Method entry resumed");
+}
+
+/// Creates a yielding closure that captures mutable state.
+fun makeYieldingClosure(
+    seed: int,
+    events: mut [str],
+) > fun () > int *> int? {
+    var captured = seed;
+
+    return fun () > int *> int? {
+        events.append("closure:start:{captured}");
+
+        _ = yield captured;
+
+        captured = captured + 1;
+        events.append("closure:after:{captured}");
+
+        return captured + 10;
+    };
+}
+
+/// Fiber entry that invokes a yielding closure through a regular call.
+fun closureYieldEntry(events: mut [str]) > int *> int? {
+    final closure = makeYieldingClosure(30, events);
+    final value = closureYieldCaller(closure, events);
+
+    events.append("closure:entry-after:{value}");
+
+    return value;
+}
+
+/// Regular function that calls a yielding closure.
+fun closureYieldCaller(
+    fn: fun () > int *> int?,
+    events: mut [str],
+) > int *> int? {
+    events.append("closure:caller");
+
+    return fn();
+}
+
+test "Yield from deep closure calls preserves upvalues" {
+    final events: mut [str] = mut [];
+    final fiber = &closureYieldEntry(events);
+
+    std\assert(resume fiber == 30, message: "Closure yielded captured value");
+    std\assert(events.len() == 2, message: "Stopped in yielding closure");
+    std\assert(events[0] == "closure:caller", message: "Closure caller ran");
+    std\assert(events[1] == "closure:start:30", message: "Closure saw upvalue");
+
+    std\assert(resume fiber == null, message: "Closure fiber completed");
+    std\assert(resolve fiber == 41, message: "Closure return value propagated");
+    std\assert(events.len() == 4, message: "Closure callers completed");
+    std\assert(
+        events[2] == "closure:after:31",
+        message: "Closure upvalue survived yield"
+    );
+    std\assert(
+        events[3] == "closure:entry-after:41",
+        message: "Closure result reached entry"
+    );
+}

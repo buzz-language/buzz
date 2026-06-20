@@ -1,0 +1,11 @@
+// got type `str`, expected `int?`
+namespace yield_wrong_value_type;
+
+/// Function that yields a value incompatible with its declared yield type.
+fun yieldWrongValueType() > void *> int? {
+    _ = yield "wrong";
+}
+
+test "Yield wrong value type" {
+    _ = resolve &yieldWrongValueType();
+}

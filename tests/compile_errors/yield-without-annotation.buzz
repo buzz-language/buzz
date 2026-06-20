@@ -1,0 +1,11 @@
+// got type `int`, expected `void`
+namespace yield_without_annotation;
+
+/// Function that yields without declaring a yield type.
+fun yieldWithoutAnnotation() > void {
+    _ = yield 1;
+}
+
+test "Yield without annotation" {
+    yieldWithoutAnnotation();
+}

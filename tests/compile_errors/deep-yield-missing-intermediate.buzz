@@ -1,0 +1,23 @@
+// got type `int?`, expected `void`
+namespace deep_yield_missing_intermediate;
+
+/// Leaf function that yields an integer.
+fun missingIntermediateLeaf() > int *> int? {
+    _ = yield 1;
+
+    return 2;
+}
+
+/// Intermediate function missing the propagated yield type.
+fun missingIntermediateMiddle() > int {
+    return missingIntermediateLeaf();
+}
+
+/// Fiber entry that otherwise declares the propagated yield type.
+fun missingIntermediateEntry() > int *> int? {
+    return missingIntermediateMiddle();
+}
+
+test "Deep yield missing intermediate annotation" {
+    _ = resolve &missingIntermediateEntry();
+}

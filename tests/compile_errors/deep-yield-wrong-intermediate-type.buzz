@@ -1,0 +1,18 @@
+// got type `int?`, expected `str?`
+namespace deep_yield_wrong_intermediate_type;
+
+/// Leaf function that yields an integer.
+fun wrongIntermediateLeaf() > int *> int? {
+    _ = yield 1;
+
+    return 2;
+}
+
+/// Intermediate function declaring the wrong propagated yield type.
+fun wrongIntermediateMiddle() > int *> str? {
+    return wrongIntermediateLeaf();
+}
+
+test "Deep yield wrong intermediate annotation" {
+    _ = resolve &wrongIntermediateMiddle();
+}
