@@ -1776,6 +1776,11 @@ const Handler = struct {
             for (doc.errors) |report| {
                 for (report.items) |item| {
                     if (std.mem.eql(u8, item.location.script_name, doc.uri)) {
+                        const tags: ?[]const lsp.types.Diagnostic.Tag = if (report.error_type == .unreachable_code)
+                            &.{.Unnecessary}
+                        else
+                            null;
+
                         try diags.append(
                             self.allocator,
                             .{
@@ -1795,6 +1800,7 @@ const Handler = struct {
                                     .hint => .Hint,
                                 },
                                 .message = item.message,
+                                .tags = tags,
                             },
                         );
                     }

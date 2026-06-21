@@ -1,4 +1,4 @@
-// Only one `out` statement is allowed in block expression
+// Code will never be reached
 test "multiple out statements" {
     from {
         out "one";

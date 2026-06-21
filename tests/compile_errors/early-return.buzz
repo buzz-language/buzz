@@ -1,4 +1,4 @@
-// Code after return statement will never be reached
+// Code will never be reached
 import "buzz:std";
 
 test "Early return" {

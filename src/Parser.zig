@@ -7232,60 +7232,50 @@ fn blockExpression(self: *Self, _: bool) Error!Ast.Node.Index {
     try self.consume(.LeftBrace, "Expected `{` at start of block expression");
 
     try self.beginScope(null);
+    const previous_block_expression = self.current.?.in_block_expression;
     self.current.?.in_block_expression = self.current.?.scope_depth;
+    errdefer self.current.?.in_block_expression = previous_block_expression;
 
     var statements = std.ArrayList(Ast.Node.Index).empty;
 
-    var out: ?Ast.Node.Index = null;
     while (!self.check(.RightBrace) and !self.check(.Eof)) {
         if (try self.declarationOrStatement(null)) |stmt| {
             try statements.append(self.gc.allocator, stmt);
-
-            if (self.ast.nodes.items(.tag)[stmt] == .Out) {
-                if (out != null) {
-                    self.reportErrorAtNode(
-                        .syntax,
-                        stmt,
-                        "Only one `out` statement is allowed in block expression",
-                        .{},
-                    );
-                }
-
-                out = stmt;
-            }
         }
     }
 
-    if (out != null and statements.getLastOrNull() != out) {
-        if (statements.getLastOrNull()) |stmt| {
-            self.reportErrorAtNode(
-                .syntax,
-                stmt,
-                "Last block expression statement must be `out`",
-                .{},
-            );
-        } else {
-            const location = self.ast.tokens.get(self.current_token.? - 1);
-            self.reporter.reportErrorAt(
-                .syntax,
-                location,
-                location,
-                "Last block expression statement must be `out`",
-            );
-        }
+    const flow = try self.ast.slice().blockExpressionFlowStatements(
+        self.gc.allocator,
+        self.gc,
+        statements.items,
+        .{
+            .out_exits = true,
+        },
+    );
+
+    if (flow.terminal.outs and flow.terminal.falls_through) {
+        const location = self.ast.tokens.get(self.current_token.? - 1);
+        self.reporter.reportErrorAt(
+            .syntax,
+            location,
+            location,
+            "All block expression paths must end with `out`",
+        );
     }
 
     try self.consume(.RightBrace, "Expected `}` at end of block expression");
 
-    self.current.?.in_block_expression = null;
+    self.current.?.in_block_expression = previous_block_expression;
 
     return try self.ast.appendNode(
         .{
             .tag = .BlockExpression,
             .location = start_location,
             .end_location = self.current_token.? - 1,
-            .type_def = if (out) |o|
-                self.ast.nodes.items(.type_def)[o]
+            .type_def = if (flow.terminal.outs)
+                flow.out_type orelse self.gc.type_registry.any_type
+            else if (flow.terminal.terminal())
+                self.gc.type_registry.any_type
             else
                 self.gc.type_registry.void_type,
             .components = .{
@@ -10552,14 +10542,6 @@ fn outStatement(self: *Self) Error!Ast.Node.Index {
             location,
             "`out` statement is only allowed inside a block expression",
         );
-    } else if (self.current.?.scope_depth != self.current.?.in_block_expression.?) {
-        const location = self.ast.tokens.get(start_location);
-        self.reporter.reportErrorAt(
-            .syntax,
-            location,
-            location,
-            "`out` statement must be the last statement of a block expression",
-        );
     }
 
     const expr = try self.expression(false);
@@ -10572,6 +10554,10 @@ fn outStatement(self: *Self) Error!Ast.Node.Index {
             .location = start_location,
             .end_location = self.current_token.? - 1,
             .type_def = self.ast.nodes.items(.type_def)[expr],
+            .ends_scope = if (self.current.?.in_block_expression) |scope_depth|
+                try self.closeScope(scope_depth)
+            else
+                null,
             .components = .{
                 .Out = expr,
             },

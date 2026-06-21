@@ -141,6 +141,7 @@ pub const Error = enum(u8) {
     unexhaustive_match = 105,
     match_condition_type = 106,
     match_duplicate_condition = 107,
+    unreachable_code = 108,
 };
 
 pub const ReportKind = enum {

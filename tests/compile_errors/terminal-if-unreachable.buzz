@@ -1,0 +1,17 @@
+// Code will never be reached
+import "buzz:std";
+
+/// Terminates in both branches, making the following return unreachable.
+fun value(flag: bool) > int !> str {
+    if (flag) {
+        return 1;
+    } else {
+        throw "failed";
+    }
+
+    return 2;
+}
+
+test "terminal if unreachable" {
+    std\assert(value(true) == 1);
+}

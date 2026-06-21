@@ -1,0 +1,9 @@
+// Missing return statement
+/// Returns from only one branch, so the function can still fall through.
+fun value(flag: bool) > int {
+    if (flag) {
+        return 1;
+    }
+}
+
+test "missing return one branch" {}

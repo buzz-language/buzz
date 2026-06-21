@@ -1426,6 +1426,453 @@ pub const Slice = struct {
 
         return value.* orelse Value.Void;
     }
+
+    /// Context used to interpret terminal statements while analyzing a node.
+    pub const TerminalFlowContext = struct {
+        /// Loop whose reachable breaks and continues should be reported.
+        target_loop: ?Node.Index = null,
+        /// Nearest loop that receives unlabeled break and continue statements.
+        unlabeled_loop: ?Node.Index = null,
+        /// Whether an `out` statement exits the currently analyzed block expression.
+        out_exits: bool = false,
+
+        /// Returns whether a break or continue destination reaches `target_loop`.
+        fn targetsLoop(self: TerminalFlowContext, destination: ?Node.Index) bool {
+            const target_loop = self.target_loop orelse return false;
+
+            if (destination) |dest| {
+                return dest == target_loop;
+            }
+
+            return self.unlabeled_loop != null and self.unlabeled_loop.? == target_loop;
+        }
+    };
+
+    /// Conservative summary of whether and how execution can leave an AST node.
+    pub const TerminalFlow = struct {
+        /// At least one reachable path continues after the analyzed node.
+        falls_through: bool = true,
+        /// At least one reachable path exits through a return statement.
+        returns: bool = false,
+        /// At least one reachable path exits through a throw statement.
+        throws: bool = false,
+        /// At least one reachable path exits the active block expression with `out`.
+        outs: bool = false,
+        /// At least one reachable path breaks to the active analysis target.
+        breaks: bool = false,
+        /// At least one reachable path continues to the active analysis target.
+        continues: bool = false,
+
+        /// Returns whether the analyzed node cannot continue to the following statement.
+        pub fn terminal(self: TerminalFlow) bool {
+            return !self.falls_through;
+        }
+
+        /// Merges terminal outcomes from another summary without changing fallthrough.
+        pub fn merge(self: *TerminalFlow, other: TerminalFlow) void {
+            self.returns = self.returns or other.returns;
+            self.throws = self.throws or other.throws;
+            self.outs = self.outs or other.outs;
+            self.breaks = self.breaks or other.breaks;
+            self.continues = self.continues or other.continues;
+        }
+
+        /// Converts a block-expression-internal summary to the flow seen by its parent expression.
+        pub fn asExpression(self: TerminalFlow) TerminalFlow {
+            return .{
+                .falls_through = self.falls_through or self.outs,
+                .returns = self.returns,
+                .throws = self.throws,
+                .breaks = self.breaks,
+                .continues = self.continues,
+            };
+        }
+    };
+
+    /// Terminal flow plus the merged type of reachable block-expression `out` values.
+    pub const BlockExpressionFlow = struct {
+        terminal: TerminalFlow = .{},
+        out_type: ?*obj.ObjTypeDef = null,
+
+        /// Merges an `out` expression type into this summary.
+        fn mergeOutType(self: *BlockExpressionFlow, gc: *GC, type_def: ?*obj.ObjTypeDef) Error!void {
+            const incoming = type_def orelse return;
+
+            if (self.out_type) |current| {
+                if (!current.eql(incoming)) {
+                    self.out_type = gc.type_registry.any_type;
+                }
+            } else {
+                self.out_type = incoming;
+            }
+        }
+
+        /// Merges flow outcomes from another summary without changing fallthrough.
+        fn merge(self: *BlockExpressionFlow, gc: *GC, other: BlockExpressionFlow) Error!void {
+            self.terminal.merge(other.terminal);
+            try self.mergeOutType(gc, other.out_type);
+        }
+
+        /// Propagates labeled loop jumps that escape through a nested loop to an outer target loop.
+        fn mergeOuterLoopJumps(
+            self: *BlockExpressionFlow,
+            ast: Self.Slice,
+            allocator: std.mem.Allocator,
+            gc: *GC,
+            body: Node.Index,
+            loop_node: Node.Index,
+            ctx: TerminalFlowContext,
+        ) Error!void {
+            if (ctx.target_loop == null or ctx.target_loop.? == loop_node) {
+                return;
+            }
+
+            const outer_flow = try ast.blockExpressionFlow(
+                allocator,
+                gc,
+                body,
+                .{
+                    .target_loop = ctx.target_loop,
+                    .unlabeled_loop = loop_node,
+                    .out_exits = ctx.out_exits,
+                },
+            );
+            self.terminal.breaks = self.terminal.breaks or outer_flow.terminal.breaks;
+            self.terminal.continues = self.terminal.continues or outer_flow.terminal.continues;
+        }
+    };
+
+    /// Computes terminal flow and reachable `out` value type for a single AST node.
+    fn blockExpressionFlow(
+        self: Self.Slice,
+        allocator: std.mem.Allocator,
+        gc: *GC,
+        node: Node.Index,
+        ctx: TerminalFlowContext,
+    ) Error!BlockExpressionFlow {
+        const tags = self.nodes.items(.tag);
+        const components = self.nodes.items(.components);
+
+        return switch (tags[node]) {
+            .Return => .{
+                .terminal = .{
+                    .falls_through = false,
+                    .returns = true,
+                },
+            },
+            .Throw => .{
+                .terminal = .{
+                    .falls_through = false,
+                    .throws = true,
+                },
+            },
+            .Out => if (ctx.out_exits) .{
+                .terminal = .{
+                    .falls_through = false,
+                    .outs = true,
+                },
+                .out_type = self.nodes.items(.type_def)[node],
+            } else .{},
+            .Break => brk: {
+                break :brk .{
+                    .terminal = .{
+                        .falls_through = false,
+                        .breaks = ctx.targetsLoop(components[node].Break.destination),
+                    },
+                };
+            },
+            .Continue => .{
+                .terminal = .{
+                    .falls_through = false,
+                    .continues = ctx.targetsLoop(components[node].Continue.destination),
+                },
+            },
+            .Block => try self.blockExpressionFlowStatements(
+                allocator,
+                gc,
+                components[node].Block,
+                ctx,
+            ),
+            .BlockExpression => expr: {
+                const inner = try self.blockExpressionFlowStatements(
+                    allocator,
+                    gc,
+                    components[node].BlockExpression,
+                    .{
+                        .target_loop = ctx.target_loop,
+                        .unlabeled_loop = ctx.unlabeled_loop,
+                        .out_exits = true,
+                    },
+                );
+
+                break :expr .{
+                    .terminal = inner.terminal.asExpression(),
+                };
+            },
+            .Expression => try self.blockExpressionFlow(
+                allocator,
+                gc,
+                components[node].Expression,
+                ctx,
+            ),
+            .If => try self.ifTerminalFlow(allocator, gc, node, ctx),
+            .Match => try self.matchTerminalFlow(allocator, gc, node, ctx),
+            .While => try self.whileTerminalFlow(allocator, gc, node, ctx),
+            .For => try self.forTerminalFlow(allocator, gc, node, ctx),
+            .DoUntil => try self.doUntilTerminalFlow(allocator, gc, node, ctx),
+            .Try => .{},
+            else => .{},
+        };
+    }
+
+    /// Computes terminal flow and reachable `out` value type for an ordered statement list.
+    pub fn blockExpressionFlowStatements(
+        self: Self.Slice,
+        allocator: std.mem.Allocator,
+        gc: *GC,
+        statements: []const Node.Index,
+        ctx: TerminalFlowContext,
+    ) Error!BlockExpressionFlow {
+        var result = BlockExpressionFlow{};
+        var falls_through = true;
+
+        for (statements) |statement| {
+            if (!falls_through) {
+                break;
+            }
+
+            const statement_flow = try self.blockExpressionFlow(
+                allocator,
+                gc,
+                statement,
+                ctx,
+            );
+            try result.merge(gc, statement_flow);
+
+            falls_through = statement_flow.terminal.falls_through;
+        }
+
+        result.terminal.falls_through = falls_through;
+
+        return result;
+    }
+
+    /// Returns a boolean value when a node is a compile-time boolean constant.
+    fn constantBoolean(
+        self: Self.Slice,
+        allocator: std.mem.Allocator,
+        gc: *GC,
+        node: Node.Index,
+    ) Error!?bool {
+        const type_def = self.nodes.items(.type_def)[node] orelse return null;
+        if (type_def.optional or type_def.def_type != .Boolean) {
+            return null;
+        }
+
+        if (!try self.isConstant(allocator, node)) {
+            return null;
+        }
+
+        return (try self.toValue(node, gc)).boolean();
+    }
+
+    /// Computes flow for an if node, folding constant conditions when possible.
+    fn ifTerminalFlow(
+        self: Self.Slice,
+        allocator: std.mem.Allocator,
+        gc: *GC,
+        node: Node.Index,
+        ctx: TerminalFlowContext,
+    ) Error!BlockExpressionFlow {
+        const components = self.nodes.items(.components)[node].If;
+
+        if (components.unwrapped_identifier == null and components.casted_type == null) {
+            if (try self.constantBoolean(allocator, gc, components.condition)) |condition| {
+                if (condition) {
+                    return try self.blockExpressionFlow(allocator, gc, components.body, ctx);
+                }
+
+                if (components.else_branch) |else_branch| {
+                    return try self.blockExpressionFlow(allocator, gc, else_branch, ctx);
+                }
+
+                return .{};
+            }
+        }
+
+        var result = try self.blockExpressionFlow(allocator, gc, components.body, ctx);
+
+        if (components.else_branch) |else_branch| {
+            const else_flow = try self.blockExpressionFlow(allocator, gc, else_branch, ctx);
+            result.terminal.falls_through = result.terminal.falls_through or else_flow.terminal.falls_through;
+            try result.merge(gc, else_flow);
+        } else {
+            result.terminal.falls_through = true;
+        }
+
+        return result;
+    }
+
+    /// Computes flow for a match node when all explicit branches can be inspected.
+    fn matchTerminalFlow(
+        self: Self.Slice,
+        allocator: std.mem.Allocator,
+        gc: *GC,
+        node: Node.Index,
+        ctx: TerminalFlowContext,
+    ) Error!BlockExpressionFlow {
+        const components = self.nodes.items(.components)[node].Match;
+        var result = BlockExpressionFlow{
+            .terminal = .{
+                .falls_through = components.else_branch == null,
+            },
+        };
+
+        for (components.branches) |branch| {
+            const branch_flow = try self.blockExpressionFlow(
+                allocator,
+                gc,
+                branch.expression,
+                ctx,
+            );
+            result.terminal.falls_through = result.terminal.falls_through or branch_flow.terminal.falls_through;
+            try result.merge(gc, branch_flow);
+        }
+
+        if (components.else_branch) |else_branch| {
+            const else_flow = try self.blockExpressionFlow(allocator, gc, else_branch, ctx);
+            result.terminal.falls_through = result.terminal.falls_through or else_flow.terminal.falls_through;
+            try result.merge(gc, else_flow);
+        }
+
+        return result;
+    }
+
+    /// Computes flow for a while loop, including proven infinite loops without reachable breaks.
+    fn whileTerminalFlow(
+        self: Self.Slice,
+        allocator: std.mem.Allocator,
+        gc: *GC,
+        node: Node.Index,
+        ctx: TerminalFlowContext,
+    ) Error!BlockExpressionFlow {
+        const components = self.nodes.items(.components)[node].While;
+
+        if (try self.constantBoolean(allocator, gc, components.condition)) |condition| {
+            if (!condition) {
+                return .{};
+            }
+        } else {
+            return .{};
+        }
+
+        const body_flow = try self.blockExpressionFlow(
+            allocator,
+            gc,
+            components.body,
+            .{
+                .target_loop = node,
+                .unlabeled_loop = node,
+                .out_exits = ctx.out_exits,
+            },
+        );
+
+        var result = BlockExpressionFlow{
+            .terminal = .{
+                .falls_through = body_flow.terminal.breaks,
+                .returns = body_flow.terminal.returns,
+                .throws = body_flow.terminal.throws,
+                .outs = body_flow.terminal.outs,
+            },
+            .out_type = body_flow.out_type,
+        };
+
+        try result.mergeOuterLoopJumps(self, allocator, gc, components.body, node, ctx);
+
+        return result;
+    }
+
+    /// Computes flow for a for loop, including constant-true loops without reachable breaks.
+    fn forTerminalFlow(
+        self: Self.Slice,
+        allocator: std.mem.Allocator,
+        gc: *GC,
+        node: Node.Index,
+        ctx: TerminalFlowContext,
+    ) Error!BlockExpressionFlow {
+        const components = self.nodes.items(.components)[node].For;
+
+        if (try self.constantBoolean(allocator, gc, components.condition)) |condition| {
+            if (!condition) {
+                return .{};
+            }
+        } else {
+            return .{};
+        }
+
+        const body_flow = try self.blockExpressionFlow(
+            allocator,
+            gc,
+            components.body,
+            .{
+                .target_loop = node,
+                .unlabeled_loop = node,
+                .out_exits = ctx.out_exits,
+            },
+        );
+
+        var result = BlockExpressionFlow{
+            .terminal = .{
+                .falls_through = body_flow.terminal.breaks,
+                .returns = body_flow.terminal.returns,
+                .throws = body_flow.terminal.throws,
+                .outs = body_flow.terminal.outs,
+            },
+            .out_type = body_flow.out_type,
+        };
+
+        try result.mergeOuterLoopJumps(self, allocator, gc, components.body, node, ctx);
+
+        return result;
+    }
+
+    /// Computes flow for a do-until loop, accounting for the body running before the condition.
+    fn doUntilTerminalFlow(
+        self: Self.Slice,
+        allocator: std.mem.Allocator,
+        gc: *GC,
+        node: Node.Index,
+        ctx: TerminalFlowContext,
+    ) Error!BlockExpressionFlow {
+        const components = self.nodes.items(.components)[node].DoUntil;
+        const body_flow = try self.blockExpressionFlow(
+            allocator,
+            gc,
+            components.body,
+            .{
+                .target_loop = node,
+                .unlabeled_loop = node,
+                .out_exits = ctx.out_exits,
+            },
+        );
+        const condition = try self.constantBoolean(allocator, gc, components.condition);
+        const condition_allows_exit = condition == null or condition.?;
+
+        var result = BlockExpressionFlow{
+            .terminal = .{
+                .falls_through = body_flow.terminal.breaks or
+                    (body_flow.terminal.falls_through and condition_allows_exit),
+                .returns = body_flow.terminal.returns,
+                .throws = body_flow.terminal.throws,
+                .outs = body_flow.terminal.outs,
+            },
+            .out_type = body_flow.out_type,
+        };
+
+        try result.mergeOuterLoopJumps(self, allocator, gc, components.body, node, ctx);
+
+        return result;
+    }
 };
 
 pub fn init(allocator: std.mem.Allocator) Self {

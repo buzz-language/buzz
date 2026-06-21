@@ -93,6 +93,11 @@ const State = struct {
     /// Label to jump to when continuing a loop whithout a label
     continue_label: m.MIR_insn_t = null,
 
+    /// Label reached by `out` statements in the current block expression.
+    block_expression_out_label: m.MIR_insn_t = null,
+    /// Register holding the value produced by `out` in the current block expression.
+    block_expression_out_value: ?m.MIR_reg_t = null,
+
     breaks_label: Breaks = .empty,
 
     args_buffer: [255]m.MIR_op_t = undefined,
@@ -878,7 +883,7 @@ fn generateNode(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
         .VarDeclaration => try self.generateVarDeclaration(node),
         .Block => try self.generateBlock(node),
         .BlockExpression => try self.generateBlockExpression(node),
-        .Out => try self.generateNode(components[node].Out),
+        .Out => try self.generateOut(node),
         .Call => try self.generateCall(node),
         .NamedVariable => try self.generateNamedVariable(node),
         .Return => try self.generateReturn(node),
@@ -920,46 +925,10 @@ fn generateNode(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
         },
     };
 
-    if (tag != .Break and tag != .Continue) {
+    if (tag != .Break and tag != .Continue and tag != .Out) {
         // Patch opt jumps if needed
         if (self.state.?.ast.nodes.items(.patch_opt_jumps)[node]) {
-            std.debug.assert(self.state.?.opt_jumps.items.len > 0);
-
-            var opt_jump = self.state.?.opt_jumps.pop().?;
-            const out_label = m.MIR_new_label(self.ctx);
-
-            // We reached here, means nothing was null, set the alloca with the value and use it has the node return value
-            self.MOV(
-                m.MIR_new_reg_op(self.ctx, opt_jump.alloca),
-                value.?,
-            );
-
-            self.JMP(out_label);
-
-            // Patch opt blocks with the branching
-            for (opt_jump.current_insn.items) |current_insn| {
-                m.MIR_insert_insn_after(
-                    self.ctx,
-                    self.state.?.function.?,
-                    current_insn,
-                    m.MIR_new_insn_arr(
-                        self.ctx,
-                        @intFromEnum(m.MIR_Instruction.BEQ),
-                        3,
-                        &.{
-                            m.MIR_new_label_op(self.ctx, out_label),
-                            m.MIR_new_reg_op(self.ctx, opt_jump.alloca),
-                            m.MIR_new_uint_op(self.ctx, Value.Null.val),
-                        },
-                    ),
-                );
-            }
-
-            self.append(out_label);
-
-            value = m.MIR_new_reg_op(self.ctx, opt_jump.alloca);
-
-            opt_jump.deinit(self.gc.allocator);
+            value = try self.patchOptJumps(node, value.?);
         }
         // Close scope if needed
         if (constant == null or tag != .Range) { // Range creates locals for its limits, but we don't push anything if its constant
@@ -968,6 +937,48 @@ fn generateNode(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
     }
 
     return value;
+}
+
+/// Patches pending optional-chain jumps and returns the register containing the resolved value.
+fn patchOptJumps(self: *Self, node: Ast.Node.Index, value: m.MIR_op_t) !m.MIR_op_t {
+    std.debug.assert(self.state.?.ast.nodes.items(.patch_opt_jumps)[node]);
+    std.debug.assert(self.state.?.opt_jumps.items.len > 0);
+
+    var opt_jump = self.state.?.opt_jumps.pop().?;
+    const out_label = m.MIR_new_label(self.ctx);
+
+    // We reached here, means nothing was null, set the alloca with the value and use it as the node return value.
+    self.MOV(
+        m.MIR_new_reg_op(self.ctx, opt_jump.alloca),
+        value,
+    );
+
+    self.JMP(out_label);
+
+    // Patch opt blocks with the branching.
+    for (opt_jump.current_insn.items) |current_insn| {
+        m.MIR_insert_insn_after(
+            self.ctx,
+            self.state.?.function.?,
+            current_insn,
+            m.MIR_new_insn_arr(
+                self.ctx,
+                @intFromEnum(m.MIR_Instruction.BEQ),
+                3,
+                &.{
+                    m.MIR_new_label_op(self.ctx, out_label),
+                    m.MIR_new_reg_op(self.ctx, opt_jump.alloca),
+                    m.MIR_new_uint_op(self.ctx, Value.Null.val),
+                },
+            ),
+        );
+    }
+
+    self.append(out_label);
+
+    opt_jump.deinit(self.gc.allocator);
+
+    return m.MIR_new_reg_op(self.ctx, opt_jump.alloca);
 }
 
 fn closeScope(self: *Self, node: Ast.Node.Index) !void {
@@ -5496,16 +5507,57 @@ fn generateBlock(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
 
 fn generateBlockExpression(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
     const statements = self.state.?.ast.nodes.items(.components)[node].BlockExpression;
+    const out_label = m.MIR_new_label(self.ctx);
+    const out_value = try self.REG("block_expression_out", m.MIR_T_I64);
 
-    var out_statement: ?m.MIR_op_t = null;
-    for (statements) |statement| {
-        out_statement = try self.generateNode(statement);
+    const previous_out_label = self.state.?.block_expression_out_label;
+    const previous_out_value = self.state.?.block_expression_out_value;
+    self.state.?.block_expression_out_label = out_label;
+    self.state.?.block_expression_out_value = out_value;
+    defer {
+        self.state.?.block_expression_out_label = previous_out_label;
+        self.state.?.block_expression_out_value = previous_out_value;
     }
 
-    return if (statements.len > 0 and self.state.?.ast.nodes.items(.tag)[statements[statements.len - 1]] == .Out)
-        out_statement.?
-    else
-        null;
+    // The typechecker guarantees that value-typed block expressions reach an `out`.
+    // Keeping a void fallback lets terminal return/throw-only paths compile without producing a null MIR operand.
+    self.MOV(
+        m.MIR_new_reg_op(self.ctx, out_value),
+        m.MIR_new_uint_op(self.ctx, Value.Void.val),
+    );
+
+    for (statements) |statement| {
+        _ = try self.generateNode(statement);
+    }
+
+    self.append(out_label);
+
+    return m.MIR_new_reg_op(self.ctx, out_value);
+}
+
+/// Generates `out` as an early exit from the innermost block expression.
+fn generateOut(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
+    var value = (try self.generateNode(self.state.?.ast.nodes.items(.components)[node].Out)).?;
+
+    if (self.state.?.ast.nodes.items(.patch_opt_jumps)[node]) {
+        value = try self.patchOptJumps(node, value);
+    }
+
+    if (self.state.?.block_expression_out_label) |out_label| {
+        const out_value = self.state.?.block_expression_out_value.?;
+        const result = m.MIR_new_reg_op(self.ctx, out_value);
+
+        // Store before closing the scope so `out` can safely use locals from the block expression.
+        self.MOV(result, value);
+        try self.closeScope(node);
+        self.JMP(out_label);
+
+        return result;
+    }
+
+    try self.closeScope(node);
+
+    return value;
 }
 
 fn generateFunDeclaration(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {

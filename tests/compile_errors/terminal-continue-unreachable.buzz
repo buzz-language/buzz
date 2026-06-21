@@ -1,0 +1,11 @@
+// Code will never be reached
+/// Warns after a continue statement starts the next loop iteration.
+fun unreachableAfterContinue() {
+    while (true) {
+        continue;
+
+        _ = "unreachable";
+    }
+}
+
+test "terminal continue unreachable" {}

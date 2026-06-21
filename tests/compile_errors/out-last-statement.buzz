@@ -1,8 +1,7 @@
-// Last block expression statement must be `out`
+// Code will never be reached
 test "out must be last statement" {
     from {
         out "i should be last";
-
         "hello world";
     };
 }

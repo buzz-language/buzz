@@ -1,0 +1,40 @@
+import "buzz:std";
+
+enum State {
+    todo,
+    doing,
+    done,
+}
+
+object Task {
+    title: str,
+    points: int?,
+    state: State = .todo,
+
+    fun score() => match (this.state) {
+        .done -> this.points ?? 0,
+        .doing, .todo -> 0
+    };
+}
+
+fun scores(tasks: [Task]) > str *> int? {
+    foreach (task in tasks) {
+        _ = yield task.score();
+    }
+    return "scored {tasks.len()} tasks";
+}
+
+fun main() > void {
+    final tasks: [Task] = [
+        .{ title = "parser", points = 8, state = .done },
+        .{ title = "lsp", points = 5, state = .doing },
+        .{ title = "docs", points = 3 },
+    ];
+
+    var total = 0;
+    foreach (score in &scores(tasks)) {
+        total += score ?? 0;
+    }
+
+    std\print("completed points: {total}");
+}

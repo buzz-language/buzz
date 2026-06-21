@@ -1,0 +1,10 @@
+// All block expression paths must end with `out`
+test "partial block expression out" {
+    final flag = true;
+
+    _ = from {
+        if (flag) {
+            out 1;
+        }
+    };
+}

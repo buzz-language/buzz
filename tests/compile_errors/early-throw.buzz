@@ -1,0 +1,11 @@
+// Code will never be reached
+/// Throws before reaching the following return statement.
+fun fail() > int !> str {
+    throw "failed";
+
+    return 1;
+}
+
+test "early throw" {
+    _ = fail() catch 0;
+}

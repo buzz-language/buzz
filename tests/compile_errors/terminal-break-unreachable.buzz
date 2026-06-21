@@ -1,0 +1,11 @@
+// Code will never be reached
+/// Warns after a break statement exits the surrounding loop.
+fun unreachableAfterBreak() {
+    while (true) {
+        break;
+
+        _ = "unreachable";
+    }
+}
+
+test "terminal break unreachable" {}

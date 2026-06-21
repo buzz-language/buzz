@@ -35,7 +35,6 @@ pub const Frame = struct {
     function_node: Ast.Node.Index,
     function: ?*obj.ObjFunction = null,
     return_counts: bool = false,
-    return_emitted: bool = false,
     // Keep track of constants to avoid adding the same more than once to the chunk
     constants: std.AutoHashMapUnmanaged(Value, u24) = .empty,
 
@@ -55,7 +54,17 @@ const NodeGen = *const fn (
     self: *Self,
     node: Ast.Node.Index,
     breaks: ?*Breaks,
-) Error!?*obj.ObjFunction;
+) Error!GeneratedNode;
+
+const TerminalFlow = Ast.Slice.TerminalFlow;
+
+/// Result produced while generating an AST node.
+const GeneratedNode = struct {
+    /// Function object produced by function-like nodes.
+    function: ?*obj.ObjFunction = null,
+    /// Terminal behavior observed while emitting bytecode for the node.
+    flow: TerminalFlow = .{},
+};
 
 const Break = struct {
     ip: usize, // The op code will tell us if this is a continue or a break statement
@@ -64,12 +73,20 @@ const Break = struct {
 
 const Breaks = std.ArrayList(Break);
 
+/// Kind of pending loop jump being queried.
+const LoopJumpKind = enum {
+    @"break",
+    @"continue",
+};
+
 current: ?*Frame = null,
 ast: Ast.Slice = undefined,
 gc: *GC,
 flavor: RunFlavor,
 /// Jump to patch at end of current expression with a optional unwrapping in the middle of it
 opt_jumps: std.ArrayList(std.ArrayList(usize)) = .empty,
+/// Jumps emitted by `out` statements to the end of the current block expression.
+block_expression_out_jumps: std.ArrayList(std.ArrayList(usize)) = .empty,
 /// Used to generate error messages
 parser: *Parser,
 jit: ?*JIT,
@@ -186,9 +203,9 @@ pub fn generate(self: *Self, ast: Ast.Slice) Error!?*obj.ObjFunction {
     self.reporter.last_error = null;
     self.reporter.panic_mode = false;
 
-    const function = self.generateNode(self.ast.root.?, null);
+    const result = try self.generateNode(self.ast.root.?, null);
 
-    return if (self.reporter.last_error != null) null else function;
+    return if (self.reporter.last_error != null) null else result.function;
 }
 
 pub fn emit(self: *Self, location: Ast.TokenIndex, code: u32) !void {
@@ -428,9 +445,103 @@ fn endScope(self: *Self, node: Ast.Node.Index) Error!void {
     }
 }
 
-fn generateNode(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.ObjFunction {
+/// Closes the scopes attached to `node` while keeping the current stack top as an expression result.
+fn endScopePreservingTop(self: *Self, node: Ast.Node.Index) Error!void {
+    const location = self.ast.nodes.items(.location)[node];
+
+    if (self.ast.nodes.items(.ends_scope)[node]) |closing| {
+        for (closing) |cls| {
+            try self.OP_SWAP(location, 0, 1);
+            try self.emitOpCode(location, cls.opcode);
+            try self.OP_DBG_LOCAL_EXIT(location, cls.slot);
+        }
+    }
+}
+
+/// Emits the shared warning for a statement proven unreachable by control-flow analysis.
+fn warnUnreachable(self: *Self, first_statement: Ast.Node.Index, last_statement: Ast.Node.Index) void {
+    self.reporter.warnFmt(
+        .unreachable_code,
+        self.ast.tokens.get(
+            self.ast.nodes.items(.location)[first_statement],
+        ),
+        self.ast.tokens.get(
+            self.ast.nodes.items(.end_location)[last_statement],
+        ),
+        "Code will never be reached",
+        .{},
+    );
+}
+
+/// Returns whether pending loop jumps include a break or continue matching `loop_node`.
+fn hasLoopJump(self: *Self, jumps: *const Breaks, loop_node: Ast.Node.Index, kind: LoopJumpKind, current: bool) bool {
+    for (jumps.items) |jump| {
+        const is_continue = is_it: {
+            const original = self.current.?.function.?.chunk.code.items[jump.ip];
+            const instruction: u8 = @intCast(original >> 24);
+            break :is_it @as(Chunk.OpCode, @enumFromInt(instruction)) == .OP_LOOP;
+        };
+        const matches_kind = switch (kind) {
+            .@"break" => !is_continue,
+            .@"continue" => is_continue,
+        };
+
+        const loop_jump_target_current = jump.label_node == null or jump.label_node.? == loop_node;
+        if (matches_kind and loop_jump_target_current == current) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+/// Builds the terminal-flow summary for a generated loop after current-loop jumps are known.
+fn generatedLoopFlow(
+    self: *Self,
+    jumps: *const Breaks,
+    loop_node: Ast.Node.Index,
+    body_flow: TerminalFlow,
+    falls_through: bool,
+) TerminalFlow {
+    return .{
+        .falls_through = falls_through,
+        .returns = body_flow.returns,
+        .throws = body_flow.throws,
+        .outs = body_flow.outs,
+        .breaks = self.hasLoopJump(jumps, loop_node, .@"break", false),
+        .continues = self.hasLoopJump(jumps, loop_node, .@"continue", false),
+    };
+}
+
+/// Generates a statement list until generated terminal flow proves the remaining statements unreachable.
+fn generateStatements(
+    self: *Self,
+    statements: []const Ast.Node.Index,
+    breaks: ?*Breaks,
+) Error!TerminalFlow {
+    var result = TerminalFlow{};
+    var falls_through = true;
+
+    for (statements) |statement| {
+        if (!falls_through) {
+            self.warnUnreachable(statement, statements[statements.len - 1]);
+            break;
+        }
+
+        const generated = try self.generateNode(statement, breaks);
+        result.merge(generated.flow);
+
+        falls_through = generated.flow.falls_through;
+    }
+
+    result.falls_through = falls_through;
+
+    return result;
+}
+
+fn generateNode(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!GeneratedNode {
     if (self.synchronize(node)) {
-        return null;
+        return .{};
     }
 
     _ = try TypeChecker.check(
@@ -445,10 +556,10 @@ fn generateNode(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj
         return generator(self, node, breaks);
     }
 
-    return null;
+    return .{};
 }
 
-fn generateAs(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.ObjFunction {
+fn generateAs(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!GeneratedNode {
     const locations = self.ast.nodes.items(.location);
     const node_location = locations[node];
     const components = self.ast.nodes.items(.components)[node].As;
@@ -479,10 +590,10 @@ fn generateAs(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.O
     try self.patchOptJumps(node);
     try self.endScope(node);
 
-    return null;
+    return .{};
 }
 
-fn generateAsyncCall(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.ObjFunction {
+fn generateAsyncCall(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!GeneratedNode {
     const locations = self.ast.nodes.items(.location);
     const type_defs = self.ast.nodes.items(.type_def);
     const node_location = locations[node];
@@ -501,10 +612,10 @@ fn generateAsyncCall(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!
     try self.patchOptJumps(node);
     try self.endScope(node);
 
-    return null;
+    return .{};
 }
 
-fn generateBinary(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.ObjFunction {
+fn generateBinary(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!GeneratedNode {
     const components = self.ast.nodes.items(.components)[node].Binary;
 
     const locations = self.ast.nodes.items(.location);
@@ -665,63 +776,87 @@ fn generateBinary(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*o
     try self.patchOptJumps(node);
     try self.endScope(node);
 
-    return null;
+    return .{};
 }
 
-fn generateBlock(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.ObjFunction {
-    const tags = self.ast.nodes.items(.tag);
+fn generateBlock(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!GeneratedNode {
+    const flow = try self.generateStatements(
+        self.ast.nodes.items(.components)[node].Block,
+        breaks,
+    );
 
-    var seen_return = false;
-    for (self.ast.nodes.items(.components)[node].Block) |statement| {
-        if (seen_return) {
-            self.reporter.warnFmt(
-                .code_after_return,
-                self.ast.tokens.get(
-                    self.ast.nodes.items(.location)[statement],
-                ),
-                self.ast.tokens.get(
-                    self.ast.nodes.items(.end_location)[statement],
-                ),
-                "Code after return statement will never be reached",
-                .{},
-            );
+    try self.patchOptJumps(node);
+    try self.endScope(node);
 
-            // No need to generate following statements
-            break;
+    return .{
+        .flow = flow,
+    };
+}
+
+fn generateBlockExpression(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!GeneratedNode {
+    const location = self.ast.nodes.items(.location)[node];
+
+    try self.block_expression_out_jumps.append(self.gc.allocator, .empty);
+    errdefer {
+        var out_jumps = self.block_expression_out_jumps.pop().?;
+        out_jumps.deinit(self.gc.allocator);
+    }
+
+    const flow = try self.generateStatements(
+        self.ast.nodes.items(.components)[node].BlockExpression,
+        breaks,
+    );
+
+    var out_jumps = self.block_expression_out_jumps.pop().?;
+    defer out_jumps.deinit(self.gc.allocator);
+
+    if (out_jumps.items.len > 0) {
+        const skip_out_postlude = try self.OP_JUMP(location);
+
+        for (out_jumps.items) |jump| {
+            self.patchJump(jump);
         }
 
-        _ = try self.generateNode(statement, breaks);
+        try self.patchOptJumps(node);
+        const end_jump = try self.OP_JUMP(location);
 
-        seen_return = !seen_return and tags[statement] == .Return;
+        self.patchJump(skip_out_postlude);
+        try self.endScope(node);
+        self.patchJump(end_jump);
+    } else {
+        try self.patchOptJumps(node);
+        try self.endScope(node);
     }
 
-    try self.patchOptJumps(node);
-    try self.endScope(node);
-
-    return null;
+    return .{
+        .flow = flow.asExpression(),
+    };
 }
 
-fn generateBlockExpression(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.ObjFunction {
-    for (self.ast.nodes.items(.components)[node].BlockExpression) |statement| {
-        _ = try self.generateNode(statement, breaks);
-    }
-
-    try self.patchOptJumps(node);
-    try self.endScope(node);
-
-    return null;
-}
-
-fn generateOut(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.ObjFunction {
+fn generateOut(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!GeneratedNode {
     _ = try self.generateNode(self.ast.nodes.items(.components)[node].Out, breaks);
 
     try self.patchOptJumps(node);
-    try self.endScope(node);
 
-    return null;
+    if (self.block_expression_out_jumps.items.len > 0) {
+        try self.endScopePreservingTop(node);
+        try self.block_expression_out_jumps.items[self.block_expression_out_jumps.items.len - 1].append(
+            self.gc.allocator,
+            try self.OP_JUMP(self.ast.nodes.items(.location)[node]),
+        );
+    } else {
+        try self.endScope(node);
+    }
+
+    return .{
+        .flow = .{
+            .falls_through = false,
+            .outs = true,
+        },
+    };
 }
 
-fn generateBoolean(self: *Self, node: Ast.Node.Index, _: ?*Breaks) Error!?*obj.ObjFunction {
+fn generateBoolean(self: *Self, node: Ast.Node.Index, _: ?*Breaks) Error!GeneratedNode {
     try self.emitOpCode(
         self.ast.nodes.items(.location)[node],
         if (self.ast.nodes.items(.components)[node].Boolean) .OP_TRUE else .OP_FALSE,
@@ -730,10 +865,10 @@ fn generateBoolean(self: *Self, node: Ast.Node.Index, _: ?*Breaks) Error!?*obj.O
     try self.patchOptJumps(node);
     try self.endScope(node);
 
-    return null;
+    return .{};
 }
 
-fn generateBreak(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.ObjFunction {
+fn generateBreak(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!GeneratedNode {
     // Close scope(s), then jump
     try self.endScope(node);
     try breaks.?.append(
@@ -746,10 +881,15 @@ fn generateBreak(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*ob
 
     try self.patchOptJumps(node);
 
-    return null;
+    return .{
+        .flow = .{
+            .falls_through = false,
+            .breaks = true,
+        },
+    };
 }
 
-fn generateContinue(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.ObjFunction {
+fn generateContinue(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!GeneratedNode {
     // Close scope(s), then jump
     try self.endScope(node);
     try breaks.?.append(
@@ -765,10 +905,15 @@ fn generateContinue(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?
 
     try self.patchOptJumps(node);
 
-    return null;
+    return .{
+        .flow = .{
+            .falls_through = false,
+            .continues = true,
+        },
+    };
 }
 
-fn generateCall(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.ObjFunction {
+fn generateCall(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!GeneratedNode {
     const type_defs = self.ast.nodes.items(.type_def);
     const locations = self.ast.nodes.items(.location);
     const end_locations = self.ast.nodes.items(.end_location);
@@ -790,7 +935,7 @@ fn generateCall(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj
         try self.patchOptJumps(node);
         try self.endScope(node);
 
-        return null;
+        return .{};
     }
 
     // Find out if call is invoke or regular call
@@ -1116,10 +1261,10 @@ fn generateCall(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj
     try self.patchOptJumps(node);
     try self.endScope(node);
 
-    return null;
+    return .{};
 }
 
-fn generateDot(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.ObjFunction {
+fn generateDot(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!GeneratedNode {
     const node_components = self.ast.nodes.items(.components);
     const type_defs = self.ast.nodes.items(.type_def);
     const locations = self.ast.nodes.items(.location);
@@ -1341,10 +1486,10 @@ fn generateDot(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.
     try self.patchOptJumps(node);
     try self.endScope(node);
 
-    return null;
+    return .{};
 }
 
-fn generateDoUntil(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.ObjFunction {
+fn generateDoUntil(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!GeneratedNode {
     const locations = self.ast.nodes.items(.location);
     const node_components = self.ast.nodes.items(.components);
     const components = node_components[node].DoUntil;
@@ -1354,7 +1499,7 @@ fn generateDoUntil(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*
     var lbreaks = Breaks.empty;
     defer lbreaks.deinit(self.gc.allocator);
 
-    _ = try self.generateNode(components.body, &lbreaks);
+    const body_flow = (try self.generateNode(components.body, &lbreaks)).flow;
     _ = try self.generateNode(components.condition, &lbreaks);
 
     try self.OP_NOT(locations[node]);
@@ -1377,10 +1522,27 @@ fn generateDoUntil(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*
     try self.patchOptJumps(node);
     try self.endScope(node);
 
-    return null;
+    const condition_allows_exit = if (try self.ast.isConstant(self.gc.allocator, components.condition))
+        (try self.ast.typeCheckAndToValue(
+            components.condition,
+            &self.reporter,
+            self.gc,
+        )).boolean()
+    else
+        true;
+
+    return .{
+        .flow = self.generatedLoopFlow(
+            &lbreaks,
+            node,
+            body_flow,
+            self.hasLoopJump(&lbreaks, node, .@"break", true) or
+                (body_flow.falls_through and condition_allows_exit),
+        ),
+    };
 }
 
-fn generateEnum(self: *Self, node: Ast.Node.Index, _: ?*Breaks) Error!?*obj.ObjFunction {
+fn generateEnum(self: *Self, node: Ast.Node.Index, _: ?*Breaks) Error!GeneratedNode {
     const locations = self.ast.nodes.items(.location);
     const node_components = self.ast.nodes.items(.components);
     const components = node_components[node].Enum;
@@ -1402,10 +1564,10 @@ fn generateEnum(self: *Self, node: Ast.Node.Index, _: ?*Breaks) Error!?*obj.ObjF
     try self.patchOptJumps(node);
     try self.endScope(node);
 
-    return null;
+    return .{};
 }
 
-fn generateAnonymousEnumCase(self: *Self, node: Ast.Node.Index, _: ?*Breaks) Error!?*obj.ObjFunction {
+fn generateAnonymousEnumCase(self: *Self, node: Ast.Node.Index, _: ?*Breaks) Error!GeneratedNode {
     const locations = self.ast.nodes.items(.location);
     const components = &self.ast.nodes.items(.components)[node].AnonymousEnumCase;
     const expected_case = self.ast.tokens.items(.lexeme)[components.case_name];
@@ -1418,7 +1580,7 @@ fn generateAnonymousEnumCase(self: *Self, node: Ast.Node.Index, _: ?*Breaks) Err
             "Could not infer type for enum case.",
         );
 
-        return null;
+        return .{};
     }
 
     const enum_type_def = type_def.?.resolved_type.?.EnumInstance
@@ -1463,10 +1625,10 @@ fn generateAnonymousEnumCase(self: *Self, node: Ast.Node.Index, _: ?*Breaks) Err
     try self.patchOptJumps(node);
     try self.endScope(node);
 
-    return null;
+    return .{};
 }
 
-fn generateExport(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.ObjFunction {
+fn generateExport(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!GeneratedNode {
     const components = self.ast.nodes.items(.components)[node].Export;
 
     if (components.declaration) |decl| {
@@ -1476,10 +1638,10 @@ fn generateExport(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*o
     try self.patchOptJumps(node);
     try self.endScope(node);
 
-    return null;
+    return .{};
 }
 
-fn generateExpression(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.ObjFunction {
+fn generateExpression(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!GeneratedNode {
     const locations = self.ast.nodes.items(.location);
     const end_locations = self.ast.nodes.items(.end_location);
     const components = self.ast.nodes.items(.components);
@@ -1487,7 +1649,7 @@ fn generateExpression(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error
     const expr_node_type = self.ast.nodes.items(.tag)[expr];
     const expr_type_def = self.ast.nodes.items(.type_def)[expr];
 
-    _ = try self.generateNode(expr, breaks);
+    const generated = try self.generateNode(expr, breaks);
 
     try self.OP_POP(locations[node]);
 
@@ -1515,10 +1677,12 @@ fn generateExpression(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error
     try self.patchOptJumps(node);
     try self.endScope(node);
 
-    return null;
+    return .{
+        .flow = generated.flow,
+    };
 }
 
-fn generateFloat(self: *Self, node: Ast.Node.Index, _: ?*Breaks) Error!?*obj.ObjFunction {
+fn generateFloat(self: *Self, node: Ast.Node.Index, _: ?*Breaks) Error!GeneratedNode {
     try self.emitConstant(
         self.ast.nodes.items(.location)[node],
         try self.ast.typeCheckAndToValue(
@@ -1531,10 +1695,10 @@ fn generateFloat(self: *Self, node: Ast.Node.Index, _: ?*Breaks) Error!?*obj.Obj
     try self.patchOptJumps(node);
     try self.endScope(node);
 
-    return null;
+    return .{};
 }
 
-fn generateFor(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.ObjFunction {
+fn generateFor(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!GeneratedNode {
     const locations = self.ast.nodes.items(.location);
     const end_locations = self.ast.nodes.items(.end_location);
     const type_defs = self.ast.nodes.items(.type_def);
@@ -1548,7 +1712,7 @@ fn generateFor(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.
     )).boolean()) {
         try self.patchOptJumps(node);
 
-        return null;
+        return .{};
     }
 
     for (components.init_declarations) |decl| {
@@ -1599,7 +1763,7 @@ fn generateFor(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.
     var lbreaks = Breaks.empty;
     defer lbreaks.deinit(self.gc.allocator);
 
-    _ = try self.generateNode(components.body, &lbreaks);
+    const body_flow = (try self.generateNode(components.body, &lbreaks)).flow;
 
     try self.emitLoop(locations[node], expr_loop);
 
@@ -1620,10 +1784,26 @@ fn generateFor(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.
 
     if (!is_wasm) self.patchTryOrJit(jit_jump);
 
-    return null;
+    const condition_true = if (try self.ast.isConstant(self.gc.allocator, components.condition))
+        (try self.ast.typeCheckAndToValue(
+            components.condition,
+            &self.reporter,
+            self.gc,
+        )).boolean()
+    else
+        false;
+
+    return .{
+        .flow = self.generatedLoopFlow(
+            &lbreaks,
+            node,
+            body_flow,
+            !condition_true or self.hasLoopJump(&lbreaks, node, .@"break", true),
+        ),
+    };
 }
 
-fn generateForceUnwrap(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.ObjFunction {
+fn generateForceUnwrap(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!GeneratedNode {
     const locations = self.ast.nodes.items(.location);
     const components = self.ast.nodes.items(.components)[node].ForceUnwrap;
 
@@ -1634,10 +1814,10 @@ fn generateForceUnwrap(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Erro
     try self.patchOptJumps(node);
     try self.endScope(node);
 
-    return null;
+    return .{};
 }
 
-fn generateForEach(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.ObjFunction {
+fn generateForEach(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!GeneratedNode {
     const node_components = self.ast.nodes.items(.components);
     const locations = self.ast.nodes.items(.location);
     const type_defs = self.ast.nodes.items(.type_def);
@@ -1668,7 +1848,7 @@ fn generateForEach(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*
                 else => self.reporter.last_error != null,
             }) {
                 try self.patchOptJumps(node);
-                return null;
+                return .{};
             }
         }
     }
@@ -1717,7 +1897,7 @@ fn generateForEach(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*
     var lbreaks = Breaks.empty;
     defer lbreaks.deinit(self.gc.allocator);
 
-    _ = try self.generateNode(components.body, &lbreaks);
+    const body_flow = (try self.generateNode(components.body, &lbreaks)).flow;
 
     try self.emitLoop(locations[node], loop_start);
 
@@ -1743,10 +1923,17 @@ fn generateForEach(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*
 
     if (!is_wasm) self.patchTryOrJit(jit_jump);
 
-    return null;
+    return .{
+        .flow = self.generatedLoopFlow(
+            &lbreaks,
+            node,
+            body_flow,
+            true,
+        ),
+    };
 }
 
-fn generateFunction(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.ObjFunction {
+fn generateFunction(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!GeneratedNode {
     const node_components = self.ast.nodes.items(.components);
     const type_defs = self.ast.nodes.items(.type_def);
     const locations = self.ast.nodes.items(.location);
@@ -1762,7 +1949,7 @@ fn generateFunction(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?
     // If function is a test block and we're not testing/checking/etc. don't waste time generating the node
     if (self.flavor == .Run and function_type == .Test) {
         try self.emitOpCode(locations[node], .OP_NULL);
-        return null;
+        return .{};
     }
 
     const enclosing = self.current;
@@ -1840,12 +2027,16 @@ fn generateFunction(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?
     self.current.?.function = try self.gc.allocateObject(function);
 
     // Generate function's body
+    var body_flow: ?TerminalFlow = null;
     if (components.body) |body| {
-        _ = try self.generateNode(body, breaks);
+        body_flow = (try self.generateNode(body, breaks)).flow;
 
         if (function_signature != null and function_signature.?.lambda) {
             try self.OP_RETURN(locations[body]);
-            self.current.?.return_emitted = true;
+            body_flow = .{
+                .falls_through = false,
+                .returns = true,
+            };
         }
     }
 
@@ -1920,7 +2111,6 @@ fn generateFunction(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?
             } else {
                 try self.OP_VOID(locations[node]);
                 try self.OP_RETURN(locations[node]);
-                self.current.?.return_emitted = true;
             }
         } else if (function_type == .Repl and
             components.body != null and
@@ -1933,10 +2123,11 @@ fn generateFunction(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?
             _ = self.current.?.function.?.chunk.locations.pop();
 
             try self.emitReturn(locations[node]);
-        } else if (self.current.?.function.?.type_def.resolved_type.?.Function.return_type.def_type == .Void and !self.current.?.return_emitted) {
-            // TODO: detect if some branches of the function body miss a return statement
+        } else if (self.current.?.function.?.type_def.resolved_type.?.Function.return_type.def_type == .Void and
+            (body_flow == null or body_flow.?.falls_through))
+        {
             try self.emitReturn(locations[node]);
-        } else if (!self.current.?.return_emitted) {
+        } else if (body_flow == null or body_flow.?.falls_through) {
             self.reporter.reportErrorAt(
                 .missing_return,
                 self.ast.tokens.get(locations[node]),
@@ -1986,10 +2177,12 @@ fn generateFunction(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?
 
     node_components[node].Function.function = current_function;
 
-    return current_function;
+    return .{
+        .function = current_function,
+    };
 }
 
-fn generateFunDeclaration(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.ObjFunction {
+fn generateFunDeclaration(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!GeneratedNode {
     const node_components = self.ast.nodes.items(.components);
     const components = node_components[node].FunDeclaration;
 
@@ -2006,10 +2199,10 @@ fn generateFunDeclaration(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) E
     try self.patchOptJumps(node);
     try self.endScope(node);
 
-    return null;
+    return .{};
 }
 
-fn generateGenericResolve(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.ObjFunction {
+fn generateGenericResolve(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!GeneratedNode {
     _ = try self.generateNode(
         self.ast.nodes.items(.components)[node].GenericResolve.expression,
         breaks,
@@ -2018,10 +2211,10 @@ fn generateGenericResolve(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) E
     try self.patchOptJumps(node);
     try self.endScope(node);
 
-    return null;
+    return .{};
 }
 
-fn generateGrouping(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.ObjFunction {
+fn generateGrouping(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!GeneratedNode {
     const components = self.ast.nodes.items(.components);
     const expr = components[node].Grouping;
 
@@ -2030,10 +2223,10 @@ fn generateGrouping(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?
     try self.patchOptJumps(node);
     try self.endScope(node);
 
-    return null;
+    return .{};
 }
 
-fn generateIf(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.ObjFunction {
+fn generateIf(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!GeneratedNode {
     const type_defs = self.ast.nodes.items(.type_def);
     const locations = self.ast.nodes.items(.location);
     const node_components = self.ast.nodes.items(.components);
@@ -2051,16 +2244,19 @@ fn generateIf(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.O
             self.gc,
         );
 
+        var flow = TerminalFlow{};
         if (condition.boolean()) {
-            _ = try self.generateNode(components.body, breaks);
+            flow = (try self.generateNode(components.body, breaks)).flow;
         } else if (components.else_branch) |else_branch| {
-            _ = try self.generateNode(else_branch, breaks);
+            flow = (try self.generateNode(else_branch, breaks)).flow;
         }
 
         try self.patchOptJumps(node);
         try self.endScope(node);
 
-        return null;
+        return .{
+            .flow = flow,
+        };
     }
 
     _ = try self.generateNode(components.condition, breaks);
@@ -2079,7 +2275,7 @@ fn generateIf(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.O
     const else_jump = try self.OP_JUMP_IF_FALSE(location);
     try self.OP_POP(location);
 
-    _ = try self.generateNode(components.body, breaks);
+    const body_flow = (try self.generateNode(components.body, breaks)).flow;
 
     const out_jump = try self.emitJump(location, .OP_JUMP);
 
@@ -2090,8 +2286,11 @@ fn generateIf(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.O
     }
     try self.OP_POP(location);
 
+    var else_flow = TerminalFlow{};
     if (components.else_branch) |else_branch| {
-        _ = try self.generateNode(else_branch, breaks);
+        else_flow = (try self.generateNode(else_branch, breaks)).flow;
+    } else {
+        else_flow.falls_through = true;
     }
 
     self.patchJump(out_jump);
@@ -2099,7 +2298,13 @@ fn generateIf(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.O
     try self.patchOptJumps(node);
     try self.endScope(node);
 
-    return null;
+    var flow = body_flow;
+    flow.falls_through = body_flow.falls_through or else_flow.falls_through;
+    flow.merge(else_flow);
+
+    return .{
+        .flow = flow,
+    };
 }
 
 fn matchSimpleEquality(self: *Self, condition: Ast.Node.Index, breaks: ?*Breaks) Error!void {
@@ -2207,7 +2412,7 @@ fn matchTypeIsValue(self: *Self, condition: Ast.Node.Index, breaks: ?*Breaks) Er
     try self.OP_NOT(location);
 }
 
-fn generateMatch(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.ObjFunction {
+fn generateMatch(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!GeneratedNode {
     const type_defs = self.ast.nodes.items(.type_def);
     const locations = self.ast.nodes.items(.location);
     const lexemes = self.ast.tokens.items(.lexeme);
@@ -2219,6 +2424,9 @@ fn generateMatch(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*ob
 
     var out_jumps = try std.ArrayList(usize).initCapacity(self.gc.allocator, components.branches.len);
     defer out_jumps.deinit(self.gc.allocator);
+    var flow = TerminalFlow{
+        .falls_through = components.else_branch == null,
+    };
 
     // Keep tracks of covered enum cases
     var enum_cases = if (components.else_branch == null and
@@ -2318,7 +2526,9 @@ fn generateMatch(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*ob
         }
         try self.OP_POP(branch.expression); // Pop comparison
         try self.OP_POP(branch.expression); // Pop value
-        _ = try self.generateNode(branch.expression, breaks);
+        const branch_flow = (try self.generateNode(branch.expression, breaks)).flow;
+        flow.falls_through = flow.falls_through or branch_flow.falls_through;
+        flow.merge(branch_flow);
 
         // Jump out of the match statement/expression
         try out_jumps.append(
@@ -2337,7 +2547,9 @@ fn generateMatch(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*ob
 
     if (components.else_branch) |eb| {
         try self.OP_POP(locations[components.value]);
-        _ = try self.generateNode(eb, breaks);
+        const else_flow = (try self.generateNode(eb, breaks)).flow;
+        flow.falls_through = flow.falls_through or else_flow.falls_through;
+        flow.merge(else_flow);
     } else if (enum_cases != null and enum_cases.?.count() > 0) {
         const keys = enum_cases.?.keys();
 
@@ -2377,10 +2589,12 @@ fn generateMatch(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*ob
     try self.patchOptJumps(node);
     try self.endScope(node);
 
-    return null;
+    return .{
+        .flow = flow,
+    };
 }
 
-fn generateImport(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.ObjFunction {
+fn generateImport(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!GeneratedNode {
     const components = self.ast.nodes.items(.components)[node].Import;
     const location = self.ast.nodes.items(.location)[node];
 
@@ -2396,10 +2610,10 @@ fn generateImport(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*o
     try self.patchOptJumps(node);
     try self.endScope(node);
 
-    return null;
+    return .{};
 }
 
-fn generateInteger(self: *Self, node: Ast.Node.Index, _: ?*Breaks) Error!?*obj.ObjFunction {
+fn generateInteger(self: *Self, node: Ast.Node.Index, _: ?*Breaks) Error!GeneratedNode {
     try self.emitConstant(
         self.ast.nodes.items(.location)[node],
         try self.ast.typeCheckAndToValue(
@@ -2412,10 +2626,10 @@ fn generateInteger(self: *Self, node: Ast.Node.Index, _: ?*Breaks) Error!?*obj.O
     try self.patchOptJumps(node);
     try self.endScope(node);
 
-    return null;
+    return .{};
 }
 
-fn generateIs(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.ObjFunction {
+fn generateIs(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!GeneratedNode {
     const components = self.ast.nodes.items(.components)[node].Is;
     const location = self.ast.nodes.items(.location)[node];
     const constant = try self.ast.typeCheckAndToValue(
@@ -2440,10 +2654,10 @@ fn generateIs(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.O
     try self.patchOptJumps(node);
     try self.endScope(node);
 
-    return null;
+    return .{};
 }
 
-fn generateList(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.ObjFunction {
+fn generateList(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!GeneratedNode {
     const locations = self.ast.nodes.items(.location);
     const components = self.ast.nodes.items(.components)[node].List;
     const type_defs = self.ast.nodes.items(.type_def);
@@ -2467,10 +2681,10 @@ fn generateList(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj
     try self.patchOptJumps(node);
     try self.endScope(node);
 
-    return null;
+    return .{};
 }
 
-fn generateMap(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.ObjFunction {
+fn generateMap(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!GeneratedNode {
     const locations = self.ast.nodes.items(.location);
     const components = self.ast.nodes.items(.components)[node].Map;
     const type_defs = self.ast.nodes.items(.type_def);
@@ -2495,10 +2709,10 @@ fn generateMap(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.
     try self.patchOptJumps(node);
     try self.endScope(node);
 
-    return null;
+    return .{};
 }
 
-fn generateNamedVariable(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.ObjFunction {
+fn generateNamedVariable(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!GeneratedNode {
     const components = self.ast.nodes.items(.components)[node].NamedVariable;
     const locations = self.ast.nodes.items(.location);
     const type_defs = self.ast.nodes.items(.type_def);
@@ -2598,19 +2812,19 @@ fn generateNamedVariable(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Er
     try self.patchOptJumps(node);
     try self.endScope(node);
 
-    return null;
+    return .{};
 }
 
-fn generateNull(self: *Self, node: Ast.Node.Index, _: ?*Breaks) Error!?*obj.ObjFunction {
+fn generateNull(self: *Self, node: Ast.Node.Index, _: ?*Breaks) Error!GeneratedNode {
     try self.OP_NULL(self.ast.nodes.items(.location)[node]);
 
     try self.patchOptJumps(node);
     try self.endScope(node);
 
-    return null;
+    return .{};
 }
 
-fn generateObjectDeclaration(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.ObjFunction {
+fn generateObjectDeclaration(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!GeneratedNode {
     const locations = self.ast.nodes.items(.location);
     const type_defs = self.ast.nodes.items(.type_def);
     const lexemes = self.ast.tokens.items(.lexeme);
@@ -2674,7 +2888,7 @@ fn generateObjectDeclaration(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks
     try self.patchOptJumps(node);
     try self.endScope(node);
 
-    return null;
+    return .{};
 }
 
 /// Finds the declared object global backing an inferred anonymous object init.
@@ -2722,7 +2936,7 @@ fn objectGlobalSlotForInstanceType(self: *Self, type_def: *obj.ObjTypeDef) ?u24 
     return null;
 }
 
-fn generateObjectInit(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.ObjFunction {
+fn generateObjectInit(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!GeneratedNode {
     const locations = self.ast.nodes.items(.location);
     const type_defs = self.ast.nodes.items(.type_def);
     const lexemes = self.ast.tokens.items(.lexeme);
@@ -2782,10 +2996,10 @@ fn generateObjectInit(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error
     try self.patchOptJumps(node);
     try self.endScope(node);
 
-    return null;
+    return .{};
 }
 
-fn generatePattern(self: *Self, node: Ast.Node.Index, _: ?*Breaks) Error!?*obj.ObjFunction {
+fn generatePattern(self: *Self, node: Ast.Node.Index, _: ?*Breaks) Error!GeneratedNode {
     try self.emitConstant(
         self.ast.nodes.items(.location)[node],
         try self.ast.typeCheckAndToValue(
@@ -2798,10 +3012,10 @@ fn generatePattern(self: *Self, node: Ast.Node.Index, _: ?*Breaks) Error!?*obj.O
     try self.patchOptJumps(node);
     try self.endScope(node);
 
-    return null;
+    return .{};
 }
 
-fn generateProtocolDeclaration(self: *Self, node: Ast.Node.Index, _: ?*Breaks) Error!?*obj.ObjFunction {
+fn generateProtocolDeclaration(self: *Self, node: Ast.Node.Index, _: ?*Breaks) Error!GeneratedNode {
     const location = self.ast.nodes.items(.location)[node];
     const components = self.ast.nodes.items(.components)[node].ProtocolDeclaration;
     const type_def = self.ast.nodes.items(.type_def)[node].?;
@@ -2816,10 +3030,10 @@ fn generateProtocolDeclaration(self: *Self, node: Ast.Node.Index, _: ?*Breaks) E
     try self.patchOptJumps(node);
     try self.endScope(node);
 
-    return null;
+    return .{};
 }
 
-fn generateRange(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.ObjFunction {
+fn generateRange(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!GeneratedNode {
     const components = self.ast.nodes.items(.components)[node].Range;
     const locations = self.ast.nodes.items(.location);
 
@@ -2831,10 +3045,10 @@ fn generateRange(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*ob
     try self.patchOptJumps(node);
     try self.endScope(node);
 
-    return null;
+    return .{};
 }
 
-fn generateResolve(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.ObjFunction {
+fn generateResolve(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!GeneratedNode {
     const fiber = self.ast.nodes.items(.components)[node].Resolve;
     const locations = self.ast.nodes.items(.location);
 
@@ -2845,10 +3059,10 @@ fn generateResolve(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*
     try self.patchOptJumps(node);
     try self.endScope(node);
 
-    return null;
+    return .{};
 }
 
-fn generateResume(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.ObjFunction {
+fn generateResume(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!GeneratedNode {
     const fiber = self.ast.nodes.items(.components)[node].Resume;
     const locations = self.ast.nodes.items(.location);
 
@@ -2859,16 +3073,12 @@ fn generateResume(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*o
     try self.patchOptJumps(node);
     try self.endScope(node);
 
-    return null;
+    return .{};
 }
 
-fn generateReturn(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.ObjFunction {
+fn generateReturn(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!GeneratedNode {
     const components = self.ast.nodes.items(.components)[node].Return;
     const locations = self.ast.nodes.items(.location);
-
-    if (components.unconditional) {
-        self.current.?.return_emitted = true;
-    }
 
     if (components.value) |value| {
         _ = try self.generateNode(value, breaks);
@@ -2881,10 +3091,15 @@ fn generateReturn(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*o
     try self.patchOptJumps(node);
     try self.endScope(node);
 
-    return null;
+    return .{
+        .flow = .{
+            .falls_through = false,
+            .returns = true,
+        },
+    };
 }
 
-fn generateString(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.ObjFunction {
+fn generateString(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!GeneratedNode {
     const location = self.ast.nodes.items(.location)[node];
     const type_defs = self.ast.nodes.items(.type_def);
     const elements = self.ast.nodes.items(.components)[node].String;
@@ -2895,7 +3110,7 @@ fn generateString(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*o
 
         try self.endScope(node);
 
-        return null;
+        return .{};
     }
 
     for (elements, 0..) |element, index| {
@@ -2914,10 +3129,10 @@ fn generateString(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*o
     try self.patchOptJumps(node);
     try self.endScope(node);
 
-    return null;
+    return .{};
 }
 
-fn generateStringLiteral(self: *Self, node: Ast.Node.Index, _: ?*Breaks) Error!?*obj.ObjFunction {
+fn generateStringLiteral(self: *Self, node: Ast.Node.Index, _: ?*Breaks) Error!GeneratedNode {
     try self.emitConstant(
         self.ast.nodes.items(.location)[node],
         self.ast.nodes.items(.components)[node].StringLiteral.literal.toValue(),
@@ -2926,10 +3141,10 @@ fn generateStringLiteral(self: *Self, node: Ast.Node.Index, _: ?*Breaks) Error!?
     try self.patchOptJumps(node);
     try self.endScope(node);
 
-    return null;
+    return .{};
 }
 
-fn generateSubscript(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.ObjFunction {
+fn generateSubscript(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!GeneratedNode {
     const locations = self.ast.nodes.items(.location);
     const location = locations[node];
     const type_defs = self.ast.nodes.items(.type_def);
@@ -3020,10 +3235,10 @@ fn generateSubscript(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!
     try self.patchOptJumps(node);
     try self.endScope(node);
 
-    return null;
+    return .{};
 }
 
-fn generateTry(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.ObjFunction {
+fn generateTry(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!GeneratedNode {
     const components = self.ast.nodes.items(.components)[node].Try;
     const type_defs = self.ast.nodes.items(.type_def);
     const locations = self.ast.nodes.items(.location);
@@ -3146,18 +3361,14 @@ fn generateTry(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.
     try self.patchOptJumps(node);
     try self.endScope(node);
 
-    return null;
+    return .{};
 }
 
-fn generateThrow(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.ObjFunction {
+fn generateThrow(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!GeneratedNode {
     const components = self.ast.nodes.items(.components)[node].Throw;
     const type_defs = self.ast.nodes.items(.type_def);
     const location = self.ast.nodes.items(.location)[node];
     const end_locations = self.ast.nodes.items(.end_location);
-
-    if (components.unconditional) {
-        self.current.?.return_emitted = true;
-    }
 
     const expression_type_def = type_defs[components.expression].?;
     const current_error_types = self.current.?.function.?.type_def.resolved_type.?.Function.error_types;
@@ -3202,10 +3413,15 @@ fn generateThrow(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*ob
     try self.patchOptJumps(node);
     try self.endScope(node);
 
-    return null;
+    return .{
+        .flow = .{
+            .falls_through = false,
+            .throws = true,
+        },
+    };
 }
 
-fn generateTypeExpression(self: *Self, node: Ast.Node.Index, _: ?*Breaks) Error!?*obj.ObjFunction {
+fn generateTypeExpression(self: *Self, node: Ast.Node.Index, _: ?*Breaks) Error!GeneratedNode {
     const node_components = self.ast.nodes.items(.components);
     const type_defs = self.ast.nodes.items(.type_def);
 
@@ -3217,10 +3433,10 @@ fn generateTypeExpression(self: *Self, node: Ast.Node.Index, _: ?*Breaks) Error!
     try self.patchOptJumps(node);
     try self.endScope(node);
 
-    return null;
+    return .{};
 }
 
-fn generateTypeOfExpression(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.ObjFunction {
+fn generateTypeOfExpression(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!GeneratedNode {
     _ = try self.generateNode(self.ast.nodes.items(.components)[node].TypeOfExpression, breaks);
 
     try self.OP_TYPEOF(self.ast.nodes.items(.location)[node]);
@@ -3228,10 +3444,10 @@ fn generateTypeOfExpression(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks)
     try self.patchOptJumps(node);
     try self.endScope(node);
 
-    return null;
+    return .{};
 }
 
-fn generateUnary(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.ObjFunction {
+fn generateUnary(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!GeneratedNode {
     const components = self.ast.nodes.items(.components)[node].Unary;
     const location = self.ast.nodes.items(.location)[node];
     const expression_type_def = self.ast.nodes.items(.type_def)[components.expression].?;
@@ -3251,10 +3467,10 @@ fn generateUnary(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*ob
     try self.patchOptJumps(node);
     try self.endScope(node);
 
-    return null;
+    return .{};
 }
 
-fn generateUnwrap(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.ObjFunction {
+fn generateUnwrap(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!GeneratedNode {
     const locations = self.ast.nodes.items(.location);
     const location = locations[node];
     const components = self.ast.nodes.items(.components)[node].Unwrap;
@@ -3281,10 +3497,10 @@ fn generateUnwrap(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*o
     try self.patchOptJumps(node);
     try self.endScope(node);
 
-    return null;
+    return .{};
 }
 
-fn generateVarDeclaration(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.ObjFunction {
+fn generateVarDeclaration(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!GeneratedNode {
     const components = self.ast.nodes.items(.components)[node].VarDeclaration;
     const locations = self.ast.nodes.items(.location);
     const location = locations[node];
@@ -3314,19 +3530,19 @@ fn generateVarDeclaration(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) E
     try self.patchOptJumps(node);
     try self.endScope(node);
 
-    return null;
+    return .{};
 }
 
-fn generateVoid(self: *Self, node: Ast.Node.Index, _: ?*Breaks) Error!?*obj.ObjFunction {
+fn generateVoid(self: *Self, node: Ast.Node.Index, _: ?*Breaks) Error!GeneratedNode {
     try self.OP_VOID(self.ast.nodes.items(.location)[node]);
 
     try self.patchOptJumps(node);
     try self.endScope(node);
 
-    return null;
+    return .{};
 }
 
-fn generateWhile(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.ObjFunction {
+fn generateWhile(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!GeneratedNode {
     const components = self.ast.nodes.items(.components)[node].While;
     const locations = self.ast.nodes.items(.location);
     const location = locations[node];
@@ -3340,7 +3556,7 @@ fn generateWhile(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*ob
         try self.patchOptJumps(node);
         try self.endScope(node);
 
-        return null;
+        return .{};
     }
 
     const loop_start: usize = self.currentCode();
@@ -3356,7 +3572,7 @@ fn generateWhile(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*ob
     var while_breaks = Breaks.empty;
     defer while_breaks.deinit(self.gc.allocator);
 
-    _ = try self.generateNode(components.body, &while_breaks);
+    const body_flow = (try self.generateNode(components.body, &while_breaks)).flow;
 
     try self.emitLoop(location, loop_start);
     self.patchJump(exit_jump);
@@ -3376,10 +3592,26 @@ fn generateWhile(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*ob
 
     if (!is_wasm) self.patchTryOrJit(jit_jump);
 
-    return null;
+    const condition_true = if (try self.ast.isConstant(self.gc.allocator, components.condition))
+        (try self.ast.typeCheckAndToValue(
+            components.condition,
+            &self.reporter,
+            self.gc,
+        )).boolean()
+    else
+        false;
+
+    return .{
+        .flow = self.generatedLoopFlow(
+            &while_breaks,
+            node,
+            body_flow,
+            !condition_true or self.hasLoopJump(&while_breaks, node, .@"break", true),
+        ),
+    };
 }
 
-fn generateYield(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*obj.ObjFunction {
+fn generateYield(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!GeneratedNode {
     const expression = self.ast.nodes.items(.components)[node].Yield;
     const locations = self.ast.nodes.items(.location);
     const location = locations[node];
@@ -3391,12 +3623,12 @@ fn generateYield(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!?*ob
     try self.patchOptJumps(node);
     try self.endScope(node);
 
-    return null;
+    return .{};
 }
 
-fn generateZdef(self: *Self, node: Ast.Node.Index, _: ?*Breaks) Error!?*obj.ObjFunction {
+fn generateZdef(self: *Self, node: Ast.Node.Index, _: ?*Breaks) Error!GeneratedNode {
     if (is_wasm) {
-        return null;
+        return .{};
     }
 
     const components = self.ast.nodes.items(.components)[node].Zdef;
@@ -3431,7 +3663,7 @@ fn generateZdef(self: *Self, node: Ast.Node.Index, _: ?*Breaks) Error!?*obj.ObjF
     try self.patchOptJumps(node);
     try self.endScope(node);
 
-    return null;
+    return .{};
 }
 
 fn OP_DBG_LOCAL_ENTER(self: *Self, location: Ast.TokenIndex, slot: u8, name: Value) !void {

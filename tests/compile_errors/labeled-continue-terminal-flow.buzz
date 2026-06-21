@@ -1,0 +1,13 @@
+// Code will never be reached
+/// Keeps a labeled continue to an outer loop from making an inner do-until fall through.
+fun labeledContinueDoesNotExposeLaterBreak() > int {
+    while (true) :outer {
+        do {
+            continue outer;
+        } until (true)
+
+        break outer;
+    }
+}
+
+test "labeled continue terminal flow" {}

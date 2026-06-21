@@ -1,0 +1,76 @@
+import "buzz:std";
+
+/// Returns from both branches of an if/else statement.
+fun ifElseReturn(flag: bool) > int {
+    if (flag) {
+        return 1;
+    } else {
+        return 2;
+    }
+}
+
+/// Either returns a value or throws from the function.
+fun returnOrThrow(flag: bool) > int !> str {
+    if (flag) {
+        return 3;
+    } else {
+        throw "failed";
+    }
+}
+
+/// Throws instead of producing the declared return type.
+fun throwInsteadOfReturn() > int !> str {
+    throw "failed";
+}
+
+/// Never falls through because the loop is statically infinite.
+fun infiniteInsteadOfReturn() > int {
+    while (true) {}
+}
+
+/// Exits an outer constant loop through a labeled break inside a nested loop.
+fun labeledBreakOuterLoopFallthrough() > int {
+    var value = 0;
+    while (true) :outer {
+        while (true) {
+            value = 10;
+            break outer;
+        }
+    }
+
+    return value;
+}
+
+/// Produces a block-expression value from both if/else branches.
+fun blockExpressionBranchOut(flag: bool) > int {
+    return from {
+        if (flag) {
+            out 4;
+        } else {
+            out 5;
+        }
+    };
+}
+
+/// Produces a block-expression value from either an early out or a fallback out.
+fun blockExpressionFallbackOut(flag: bool) > int {
+    return from {
+        if (flag) {
+            out 6;
+        }
+        out 7;
+    };
+}
+
+test "terminal flow" {
+    std\assert(ifElseReturn(true) == 1);
+    std\assert(ifElseReturn(false) == 2);
+    std\assert(returnOrThrow(true) == 3);
+    std\assert((returnOrThrow(false) catch 8) == 8);
+    std\assert((throwInsteadOfReturn() catch 9) == 9);
+    std\assert(labeledBreakOuterLoopFallthrough() == 10);
+    std\assert(blockExpressionBranchOut(true) == 4);
+    std\assert(blockExpressionBranchOut(false) == 5);
+    std\assert(blockExpressionFallbackOut(true) == 6);
+    std\assert(blockExpressionFallbackOut(false) == 7);
+}

@@ -1,0 +1,9 @@
+// Code will never be reached
+/// Never falls through because the loop condition is a constant true.
+fun forever() > int {
+    while (true) {}
+
+    return 1;
+}
+
+test "terminal loop unreachable" {}
