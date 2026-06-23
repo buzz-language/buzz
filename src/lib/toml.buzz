@@ -1406,8 +1406,6 @@ object Path {
             left += 1;
             right += 1;
         }
-
-        return true;
     }
 
     fun hasInlineParent(inlineTables: PathSet) > bool {

@@ -218,7 +218,7 @@ pub fn compileFunctionIfNeeded(self: *Self, closure: *o.ObjClosure) StartError!b
     }
 
     if (BuildOptions.jit_always_on or closure.function.call_count > BuildOptions.jit_call_threshold) {
-        const score = closure.function.call_count * closure.function.chunk.score();
+        const score = closure.function.call_count * function_ast.jitComplexity(closure.function.node).?.score;
         if (score == 0) {
             function_ast.nodes.items(.jit_status)[closure.function.node] = .blacklisted;
 
@@ -260,7 +260,7 @@ pub fn compileHotspotIfNeeded(self: *Self, ast: Ast.Slice, frame_closure: *o.Obj
     }
 
     if (BuildOptions.jit_hotspot_always_on or ast.nodes.items(.count)[node] > BuildOptions.jit_hotspot_threshold) {
-        const score = ast.nodes.items(.count)[node] * try ast.score(self.gc.allocator, node);
+        const score = ast.nodes.items(.count)[node] * ast.jitComplexity(node).?.score;
         if (score == 0) {
             ast.nodes.items(.jit_status)[node] = .blacklisted;
 
@@ -299,13 +299,10 @@ pub fn compile(self: *Self, ast: Ast.Slice, closure: *o.ObjClosure, hotspot_node
         .compilable => {},
     }
 
-    if (try ast.usesFiber(
-        self.gc.allocator,
-        ast_node,
-    )) {
+    if (ast.jitComplexity(ast_node).?.score == 0) {
         if (BuildOptions.jit_debug) {
             log.debug(
-                "Not compiling node {s}#{}, likely because it uses a fiber\n",
+                "Not compiling node {s}#{}, it has zero JIT complexity\n",
                 .{
                     @tagName(ast.nodes.items(.tag)[ast_node]),
                     ast_node,
@@ -365,7 +362,6 @@ pub fn compileFunctionSynchronously(self: *Self, closure: *o.ObjClosure) Error!v
 
     const function_ast = closure.function.chunk.ast;
     const function_node = closure.function.node;
-    _ = closure.function.chunk.score();
 
     switch (function_ast.nodes.items(.jit_status)[function_node]) {
         .blacklisted, .generated, .queued => return error.CantCompile,
@@ -373,10 +369,7 @@ pub fn compileFunctionSynchronously(self: *Self, closure: *o.ObjClosure) Error!v
         .compilable => {},
     }
 
-    if (try function_ast.usesFiber(
-        self.gc.allocator,
-        function_node,
-    )) {
+    if (function_ast.jitComplexity(function_node).?.score == 0) {
         function_ast.nodes.items(.jit_status)[function_node] = .blacklisted;
 
         return error.CantCompile;
@@ -436,7 +429,7 @@ fn work(self: *Self) Error!void {
                     "Worker starting for compiling function `{s}` with score {}",
                     .{
                         job.closure.function.type_def.resolved_type.?.Function.name.string,
-                        job.closure.function.call_count * job.closure.function.chunk.complexity_score.?,
+                        job.closure.function.call_count * job.ast.jitComplexity(job.node).?.score,
                     },
                 )
             else
@@ -445,7 +438,7 @@ fn work(self: *Self) Error!void {
                     .{
                         job.node,
                         @tagName(job.ast.nodes.items(.tag)[job.node]),
-                        job.ast.nodes.items(.count)[job.node] * job.ast.nodes.items(.complexity_score)[job.node].?,
+                        job.ast.nodes.items(.count)[job.node] * job.ast.jitComplexity(job.node).?.score,
                         job.closure.function.type_def.resolved_type.?.Function.name.string,
                     },
                 );
@@ -570,7 +563,7 @@ fn doJob(self: *Self, job: *const Job) Error!CompletedJob {
                     "Finished job function `{s}` with score {} in {}ms",
                     .{
                         job.closure.function.type_def.resolved_type.?.Function.name.string,
-                        job.closure.function.call_count * job.closure.function.chunk.complexity_score.?,
+                        job.closure.function.call_count * job.ast.jitComplexity(job.node).?.score,
                         time,
                     },
                 );
@@ -580,7 +573,7 @@ fn doJob(self: *Self, job: *const Job) Error!CompletedJob {
                     .{
                         job.node,
                         @tagName(job.ast.nodes.items(.tag)[job.node]),
-                        job.ast.nodes.items(.count)[job.node] * job.ast.nodes.items(.complexity_score)[job.node].?,
+                        job.ast.nodes.items(.count)[job.node] * job.ast.jitComplexity(job.node).?.score,
                         job.closure.function.type_def.resolved_type.?.Function.name.string,
                         time,
                     },

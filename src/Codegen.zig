@@ -66,6 +66,16 @@ const GeneratedNode = struct {
     flow: TerminalFlow = .{},
 };
 
+/// Tracks the JIT complexity accumulated for a node while its code is generated.
+const ComplexityFrame = struct {
+    /// Node currently being generated.
+    node: Ast.Node.Index,
+    /// Accumulated complexity for the node and generated children.
+    score: usize,
+    /// Nearest generated ancestor with stored JIT complexity metadata.
+    nearest_candidate: ?Ast.Node.Index,
+};
+
 const Break = struct {
     ip: usize, // The op code will tell us if this is a continue or a break statement
     label_node: ?Ast.Node.Index = null,
@@ -87,6 +97,8 @@ flavor: RunFlavor,
 opt_jumps: std.ArrayList(std.ArrayList(usize)) = .empty,
 /// Jumps emitted by `out` statements to the end of the current block expression.
 block_expression_out_jumps: std.ArrayList(std.ArrayList(usize)) = .empty,
+/// Stack of nodes currently being generated, used to accumulate JIT complexity without another AST walk.
+complexity_stack: std.ArrayList(ComplexityFrame) = .empty,
 /// Used to generate error messages
 parser: *Parser,
 jit: ?*JIT,
@@ -188,6 +200,7 @@ pub fn init(
 }
 
 pub fn deinit(self: *Self) void {
+    self.complexity_stack.deinit(self.gc.allocator);
     self.reporter.deinit();
 }
 
@@ -539,6 +552,26 @@ fn generateStatements(
     return result;
 }
 
+/// Returns the intrinsic JIT complexity for a generated node, before generated children contribute.
+fn jitComplexityBase(tag: Ast.Node.Tag) usize {
+    return switch (tag) {
+        .AsyncCall,
+        .Resolve,
+        .Resume,
+        .Yield,
+        => 0,
+        .Call,
+        .DoUntil,
+        .For,
+        .ForEach,
+        .Throw,
+        .Try,
+        .While,
+        => 2,
+        else => 1,
+    };
+}
+
 fn generateNode(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!GeneratedNode {
     if (self.synchronize(node)) {
         return .{};
@@ -552,11 +585,50 @@ fn generateNode(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!Gener
         node,
     );
 
-    if (Self.generators[@intFromEnum(self.ast.nodes.items(.tag)[node])]) |generator| {
-        return generator(self, node, breaks);
+    const tag = self.ast.nodes.items(.tag)[node];
+    const generator = Self.generators[@intFromEnum(tag)] orelse return .{};
+
+    const nearest_candidate = if (self.complexity_stack.items.len > 0)
+        self.complexity_stack.items[self.complexity_stack.items.len - 1].nearest_candidate
+    else
+        null;
+
+    try self.complexity_stack.append(self.gc.allocator, .{
+        .node = node,
+        .score = jitComplexityBase(tag),
+        .nearest_candidate = if (self.ast.jitComplexity(node) != null) node else nearest_candidate,
+    });
+    errdefer {
+        const popped = self.complexity_stack.pop().?;
+        std.debug.assert(popped.node == node);
     }
 
-    return .{};
+    const generated = try generator(self, node, breaks);
+    const frame = self.complexity_stack.pop().?;
+    std.debug.assert(frame.node == node);
+
+    if (self.ast.jitComplexity(node)) |jit| {
+        jit.* = .{
+            .score = frame.score,
+            .parent = nearest_candidate,
+        };
+    }
+
+    if (self.complexity_stack.items.len > 0) {
+        // Function bodies are complexity boundaries; the parent only pays for creating the function.
+        const contribution = switch (tag) {
+            .Function => jitComplexityBase(.Function),
+            else => frame.score,
+        };
+        const current = &self.complexity_stack.items[self.complexity_stack.items.len - 1];
+        if (current.score == 0 or contribution == 0) {
+            current.score = 0;
+        } else {
+            current.score += contribution;
+        }
+    }
+
+    return generated;
 }
 
 fn generateAs(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!GeneratedNode {
@@ -1824,6 +1896,12 @@ fn generateForEach(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!Ge
     const components = node_components[node].ForEach;
 
     const iterable_type_def = type_defs[components.iterable].?;
+    if (iterable_type_def.def_type == .Fiber) {
+        // Fiber foreach cannot be JIT compiled; a zero score propagates that blacklist upward.
+        const current = &self.complexity_stack.items[self.complexity_stack.items.len - 1];
+        std.debug.assert(current.node == node);
+        current.score = 0;
+    }
 
     // If iterable constant and empty, skip the node
     if (try self.ast.isConstant(self.gc.allocator, components.iterable)) {
