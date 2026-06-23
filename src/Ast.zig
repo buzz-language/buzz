@@ -618,32 +618,6 @@ pub const Slice = struct {
         return ctx.result orelse &.{};
     }
 
-    const UsesFiberContext = struct {
-        result: bool = false,
-
-        pub fn processNode(self: *UsesFiberContext, _: std.mem.Allocator, ast: Self.Slice, node: Self.Node.Index) (std.mem.Allocator.Error || std.fmt.BufPrintError)!bool {
-            switch (ast.nodes.items(.tag)[node]) {
-                .AsyncCall,
-                .Resolve,
-                .Resume,
-                .Yield,
-                => {
-                    self.result = true;
-                    return true;
-                },
-                else => return false,
-            }
-        }
-    };
-
-    pub fn usesFiber(self: Self.Slice, allocator: std.mem.Allocator, node: Node.Index) !bool {
-        var ctx = UsesFiberContext{};
-
-        try self.walk(allocator, &ctx, node, .breadthFirst);
-
-        return ctx.result;
-    }
-
     const IsConstantContext = struct {
         result: ?bool = null,
 
@@ -827,56 +801,26 @@ pub const Slice = struct {
         return ctx.result orelse false;
     }
 
-    /// Mirrors Chunk.score (even though Chunk.score and Node.score won't be comparable)
-    /// Is used to compute complexity of a hotspot node (which doesn't have a Chunk available to evaluate)
-    const ComplexityContext = struct {
+    /// JIT complexity metadata stored only on function and hotspot candidate components.
+    pub const JitComplexity = struct {
+        /// Complexity score computed during codegen to help evaluate if the node is worth JIT compiling.
         score: usize = 0,
-
-        pub fn processNode(
-            ctx: *ComplexityContext,
-            _: std.mem.Allocator,
-            ast: Self.Slice,
-            node: Self.Node.Index,
-        ) (std.mem.Allocator.Error || std.fmt.BufPrintError)!bool {
-            if (ast.nodes.items(.complexity_score)[node]) |sc| {
-                ctx.score += sc;
-                return true; // Don't go deeper we already computed this node score
-            }
-
-            ctx.score += switch (ast.nodes.items(.tag)[node]) {
-                .AsyncCall,
-                .Resolve,
-                .Resume,
-                => { // Blacklist because of fiber use
-                    ctx.score = 0;
-                    return true;
-                },
-                .Call,
-                .DoUntil,
-                .For,
-                .ForEach,
-                .Throw,
-                .Try,
-                .While,
-                => @as(usize, @intCast(1)),
-                else => @as(usize, @intCast(0)),
-            } + 1; // At least 1 per node
-
-            return false;
-        }
+        /// Parent in the codegen-time JIT complexity tree, used to update ancestor scores after a hotspot is compiled.
+        parent: ?Node.Index = null,
     };
 
-    pub fn score(self: Self.Slice, allocator: std.mem.Allocator, node: Node.Index) !usize {
-        const complexity_score = &self.nodes.items(.complexity_score)[node];
-        if (complexity_score.* == null) {
-            var ctx = ComplexityContext{};
+    /// Returns mutable JIT complexity metadata for nodes that can be compiled directly by the JIT.
+    pub fn jitComplexity(self: Self.Slice, node: Node.Index) ?*JitComplexity {
+        const tags = self.nodes.items(.tag);
+        const components = self.nodes.items(.components);
 
-            try self.walk(allocator, &ctx, node, .breadthFirst);
-
-            complexity_score.* = ctx.score;
-        }
-
-        return complexity_score.* orelse 0;
+        return switch (tags[node]) {
+            .Function => &components[node].Function.jit,
+            .For => &components[node].For.jit,
+            .ForEach => &components[node].ForEach.jit,
+            .While => &components[node].While.jit,
+            else => null,
+        };
     }
 
     const NamespaceContext = struct {
@@ -1944,8 +1888,6 @@ pub const Node = struct {
 
     /// How many time it was visited at runtime (used to decide wether its a hotspot that needs to be compiled)
     count: usize = 0,
-    /// Complexity score computed once to help evaluate if the node is worth JIT compiling
-    complexity_score: ?usize = null,
     /// Node status: blacklisted, queued/generated/compiled by the JIT, compilable
     jit_status: JitStatus = .compilable,
     /// Once compiled
@@ -2363,6 +2305,8 @@ pub const For = struct {
     post_loop: []const Node.Index,
     body: Node.Index,
     label: ?TokenIndex,
+    /// JIT complexity metadata for this hotspot candidate.
+    jit: Slice.JitComplexity = .{},
 };
 
 pub const ForEach = struct {
@@ -2372,6 +2316,8 @@ pub const ForEach = struct {
     body: Node.Index,
     key_omitted: bool,
     label: ?TokenIndex,
+    /// JIT complexity metadata for this hotspot candidate.
+    jit: Slice.JitComplexity = .{},
 };
 
 pub const Function = struct {
@@ -2391,6 +2337,8 @@ pub const Function = struct {
     // Should be .FunctionType
     // Only function without a function_signature is a script
     function_signature: ?Node.Index,
+    /// JIT complexity metadata for this function candidate.
+    jit: Slice.JitComplexity = .{},
 
     upvalue_binding: std.AutoArrayHashMapUnmanaged(u8, bool),
 
@@ -2628,6 +2576,8 @@ pub const WhileDoUntil = struct {
     condition: Node.Index,
     body: Node.Index,
     label: ?TokenIndex,
+    /// JIT complexity metadata used when this component represents a hotspot candidate.
+    jit: Slice.JitComplexity = .{},
 };
 
 pub const Zdef = struct {

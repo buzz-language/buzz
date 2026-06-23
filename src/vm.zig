@@ -4578,7 +4578,7 @@ pub const VM = struct {
             };
             obj_native.mark(self.gc);
 
-            // The now compile hotspot must be a new constant for the current function
+            // The newly compiled hotspot must be a new constant for the current function.
             frame.closure.function.chunk.constants.append(
                 frame.closure.function.chunk.allocator,
                 obj_native.toValue(),
@@ -4596,6 +4596,27 @@ pub const VM = struct {
                 self.panic("Out of memory");
                 unreachable;
             };
+
+            const compiled_hotspot_score = function_ast.jitComplexity(node).?.score;
+            if (compiled_hotspot_score > 0) {
+                const function_node = frame.closure.function.node;
+                var current_node: ?Ast.Node.Index = node;
+
+                // Once the hotspot bytecode is patched out, remove its cost from candidate ancestors.
+                while (current_node) |score_node| {
+                    const jit = function_ast.jitComplexity(score_node).?;
+                    jit.score = if (jit.score > compiled_hotspot_score)
+                        jit.score - compiled_hotspot_score
+                    else
+                        0;
+
+                    if (score_node == function_node) {
+                        break;
+                    }
+
+                    current_node = jit.parent;
+                }
+            }
         }
 
         frame = self.currentFrame().?;
@@ -5563,7 +5584,6 @@ pub const VM = struct {
         );
 
         const hotspot_call_start = to - hotspot_call.len;
-        try chunk.addCompiledHotspotRange(frame.ip - 1, hotspot_call_start);
 
         // In the event that we are in a nested loop, we put a jump instruction in place of OP_HOTSPOT
         chunk.code.items[frame.ip - 2] = (@as(u32, @intCast(@intFromEnum(Chunk.OpCode.OP_JUMP))) << 24) | @as(
