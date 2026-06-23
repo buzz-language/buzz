@@ -41,8 +41,6 @@ const SubCommand = enum {
     format,
     help,
     init,
-    run,
-    @"run-script",
     version,
 };
 
@@ -53,14 +51,12 @@ const command_summaries = .{
     .format = .{ .name = "format", .description = "Format a buzz script." },
     .help = .{ .name = "help", .description = "Show global or command-specific help." },
     .init = .{ .name = "init", .description = "Create a minimal buzz package in the current directory." },
-    .run = .{ .name = "run", .description = "Run src/main.buzz from the current package." },
-    .@"run-script" = .{ .name = "run-script", .description = "Run a standalone buzz script by path." },
     .@"test" = .{ .name = "test", .description = "Run tests from a buzz script." },
     .version = .{ .name = "version", .description = "Print buzz version information." },
 };
 
 const main_params = clap.parseParamsComptime(
-    \\<command>
+    \\<command_or_path>
 );
 
 const test_params = clap.parseParamsComptime(
@@ -82,15 +78,10 @@ const format_params = clap.parseParamsComptime(
     \\<str>                   Script to format
 );
 
-const run_params = clap.parseParamsComptime(
-    \\<str>...               Arguments to pass to src/main.buzz
-);
-
-const run_script_params = clap.parseParamsComptime(
+const direct_run_params = clap.parseParamsComptime(
     \\-L, --library <str>... Add search path for external libraries
     \\-r, --root-dir <str>   Root dir for package resolution
-    \\<str>                  Script to run
-    \\<str>...               Arguments to pass to the script
+    \\<str>                  File or package directory to run
 );
 
 const help_params = clap.parseParamsComptime(
@@ -100,10 +91,6 @@ const help_params = clap.parseParamsComptime(
 const fetch_params = clap.parseParamsComptime(
     \\-m, --manifest <str>  Path to manifest file (defaults to `./manifest.buzz`)
 );
-
-const main_parsers = .{
-    .command = clap.parsers.enumeration(SubCommand),
-};
 
 pub fn main(provided_init: Init) u8 {
     if (is_wasm) unreachable;
@@ -134,74 +121,94 @@ pub fn main(provided_init: Init) u8 {
 
     _ = arg_iter.next();
 
-    var diag = clap.Diagnostic{};
-    var res = clap.parseEx(
-        clap.Help,
-        &main_params,
-        main_parsers,
-        &arg_iter,
-        .{
-            .allocator = allocator,
-            .diagnostic = &diag,
-            // Stop parsing after we read the subcommand
-            .terminating_positional = 0,
-        },
-    ) catch |err| {
-        // Report useful error and exit
-        diag.report(&stderr.interface, err) catch {};
-        return 1;
-    };
-    defer res.deinit();
+    var args = std.ArrayList([]const u8).empty;
+    defer {
+        for (args.items) |arg| {
+            allocator.free(arg);
+        }
+        args.deinit(allocator);
+    }
 
-    // No arguments, we run the REPL
-    if (res.positionals[0]) |command| {
+    while (arg_iter.next()) |arg| {
+        const owned_arg = allocator.dupe(u8, arg) catch {
+            stderr.interface.writeAll("Could not allocate command line arguments\n") catch {};
+            return 1;
+        };
+        args.append(allocator, owned_arg) catch {
+            allocator.free(owned_arg);
+            stderr.interface.writeAll("Could not allocate command line arguments\n") catch {};
+            return 1;
+        };
+    }
+
+    var diag = clap.Diagnostic{};
+
+    // No arguments, we run the REPL.
+    if (args.items.len == 0) {
+        repl(init, allocator) catch {
+            return 1;
+        };
+
+        return 0;
+    }
+
+    if (std.meta.stringToEnum(SubCommand, args.items[0])) |command| {
         return switch (command) {
-            .@"test" => run(
-                init,
-                allocator,
-                command,
-                clap.parseEx(
-                    clap.Help,
-                    &test_params,
-                    clap.parsers.default,
-                    &arg_iter,
-                    .{
-                        .allocator = allocator,
-                        .diagnostic = &diag,
+            .@"test" => {
+                var sub_arg_iter = clap.args.SliceIterator{ .args = args.items[1..] };
+
+                return run(
+                    init,
+                    allocator,
+                    command,
+                    clap.parseEx(
+                        clap.Help,
+                        &test_params,
+                        clap.parsers.default,
+                        &sub_arg_iter,
+                        .{
+                            .allocator = allocator,
+                            .diagnostic = &diag,
+                        },
+                    ) catch |err| {
+                        // Report useful error and exit
+                        diag.report(&stderr.interface, err) catch {};
+                        return 1;
                     },
-                ) catch |err| {
-                    // Report useful error and exit
-                    diag.report(&stderr.interface, err) catch {};
-                    return 1;
-                },
-                .{},
-            ),
-            .check => run(
-                init,
-                allocator,
-                command,
-                clap.parseEx(
-                    clap.Help,
-                    &check_params,
-                    clap.parsers.default,
-                    &arg_iter,
-                    .{
-                        .allocator = allocator,
-                        .diagnostic = &diag,
+                    .{},
+                );
+            },
+            .check => {
+                var sub_arg_iter = clap.args.SliceIterator{ .args = args.items[1..] };
+
+                return run(
+                    init,
+                    allocator,
+                    command,
+                    clap.parseEx(
+                        clap.Help,
+                        &check_params,
+                        clap.parsers.default,
+                        &sub_arg_iter,
+                        .{
+                            .allocator = allocator,
+                            .diagnostic = &diag,
+                        },
+                    ) catch |err| {
+                        // Report useful error and exit
+                        diag.report(&stderr.interface, err) catch {};
+                        return 1;
                     },
-                ) catch |err| {
-                    // Report useful error and exit
-                    diag.report(&stderr.interface, err) catch {};
-                    return 1;
-                },
-                .{},
-            ),
+                    .{},
+                );
+            },
             .format => {
+                var sub_arg_iter = clap.args.SliceIterator{ .args = args.items[1..] };
                 const sub_res = clap.parseEx(
                     clap.Help,
                     &format_params,
                     clap.parsers.default,
-                    &arg_iter,
+                    &sub_arg_iter,
                     .{
                         .allocator = allocator,
                         .diagnostic = &diag,
@@ -232,82 +239,13 @@ pub fn main(provided_init: Init) u8 {
                     },
                 );
             },
-            .run => {
-                const sub_res = clap.parseEx(
-                    clap.Help,
-                    &run_params,
-                    clap.parsers.default,
-                    &arg_iter,
-                    .{
-                        .allocator = allocator,
-                        .diagnostic = &diag,
-                    },
-                ) catch |err| {
-                    // Report useful error and exit
-                    diag.report(&stderr.interface, err) catch {};
-                    return 1;
-                };
-
-                std.Io.Dir.cwd().access(init.io, Package.MANIFEST, .{ .read = true }) catch |err| {
-                    stderr.interface.print(
-                        "Could not find `{s}` in current directory: {s}\n",
-                        .{
-                            Package.MANIFEST,
-                            @errorName(err),
-                        },
-                    ) catch @panic("Could not check package manifest");
-                    return 1;
-                };
-
-                var perf: ?Perf = if (BuildOptions.show_perf) Perf.init(init.io) else null;
-                defer if (perf) |*p| p.report();
-
-                var runner: Runner = undefined;
-                runner.init(
-                    init,
-                    allocator,
-                    .Run,
-                    null,
-                    if (perf) |*p| p else null,
-                ) catch {
-                    return 1;
-                };
-                defer runner.deinit();
-
-                return runner.runFile(
-                    ".",
-                    "src/main.buzz",
-                    sub_res.positionals[0],
-                ) catch {
-                    return 1;
-                };
-            },
-            .@"run-script" => run(
-                init,
-                allocator,
-                command,
-                clap.parseEx(
-                    clap.Help,
-                    &run_script_params,
-                    clap.parsers.default,
-                    &arg_iter,
-                    .{
-                        .allocator = allocator,
-                        .diagnostic = &diag,
-                    },
-                ) catch |err| {
-                    // Report useful error and exit
-                    diag.report(&stderr.interface, err) catch {};
-                    return 1;
-                },
-                .{},
-            ),
             .fetch => {
+                var sub_arg_iter = clap.args.SliceIterator{ .args = args.items[1..] };
                 const sub_res = clap.parseEx(
                     clap.Help,
                     &fetch_params,
                     clap.parsers.default,
-                    &arg_iter,
+                    &sub_arg_iter,
                     .{
                         .allocator = allocator,
                         .diagnostic = &diag,
@@ -397,11 +335,12 @@ pub fn main(provided_init: Init) u8 {
                 return 1;
             },
             .help => {
+                var sub_arg_iter = clap.args.SliceIterator{ .args = args.items[1..] };
                 const sub_res = clap.parseEx(
                     clap.Help,
                     &help_params,
                     clap.parsers.default,
-                    &arg_iter,
+                    &sub_arg_iter,
                     .{
                         .allocator = allocator,
                         .diagnostic = &diag,
@@ -425,13 +364,123 @@ pub fn main(provided_init: Init) u8 {
                 return 0;
             },
         };
-    } else {
-        repl(init, allocator) catch {
-            return 1;
-        };
     }
 
-    return 0;
+    return runDirect(init, allocator, args.items);
+}
+
+/// Runs either a standalone buzz file or a package directory passed directly to the CLI.
+fn runDirect(
+    init: Init,
+    allocator: Allocator,
+    args: []const []const u8,
+) u8 {
+    var stderr = io.stderrWriter(init.io);
+    var diag = clap.Diagnostic{};
+    var arg_iter = clap.args.SliceIterator{ .args = args };
+    const res = clap.parseEx(
+        clap.Help,
+        &direct_run_params,
+        clap.parsers.default,
+        &arg_iter,
+        .{
+            .allocator = allocator,
+            .diagnostic = &diag,
+            // Once the run target is known, all remaining tokens belong to the script.
+            .terminating_positional = 0,
+        },
+    ) catch |err| {
+        diag.report(&stderr.interface, err) catch {};
+        return 1;
+    };
+
+    const target = res.positionals[0] orelse {
+        stderr.interface.writeAll("Missing file or package directory to run\n") catch {};
+        return 1;
+    };
+    const script_args = args[arg_iter.index..];
+
+    if (res.args.library.len > 0) {
+        var list = std.ArrayList([]const u8).empty;
+
+        for (res.args.library) |path| {
+            list.append(allocator, path) catch return 1;
+        }
+
+        Parser.user_library_paths = list.toOwnedSlice(allocator) catch return 1;
+    }
+
+    const stat = std.Io.Dir.cwd().statFile(init.io, target, .{}) catch |err| {
+        stderr.interface.print(
+            "Could not access `{s}`: {s}\n",
+            .{
+                target,
+                @errorName(err),
+            },
+        ) catch @panic("Could not stat run target");
+        return 1;
+    };
+
+    const root_dir, const file_name = switch (stat.kind) {
+        .file => .{ res.args.@"root-dir", target },
+        .directory => directory_entry: {
+            const manifest_path = std.fs.path.join(allocator, &.{ target, Package.MANIFEST }) catch {
+                stderr.interface.writeAll("Could not allocate package manifest path\n") catch {};
+                return 1;
+            };
+            defer allocator.free(manifest_path);
+
+            std.Io.Dir.cwd().access(init.io, manifest_path, .{ .read = true }) catch |err| {
+                stderr.interface.print(
+                    "Could not find `{s}` in `{s}`: {s}\n",
+                    .{
+                        Package.MANIFEST,
+                        target,
+                        @errorName(err),
+                    },
+                ) catch @panic("Could not check package manifest");
+                return 1;
+            };
+
+            const entry_point = std.fs.path.join(allocator, &.{ target, "src", "main.buzz" }) catch {
+                stderr.interface.writeAll("Could not allocate package entry point path\n") catch {};
+                return 1;
+            };
+
+            break :directory_entry .{ target, entry_point };
+        },
+        else => {
+            stderr.interface.print(
+                "`{s}` is not a buzz file or package directory\n",
+                .{target},
+            ) catch @panic("Could not report invalid run target");
+            return 1;
+        },
+    };
+    defer if (stat.kind == .directory) allocator.free(file_name);
+
+    var perf: ?Perf = if (BuildOptions.show_perf) Perf.init(init.io) else null;
+    defer if (perf) |*p| p.report();
+
+    var runner: Runner = undefined;
+    runner.init(
+        init,
+        allocator,
+        .Run,
+        null,
+        if (perf) |*p| p else null,
+    ) catch {
+        return 1;
+    };
+    defer runner.deinit();
+
+    return runner.runFile(
+        root_dir,
+        file_name,
+        script_args,
+    ) catch {
+        return 1;
+    };
 }
 
 fn initPackage(init: Init) u8 {
@@ -469,12 +518,6 @@ fn run(
     sub_res: anytype,
     renderer_options: Renderer.Options,
 ) u8 {
-    if (command == .@"run-script" and sub_res.positionals[0] == null) {
-        var stderr = io.stderrWriter(init.io);
-        stderr.interface.writeAll("Missing script to run\n") catch {};
-        return 1;
-    }
-
     var perf: ?Perf = if (BuildOptions.show_perf) Perf.init(init.io) else null;
     defer if (perf) |*p| p.report();
 
@@ -486,7 +529,6 @@ fn run(
             .@"test" => .Test,
             .check => .Check,
             .format => .Fmt,
-            .run, .@"run-script" => .Run,
             else => unreachable,
         },
         null,
@@ -579,44 +621,6 @@ fn help(init: Init, stderr: *std.Io.Writer, subcommand_opt: ?[]const u8) u8 {
                     .spacing_between_parameters = 0,
                 },
             ) catch return 1;
-        } else if (std.mem.eql(u8, subcommand, "run")) {
-            clap.usage(
-                stderr,
-                clap.Help,
-                &run_params,
-            ) catch return 1;
-
-            io.print(init.io, "\n\n", .{});
-
-            clap.help(
-                stderr,
-                clap.Help,
-                &run_params,
-                .{
-                    .description_on_new_line = false,
-                    .description_indent = 4,
-                    .spacing_between_parameters = 0,
-                },
-            ) catch return 1;
-        } else if (std.mem.eql(u8, subcommand, "run-script")) {
-            clap.usage(
-                stderr,
-                clap.Help,
-                &run_script_params,
-            ) catch return 1;
-
-            io.print(init.io, "\n\n", .{});
-
-            clap.help(
-                stderr,
-                clap.Help,
-                &run_script_params,
-                .{
-                    .description_on_new_line = false,
-                    .description_indent = 4,
-                    .spacing_between_parameters = 0,
-                },
-            ) catch return 1;
         } else if (std.mem.eql(u8, subcommand, "fetch")) {
             clap.usage(
                 stderr,
@@ -678,6 +682,7 @@ fn help(init: Init, stderr: *std.Io.Writer, subcommand_opt: ?[]const u8) u8 {
             });
         }
         io.print(init.io, "\nUse `buzz help <command>` for command-specific help.\n", .{});
+        io.print(init.io, "Run a script with `buzz <file.buzz>` or a package with `buzz <directory>`.\n", .{});
     }
 
     return 0;

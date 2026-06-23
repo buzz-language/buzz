@@ -1934,7 +1934,7 @@ pub fn init(process: std.process.Init) !void {
 
     try stdout.interface.print(
         \\
-        \\🎉 Buzz package created. Run `buzz run` to try it.
+        \\🎉 Buzz package created. Run `buzz .` to try it.
         \\.
         \\├── build.zig
         \\├── {s}

@@ -30,11 +30,12 @@ This release brings a lot of useful tools to write buzz code: LSP, formatter and
 
 ## Changed
 
-- buzz binary now uses subcommands rather than options
-    - `buzz <script.buzz>` becomes `buzz run-script <script.buzz>`
+- buzz binary now uses subcommands for tools and direct paths for execution
+    - `buzz <script.buzz>` runs a standalone script
     - `buzz -t <script.buzz>` becomes `buzz test <script.buzz>`
     - `buzz -f <script.buzz>` becomes `buzz format <script.buzz>`
-    - `buzz run` runs `src/main.buzz` from the current package
+    - `buzz <directory>` runs `src/main.buzz` from a buzz package directory
+    - `buzz run` and `buzz run-script` were removed
     - `buzz init` and `buzz fetch` manage package scaffolding and dependencies
     - `buzz` will start the REPL
 - Extern libraries now must expose only one function which will be called by the compiler to lookup the functions of the library

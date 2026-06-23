@@ -138,7 +138,7 @@ fn resolveRootDir(
     }
 
     // If the entry point lives under a `src` directory, its parent is the
-    // package root. This lets `buzz run src/main.buzz` work without `-r`.
+    // package root. This lets `buzz src/main.buzz` work without `-r`.
     if (std.fs.path.dirname(absolute_file_path)) |dir| {
         var it = std.fs.path.componentIterator(dir);
         var maybe_component = it.last();

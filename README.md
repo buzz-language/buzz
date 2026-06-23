@@ -47,7 +47,8 @@ A small/lightweight statically typed scripting language written in Zig
 3. Build it `zig build -Doptimize=ReleaseSafe`
 4. Have fun (with `BUZZ_PATH=./zig-out`)
     - `buzz` launches the REPL
-    - `buzz run-script` to run a lone script
+    - `buzz <script.buzz>` to run a lone script
+    - `buzz <directory>` to run a buzz package
     - `buzz init` to start a buzz package
  
 ### Install
@@ -62,4 +63,4 @@ sudo zig build -Doptimize=ReleaseSafe install -p /usr/local
 
 If you're usage if performance critical (game dev for example), you can build using `-Doptimize=ReleaseFast`.
 
-Remember to modify PATH to include the `bin` directory where it is installed. For example, `export PATH=PATH:/home/xxx/.local/bin`. You can then run buzz with `buzz <myscript.buzz>`. Or you can simply run `buzz` to start the REPL.
+Remember to modify PATH to include the `bin` directory where it is installed. For example, `export PATH=PATH:/home/xxx/.local/bin`. You can then run buzz with `buzz <myscript.buzz>` or `buzz <directory>`. Or you can simply run `buzz` to start the REPL.
