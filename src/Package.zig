@@ -191,16 +191,70 @@ pub const Manifest = struct {
     /// Ordered commands attached to one named manifest build step.
     pub const BuildStep = []const BuildCommand;
 
+    pub fn runBuildSteps(
+        self: Manifest,
+        process: std.process.Init,
+        allocator: std.mem.Allocator,
+        progress: *InitProgress,
+        errors: *std.ArrayList([]const u8),
+        destination: []const u8,
+    ) !void {
+        var build_command_count: usize = 0;
+        var steps = self.build.iterator();
+        while (steps.next()) |step| {
+            build_command_count += step.value_ptr.*.len;
+        }
+        progress.total += build_command_count;
+
+        steps = self.build.iterator();
+        while (steps.next()) |step| {
+            for (step.value_ptr.*) |command| {
+                if (command.len == 0) {
+                    return error.EmptyBuildCommand;
+                }
+
+                {
+                    const result = try runCommand(
+                        process,
+                        allocator,
+                        command,
+                        destination,
+                        progress,
+                        step.key_ptr.*,
+                    );
+                    defer result.deinit(allocator);
+
+                    progress.advance(step.key_ptr.*) catch {};
+
+                    if (result.exit_code == null or result.exit_code.? != 0) {
+                        var err = std.Io.Writer.Allocating.init(allocator);
+
+                        err.writer.print(
+                            "\x1b[31mFailed build step {s} for package {s}:\n\t{s}\n\x1b[0m",
+                            .{
+                                step.key_ptr.*,
+                                self.name,
+                                result.stderr,
+                            },
+                        ) catch {};
+
+                        try errors.append(allocator, try err.toOwnedSlice());
+
+                        return error.BuildCommandFailed;
+                    }
+                }
+            }
+        }
+    }
+
     pub fn fetch(self: Manifest, process: std.process.Init, root_dir: []const u8) !bool {
         const started_at = std.Io.Clock.Timestamp.now(process.io, .awake);
         var stdout = bzio.stdoutWriter(process.io);
 
         const count = self.dependencies.count() + self.dev_dependencies.count();
-        if (count == 0) {
-            stdout.interface.writeAll("👨‍🚀 Nothing to do\n\n") catch {};
+        if (count > 0) {
+            stdout.interface.writeAll("👨‍🚀 Fetching dependencies...\n\n") catch {};
         }
-
-        stdout.interface.writeAll("👨‍🚀 Fetching dependencies...\n\n") catch {};
 
         var arena = std.heap.ArenaAllocator.init(process.gpa);
         defer arena.deinit();
@@ -295,6 +349,23 @@ pub const Manifest = struct {
             progress.advance(entry.key_ptr.*) catch {};
         }
 
+        // Run own build steps
+        var errors = std.ArrayList([]const u8).empty;
+        defer errors.deinit(allocator);
+        try self.runBuildSteps(
+            process,
+            allocator,
+            &progress,
+            &errors,
+            root_dir,
+        );
+        for (errors.items) |step_err| {
+            try failed.append(allocator, .{
+                .package = self.name,
+                .err = step_err,
+            });
+        }
+
         if (failed.items.len == 0 and lock_dirty) {
             try manifest_lock.write(process.io, allocator, lock_path);
         }
@@ -380,58 +451,19 @@ pub const Manifest = struct {
         );
         defer allocator.free(manifest_path);
 
-        const dependency_manifest = try loadManifest(
+        var dependency_manifest = try loadManifest(
             process,
             allocator,
             manifest_path,
         );
 
-        var build_command_count: usize = 0;
-        var steps = dependency_manifest.build.iterator();
-        while (steps.next()) |step| {
-            build_command_count += step.value_ptr.*.len;
-        }
-        progress.total += build_command_count;
-
-        steps = dependency_manifest.build.iterator();
-        while (steps.next()) |step| {
-            for (step.value_ptr.*) |command| {
-                if (command.len == 0) {
-                    return error.EmptyBuildCommand;
-                }
-
-                {
-                    const result = try runCommand(
-                        process,
-                        allocator,
-                        command,
-                        fetched.destination,
-                        progress,
-                        step.key_ptr.*,
-                    );
-                    defer result.deinit(allocator);
-
-                    progress.advance(step.key_ptr.*) catch {};
-
-                    if (result.exit_code == null or result.exit_code.? != 0) {
-                        var err = std.Io.Writer.Allocating.init(allocator);
-
-                        err.writer.print(
-                            "\x1b[31mFailed build step {s} for package {s}:\n\t{s}\n\x1b[0m",
-                            .{
-                                step.key_ptr.*,
-                                name,
-                                result.stderr,
-                            },
-                        ) catch {};
-
-                        try errors.append(allocator, try err.toOwnedSlice());
-
-                        return error.BuildCommandFailed;
-                    }
-                }
-            }
-        }
+        try dependency_manifest.runBuildSteps(
+            process,
+            allocator,
+            progress,
+            errors,
+            fetched.destination,
+        );
     }
 
     /// Captured result of a spawned external command.

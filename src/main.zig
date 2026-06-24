@@ -424,28 +424,24 @@ fn runDirect(
     const root_dir, const file_name = switch (stat.kind) {
         .file => .{ res.args.@"root-dir", target },
         .directory => directory_entry: {
-            const manifest_path = std.fs.path.join(allocator, &.{ target, Package.MANIFEST }) catch {
-                stderr.interface.writeAll("Could not allocate package manifest path\n") catch {};
-                return 1;
-            };
-            defer allocator.free(manifest_path);
+            for ([_][]const u8{ Package.MANIFEST, Package.VENDORS }) |required| {
+                const required_path = std.fs.path.join(allocator, &.{ target, required }) catch return 1;
+                defer allocator.free(required_path);
 
-            std.Io.Dir.cwd().access(init.io, manifest_path, .{ .read = true }) catch |err| {
-                stderr.interface.print(
-                    "Could not find `{s}` in `{s}`: {s}\n",
-                    .{
-                        Package.MANIFEST,
-                        target,
-                        @errorName(err),
-                    },
-                ) catch @panic("Could not check package manifest");
-                return 1;
-            };
+                std.Io.Dir.cwd().access(init.io, required_path, .{ .read = true }) catch |err| {
+                    stderr.interface.print(
+                        "Could not find `{s}` in `{s}`: {s}\n",
+                        .{
+                            required,
+                            target,
+                            @errorName(err),
+                        },
+                    ) catch return 1;
+                    return 1;
+                };
+            }
 
-            const entry_point = std.fs.path.join(allocator, &.{ target, "src", "main.buzz" }) catch {
-                stderr.interface.writeAll("Could not allocate package entry point path\n") catch {};
-                return 1;
-            };
+            const entry_point = std.fs.path.join(allocator, &.{ target, "src", "main.buzz" }) catch return 1;
 
             break :directory_entry .{ target, entry_point };
         },
@@ -453,7 +449,7 @@ fn runDirect(
             stderr.interface.print(
                 "`{s}` is not a buzz file or package directory\n",
                 .{target},
-            ) catch @panic("Could not report invalid run target");
+            ) catch return 1;
             return 1;
         },
     };
