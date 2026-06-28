@@ -29,7 +29,6 @@ fun maybeLocale() > Locale? {
 
 fun failLocale() > Locale !> str {
     throw "no locale";
-    return .fr;
 }
 
 fun localeFiber() > void *> Locale? {

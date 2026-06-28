@@ -2,7 +2,6 @@ import "buzz:std";
 
 fun willFail() > int !> str {
     throw "i'm failing";
-    return 1;
 }
 
 fun willFailVoid() > void !> str {

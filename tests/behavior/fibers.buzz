@@ -72,8 +72,6 @@ test "yield operand includes method calls" {
 
 fun fail() > bool !> str {
     throw "This fiber failed";
-
-    return false;
 }
 
 fun caughFiberFail() > bool !> str {

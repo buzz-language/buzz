@@ -2985,7 +2985,14 @@ fn objectGlobalSlotForInstanceType(self: *Self, type_def: *obj.ObjTypeDef) ?u24 
         .resolved_type.?.Function.script_name.string;
     const object_script = self.ast.tokens.get(object_def.location).script_name;
 
-    for (self.parser.globals.items, 0..) |global, slot| {
+    const current_globals = if (std.mem.eql(u8, current_script, self.parser.script_name))
+        self.parser.globals.items
+    else if (self.parser.imports.get(current_script)) |script_import|
+        script_import.globals.items
+    else
+        &.{};
+
+    for (current_globals, 0..) |global, slot| {
         // When generating an imported script, its bytecode still addresses the
         // global slots it had before import reindexing.
         if (global.type_def.def_type != .Object) {

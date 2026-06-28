@@ -10,8 +10,6 @@ fun dynamicIncViaFiber(value: int) > int {
 
 fun failDynamic(value: int) > int !> str {
     throw "failed";
-
-    return value;
 }
 
 fun failDynamicViaFiber(value: int) > int !> str {
