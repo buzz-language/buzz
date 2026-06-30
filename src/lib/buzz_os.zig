@@ -455,14 +455,13 @@ pub export fn SocketRead(ctx: *api.NativeCtx) callconv(.c) c_int {
         },
     };
     var reader_buffer: [1024]u8 = undefined;
-    const stream_reader = stream.reader(ctx.getIo(), reader_buffer[0..]);
-    var reader = stream_reader.interface;
+    var stream_reader = stream.reader(ctx.getIo(), reader_buffer[0..]);
 
     var content = std.Io.Writer.Allocating.init(api.VM.allocator);
     defer content.deinit();
 
-    while (content.written().len <= n) {
-        const byte = reader.takeByte() catch |err| {
+    while (content.written().len < n) {
+        const byte = stream_reader.interface.takeByte() catch |err| {
             switch (err) {
                 error.EndOfStream => break,
                 error.ReadFailed => {
