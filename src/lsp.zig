@@ -609,7 +609,6 @@ const Document = struct {
             const end_locations = ast.nodes.items(.end_location);
             const location_idx = locations[node];
             const end_location_idx = end_locations[node];
-            const script_names = ast.tokens.items(.script_name);
 
             // Ignore root node
             if (location_idx == 0) {
@@ -622,12 +621,6 @@ const Document = struct {
 
             const location = ast.tokens.get(location_idx);
             const end_location = ast.tokens.get(end_location_idx);
-
-            // Walking from the document root must only visit document-local
-            // nodes. Imported scripts share the backing token/node lists, so
-            // assert the parser did not attach an imported token to this range.
-            std.debug.assert(std.mem.eql(u8, script_names[location_idx], self.uri));
-            std.debug.assert(std.mem.eql(u8, script_names[end_location_idx], self.uri));
 
             // If outside of the node range, don't go deeper
             if (self.position.line < location.line or

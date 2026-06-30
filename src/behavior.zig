@@ -180,7 +180,12 @@ fn testCompileErrors(process: std.process.Init, allocator: std.mem.Allocator, fa
             defer allocator.free(run_result.stdout);
             defer allocator.free(run_result.stderr);
 
-            if (!std.mem.containsAtLeast(u8, run_result.stderr, 1, expected_error)) {
+            const exited = switch (run_result.term) {
+                .exited => true,
+                else => false,
+            };
+
+            if (!exited or !std.mem.containsAtLeast(u8, run_result.stderr, 1, expected_error)) {
                 printFileStatus(process.io, file.name, .failed);
                 try result.failed.append(allocator, try file_name.toOwnedSlice());
 

@@ -1035,6 +1035,10 @@ fn generateCall(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!Gener
         else => type_defs[components.callee],
     };
 
+    if (callee_type == null or callee_type.?.def_type != .Function or callee_type.?.optional) {
+        return .{};
+    }
+
     const yield_type = callee_type.?.resolved_type.?.Function.yield_type;
 
     // Function being called and current function should have matching yield type unless the current function is an entrypoint

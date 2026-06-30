@@ -73,6 +73,80 @@ test "anonymous objects with different fields order" {
     callMe(.{ y = 13, x = 12 });
 }
 
+/// Option-like object used by nested anonymous object inference regression.
+object NestedInferenceOption {
+    /// Display name for the option.
+    name: str,
+    /// Alternate spellings for the option.
+    aliases: [str] = [],
+    /// Whether the option consumes the next command-line value.
+    hasValue: bool = false,
+    /// Parsed option value.
+    value: str?,
+}
+
+/// Argument-like object used by nested anonymous object inference regression.
+object NestedInferenceArgument {
+    /// Display name for the argument.
+    name: str,
+    /// Maximum number of values consumed by the argument.
+    max: int? = 1,
+    /// Parsed argument values.
+    value: [str]?,
+}
+
+/// Recursive command-like object used by nested anonymous object inference regression.
+object NestedInferenceCommand {
+    /// Options accepted by the command.
+    options: {str: mut NestedInferenceOption} = {},
+    /// Positional arguments accepted by the command.
+    arguments: {str: mut NestedInferenceArgument} = {},
+    /// Nested subcommands accepted by the command.
+    commands: {str: mut NestedInferenceCommand} = {},
+}
+
+test "nested anonymous object inference through maps and lists" {
+    final command = mut NestedInferenceCommand{
+        options = {
+            "help": mut .{
+                name = "help",
+                aliases = [ "h" ],
+            },
+        },
+        commands = {
+            "add": mut .{
+                options = {
+                    "file": mut .{
+                        name = "file",
+                        aliases = [ "f" ],
+                    },
+                },
+                arguments = {
+                    "entry": mut .{
+                        name = "entry",
+                        max = null,
+                    },
+                },
+            },
+            "modify": mut .{
+                arguments = {
+                    "id": mut .{
+                        name = "id",
+                        max = 1,
+                    },
+                    "entry": mut .{
+                        name = "entry",
+                        max = null,
+                    },
+                },
+            },
+        },
+    };
+
+    std\assert(command.commands["modify"]!.arguments["id"]!.max == 1);
+    std\assert(command.commands["modify"]!.arguments["entry"]!.max == null);
+}
+
 /// placeholders in anonymous object fields works
 object A {
     board: mut [int],

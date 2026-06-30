@@ -323,12 +323,23 @@ fn populateAnonymousObject(ast: Ast.Slice, reporter: *Reporter, gc: *GC, value: 
     }
 
     const anon_object_type = type_defs[value].?.resolved_type.?.ObjectInstance.of;
+    const target_object_type = target_type.resolved_type.?.ObjectInstance.of;
+    if (anon_object_type == target_object_type) {
+        // Contextual inference may revisit the same literal during list/map
+        // checks. Once it is resolved to the target type, there are no
+        // anonymous fields left to populate.
+        return true;
+    }
+
+    if (!anon_object_type.resolved_type.?.Object.anonymous) {
+        return false;
+    }
+
     var anon_fields = &anon_object_type.resolved_type.?.Object.fields;
 
     // Anonymous object literals only carry property values, so compatibility
     // checks field types and lets the named object keep defaults/finality.
-    const target_fields = target_type.resolved_type.?.ObjectInstance
-        .of.resolved_type.?.Object
+    const target_fields = target_object_type.resolved_type.?.Object
         .fields;
 
     for (object_init.properties) |property| {
@@ -686,9 +697,7 @@ fn checkCall(ast: Ast.Slice, reporter: *Reporter, gc: *GC, _: ?Ast.Node.Index, n
             "Can't be called",
         );
 
-        had_error = true;
-
-        // return null;
+        return true;
     } else if (callee_type.?.optional) {
         reporter.reportErrorAt(
             .callable,
@@ -697,7 +706,7 @@ fn checkCall(ast: Ast.Slice, reporter: *Reporter, gc: *GC, _: ?Ast.Node.Index, n
             "Function maybe null and can't be called",
         );
 
-        had_error = true;
+        return true;
     }
 
     // Arguments

@@ -1,0 +1,32 @@
+// Can't be called
+
+import "buzz:std";
+
+/// Query object used to reproduce a chained call through an inferred return type.
+object Query {
+    /// Executes the query through a prepared statement.
+    fun execute(db: Database) > void {
+        db.prepare().execute();
+    }
+}
+
+/// Statement object returned by the database.
+object Statement {
+    /// Executes the statement.
+    fun execute() > void {}
+}
+
+/// Database object whose shorthand method return type is intentionally inferred.
+object Database {
+    /// Prepares a statement through a shorthand method that creates a placeholder.
+    fun prepare() => this.prepareRaw();
+
+    /// Returns a concrete statement.
+    fun prepareRaw() > Statement {
+        return Statement{};
+    }
+}
+
+test "nested placeholder call reports without crashing" {
+    std\assert(true);
+}
