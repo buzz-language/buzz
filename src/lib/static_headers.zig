@@ -23,7 +23,6 @@ pub const os = Header{ .name = "os", .path = "os.buzz" };
 pub const serialize = Header{ .name = "serialize", .path = "serialize.buzz" };
 pub const std = Header{ .name = "std", .path = "std.buzz" };
 pub const testing = Header{ .name = "test", .path = "testing.buzz" };
-pub const toml = Header{ .name = "toml", .path = "toml.buzz" };
 
 /// Buzz headers bundled with the compiler/runtime and installed for tooling.
 pub const all = [_]Header{
@@ -42,5 +41,4 @@ pub const all = [_]Header{
     serialize,
     std,
     testing,
-    toml,
 };

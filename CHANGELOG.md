@@ -24,7 +24,6 @@ This release brings a lot of useful tools to write buzz code: LSP, formatter and
 - _Shortcut_ operators: `+=`, `-=`, `*=`, etc. (https://github.com/buzz-language/buzz/issues/78)
 - `rg.contains`
 - `map.hasKey`
-- `toml` std lib
 - REPL highlights input as it's being written and format it once submitted
 - Added [C header file](https://github.com/buzz-language/buzz/blob/main/src/lib/buzz_api.h) for the buzz API (https://github.com/buzz-language/buzz/issues/309)
 

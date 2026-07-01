@@ -31,7 +31,6 @@ pub const all = [_]Library{
     .{ .header = static_headers.serialize, .zig_path = "buzz_serialize.zig", .wasm_native = true },
     .{ .header = static_headers.std, .zig_path = "buzz_std.zig", .wasm_native = true },
     .{ .header = static_headers.testing, .zig_path = null, .wasm_native = false },
-    .{ .header = static_headers.toml, .zig_path = null, .wasm_native = false },
 };
 
 /// Returns the library registered for a Buzz import name.

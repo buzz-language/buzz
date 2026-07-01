@@ -19,11 +19,6 @@ const black_listed_tests = std.StaticStringMap(void).initComptime(
             .{ "tests/behavior/ffi.buzz", {} },
             .{ "tests/behavior/types-as-value.buzz", {} },
         }
-    else if (is_linux)
-        .{
-            .{ "tests/fuzzed/id_000434,sig_06,src_000723,time_202384530,execs_828228,op_arith8,pos_276,val_-1.buzz", {} },
-            .{ "tests/behavior/toml.buzz", {} }, // FIXME: find out why this fails in the CI only
-        }
     else
         .{
             .{ "tests/fuzzed/id_000434,sig_06,src_000723,time_202384530,execs_828228,op_arith8,pos_276,val_-1.buzz", {} },
