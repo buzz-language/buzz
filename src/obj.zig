@@ -5956,6 +5956,7 @@ pub const PlaceholderDef = struct {
     const Self = @This();
 
     pub const Relation = enum {
+        Identity,
         Call,
         Yield,
         Subscript,

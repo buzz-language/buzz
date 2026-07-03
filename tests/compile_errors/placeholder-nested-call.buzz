@@ -1,4 +1,4 @@
-// Can't be called
+// `Statement` has no field `missing`
 
 import "buzz:std";
 
@@ -6,7 +6,7 @@ import "buzz:std";
 object Query {
     /// Executes the query through a prepared statement.
     fun execute(db: Database) > void {
-        db.prepare().execute();
+        db.prepare().missing();
     }
 }
 

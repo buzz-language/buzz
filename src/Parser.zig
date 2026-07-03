@@ -2078,6 +2078,13 @@ fn resolvePlaceholderWithRelation(
     }
 
     switch (relation) {
+        .Identity => {
+            try self.resolvePlaceholder(
+                child,
+                resolved_type,
+                final,
+            );
+        },
         .GenericResolve => {
             try self.resolvePlaceholder(
                 child,
@@ -2490,7 +2497,8 @@ pub fn resolvePlaceholder(self: *Self, placeholder: *obj.ObjTypeDef, resolved_ty
         });
     }
 
-    // Both placeholders, we have to connect the child placeholder to a root placeholder so its not orphan
+    // Both placeholders represent the same eventual type. Keep `placeholder`
+    // linked to the root placeholder without dropping its own children.
     if (resolved_type.def_type == .Placeholder) {
         if (BuildOptions.debug_placeholders) {
             print(
@@ -2505,28 +2513,16 @@ pub fn resolvePlaceholder(self: *Self, placeholder: *obj.ObjTypeDef, resolved_ty
             );
         }
 
-        if (resolved_type.resolved_type.?.Placeholder.parent) |parent| {
-            if (parent.def_type == .Placeholder) {
-                try parent.resolved_type.?.Placeholder.children.append(self.gc.allocator, placeholder);
-            } else {
-                // Parent already resolved, resolve this now orphan placeholder
-                try self.resolvePlaceholderWithRelation(
-                    resolved_type,
-                    parent,
-                    final,
-                    resolved_type.resolved_type.?.Placeholder.parent_relation.?,
-                );
-            }
+        if (placeholder == resolved_type) {
+            return;
         }
 
-        // Merge both placeholder children list
-        // TODO: do we need this?
-        // try resolved_type.resolved_type.?.Placeholder.children.appendSlice(placeholder.resolved_type.?.Placeholder.children.items);
-
-        // Don't copy obj header or it will break the linked list of objects
-        const o = placeholder.obj;
-        placeholder.* = resolved_type.*;
-        placeholder.obj = o;
+        placeholder.resolved_type.?.Placeholder.parent = resolved_type;
+        placeholder.resolved_type.?.Placeholder.parent_relation = .Identity;
+        try resolved_type.resolved_type.?.Placeholder.children.append(
+            self.gc.allocator,
+            placeholder,
+        );
         return;
     }
 

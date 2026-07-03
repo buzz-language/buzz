@@ -1,0 +1,69 @@
+import "buzz:std";
+
+/// Axis used by the forward method placeholder regression.
+enum ForwardMethodAxis {
+    /// Vertical branch.
+    vertical,
+    /// Horizontal branch.
+    horizontal,
+}
+
+/// Rect-like object returned through a forward expression-bodied method.
+object ForwardMethodRect {
+    /// Horizontal coordinate.
+    x: int,
+    /// Vertical coordinate.
+    y: int,
+}
+
+/// Generic object used to keep `this` placeholder-based until declaration end.
+object ForwardMethodPanel::<T> {
+    /// Generic payload.
+    value: T,
+
+    /// Read a field from an inferred local returned by a forward method call.
+    mut fun handle(axis: ForwardMethodAxis) > int {
+        final track = this.rectFor(axis);
+        final offset: int = this.offset(axis, track: track);
+
+        return track.y + offset;
+    }
+
+    /// Return the vertical rectangle.
+    fun verticalRect() > ForwardMethodRect {
+        return ForwardMethodRect{
+            x = 1,
+            y = 2,
+        };
+    }
+
+    /// Return the horizontal rectangle.
+    fun horizontalRect() > ForwardMethodRect {
+        return ForwardMethodRect{
+            x = 3,
+            y = 4,
+        };
+    }
+
+    /// Select a rectangle through a forward expression-bodied method.
+    fun rectFor(axis: ForwardMethodAxis) => match (axis) {
+        .vertical -> this.verticalRect(),
+        .horizontal -> this.horizontalRect(),
+    };
+
+    /// Return an offset from a later method that accepts the inferred local.
+    fun offset(axis: ForwardMethodAxis, track: ForwardMethodRect) > int {
+        _ = axis;
+
+        return track.x;
+    }
+}
+
+test "forward method placeholder keeps inferred field access children" {
+    std\assert(
+        (mut ForwardMethodPanel::<int>{
+            value = 1,
+        }).handle(.vertical) == 3,
+        message: "inferred local from forward method can be field accessed",
+    );
+}

@@ -1,0 +1,32 @@
+import "buzz:std";
+
+/// Query object used to exercise a chained call through an inferred return type.
+object NestedPlaceholderQuery {
+    /// Executes the query through a prepared statement.
+    fun execute(db: NestedPlaceholderDatabase) > void {
+        db.prepare().execute();
+    }
+}
+
+/// Statement object returned by the database.
+object NestedPlaceholderStatement {
+    /// Executes the statement.
+    fun execute() > void {}
+}
+
+/// Database object whose shorthand method return type is intentionally inferred.
+object NestedPlaceholderDatabase {
+    /// Prepares a statement through a shorthand method that creates a placeholder.
+    fun prepare() => this.prepareRaw();
+
+    /// Returns a concrete statement.
+    fun prepareRaw() > NestedPlaceholderStatement {
+        return NestedPlaceholderStatement{};
+    }
+}
+
+test "nested placeholder call resolves through inferred return" {
+    NestedPlaceholderQuery{}.execute(NestedPlaceholderDatabase{});
+
+    std\assert(true, message: "nested placeholder call resolves");
+}
