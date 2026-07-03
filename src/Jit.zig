@@ -2592,6 +2592,7 @@ fn generateCall(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
         if (arguments.get(key)) |arg| {
             try self.buildPush(arg);
         } else {
+            const default = defaults.get(key) orelse return error.CantCompile;
             // Push clone of default
             const clone = try self.REG("clone", m.MIR_T_I64);
             try self.buildExternApiCall(
@@ -2599,7 +2600,7 @@ fn generateCall(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
                 m.MIR_new_reg_op(self.ctx, clone),
                 &.{
                     m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
-                    m.MIR_new_uint_op(self.ctx, defaults.get(key).?.val),
+                    m.MIR_new_uint_op(self.ctx, default.val),
                 },
             );
 

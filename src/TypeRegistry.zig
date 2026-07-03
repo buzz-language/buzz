@@ -226,6 +226,17 @@ fn hashHelper(hasher: *std.hash.Wyhash, type_def: *const o.ObjTypeDef) void {
                     }
                 }
 
+                {
+                    var it = resolved.Function.default_nodes.iterator();
+                    while (it.next()) |kv| {
+                        std.hash.autoHash(
+                            hasher,
+                            std.hash_map.hashString(kv.key_ptr.*.string),
+                        );
+                        std.hash.autoHash(hasher, kv.value_ptr.*);
+                    }
+                }
+
                 std.hash.autoHash(hasher, resolved.Function.function_type);
                 std.hash.autoHash(hasher, resolved.Function.lambda);
 

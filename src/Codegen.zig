@@ -1073,6 +1073,7 @@ fn generateCall(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!Gener
     // Arguments
     const args = callee_type.?.resolved_type.?.Function.parameters;
     const defaults = callee_type.?.resolved_type.?.Function.defaults;
+    const default_nodes = callee_type.?.resolved_type.?.Function.default_nodes;
     const arg_keys = args.keys();
     const arg_count = arg_keys.len;
 
@@ -1130,7 +1131,35 @@ fn generateCall(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!Gener
         defer tmp_missing_arguments.deinit(self.gc.allocator);
         const missing_keys = tmp_missing_arguments.keys();
         for (missing_keys) |missing_key| {
-            if (defaults.get(try self.gc.copyString(missing_key))) |default| {
+            const default_key = try self.gc.copyString(missing_key);
+            const default = defaults.get(default_key) orelse default: {
+                const default_node = default_nodes.get(default_key) orelse continue;
+                const parameter_type = args.get(default_key).?;
+                _ = try TypeChecker.inferType(
+                    self.ast,
+                    &self.reporter,
+                    self.gc,
+                    default_node,
+                    parameter_type,
+                );
+                if (self.reporter.last_error != null) {
+                    continue;
+                }
+                const default_value = try self.ast.typeCheckAndToValue(
+                    default_node,
+                    &self.reporter,
+                    self.gc,
+                );
+                try callee_type.?.resolved_type.?.Function.defaults.put(
+                    self.gc.allocator,
+                    default_key,
+                    default_value,
+                );
+
+                break :default default_value;
+            };
+
+            {
                 try self.emitConstant(locations[node], default);
                 try self.OP_CLONE(locations[node]);
 
@@ -2055,9 +2084,21 @@ fn generateFunction(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!G
         .Function, .Method, .Anonymous, .Extern => {
             for (self.ast.nodes.items(.components)[components.function_signature.?].FunctionType.arguments) |argument| {
                 if (argument.default) |default| {
+                    const default_name = try self.gc.copyString(self.ast.tokens.items(.lexeme)[argument.name]);
+                    const parameter_type = node_type_def.resolved_type.?.Function.parameters.get(default_name).?;
+                    _ = try TypeChecker.inferType(
+                        self.ast,
+                        &self.reporter,
+                        self.gc,
+                        default,
+                        parameter_type,
+                    );
+                    if (self.reporter.last_error != null) {
+                        continue;
+                    }
                     try node_type_def.resolved_type.?.Function.defaults.put(
                         self.gc.allocator,
-                        try self.gc.copyString(self.ast.tokens.items(.lexeme)[argument.name]),
+                        default_name,
                         try self.ast.typeCheckAndToValue(
                             default,
                             &self.reporter,

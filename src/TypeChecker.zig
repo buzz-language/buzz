@@ -91,7 +91,8 @@ pub fn check(ast: Ast.Slice, reporter: *Reporter, gc: *GC, current_function_node
         false;
 }
 
-fn inferType(ast: Ast.Slice, reporter: *Reporter, gc: *GC, value_node: Ast.Node.Index, target_type: *o.ObjTypeDef) error{OutOfMemory}!bool {
+/// Applies contextual type information to expressions that need a target type.
+pub fn inferType(ast: Ast.Slice, reporter: *Reporter, gc: *GC, value_node: Ast.Node.Index, target_type: *o.ObjTypeDef) error{OutOfMemory}!bool {
     const tags = ast.nodes.items(.tag);
     const inferred_target_type = if (target_type.optional)
         target_type.cloneNonOptional(&gc.type_registry) catch return error.OutOfMemory
@@ -712,6 +713,7 @@ fn checkCall(ast: Ast.Slice, reporter: *Reporter, gc: *GC, _: ?Ast.Node.Index, n
     // Arguments
     const args = callee_type.?.resolved_type.?.Function.parameters;
     const defaults = callee_type.?.resolved_type.?.Function.defaults;
+    const default_nodes = callee_type.?.resolved_type.?.Function.default_nodes;
     const arg_keys = args.keys();
     const arg_count = arg_keys.len;
 
@@ -789,7 +791,8 @@ fn checkCall(ast: Ast.Slice, reporter: *Reporter, gc: *GC, _: ?Ast.Node.Index, n
         defer tmp_missing_arguments.deinit(gc.allocator);
         const missing_keys = tmp_missing_arguments.keys();
         for (missing_keys) |missing_key| {
-            if (defaults.get(gc.copyString(missing_key) catch return error.OutOfMemory) != null) {
+            const default_key = gc.copyString(missing_key) catch return error.OutOfMemory;
+            if (defaults.get(default_key) != null or default_nodes.get(default_key) != null) {
                 _ = missing_arguments.orderedRemove(missing_key);
             }
         }
@@ -1648,51 +1651,33 @@ fn checkFunction(ast: Ast.Slice, reporter: *Reporter, gc: *GC, _: ?Ast.Node.Inde
     var had_error = false;
 
     // Default values type checking
-    var it = function_def.defaults.iterator();
-    while (it.next()) |kv| {
-        if (function_def.parameters.get(kv.key_ptr.*)) |param| {
-            const default_type_def = kv.value_ptr.*.typeOf(gc) catch return error.OutOfMemory;
+    if (function_signature) |signature| {
+        for (signature.arguments) |argument| {
+            const default = argument.default orelse continue;
+            const param_name = gc.copyString(ast.tokens.items(.lexeme)[argument.name]) catch return error.OutOfMemory;
+            const param = function_def.parameters.get(param_name) orelse continue;
+
+            _ = try inferType(ast, reporter, gc, default, param);
+            const default_type_def = type_defs[default].?;
+
+            if (default_type_def.isMutable()) {
+                reporter.reportErrorAt(
+                    .constant_default,
+                    ast.tokens.get(locations[default]),
+                    ast.tokens.get(end_locations[default]),
+                    "Default value must be constant",
+                );
+                had_error = true;
+            }
+
             if (!param.eql(default_type_def)) {
-                // Retrieve default node
-                var argument: ?Ast.FunctionType.Argument = null;
-                if (function_signature) |signature| {
-                    for (signature.arguments) |arg| {
-                        const name = ast.tokens.items(.lexeme)[arg.name];
-                        if (std.mem.eql(u8, name, kv.key_ptr.*.string)) {
-                            argument = arg;
-                        }
-                    }
-                }
-
-                if (default_type_def.isMutable()) {
-                    reporter.reportErrorAt(
-                        .constant_default,
-                        ast.tokens.get(
-                            locations[if (argument) |arg| arg.type else node],
-                        ),
-                        ast.tokens.get(
-                            end_locations[if (argument) |arg| arg.type else node],
-                        ),
-                        "Default value must be constant",
-                    );
-                    had_error = true;
-                }
-
                 reporter.reportTypeCheck(
                     .default_value_type,
-                    ast.tokens.get(
-                        locations[if (argument) |arg| arg.type else node],
-                    ),
-                    ast.tokens.get(
-                        end_locations[if (argument) |arg| arg.type else node],
-                    ),
+                    ast.tokens.get(locations[argument.type]),
+                    ast.tokens.get(end_locations[argument.type]),
                     param,
-                    ast.tokens.get(
-                        locations[if (argument) |arg| arg.default orelse node else node],
-                    ),
-                    ast.tokens.get(
-                        end_locations[if (argument) |arg| arg.default orelse node else node],
-                    ),
+                    ast.tokens.get(locations[default]),
+                    ast.tokens.get(end_locations[default]),
                     default_type_def,
                     "Bad default value type",
                 );

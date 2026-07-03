@@ -1,5 +1,24 @@
 import "buzz:std";
 
+/// Return enum value with an anonymous enum case default declared before the enum.
+fun getForwardAnonymousDefaultValue(case: ForwardDefaultEnum = .one) > int {
+    return case.value;
+}
+
+/// Object used to verify forward anonymous enum default values in methods.
+object ForwardNaturalDefaults {
+    /// Return enum value with an anonymous enum case default declared before the enum.
+    static fun getValue(case: ForwardDefaultEnum = .two) > int {
+        return case.value;
+    }
+}
+
+/// Enum declared after functions that use it as a default parameter type.
+enum ForwardDefaultEnum {
+    one,
+    two,
+}
+
 enum<str> StrEnum {
     one,
     two,
@@ -21,6 +40,19 @@ enum NaturalEnum {
 
 fun getValue(case: NaturalEnum = NaturalEnum.zero) > int {
     return case.value;
+}
+
+/// Return enum value with an anonymous enum case default.
+fun getAnonymousDefaultValue(case: NaturalEnum = .one) > int {
+    return case.value;
+}
+
+/// Object used to verify anonymous enum default values in methods.
+object NaturalDefaults {
+    /// Return enum value with an anonymous enum case default.
+    static fun getValue(case: NaturalEnum = .two) > int {
+        return case.value;
+    }
 }
 
 object Natural {
@@ -69,6 +101,26 @@ test "Enum case as default value" {
     std\assert(
         Natural{}.natural == NaturalEnum.zero,
         message: "Could use enum case as object field default value"
+    );
+
+    std\assert(
+        getAnonymousDefaultValue() == 1,
+        message: "Could use anonymous enum case as function argument default value"
+    );
+
+    std\assert(
+        NaturalDefaults.getValue() == 2,
+        message: "Could use anonymous enum case as method argument default value"
+    );
+
+    std\assert(
+        getForwardAnonymousDefaultValue() == 0,
+        message: "Could use forward anonymous enum case as function argument default value"
+    );
+
+    std\assert(
+        ForwardNaturalDefaults.getValue() == 1,
+        message: "Could use forward anonymous enum case as method argument default value"
     );
 }
 

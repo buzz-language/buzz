@@ -1157,7 +1157,10 @@ pub const Slice = struct {
                 .Boolean => Value.fromBoolean(components[node].Boolean),
                 .AnonymousEnumCase => enum_case: {
                     const components_ptr = &components[node].AnonymousEnumCase;
-                    const type_def = self.nodes.items(.type_def)[node].?;
+                    const type_def = self.nodes.items(.type_def)[node] orelse return error.CantCompile;
+                    if (type_def.def_type != .EnumInstance) {
+                        return error.CantCompile;
+                    }
                     const case_name = self.tokens.items(.lexeme)[components_ptr.case_name];
                     const enum_type_def = type_def.resolved_type.?.EnumInstance
                         .of
@@ -1176,7 +1179,7 @@ pub const Slice = struct {
                         }
                     }
 
-                    @panic("Could not constant fold anonymous enum case");
+                    return error.CantCompile;
                 },
                 .As => try self.toValue(components[node].As.left, gc),
                 .Is => is: {

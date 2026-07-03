@@ -1493,6 +1493,8 @@ pub const ObjFunction = struct {
         parameters: std.AutoArrayHashMapUnmanaged(*ObjString, *ObjTypeDef) = .empty,
         // Storing here the defaults means they can only be non-Obj values
         defaults: std.AutoArrayHashMapUnmanaged(*ObjString, Value) = .empty,
+        /// Explicit default parameter expressions waiting for codegen-time folding.
+        default_nodes: std.AutoArrayHashMapUnmanaged(*ObjString, Ast.Node.Index) = .empty,
         function_type: FunctionType = .Function,
         lambda: bool = false,
 
@@ -1521,6 +1523,11 @@ pub const ObjFunction = struct {
             while (it2.next()) |default| {
                 try gc.markObj(default.key_ptr.*.toObj());
                 try gc.markValue(default.value_ptr.*);
+            }
+
+            var default_nodes_it = self.default_nodes.iterator();
+            while (default_nodes_it.next()) |default| {
+                try gc.markObj(default.key_ptr.*.toObj());
             }
 
             if (self.error_types) |error_types| {
@@ -5022,6 +5029,7 @@ pub const ObjTypeDef = struct {
                     .error_types = if (error_types) |*types| try types.toOwnedSlice(type_registry.gc.allocator) else null,
                     .parameters = parameters,
                     .defaults = old_fun_def.defaults,
+                    .default_nodes = old_fun_def.default_nodes,
                     .function_type = old_fun_def.function_type,
                     .lambda = old_fun_def.lambda,
                     .generic_types = try old_fun_def.generic_types.clone(type_registry.gc.allocator),

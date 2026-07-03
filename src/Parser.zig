@@ -3421,6 +3421,7 @@ fn parseFunctionType(self: *Self, parent_generic_types: ?std.AutoArrayHashMapUnm
     var arguments = std.ArrayList(Ast.FunctionType.Argument).empty;
     var parameters = std.AutoArrayHashMapUnmanaged(*obj.ObjString, *obj.ObjTypeDef).empty;
     var defaults = std.AutoArrayHashMapUnmanaged(*obj.ObjString, Value).empty;
+    var default_nodes = std.AutoArrayHashMapUnmanaged(*obj.ObjString, Ast.Node.Index).empty;
     var arity: usize = 0;
     while (!self.check(.RightParen) and !self.check(.Eof)) {
         arity += 1;
@@ -3480,17 +3481,17 @@ fn parseFunctionType(self: *Self, parent_generic_types: ?std.AutoArrayHashMapUnm
                 .type = arg_type,
             },
         );
-        if (if (default) |dflt|
-            try self.ast.slice().toValue(dflt, self.gc)
-        else if (arg_type_def.?.optional)
-            Value.Null
-        else
-            null) |dflt|
-        {
-            try defaults.put(
+        if (default) |dflt| {
+            try default_nodes.put(
                 self.gc.allocator,
                 try self.gc.copyString(arg_name),
                 dflt,
+            );
+        } else if (arg_type_def.?.optional) {
+            try defaults.put(
+                self.gc.allocator,
+                try self.gc.copyString(arg_name),
+                Value.Null,
             );
         }
         try parameters.put(
@@ -3565,6 +3566,7 @@ fn parseFunctionType(self: *Self, parent_generic_types: ?std.AutoArrayHashMapUnm
                     self.gc.type_registry.void_type,
                 .parameters = parameters,
                 .defaults = defaults,
+                .default_nodes = default_nodes,
                 .function_type = if (is_extern) .Extern else .Anonymous,
                 .generic_types = generic_types,
                 .error_types = if (error_types.items.len > 0) error_types.items else null,
@@ -6572,6 +6574,12 @@ fn function(
                             );
                         }
 
+                        try function_typedef.resolved_type.?.Function.default_nodes.put(
+                            self.gc.allocator,
+                            try self.gc.copyString(self.ast.tokens.items(.lexeme)[local.name]),
+                            expr,
+                        );
+
                         break :value expr;
                     } else if (argument_type.optional) {
                         try function_typedef.resolved_type.?.Function.defaults.put(
@@ -6594,14 +6602,6 @@ fn function(
                     .default = default,
                 },
             );
-
-            if (default) |dft| {
-                try function_typedef.resolved_type.?.Function.defaults.put(
-                    self.gc.allocator,
-                    try self.gc.copyString(self.ast.tokens.items(.lexeme)[local.name]),
-                    try self.ast.slice().toValue(dft, self.gc),
-                );
-            }
 
             if (!self.check(.RightParen)) {
                 try self.consume(.Comma, "Expected `,` after call argument");
@@ -8375,15 +8375,6 @@ fn enumDeclaration(self: *Self) Error!Ast.Node.Index {
         },
     );
 
-    const slot: usize = try self.declareVariable(
-        @intCast(node_slot),
-        enum_type,
-        enum_name,
-        true,
-        false,
-    );
-    self.markInitialized();
-
     try self.consume(.LeftBrace, "Expected `{` before enum body.");
 
     var cases = std.ArrayList(Ast.Enum.Case).empty;
@@ -8492,27 +8483,8 @@ fn enumDeclaration(self: *Self) Error!Ast.Node.Index {
         );
     }
 
-    const cases_slice = try cases.toOwnedSlice(self.gc.allocator);
-    self.ast.nodes.set(
-        node_slot,
-        .{
-            .tag = .Enum,
-            .location = start_location,
-            .end_location = self.current_token.? - 1,
-            .type_def = enum_type,
-            .components = .{
-                .Enum = .{
-                    .values_omitted = values_omitted,
-                    .name = enum_name,
-                    .case_type = enum_case_type_node,
-                    .slot = @intCast(slot),
-                    .cases = cases_slice,
-                },
-            },
-        },
-    );
-
     // Generate the enum constant
+    const cases_slice = try cases.toOwnedSlice(self.gc.allocator);
     var @"enum" = try self.gc.allocateObject(
         obj.ObjEnum.init(enum_type),
     );
@@ -8546,6 +8518,35 @@ fn enumDeclaration(self: *Self) Error!Ast.Node.Index {
     @"enum".cases = try obj_cases.toOwnedSlice(self.gc.allocator);
 
     enum_type.resolved_type.?.Enum.value = @"enum";
+
+    const slot: usize = try self.declareVariable(
+        @intCast(node_slot),
+        enum_type,
+        enum_name,
+        true,
+        false,
+    );
+    self.markInitialized();
+
+    self.ast.nodes.set(
+        node_slot,
+        .{
+            .tag = .Enum,
+            .location = start_location,
+            .end_location = self.current_token.? - 1,
+            .type_def = enum_type,
+            .components = .{
+                .Enum = .{
+                    .values_omitted = values_omitted,
+                    .name = enum_name,
+                    .case_type = enum_case_type_node,
+                    .slot = @intCast(slot),
+                    .cases = cases_slice,
+                },
+            },
+        },
+    );
+
     self.ast.nodes.items(.value)[node_slot] = @"enum".toValue();
 
     return @intCast(node_slot);
