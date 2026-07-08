@@ -4768,10 +4768,24 @@ fn generateAs(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
         m.MIR_new_uint_op(self.ctx, Value.True.val),
     );
 
-    self.MOV(
-        left,
-        m.MIR_new_uint_op(self.ctx, Value.Null.val),
-    );
+    if (components.force) {
+        try self.buildExternApiCall(
+            .throwCastError,
+            null,
+            &.{
+                m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
+                m.MIR_new_uint_op(
+                    self.ctx,
+                    self.state.?.ast.nodes.items(.value)[components.constant].?.val,
+                ),
+            },
+        );
+    } else {
+        self.MOV(
+            left,
+            m.MIR_new_uint_op(self.ctx, Value.Null.val),
+        );
+    }
 
     self.append(casted_label);
 
@@ -7932,6 +7946,36 @@ pub fn throwUnwrapError(vm: *VM) callconv(.c) void {
     api.bz_throw(
         vm,
         (vm.gc.copyString("Force unwrapped optional is null") catch {
+            vm.panic("Out of memory");
+            unreachable;
+        }).toValue(),
+    );
+}
+
+pub fn throwCastError(vm: *VM, type_def_value: Value) callconv(.c) void {
+    const type_def = o.ObjTypeDef.cast(type_def_value.obj()) orelse {
+        vm.panic("Invalid cast target");
+        unreachable;
+    };
+    const type_def_str = type_def.toStringAlloc(vm.gc.allocator, false) catch {
+        vm.panic("Out of memory");
+        unreachable;
+    };
+    defer vm.gc.allocator.free(type_def_str);
+
+    const message = std.fmt.allocPrint(
+        vm.gc.allocator,
+        "Cast to `{s}` failed",
+        .{type_def_str},
+    ) catch {
+        vm.panic("Out of memory");
+        unreachable;
+    };
+    defer vm.gc.allocator.free(message);
+
+    api.bz_throw(
+        vm,
+        (vm.gc.copyString(message) catch {
             vm.panic("Out of memory");
             unreachable;
         }).toValue(),

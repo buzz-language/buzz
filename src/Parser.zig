@@ -435,7 +435,7 @@ pub const LoopScope = struct {
 pub const Precedence = enum(u8) {
     None,
     Assignment, // =, -=, +=, *=, /=
-    IsAs, // is, as?
+    IsAs, // is, as?, as!
     Or, // or
     And, // and
     Equality, // ==, !=
@@ -564,6 +564,7 @@ const rules = [@typeInfo(Token.Tag).@"enum".fields.len]ParseRule{
     .{ .prefix = blockExpression }, // From
     .{}, // As
     .{ .infix = as, .precedence = .IsAs }, // AsQuestion
+    .{ .infix = as, .precedence = .IsAs }, // AsBang
     .{}, // Extern
     .{}, // Eof
     .{}, // Error
@@ -6081,10 +6082,33 @@ fn matchExpression(self: *Self, _: bool) Error!Ast.Node.Index {
     return self.matchStatementOrExpression(false);
 }
 
-fn isAs(self: *Self, left: Ast.Node.Index, is_expr: bool) Error!Ast.Node.Index {
+fn isAs(self: *Self, left: Ast.Node.Index, is_expr: bool, force: bool) Error!Ast.Node.Index {
     const start_location = self.ast.nodes.items(.location)[left];
     const constant = try self.parseTypeDef(null, true);
     const type_def = self.ast.nodes.items(.type_def)[constant].?;
+
+    if (!is_expr and type_def.optional) {
+        const type_def_str = try type_def.toStringAlloc(self.gc.allocator, false);
+        defer self.gc.allocator.free(type_def_str);
+
+        if (force) {
+            self.reporter.warnFmt(
+                .optional,
+                self.ast.tokens.get(self.ast.nodes.items(.location)[constant]),
+                self.ast.tokens.get(self.ast.nodes.items(.end_location)[constant]),
+                "Use `as?` instead of `as!` when casting to optional type `{s}`",
+                .{type_def_str},
+            );
+        } else {
+            self.reporter.warnFmt(
+                .optional,
+                self.ast.tokens.get(self.ast.nodes.items(.location)[constant]),
+                self.ast.tokens.get(self.ast.nodes.items(.end_location)[constant]),
+                "Target type `{s}` is already optional",
+                .{type_def_str},
+            );
+        }
+    }
 
     return try self.ast.appendNode(
         .{
@@ -6093,6 +6117,8 @@ fn isAs(self: *Self, left: Ast.Node.Index, is_expr: bool) Error!Ast.Node.Index {
             .end_location = self.current_token.? - 1,
             .type_def = if (is_expr)
                 self.gc.type_registry.bool_type
+            else if (force)
+                type_def
             else
                 (try type_def.cloneOptional(&self.gc.type_registry)),
             .components = if (is_expr)
@@ -6107,6 +6133,7 @@ fn isAs(self: *Self, left: Ast.Node.Index, is_expr: bool) Error!Ast.Node.Index {
                     .As = .{
                         .left = left,
                         .constant = constant,
+                        .force = force,
                     },
                 },
         },
@@ -6114,11 +6141,15 @@ fn isAs(self: *Self, left: Ast.Node.Index, is_expr: bool) Error!Ast.Node.Index {
 }
 
 fn is(self: *Self, _: bool, left: Ast.Node.Index) Error!Ast.Node.Index {
-    return self.isAs(left, true);
+    return self.isAs(left, true, false);
 }
 
 fn as(self: *Self, _: bool, left: Ast.Node.Index) Error!Ast.Node.Index {
-    return self.isAs(left, false);
+    return self.isAs(
+        left,
+        false,
+        self.ast.tokens.items(.tag)[self.current_token.? - 1] == .AsBang,
+    );
 }
 
 fn string(self: *Self, _: bool) Error!Ast.Node.Index {

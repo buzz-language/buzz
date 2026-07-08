@@ -1,0 +1,9 @@
+// Cast to `str` failed
+import print from "buzz:std";
+
+test "as! raises a runtime error on failed cast" {
+    final anything: any = 12;
+    final casted = anything as! str;
+
+    print(casted);
+}

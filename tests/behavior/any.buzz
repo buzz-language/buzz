@@ -34,6 +34,13 @@ test "as?" {
     std\assert((anything as? str) == null, message: "as?");
 }
 
+test "as!" {
+    final anything: any = "hello";
+    final casted = anything as! str;
+
+    std\assert(casted.len() == 5, message: "as!");
+}
+
 test "list of any" {
     final list = [ 1, true, 12.4, "hello" ];
 

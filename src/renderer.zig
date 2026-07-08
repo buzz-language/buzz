@@ -1603,33 +1603,41 @@ pub const Renderer = struct {
         }
     }
 
-    fn renderIsAs(self: *Self, components: Ast.IsAs, space: Space) Error!void {
+    fn renderCast(self: *Self, left: Ast.Node.Index, constant: Ast.Node.Index, comptime tokens: []const Token.Tag, space: Space) Error!void {
         const end_locations = self.ast.nodes.items(.end_location);
 
-        try self.renderNode(components.left, .Space);
+        try self.renderNode(left, .Space);
 
         try self.ais.pushIndent(self.allocator, .normal);
         defer self.ais.popIndent();
 
         try self.renderOneOfExpectedToken(
-            end_locations[components.left] + 1,
-            &.{ .Is, .As, .AsQuestion },
+            end_locations[left] + 1,
+            tokens,
             .Space,
         );
 
-        try self.renderNode(components.constant, space);
+        try self.renderNode(constant, space);
     }
 
     fn renderAs(self: *Self, node: Ast.Node.Index, space: Space) Error!void {
-        return self.renderIsAs(
-            self.ast.nodes.items(.components)[node].As,
+        const components = self.ast.nodes.items(.components)[node].As;
+
+        return self.renderCast(
+            components.left,
+            components.constant,
+            &.{ .As, .AsQuestion, .AsBang },
             space,
         );
     }
 
     fn renderIs(self: *Self, node: Ast.Node.Index, space: Space) Error!void {
-        return self.renderIsAs(
-            self.ast.nodes.items(.components)[node].Is,
+        const components = self.ast.nodes.items(.components)[node].Is;
+
+        return self.renderCast(
+            components.left,
+            components.constant,
+            &.{.Is},
             space,
         );
     }

@@ -1,0 +1,9 @@
+// Use `as?` instead of `as!` when casting to optional type `str?`
+import "buzz:std";
+
+test "as! warns on optional target" {
+    final anything: any = "hello";
+    final casted = anything as! str?;
+
+    std\assert(casted == "hello");
+}

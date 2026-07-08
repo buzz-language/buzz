@@ -302,8 +302,14 @@ fn identifier(self: *Self) Token {
     const keywordOpt = Token.keywords.get(literal);
 
     if (keywordOpt) |keyword| {
-        if (keyword == .As and self.match('?')) {
-            return self.makeToken(.AsQuestion, Token.NoLiteral);
+        if (keyword == .As) {
+            if (self.match('?')) {
+                return self.makeToken(.AsQuestion, Token.NoLiteral);
+            }
+
+            if (self.match('!')) {
+                return self.makeToken(.AsBang, Token.NoLiteral);
+            }
         }
 
         return self.makeToken(keyword, .{ .String = literal });
@@ -717,6 +723,7 @@ pub fn highlight(self: *Self, out: *std.Io.Writer, true_color: bool) void {
                     .Var,
                     .Question,
                     .AsQuestion,
+                    .AsBang,
                     .Out,
                     .Namespace,
                     .Range,

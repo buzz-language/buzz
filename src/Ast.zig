@@ -2000,7 +2000,7 @@ pub const Node = struct {
     pub const Components = union(Tag) {
         AnonymousObjectType: AnonymousObjectType,
         AnonymousEnumCase: AnonymousEnumCase,
-        As: IsAs,
+        As: Cast,
         AsyncCall: Node.Index,
         Binary: Binary,
         Block: []const Node.Index,
@@ -2029,7 +2029,7 @@ pub const Node = struct {
         If: If,
         Import: Import,
         Integer: v.Integer,
-        Is: IsAs,
+        Is: Is,
         List: List,
         ListType: Node.Index,
         Map: Map,
@@ -2424,7 +2424,13 @@ pub const Import = struct {
     import: ?Parser.ScriptImport,
 };
 
-pub const IsAs = struct {
+pub const Cast = struct {
+    left: Node.Index,
+    constant: Node.Index,
+    force: bool,
+};
+
+pub const Is = struct {
     left: Node.Index,
     constant: Node.Index,
 };
