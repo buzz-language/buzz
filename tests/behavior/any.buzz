@@ -29,9 +29,16 @@ final placeholder: any = "hello";
 test "as?" {
     final anything: any = 12;
 
-    std\assert((anything as? int) == 12, message: "as?");
+    std\assert(anything as? int == 12, message: "as?");
 
-    std\assert((anything as? str) == null, message: "as?");
+    std\assert(anything as? str == null, message: "as?");
+}
+
+test "as!" {
+    final anything: any = "hello";
+    final casted = anything as! str;
+
+    std\assert(casted.len() == 5, message: "as!");
 }
 
 test "list of any" {

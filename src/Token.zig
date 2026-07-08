@@ -173,6 +173,7 @@ pub const Tag = enum {
     From, // from
     As, // as
     AsQuestion, // as?
+    AsBang, // as!
     Extern, // extern
     Eof, // EOF
     Error, // Error

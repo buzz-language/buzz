@@ -1,0 +1,8 @@
+// Target type `str?` is already optional
+import "buzz:std";
+
+test "as? warns on optional target" {
+    final anything: any = "hello";
+
+    std\assert((anything as? str?) == "hello");
+}

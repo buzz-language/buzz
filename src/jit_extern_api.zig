@@ -85,6 +85,7 @@ pub const ExternApi = enum {
     fmod,
     memcpy,
     throwUnwrapError,
+    throwCastError,
 
     pub fn declare(self: ExternApi, jit: *JIT) !m.MIR_item_t {
         const prototype = jit.state.?.prototypes.get(self) orelse self.proto(jit.ctx);
@@ -1135,6 +1136,25 @@ pub const ExternApi = enum {
                     },
                 },
             ),
+            .throwCastError => m.MIR_new_proto_arr(
+                ctx,
+                self.pname(),
+                0,
+                null,
+                2,
+                &.{
+                    .{
+                        .type = m.MIR_T_P,
+                        .name = "vm",
+                        .size = undefined,
+                    },
+                    .{
+                        .type = m.MIR_T_U64,
+                        .name = "type_def",
+                        .size = undefined,
+                    },
+                },
+            ),
         };
     }
 
@@ -1217,6 +1237,7 @@ pub const ExternApi = enum {
             .fmod => @as(*anyopaque, @ptrFromInt(@intFromPtr(&JIT.fmod))),
             .memcpy => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.bz_memcpy))),
             .throwUnwrapError => @as(*anyopaque, @ptrFromInt(@intFromPtr(&JIT.throwUnwrapError))),
+            .throwCastError => @as(*anyopaque, @ptrFromInt(@intFromPtr(&JIT.throwCastError))),
             else => unreachable,
         };
     }

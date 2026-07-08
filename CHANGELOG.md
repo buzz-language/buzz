@@ -26,6 +26,7 @@ This release brings a lot of useful tools to write buzz code: LSP, formatter and
 - `map.hasKey`
 - REPL highlights input as it's being written and format it once submitted
 - Added [C header file](https://github.com/buzz-language/buzz/blob/main/src/lib/buzz_api.h) for the buzz API (https://github.com/buzz-language/buzz/issues/309)
+- `as!` operator to force a cast and raise a runtime error when it fails
 
 ## Changed
 
@@ -43,6 +44,7 @@ This release brings a lot of useful tools to write buzz code: LSP, formatter and
 - Maximum number of enum cases is now 16 777 215 instead of 255
 - `pattern.matchAgainst` returns now a list of `obj{ start: int, end: int, capture: str }` and `matchAllAgainst` a list of those lists
 - Tuples no longer require free form identifier to access their properties: `tuple.@"0"` can now be `tuple.0`
+- `as?` now warns when the cast target is already optional, and `as!` warns when used with an optional target
 
 ### Imports
 - Import do rely on searchers any more, instead the import path provides a deterministic way of finding the imported script

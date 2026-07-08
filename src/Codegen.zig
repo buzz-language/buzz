@@ -633,6 +633,7 @@ fn generateNode(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!Gener
 
 fn generateAs(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!GeneratedNode {
     const locations = self.ast.nodes.items(.location);
+    const type_defs = self.ast.nodes.items(.type_def);
     const node_location = locations[node];
     const components = self.ast.nodes.items(.components)[node].As;
 
@@ -652,12 +653,34 @@ fn generateAs(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!Generat
     try self.OP_NOT(node_location);
     const jump = try self.OP_JUMP_IF_FALSE(node_location);
     try self.OP_POP(node_location);
-    try self.OP_POP(node_location);
-    try self.OP_NULL(node_location);
-    const jump_over = try self.OP_JUMP(node_location);
-    self.patchJump(jump);
-    try self.OP_POP(node_location);
-    self.patchJump(jump_over);
+
+    if (components.force) {
+        const type_def_str = try type_defs[components.constant].?.toStringAlloc(self.gc.allocator, false);
+        defer self.gc.allocator.free(type_def_str);
+
+        const cast_error = try std.fmt.allocPrint(
+            self.gc.allocator,
+            "Cast to `{s}` failed",
+            .{type_def_str},
+        );
+        defer self.gc.allocator.free(cast_error);
+
+        try self.OP_POP(node_location);
+        try self.emitConstant(
+            node_location,
+            (try self.gc.copyString(cast_error)).toValue(),
+        );
+        try self.OP_THROW(node_location);
+        self.patchJump(jump);
+        try self.OP_POP(node_location);
+    } else {
+        try self.OP_POP(node_location);
+        try self.OP_NULL(node_location);
+        const jump_over = try self.OP_JUMP(node_location);
+        self.patchJump(jump);
+        try self.OP_POP(node_location);
+        self.patchJump(jump_over);
+    }
 
     try self.patchOptJumps(node);
     try self.endScope(node);
