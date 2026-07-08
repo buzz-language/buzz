@@ -189,6 +189,7 @@ pub const Tag = enum {
     Spread, // ..
     Any, // any
     Zdef, // zdef
+    Cdef, // cdef
     TypeOf, // typeof
     Var, // var
     Out, // out
@@ -284,6 +285,7 @@ pub const keywords = std.StaticStringMap(Tag).initComptime(
         .{ "void", .Void },
         .{ "while", .While },
         .{ "yield", .Yield },
+        .{ "cdef", .Cdef },
         .{ "zdef", .Zdef },
     },
 );

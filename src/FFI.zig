@@ -1,5 +1,6 @@
 const std = @import("std");
 const Ast = std.zig.Ast;
+const aro = @import("aro");
 
 const BuzzAst = @import("Ast.zig");
 const o = @import("obj.zig");
@@ -9,6 +10,9 @@ const ZigType = @import("zigtypes.zig").Type;
 const Reporter = @import("Reporter.zig");
 const GC = @import("GC.zig");
 const Init = @import("vm.zig").Init;
+const CTree = aro.Tree;
+const CQualType = aro.QualType;
+const CType = aro.Type;
 
 const Self = @This();
 
@@ -180,7 +184,7 @@ const zig_basic_types = std.StaticStringMap(ZigType).initComptime(
     },
 );
 
-pub const Zdef = struct {
+pub const ForeignDef = struct {
     name: []const u8,
     type_def: *o.ObjTypeDef,
     zig_type: ZigType,
@@ -193,13 +197,33 @@ pub const State = struct {
     buzz_ast: ?BuzzAst.Slice = null,
     parser: ?*Parser,
     type_expr: ?[]const u8 = null,
-    structs: std.StringHashMapUnmanaged(*Zdef) = .empty,
+    structs: std.StringHashMapUnmanaged(*ForeignDef) = .empty,
+};
+
+const CContext = struct {
+    script: []const u8,
+    source: Ast.TokenIndex,
+    buzz_ast: BuzzAst.Slice,
+    parser: *Parser,
+    user_source_id: aro.Source.Id,
+    comp: *aro.Compilation,
+    tree: *const CTree,
+    structs: std.StringHashMapUnmanaged(*ForeignDef) = .empty,
+
+    fn deinit(self: *CContext, allocator: std.mem.Allocator) void {
+        self.structs.deinit(allocator);
+    }
+};
+
+const CRecordKind = enum {
+    @"struct",
+    @"union",
 };
 
 gc: *GC,
 reporter: Reporter,
 state: ?State = null,
-type_expr_cache: std.StringHashMapUnmanaged(?*Zdef) = .empty,
+type_expr_cache: std.StringHashMapUnmanaged(?*ForeignDef) = .empty,
 
 pub fn init(gc: *GC, process: Init) Self {
     return .{
@@ -216,9 +240,9 @@ pub fn deinit(self: *Self) void {
     self.type_expr_cache.deinit(self.gc.allocator);
 }
 
-pub fn parseTypeExpr(self: *Self, ztype: []const u8) !?*Zdef {
-    if (self.type_expr_cache.get(ztype)) |zdef| {
-        return zdef;
+pub fn parseTypeExpr(self: *Self, ztype: []const u8) !?*ForeignDef {
+    if (self.type_expr_cache.get(ztype)) |foreign_def| {
+        return foreign_def;
     }
 
     var full = std.Io.Writer.Allocating.init(self.gc.allocator);
@@ -226,24 +250,24 @@ pub fn parseTypeExpr(self: *Self, ztype: []const u8) !?*Zdef {
 
     full.writer.print("const zig_type: {s};", .{ztype}) catch @panic("Out of memory");
 
-    const zdef = try self.parse(
+    const foreign_defs = try self.parse(
         null,
         0,
         full.written(),
     );
 
-    std.debug.assert(zdef == null or zdef.?.len == 1);
+    std.debug.assert(foreign_defs == null or foreign_defs.?.len == 1);
 
     self.type_expr_cache.put(
         self.gc.allocator,
         ztype,
-        if (zdef) |z| z[0] else null,
+        if (foreign_defs) |defs| defs[0] else null,
     ) catch @panic("Out of memory");
 
-    return if (zdef) |z| z[0] else null;
+    return if (foreign_defs) |defs| defs[0] else null;
 }
 
-pub fn parse(self: *Self, parser: ?*Parser, source: Ast.TokenIndex, type_expr: ?[]const u8) !?[]*Zdef {
+pub fn parse(self: *Self, parser: ?*Parser, source: Ast.TokenIndex, type_expr: ?[]const u8) !?[]*ForeignDef {
     // TODO: maybe an Arena allocator for those kinds of things that can live for the whole process lifetime
     const duped = self.gc.allocator.dupeZ(
         u8,
@@ -303,23 +327,800 @@ pub fn parse(self: *Self, parser: ?*Parser, source: Ast.TokenIndex, type_expr: ?
         return null;
     }
 
-    var zdefs = std.ArrayList(*Zdef).empty;
+    var foreign_defs = std.ArrayList(*ForeignDef).empty;
 
     for (root_decls) |decl| {
-        if (try self.getZdef(decl)) |zdef| {
-            try zdefs.append(self.gc.allocator, zdef);
+        if (try self.getZdef(decl)) |foreign_def| {
+            try foreign_defs.append(self.gc.allocator, foreign_def);
         }
     }
 
     if (self.reporter.last_error != null) {
-        zdefs.deinit(self.gc.allocator);
+        foreign_defs.deinit(self.gc.allocator);
         return Error.CantCompile;
     }
 
-    return try zdefs.toOwnedSlice(self.gc.allocator);
+    return try foreign_defs.toOwnedSlice(self.gc.allocator);
 }
 
-fn getZdef(self: *Self, decl_index: Ast.Node.Index) !?*Zdef {
+pub fn parseC(self: *Self, parser: *Parser, source: Ast.TokenIndex) !?[]*ForeignDef {
+    const diagnostics_arena = std.heap.ArenaAllocator.init(self.gc.allocator);
+    var diagnostics: aro.Diagnostics = .{
+        .output = .{ .to_list = .{ .arena = diagnostics_arena } },
+        .details = false,
+        .color = false,
+    };
+    defer diagnostics.deinit();
+
+    var comp = try aro.Compilation.init(.{
+        .gpa = self.gc.allocator,
+        .arena = self.gc.allocator,
+        .io = self.reporter.process.io,
+        .diagnostics = &diagnostics,
+        .environ_map = parser.process.environ_map,
+    });
+    defer comp.deinit();
+
+    const user_source = try comp.addSourceFromBuffer(
+        "cdef",
+        parser.ast.tokens.items(.literal)[source].String,
+    );
+    const builtin = try comp.generateBuiltinMacros(.no_system_defines);
+
+    var pp = aro.Preprocessor.init(
+        &comp,
+        .{
+            .base_file = user_source.id,
+            .add_builtin_macros = true,
+        },
+    ) catch |err| switch (err) {
+        error.FatalError => {
+            self.reportCDiagnostics(&diagnostics, parser.ast.slice(), source);
+            return null;
+        },
+        else => return err,
+    };
+    defer pp.deinit();
+
+    _ = pp.preprocess(builtin) catch |err| switch (err) {
+        error.FatalError => {
+            self.reportCDiagnostics(&diagnostics, parser.ast.slice(), source);
+            return null;
+        },
+        else => return err,
+    };
+
+    const eof = pp.preprocess(user_source) catch |err| switch (err) {
+        error.FatalError => {
+            self.reportCDiagnostics(&diagnostics, parser.ast.slice(), source);
+            return null;
+        },
+        else => return err,
+    };
+    try pp.addToken(eof);
+
+    var tree = aro.Parser.parse(&pp) catch |err| switch (err) {
+        error.FatalError => {
+            self.reportCDiagnostics(&diagnostics, parser.ast.slice(), source);
+            return null;
+        },
+        else => return err,
+    };
+    defer tree.deinit();
+
+    if (diagnostics.errors > 0) {
+        self.reportCDiagnostics(&diagnostics, parser.ast.slice(), source);
+        return null;
+    }
+
+    if (tree.root_decls.items.len == 0) {
+        const location = parser.ast.slice().tokens.get(source - 4);
+        self.reporter.report(
+            .cdef,
+            location,
+            location,
+            "At least one declaration is required in cdef",
+        );
+        return null;
+    }
+
+    const script = try std.mem.replaceOwned(
+        u8,
+        self.gc.allocator,
+        parser.script_name,
+        "/",
+        ".",
+    );
+    defer self.gc.allocator.free(script);
+
+    var ctx = CContext{
+        .script = script,
+        .source = source,
+        .buzz_ast = parser.ast.slice(),
+        .parser = parser,
+        .user_source_id = user_source.id,
+        .comp = &comp,
+        .tree = &tree,
+    };
+    defer ctx.deinit(self.gc.allocator);
+
+    var foreign_defs = std.ArrayList(*ForeignDef).empty;
+    var seen = std.StringHashMapUnmanaged(usize).empty;
+    defer seen.deinit(self.gc.allocator);
+
+    for (tree.root_decls.items) |decl| {
+        if (!isUserCDecl(&ctx, decl)) continue;
+
+        if (try self.getCForeignDef(&ctx, decl)) |foreign_def| {
+            if (seen.get(foreign_def.name)) |idx| {
+                if (shouldReplaceForeignDef(foreign_defs.items[idx], foreign_def)) {
+                    foreign_defs.items[idx] = foreign_def;
+                }
+            } else {
+                try foreign_defs.append(self.gc.allocator, foreign_def);
+                try seen.put(
+                    self.gc.allocator,
+                    foreign_def.name,
+                    foreign_defs.items.len - 1,
+                );
+            }
+        }
+    }
+
+    if (self.reporter.last_error != null) {
+        foreign_defs.deinit(self.gc.allocator);
+        return Error.CantCompile;
+    }
+
+    return try foreign_defs.toOwnedSlice(self.gc.allocator);
+}
+
+fn isUserCDecl(ctx: *const CContext, decl_index: CTree.Node.Index) bool {
+    return decl_index.loc(ctx.tree).id == ctx.user_source_id;
+}
+
+fn reportCDiagnostics(
+    self: *Self,
+    diagnostics: *const aro.Diagnostics,
+    buzz_ast: BuzzAst.Slice,
+    source: Ast.TokenIndex,
+) void {
+    const location = buzz_ast.tokens.get(source - 4);
+
+    switch (diagnostics.output) {
+        .to_list => |list| {
+            if (list.messages.items.len == 0) {
+                self.reporter.report(
+                    .cdef,
+                    location,
+                    location,
+                    "cdef could not be parsed",
+                );
+                return;
+            }
+
+            for (list.messages.items) |message| {
+                if (message.effective_kind == .note) continue;
+
+                var full = std.Io.Writer.Allocating.init(self.gc.allocator);
+                defer full.deinit();
+
+                if (message.location) |expanded| {
+                    full.writer.print(
+                        "{s}:{d}:{d}: {s}: {s}",
+                        .{
+                            expanded.path,
+                            expanded.line_no,
+                            expanded.col,
+                            @tagName(message.effective_kind),
+                            message.text,
+                        },
+                    ) catch unreachable;
+                } else {
+                    full.writer.print(
+                        "{s}: {s}",
+                        .{
+                            @tagName(message.effective_kind),
+                            message.text,
+                        },
+                    ) catch unreachable;
+                }
+
+                self.reporter.report(
+                    .cdef,
+                    location,
+                    location,
+                    full.written(),
+                );
+            }
+        },
+        else => {},
+    }
+}
+
+fn reportCdef(self: *Self, ctx: *const CContext, message: []const u8) void {
+    const location = ctx.buzz_ast.tokens.get(ctx.source - 4);
+    self.reporter.report(.cdef, location, location, message);
+}
+
+fn reportCdefFmt(
+    self: *Self,
+    ctx: *const CContext,
+    comptime fmt: []const u8,
+    args: anytype,
+) void {
+    const location = ctx.buzz_ast.tokens.get(ctx.source - 4);
+    self.reporter.reportErrorFmt(
+        .cdef,
+        location,
+        location,
+        fmt,
+        args,
+    );
+}
+
+fn foreignFieldCount(foreign_def: *const ForeignDef) usize {
+    if (foreign_def.type_def.def_type != .ForeignContainer) {
+        return 0;
+    }
+
+    return switch (foreign_def.zig_type) {
+        .Struct => foreign_def.zig_type.Struct.fields.len,
+        .Union => foreign_def.zig_type.Union.fields.len,
+        else => 0,
+    };
+}
+
+fn shouldReplaceForeignDef(existing: *const ForeignDef, candidate: *const ForeignDef) bool {
+    return foreignFieldCount(existing) == 0 and foreignFieldCount(candidate) > 0;
+}
+
+fn allocateNamedForeignDef(
+    self: *Self,
+    name: []const u8,
+    type_def: *o.ObjTypeDef,
+    zig_type: ZigType,
+) Error!*ForeignDef {
+    const foreign_def = try self.gc.allocator.create(ForeignDef);
+    foreign_def.* = .{
+        .name = try self.gc.allocator.dupe(u8, name),
+        .type_def = type_def,
+        .zig_type = zig_type,
+    };
+    return foreign_def;
+}
+
+fn cloneNamedForeignDef(self: *Self, foreign_def: *const ForeignDef, name: []const u8) Error!*ForeignDef {
+    return try self.allocateNamedForeignDef(name, foreign_def.type_def, foreign_def.zig_type);
+}
+
+fn cResolveNamedType(self: *Self, ctx: *CContext, name: []const u8) Error!?*ForeignDef {
+    if (ctx.structs.get(name)) |foreign_def| {
+        return foreign_def;
+    }
+
+    for (ctx.parser.globals.items) |global| {
+        if (global.type_def.def_type != .ForeignContainer) continue;
+
+        if (std.mem.eql(
+            u8,
+            name,
+            ctx.parser.ast.tokens.items(.lexeme)[global.qualified_name.name],
+        )) {
+            const foreign_def = try self.allocateNamedForeignDef(
+                name,
+                global.type_def,
+                global.type_def.resolved_type.?.ForeignContainer.zig_type,
+            );
+            try ctx.structs.put(self.gc.allocator, foreign_def.name, foreign_def);
+            return foreign_def;
+        }
+    }
+
+    return null;
+}
+
+fn getCForeignDef(self: *Self, ctx: *CContext, decl_index: CTree.Node.Index) Error!?*ForeignDef {
+    return switch (decl_index.get(ctx.tree)) {
+        .empty_decl => null,
+        .function => |function| try self.cFunction(ctx, function),
+        .struct_decl => |decl| try self.cRecordTypeToForeignDef(
+            ctx,
+            .@"struct",
+            decl.container_qt.getRecord(ctx.comp).?,
+            null,
+        ),
+        .union_decl => |decl| try self.cRecordTypeToForeignDef(
+            ctx,
+            .@"union",
+            decl.container_qt.getRecord(ctx.comp).?,
+            null,
+        ),
+        .struct_forward_decl => |decl| try self.cRecordTypeToForeignDef(
+            ctx,
+            .@"struct",
+            decl.container_qt.getRecord(ctx.comp).?,
+            null,
+        ),
+        .union_forward_decl => |decl| try self.cRecordTypeToForeignDef(
+            ctx,
+            .@"union",
+            decl.container_qt.getRecord(ctx.comp).?,
+            null,
+        ),
+        .typedef => |typedef| try self.cTypedef(ctx, typedef),
+        .enum_decl,
+        .enum_forward_decl,
+        .variable,
+        .static_assert,
+        .global_asm,
+        => unsupported: {
+            self.reportCdef(
+                ctx,
+                "Unsupported C declaration: only function declarations, structs, unions, and typedefs to supported foreign containers are supported",
+            );
+            break :unsupported null;
+        },
+        else => unsupported: {
+            self.reportCdef(
+                ctx,
+                "Unsupported C declaration: only function declarations, structs, unions, and typedefs to supported foreign containers are supported",
+            );
+            break :unsupported null;
+        },
+    };
+}
+
+fn cTypedef(self: *Self, ctx: *CContext, typedef: CTree.Node.Typedef) Error!?*ForeignDef {
+    const name = ctx.tree.tokSlice(typedef.name_tok);
+    const foreign_def = (try self.cTypeToForeignDef(ctx, typedef.qt, name)) orelse return null;
+
+    if (foreign_def.type_def.def_type != .ForeignContainer) {
+        self.reportCdef(
+            ctx,
+            "Only typedefs to supported foreign containers are exposed by cdef",
+        );
+        return null;
+    }
+
+    try ctx.structs.put(self.gc.allocator, foreign_def.name, foreign_def);
+    return foreign_def;
+}
+
+fn cFunction(self: *Self, ctx: *CContext, function: CTree.Node.Function) Error!?*ForeignDef {
+    if (function.body != null or function.static or function.@"inline") {
+        self.reportCdef(
+            ctx,
+            "Only external C function declarations are supported in cdef",
+        );
+        return null;
+    }
+
+    const fn_type = function.qt.get(ctx.comp, .func) orelse {
+        self.reportCdef(ctx, "Unsupported C function declaration");
+        return null;
+    };
+
+    if (fn_type.kind != .normal) {
+        self.reportCdef(
+            ctx,
+            "Variadic and old-style C function declarations are not supported in cdef",
+        );
+        return null;
+    }
+
+    const return_type_foreign_def = (try self.cTypeToForeignDef(ctx, fn_type.return_type, null)) orelse return null;
+    if (return_type_foreign_def.zig_type == .Struct or return_type_foreign_def.zig_type == .Union) {
+        self.reportCdef(
+            ctx,
+            "Passing C structs or unions by value is not supported in cdef",
+        );
+        return null;
+    }
+
+    var function_def = o.ObjFunction.FunctionDef{
+        .id = o.ObjFunction.FunctionDef.nextId(),
+        .name = try self.gc.copyString(ctx.tree.tokSlice(function.name_tok)),
+        .script_name = try self.gc.copyString(
+            ctx.buzz_ast.tokens.items(.script_name)[ctx.source],
+        ),
+        .return_type = return_type_foreign_def.type_def,
+        .yield_type = self.gc.type_registry.void_type,
+        .function_type = .Extern,
+    };
+
+    var parameters_zig_types = std.ArrayList(ZigType.FnType.Param).empty;
+    var zig_fn_type = ZigType.FnType{
+        .calling_convention = .c,
+        .alignment = 4,
+        .is_generic = false,
+        .is_var_args = false,
+        .return_type = &return_type_foreign_def.zig_type,
+        .params = undefined,
+    };
+
+    for (fn_type.params) |param| {
+        const param_name = if (param.name != .empty)
+            param.name.lookup(ctx.comp)
+        else
+            null;
+
+        if (param_name == null) {
+            self.reportCdef(
+                ctx,
+                "Please provide names to C function arguments",
+            );
+            return null;
+        }
+
+        const param_foreign_def = (try self.cTypeToForeignDef(ctx, param.qt, null)) orelse return null;
+        if (param_foreign_def.zig_type == .Struct or param_foreign_def.zig_type == .Union) {
+            self.reportCdef(
+                ctx,
+                "Passing C structs or unions by value is not supported in cdef",
+            );
+            return null;
+        }
+
+        try function_def.parameters.put(
+            self.gc.allocator,
+            try self.gc.copyString(param_name.?),
+            param_foreign_def.type_def,
+        );
+
+        try parameters_zig_types.append(
+            self.gc.allocator,
+            .{
+                .is_generic = false,
+                .is_noalias = false,
+                .type = &param_foreign_def.zig_type,
+            },
+        );
+    }
+
+    zig_fn_type.params = try parameters_zig_types.toOwnedSlice(self.gc.allocator);
+
+    const type_def = try self.gc.type_registry.getTypeDef(
+        .{
+            .def_type = .Function,
+            .resolved_type = .{
+                .Function = function_def,
+            },
+        },
+    );
+
+    return try self.allocateNamedForeignDef(
+        ctx.tree.tokSlice(function.name_tok),
+        type_def,
+        .{ .Fn = zig_fn_type },
+    );
+}
+
+fn cRecordTypeToForeignDef(
+    self: *Self,
+    ctx: *CContext,
+    kind: CRecordKind,
+    record: CType.Record,
+    preferred_name: ?[]const u8,
+) Error!?*ForeignDef {
+    if (preferred_name) |name| {
+        if (try self.cResolveNamedType(ctx, name)) |existing| {
+            return existing;
+        }
+    }
+
+    const tag_name = if (!record.isAnonymous(ctx.comp))
+        record.name.lookup(ctx.comp)
+    else
+        null;
+
+    if (tag_name) |name| {
+        if (try self.cResolveNamedType(ctx, name)) |existing| {
+            if (preferred_name) |preferred| {
+                if (!std.mem.eql(u8, preferred, existing.name)) {
+                    const alias = try self.cloneNamedForeignDef(existing, preferred);
+                    try ctx.structs.put(self.gc.allocator, alias.name, alias);
+                    return alias;
+                }
+            }
+
+            return existing;
+        }
+    }
+
+    const exposed_name = preferred_name orelse tag_name orelse {
+        self.reportCdef(
+            ctx,
+            "Anonymous C structs and unions are not supported in cdef",
+        );
+        return null;
+    };
+
+    const foreign_def = try self.cBuildRecordForeignDef(
+        ctx,
+        kind,
+        record,
+        exposed_name,
+    );
+
+    try ctx.structs.put(self.gc.allocator, foreign_def.name, foreign_def);
+    if (tag_name) |name| {
+        if (!std.mem.eql(u8, name, foreign_def.name)) {
+            try ctx.structs.put(self.gc.allocator, name, foreign_def);
+        }
+    }
+
+    return foreign_def;
+}
+
+fn cBuildRecordForeignDef(
+    self: *Self,
+    ctx: *CContext,
+    kind: CRecordKind,
+    record: CType.Record,
+    exposed_name: []const u8,
+) Error!*ForeignDef {
+    var struct_fields = std.ArrayList(ZigType.StructField).empty;
+    var union_fields = std.ArrayList(ZigType.UnionField).empty;
+    var get_set_fields = std.StringArrayHashMapUnmanaged(o.ObjForeignContainer.ContainerDef.Field).empty;
+    var buzz_fields = std.StringArrayHashMapUnmanaged(*o.ObjTypeDef).empty;
+    var decls = std.ArrayList(ZigType.Declaration).empty;
+
+    if (record.layout != null) {
+        for (record.fields) |field| {
+            if (field.name == .empty or field.name_tok == 0) {
+                self.reportCdef(
+                    ctx,
+                    "Anonymous C struct and union fields are not supported in cdef",
+                );
+                return error.CantCompile;
+            }
+
+            if (field.bit_width.unpack() != null) {
+                self.reportCdef(
+                    ctx,
+                    "C bitfields are not supported in cdef",
+                );
+                return error.CantCompile;
+            }
+
+            const member_foreign_def = (try self.cTypeToForeignDef(ctx, field.qt, null)) orelse return error.CantCompile;
+            const field_name = try self.gc.allocator.dupe(
+                u8,
+                field.name.lookup(ctx.comp),
+            );
+            const field_align: u16 = @intCast(field.qt.alignof(ctx.comp));
+            const field_offset: usize = @intCast(field.layout.offset_bits / 8);
+
+            switch (kind) {
+                .@"struct" => try struct_fields.append(
+                    self.gc.allocator,
+                    .{
+                        .name = field_name,
+                        .type = &member_foreign_def.zig_type,
+                        .default_value = null,
+                        .is_comptime = false,
+                        .alignment = field_align,
+                    },
+                ),
+                .@"union" => try union_fields.append(
+                    self.gc.allocator,
+                    .{
+                        .name = field_name,
+                        .type = &member_foreign_def.zig_type,
+                        .alignment = field_align,
+                    },
+                ),
+            }
+
+            try decls.append(
+                self.gc.allocator,
+                .{
+                    .name = field_name,
+                },
+            );
+
+            try buzz_fields.put(
+                self.gc.allocator,
+                field_name,
+                member_foreign_def.type_def,
+            );
+
+            try get_set_fields.put(
+                self.gc.allocator,
+                field_name,
+                .{
+                    .offset = field_offset,
+                    .getter = undefined,
+                    .setter = undefined,
+                },
+            );
+        }
+    }
+
+    const zig_type = switch (kind) {
+        .@"struct" => ZigType{
+            .Struct = .{
+                .layout = .@"extern",
+                .fields = struct_fields.items,
+                .decls = decls.items,
+                .is_tuple = false,
+            },
+        },
+        .@"union" => ZigType{
+            .Union = .{
+                .layout = .@"extern",
+                .fields = union_fields.items,
+                .decls = decls.items,
+                .tag_type = null,
+            },
+        },
+    };
+
+    const foreign_def = o.ObjForeignContainer.ContainerDef{
+        .location = ctx.source,
+        .name = try self.gc.copyString(exposed_name),
+        .qualified_name = try self.gc.copyString(exposed_name),
+        .zig_type = zig_type,
+        .buzz_type = buzz_fields,
+        .fields = get_set_fields,
+    };
+
+    const type_def = try self.gc.type_registry.getTypeDef(
+        .{
+            .def_type = .ForeignContainer,
+            .resolved_type = .{
+                .ForeignContainer = foreign_def,
+            },
+        },
+    );
+
+    return try self.allocateNamedForeignDef(exposed_name, type_def, zig_type);
+}
+
+fn cTypeToForeignDef(
+    self: *Self,
+    ctx: *CContext,
+    qt: CQualType,
+    preferred_name: ?[]const u8,
+) Error!?*ForeignDef {
+    const base = qt.base(ctx.comp);
+
+    return switch (base.type) {
+        .void => try self.allocateNamedForeignDef(
+            preferred_name orelse "void",
+            self.gc.type_registry.void_type,
+            .{ .Void = {} },
+        ),
+        .bool => try self.allocateNamedForeignDef(
+            preferred_name orelse "bool",
+            self.gc.type_registry.bool_type,
+            .{ .Bool = {} },
+        ),
+        .int => |int_type| int: {
+            const bits = int_type.bits(ctx.comp);
+            const signedness = base.qt.signedness(ctx.comp);
+            const type_def = switch (bits) {
+                8, 16 => o.ObjTypeDef{ .def_type = .Integer },
+                32 => if (signedness == .signed)
+                    o.ObjTypeDef{ .def_type = .Integer }
+                else
+                    o.ObjTypeDef{ .def_type = .Double },
+                64 => if (signedness == .signed)
+                    o.ObjTypeDef{ .def_type = .Double }
+                else
+                    o.ObjTypeDef{ .def_type = .UserData },
+                else => {
+                    self.reportCdef(
+                        ctx,
+                        "Unsupported C integer type in cdef",
+                    );
+                    break :int null;
+                },
+            };
+
+            break :int try self.allocateNamedForeignDef(
+                preferred_name orelse "int",
+                try self.gc.type_registry.getTypeDef(type_def),
+                .{
+                    .Int = .{
+                        .signedness = signedness,
+                        .bits = bits,
+                    },
+                },
+            );
+        },
+        .float => |float_type| float: {
+            const bits = float_type.bits(ctx.comp);
+            if (bits != 32 and bits != 64) {
+                self.reportCdef(
+                    ctx,
+                    "Unsupported C floating-point type in cdef",
+                );
+                break :float null;
+            }
+
+            break :float try self.allocateNamedForeignDef(
+                preferred_name orelse "float",
+                self.gc.type_registry.double_type,
+                .{
+                    .Double = .{
+                        .bits = bits,
+                    },
+                },
+            );
+        },
+        .pointer => |pointer| ptr: {
+            const child_foreign_def = (try self.cTypeToForeignDef(ctx, pointer.child, null)) orelse break :ptr null;
+
+            if (child_foreign_def.zig_type == .Fn) {
+                self.reportCdef(
+                    ctx,
+                    "C function pointers are not supported in cdef",
+                );
+                break :ptr null;
+            }
+
+            const type_def = if (child_foreign_def.zig_type == .Int and
+                child_foreign_def.zig_type.Int.bits == 8)
+                self.gc.type_registry.str_type
+            else if (child_foreign_def.type_def.def_type == .ForeignContainer)
+                child_foreign_def.type_def
+            else
+                self.gc.type_registry.ud_type;
+
+            break :ptr try self.allocateNamedForeignDef(
+                preferred_name orelse "ptr",
+                type_def,
+                .{
+                    .Pointer = .{
+                        .size = .c,
+                        .is_const = pointer.child.@"const",
+                        .is_volatile = pointer.child.@"volatile",
+                        .alignment = undefined,
+                        .address_space = undefined,
+                        .child = &child_foreign_def.zig_type,
+                        .is_allowzero = undefined,
+                        .sentinel = undefined,
+                    },
+                },
+            );
+        },
+        .@"struct" => |record| try self.cRecordTypeToForeignDef(
+            ctx,
+            .@"struct",
+            record,
+            preferred_name,
+        ),
+        .@"union" => |record| try self.cRecordTypeToForeignDef(
+            ctx,
+            .@"union",
+            record,
+            preferred_name,
+        ),
+        .array,
+        .vector,
+        .complex,
+        .bit_int,
+        .atomic,
+        .func,
+        .@"enum",
+        .nullptr_t,
+        => unsupported: {
+            self.reportCdef(
+                ctx,
+                "Unsupported C type in cdef",
+            );
+            break :unsupported null;
+        },
+        .typeof,
+        .typedef,
+        .attributed,
+        => unreachable,
+    };
+}
+
+fn getZdef(self: *Self, decl_index: Ast.Node.Index) !?*ForeignDef {
     const decl_tag = self.state.?.ast.nodeTag(decl_index);
     const decl_data = self.state.?.ast.nodeData(decl_index);
     const ast = self.state.?.ast;
@@ -393,8 +1194,8 @@ fn getZdef(self: *Self, decl_index: Ast.Node.Index) !?*Zdef {
             const zdef = try self.getZdef(decl_data.node);
 
             if (zdef) |uzdef| {
-                const opt_zdef = try self.gc.allocator.create(Zdef);
-                opt_zdef.* = Zdef{
+                const opt_zdef = try self.gc.allocator.create(ForeignDef);
+                opt_zdef.* = ForeignDef{
                     .zig_type = .{
                         .Optional = .{
                             .child = &uzdef.zig_type,
@@ -437,7 +1238,7 @@ fn getZdef(self: *Self, decl_index: Ast.Node.Index) !?*Zdef {
     };
 }
 
-fn containerDecl(self: *Self, name: []const u8, decl_index: Ast.Node.Index) Error!*Zdef {
+fn containerDecl(self: *Self, name: []const u8, decl_index: Ast.Node.Index) Error!*ForeignDef {
     const container_node_tag = self.state.?.ast.nodeTag(decl_index);
 
     var buf: [2]Ast.Node.Index = undefined;
@@ -476,7 +1277,7 @@ fn containerDecl(self: *Self, name: []const u8, decl_index: Ast.Node.Index) Erro
                 .{self.state.?.ast.tokenSlice(container.ast.main_token)},
             );
 
-            const zdef = try self.gc.allocator.create(Zdef);
+            const zdef = try self.gc.allocator.create(ForeignDef);
             zdef.* = .{
                 .type_def = self.gc.type_registry.void_type,
                 .zig_type = ZigType{ .Void = {} },
@@ -488,12 +1289,12 @@ fn containerDecl(self: *Self, name: []const u8, decl_index: Ast.Node.Index) Erro
     };
 }
 
-fn unionContainer(self: *Self, name: []const u8, container: Ast.full.ContainerDecl) Error!*Zdef {
+fn unionContainer(self: *Self, name: []const u8, container: Ast.full.ContainerDecl) Error!*ForeignDef {
     var fields = std.ArrayList(ZigType.UnionField).empty;
     var get_set_fields = std.StringArrayHashMapUnmanaged(o.ObjForeignContainer.ContainerDef.Field).empty;
     var buzz_fields = std.StringArrayHashMapUnmanaged(*o.ObjTypeDef).empty;
     var decls = std.ArrayList(ZigType.Declaration).empty;
-    var next_field: ?*Zdef = null;
+    var next_field: ?*ForeignDef = null;
     for (container.ast.members, 0..) |member, idx| {
         if (next_field orelse try self.getZdef(member)) |member_zdef| {
             next_field = if (idx < container.ast.members.len - 1)
@@ -556,7 +1357,7 @@ fn unionContainer(self: *Self, name: []const u8, container: Ast.full.ContainerDe
         },
     );
 
-    const zdef = try self.gc.allocator.create(Zdef);
+    const zdef = try self.gc.allocator.create(ForeignDef);
     zdef.* = .{
         .type_def = try self.gc.type_registry.getTypeDef(
             .{
@@ -581,13 +1382,13 @@ fn unionContainer(self: *Self, name: []const u8, container: Ast.full.ContainerDe
     return zdef;
 }
 
-fn structContainer(self: *Self, name: []const u8, container: Ast.full.ContainerDecl) Error!*Zdef {
+fn structContainer(self: *Self, name: []const u8, container: Ast.full.ContainerDecl) Error!*ForeignDef {
     var fields = std.ArrayList(ZigType.StructField).empty;
     var get_set_fields = std.StringArrayHashMapUnmanaged(o.ObjForeignContainer.ContainerDef.Field).empty;
     var buzz_fields = std.StringArrayHashMapUnmanaged(*o.ObjTypeDef).empty;
     var decls = std.ArrayList(ZigType.Declaration).empty;
     var offset: usize = 0;
-    var next_field: ?*Zdef = null;
+    var next_field: ?*ForeignDef = null;
     for (container.ast.members, 0..) |member, idx| {
         if (next_field orelse try self.getZdef(member)) |member_zdef| {
             next_field = if (idx < container.ast.members.len - 1)
@@ -669,7 +1470,7 @@ fn structContainer(self: *Self, name: []const u8, container: Ast.full.ContainerD
         .resolved_type = .{ .ForeignContainer = foreign_def },
     };
 
-    const zdef = try self.gc.allocator.create(Zdef);
+    const zdef = try self.gc.allocator.create(ForeignDef);
     zdef.* = .{
         .type_def = try self.gc.type_registry.getTypeDef(type_def),
         .zig_type = zig_type,
@@ -679,7 +1480,7 @@ fn structContainer(self: *Self, name: []const u8, container: Ast.full.ContainerD
     return zdef;
 }
 
-fn containerField(self: *Self, decl_index: Ast.Node.Index) Error!?*Zdef {
+fn containerField(self: *Self, decl_index: Ast.Node.Index) Error!?*ForeignDef {
     const container_field = self.state.?.ast.containerFieldInit(decl_index);
 
     if (try self.getZdef(container_field.ast.type_expr.unwrap().?)) |zdef| {
@@ -690,7 +1491,7 @@ fn containerField(self: *Self, decl_index: Ast.Node.Index) Error!?*Zdef {
     return null;
 }
 
-fn identifier(self: *Self, decl_index: Ast.Node.Index) Error!*Zdef {
+fn identifier(self: *Self, decl_index: Ast.Node.Index) Error!*ForeignDef {
     const id = self.state.?.ast.tokenSlice(self.state.?.ast.nodeMainToken(decl_index));
 
     var type_def = if (basic_types.get(id)) |basic_type|
@@ -749,7 +1550,7 @@ fn identifier(self: *Self, decl_index: Ast.Node.Index) Error!*Zdef {
         zig_type = null;
     }
 
-    const zdef = try self.gc.allocator.create(Zdef);
+    const zdef = try self.gc.allocator.create(ForeignDef);
     zdef.* = .{
         .type_def = try self.gc.type_registry.getTypeDef(type_def orelse .{ .def_type = .Void }),
         .zig_type = zig_type orelse ZigType{ .Void = {} },
@@ -759,7 +1560,7 @@ fn identifier(self: *Self, decl_index: Ast.Node.Index) Error!*Zdef {
     return zdef;
 }
 
-fn ptrType(self: *Self, tag: Ast.Node.Tag, decl_index: Ast.Node.Index) Error!*Zdef {
+fn ptrType(self: *Self, tag: Ast.Node.Tag, decl_index: Ast.Node.Index) Error!*ForeignDef {
     const ptr_type = switch (tag) {
         .ptr_type_aligned => self.state.?.ast.ptrTypeAligned(decl_index),
         .ptr_type_sentinel => self.state.?.ast.ptrTypeSentinel(decl_index),
@@ -772,7 +1573,7 @@ fn ptrType(self: *Self, tag: Ast.Node.Tag, decl_index: Ast.Node.Index) Error!*Zd
         const sentinel_node_main_token = if (ptr_type.ast.sentinel.unwrap()) |sentinel| self.state.?.ast.nodeMainToken(sentinel) else null;
 
         // Is it a null terminated string?
-        const zdef = try self.gc.allocator.create(Zdef);
+        const zdef = try self.gc.allocator.create(ForeignDef);
         zdef.* = if (ptr_type.const_token != null and
             child_type.zig_type == .Int and
             child_type.zig_type.Int.bits == 8 and
@@ -835,7 +1636,7 @@ fn ptrType(self: *Self, tag: Ast.Node.Tag, decl_index: Ast.Node.Index) Error!*Zd
     return error.CantCompile;
 }
 
-fn fnProto(self: *Self, tag: Ast.Node.Tag, decl_index: Ast.Node.Index) Error!*Zdef {
+fn fnProto(self: *Self, tag: Ast.Node.Tag, decl_index: Ast.Node.Index) Error!*ForeignDef {
     var buffer = [1]Ast.Node.Index{undefined};
     const fn_proto = switch (tag) {
         .fn_proto_simple => self.state.?.ast.fnProtoSimple(&buffer, decl_index),
@@ -932,7 +1733,7 @@ fn fnProto(self: *Self, tag: Ast.Node.Tag, decl_index: Ast.Node.Index) Error!*Zd
         .resolved_type = .{ .Function = function_def },
     };
 
-    const zdef = try self.gc.allocator.create(Zdef);
+    const zdef = try self.gc.allocator.create(ForeignDef);
     zdef.* = .{
         .zig_type = ZigType{ .Fn = zig_fn_type },
         .type_def = try self.gc.type_registry.getTypeDef(type_def),

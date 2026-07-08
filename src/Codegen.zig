@@ -174,6 +174,7 @@ const generators = [@typeInfo(Ast.Node.Tag).@"enum".fields.len]?NodeGen{
     generateWhile, // While,
     generateYield, // Yield,
     generateZdef, // Zdef,
+    generateCdef, // Cdef,
 };
 
 pub fn init(
@@ -3780,28 +3781,41 @@ fn generateYield(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!Gene
 }
 
 fn generateZdef(self: *Self, node: Ast.Node.Index, _: ?*Breaks) Error!GeneratedNode {
+    return try self.generateForeignDef(
+        node,
+        self.ast.nodes.items(.components)[node].Zdef,
+    );
+}
+
+fn generateCdef(self: *Self, node: Ast.Node.Index, _: ?*Breaks) Error!GeneratedNode {
+    return try self.generateForeignDef(
+        node,
+        self.ast.nodes.items(.components)[node].Cdef,
+    );
+}
+
+fn generateForeignDef(self: *Self, node: Ast.Node.Index, components: Ast.ForeignDef) Error!GeneratedNode {
     if (is_wasm) {
         return .{};
     }
 
-    const components = self.ast.nodes.items(.components)[node].Zdef;
     const location = self.ast.nodes.items(.location)[node];
 
     if (self.flavor.resolveDynLib()) {
         for (components.elements) |*element| {
-            // Generate ObjNative wrapper of actual zdef
-            switch (element.zdef.type_def.def_type) {
+            // Generate the runtime wrapper or container metadata for the foreign definition.
+            switch (element.foreign_def.type_def.def_type) {
                 .Function => {
                     if (element.obj_native == null) {
-                        element.obj_native = try self.jit.?.compileZdef(self.gc, self.ast, element.*);
+                        element.obj_native = try self.jit.?.compileForeignDef(self.gc, self.ast, element.*);
 
                         try self.emitConstant(location, element.obj_native.?.toValue());
                     }
                 },
                 .ForeignContainer => {
-                    try self.jit.?.compileZdefContainer(self.ast, element.*);
+                    try self.jit.?.compileForeignContainer(self.ast, element.*);
 
-                    try self.emitConstant(location, element.zdef.type_def.toValue());
+                    try self.emitConstant(location, element.foreign_def.type_def.toValue());
                 },
                 else => {},
             }

@@ -6027,14 +6027,14 @@ fn generateNativeFn(self: *Self, node: Ast.Node.Index, raw_fn: m.MIR_item_t) !m.
     return function;
 }
 
-pub fn compileZdefContainer(self: *Self, ast: Ast.Slice, zdef_element: Ast.Zdef.ZdefElement) Error!void {
+pub fn compileForeignContainer(self: *Self, ast: Ast.Slice, foreign_def_element: Ast.ForeignDef.Element) Error!void {
     var wrapper_name = std.Io.Writer.Allocating.init(self.gc.allocator);
     defer wrapper_name.deinit();
 
     try wrapper_name.writer.print(
-        "zdef_{s}\x00",
+        "foreign_def_{s}\x00",
         .{
-            zdef_element.zdef.name,
+            foreign_def_element.foreign_def.name,
         },
     );
 
@@ -6046,15 +6046,15 @@ pub fn compileZdefContainer(self: *Self, ast: Ast.Slice, zdef_element: Ast.Zdef.
 
     if (BuildOptions.jit_debug) {
         log.debug(
-            "Compiling zdef struct getters/setters for `{s}` of type `{s}`\n",
+            "Compiling foreign container getters/setters for `{s}` of type `{s}`\n",
             .{
-                zdef_element.zdef.name,
-                zdef_element.zdef.type_def.toStringAlloc(self.gc.allocator, true) catch unreachable,
+                foreign_def_element.foreign_def.name,
+                foreign_def_element.foreign_def.type_def.toStringAlloc(self.gc.allocator, true) catch unreachable,
             },
         );
     }
 
-    // FIXME: Not everything applies to a zdef, maybe split the two states?
+    // FIXME: Not everything applies to a foreign def, maybe split the two states?
     self.state = .{
         .ast = ast,
         .module = module,
@@ -6063,7 +6063,7 @@ pub fn compileZdefContainer(self: *Self, ast: Ast.Slice, zdef_element: Ast.Zdef.
     };
     defer self.reset();
 
-    const foreign_def = zdef_element.zdef.type_def.resolved_type.?.ForeignContainer;
+    const foreign_def = foreign_def_element.foreign_def.type_def.resolved_type.?.ForeignContainer;
 
     var getters = std.ArrayList(m.MIR_item_t).empty;
     defer getters.deinit(self.gc.allocator);
@@ -6077,7 +6077,7 @@ pub fn compileZdefContainer(self: *Self, ast: Ast.Slice, zdef_element: Ast.Zdef.
 
                 try getters.append(
                     self.gc.allocator,
-                    try self.buildZdefContainerGetter(
+                    try self.buildForeignContainerGetter(
                         container_field.value_ptr.*.offset,
                         foreign_def.name.string,
                         field.name,
@@ -6088,7 +6088,7 @@ pub fn compileZdefContainer(self: *Self, ast: Ast.Slice, zdef_element: Ast.Zdef.
 
                 try setters.append(
                     self.gc.allocator,
-                    try self.buildZdefContainerSetter(
+                    try self.buildForeignContainerSetter(
                         container_field.value_ptr.*.offset,
                         foreign_def.name.string,
                         field.name,
@@ -6106,7 +6106,7 @@ pub fn compileZdefContainer(self: *Self, ast: Ast.Slice, zdef_element: Ast.Zdef.
 
                 try getters.append(
                     self.gc.allocator,
-                    try self.buildZdefUnionGetter(
+                    try self.buildForeignUnionGetter(
                         foreign_def.name.string,
                         field.name,
                         foreign_def.buzz_type.get(field.name).?,
@@ -6116,7 +6116,7 @@ pub fn compileZdefContainer(self: *Self, ast: Ast.Slice, zdef_element: Ast.Zdef.
 
                 try setters.append(
                     self.gc.allocator,
-                    try self.buildZdefUnionSetter(
+                    try self.buildForeignUnionSetter(
                         foreign_def.name.string,
                         field.name,
                         foreign_def.buzz_type.get(field.name).?,
@@ -6208,8 +6208,7 @@ fn buildBuzzValueToZigValue(self: *Self, buzz_type: *o.ObjTypeDef, zig_type: Zig
         .Pointer => {
             // Is it a [*:0]const u8
             if (zig_type.Pointer.child.* == .Int and
-                zig_type.Pointer.child.Int.bits == 8 and
-                zig_type.Pointer.child.Int.signedness == .unsigned)
+                zig_type.Pointer.child.Int.bits == 8)
             {
                 try self.buildValueToCString(buzz_value, dest);
             } else if (zig_type.Pointer.child.* == .Struct or zig_type.Pointer.child.* == .Union) {
@@ -6221,11 +6220,10 @@ fn buildBuzzValueToZigValue(self: *Self, buzz_type: *o.ObjTypeDef, zig_type: Zig
         .Optional => {
             // Is it a [*:0]const u8
             if (zig_type.Optional.child.Pointer.child.* == .Int and
-                zig_type.Optional.child.Pointer.child.Int.bits == 8 and
-                zig_type.Optional.child.Pointer.child.Int.signedness == .unsigned)
+                zig_type.Optional.child.Pointer.child.Int.bits == 8)
             {
                 try self.buildValueToOptionalCString(buzz_value, dest);
-            } else if (zig_type.Optional.child.Pointer.child.* == .Struct) {
+            } else if (zig_type.Optional.child.Pointer.child.* == .Struct or zig_type.Optional.child.Pointer.child.* == .Union) {
                 try self.buildValueToOptionalForeignContainerPtr(buzz_value, dest);
             } else {
                 try self.buildValueToOptionalUserData(buzz_value, dest);
@@ -6272,11 +6270,10 @@ fn buildZigValueToBuzzValue(self: *Self, buzz_type: *o.ObjTypeDef, zig_type: Zig
         .Pointer => {
             // Is it a [*:0]const u8
             if (zig_type.Pointer.child.* == .Int and
-                zig_type.Pointer.child.Int.bits == 8 and
-                zig_type.Pointer.child.Int.signedness == .unsigned)
+                zig_type.Pointer.child.Int.bits == 8)
             {
                 try self.buildValueFromCString(zig_value, dest);
-            } else if (zig_type.Pointer.child.* == .Struct) {
+            } else if (zig_type.Pointer.child.* == .Struct or zig_type.Pointer.child.* == .Union) {
                 try self.buildValueFromForeignContainerPtr(buzz_type, zig_value, dest);
             } else {
                 try self.buildValueFromUserData(zig_value, dest);
@@ -6285,11 +6282,10 @@ fn buildZigValueToBuzzValue(self: *Self, buzz_type: *o.ObjTypeDef, zig_type: Zig
         .Optional => {
             // Is it a [*:0]const u8
             if (zig_type.Optional.child.Pointer.child.* == .Int and
-                zig_type.Optional.child.Pointer.child.Int.bits == 8 and
-                zig_type.Optional.child.Pointer.child.Int.signedness == .unsigned)
+                zig_type.Optional.child.Pointer.child.Int.bits == 8)
             {
                 try self.buildValueFromOptionalCString(zig_value, dest);
-            } else if (zig_type.Optional.child.Pointer.child.* == .Struct) {
+            } else if (zig_type.Optional.child.Pointer.child.* == .Struct or zig_type.Optional.child.Pointer.child.* == .Union) {
                 try self.buildValueFromOptionalForeignContainerPtr(buzz_type, zig_value, dest);
             } else {
                 try self.buildValueFromOptionalUserData(zig_value, dest);
@@ -6299,13 +6295,13 @@ fn buildZigValueToBuzzValue(self: *Self, buzz_type: *o.ObjTypeDef, zig_type: Zig
     }
 }
 
-pub fn compileZdef(self: *Self, gc: *GC, buzz_ast: Ast.Slice, zdef: Ast.Zdef.ZdefElement) Error!*o.ObjNative {
+pub fn compileForeignDef(self: *Self, gc: *GC, buzz_ast: Ast.Slice, foreign_def: Ast.ForeignDef.Element) Error!*o.ObjNative {
     var wrapper_name = std.Io.Writer.Allocating.init(self.gc.allocator);
     defer wrapper_name.deinit();
 
-    try wrapper_name.writer.print("zdef_{s}\x00", .{zdef.zdef.name});
+    try wrapper_name.writer.print("foreign_def_{s}\x00", .{foreign_def.foreign_def.name});
 
-    const dupped_symbol = try self.gc.allocator.dupeZ(u8, zdef.zdef.name);
+    const dupped_symbol = try self.gc.allocator.dupeZ(u8, foreign_def.foreign_def.name);
     defer self.gc.allocator.free(dupped_symbol);
 
     const module = m.MIR_new_module(self.ctx, @ptrCast(wrapper_name.written().ptr));
@@ -6313,15 +6309,15 @@ pub fn compileZdef(self: *Self, gc: *GC, buzz_ast: Ast.Slice, zdef: Ast.Zdef.Zde
 
     if (BuildOptions.jit_debug) {
         log.debug(
-            "Compiling zdef wrapper for `{s}` of type `{s}`\n",
+            "Compiling foreign definition wrapper for `{s}` of type `{s}`\n",
             .{
-                zdef.zdef.name,
-                zdef.zdef.type_def.toStringAlloc(self.gc.allocator, true) catch unreachable,
+                foreign_def.foreign_def.name,
+                foreign_def.foreign_def.type_def.toStringAlloc(self.gc.allocator, true) catch unreachable,
             },
         );
     }
 
-    // FIXME: Not everything applies to a zdef, maybe split the two states?
+    // FIXME: Not everything applies to a foreign def, maybe split the two states?
     self.state = .{
         .ast = buzz_ast,
         .module = module,
@@ -6331,18 +6327,18 @@ pub fn compileZdef(self: *Self, gc: *GC, buzz_ast: Ast.Slice, zdef: Ast.Zdef.Zde
     defer self.reset();
 
     // Build wrapper
-    const wrapper_item = try self.buildZdefWrapper(zdef);
+    const wrapper_item = try self.buildForeignDefWrapper(foreign_def);
 
     _ = m.MIR_new_export(self.ctx, @ptrCast(wrapper_name.written().ptr));
 
     if (BuildOptions.jit_debug) {
-        self.outputModule(zdef.zdef.name, module);
+        self.outputModule(foreign_def.foreign_def.name, module);
     }
 
     m.MIR_load_module(self.ctx, module);
 
     // Load function we're wrapping
-    m.MIR_load_external(self.ctx, dupped_symbol, zdef.fn_ptr.?);
+    m.MIR_load_external(self.ctx, dupped_symbol, foreign_def.fn_ptr.?);
 
     try self.loadRequiredExternalApi();
 
@@ -6408,18 +6404,18 @@ fn zigToMIRRegType(zig_type: ZigType) m.MIR_type_t {
     };
 }
 
-fn buildZdefWrapper(self: *Self, zdef_element: Ast.Zdef.ZdefElement) Error!m.MIR_item_t {
+fn buildForeignDefWrapper(self: *Self, foreign_def_element: Ast.ForeignDef.Element) Error!m.MIR_item_t {
     var wrapper_name = std.Io.Writer.Allocating.init(self.gc.allocator);
     defer wrapper_name.deinit();
 
-    try wrapper_name.writer.print("zdef_{s}\x00", .{zdef_element.zdef.name});
+    try wrapper_name.writer.print("foreign_def_{s}\x00", .{foreign_def_element.foreign_def.name});
 
     var wrapper_protocol_name = std.Io.Writer.Allocating.init(self.gc.allocator);
     defer wrapper_protocol_name.deinit();
 
-    try wrapper_protocol_name.writer.print("p_zdef_{s}\x00", .{zdef_element.zdef.name});
+    try wrapper_protocol_name.writer.print("p_foreign_def_{s}\x00", .{foreign_def_element.foreign_def.name});
 
-    const dupped_symbol = try self.gc.allocator.dupeZ(u8, zdef_element.zdef.name);
+    const dupped_symbol = try self.gc.allocator.dupeZ(u8, foreign_def_element.foreign_def.name);
     defer self.gc.allocator.free(dupped_symbol);
 
     // FIXME: I don't get why we need this: a simple constant becomes rubbish as soon as we enter MIR_new_func_arr if we don't
@@ -6463,8 +6459,8 @@ fn buildZdefWrapper(self: *Self, zdef_element: Ast.Zdef.ZdefElement) Error!m.MIR
         ),
     );
 
-    const function_def = zdef_element.zdef.type_def.resolved_type.?.Function;
-    const zig_function_def = zdef_element.zdef.zig_type;
+    const function_def = foreign_def_element.foreign_def.type_def.resolved_type.?.Function;
+    const zig_function_def = foreign_def_element.foreign_def.zig_type;
 
     // Get arguments from stack
     var full_args = std.ArrayList(m.MIR_op_t).empty;
@@ -6612,7 +6608,7 @@ fn buildZdefWrapper(self: *Self, zdef_element: Ast.Zdef.ZdefElement) Error!m.MIR
     return function;
 }
 
-fn buildZdefUnionGetter(
+fn buildForeignUnionGetter(
     self: *Self,
     union_name: []const u8,
     field_name: []const u8,
@@ -6623,7 +6619,7 @@ fn buildZdefUnionGetter(
     defer getter_name.deinit();
 
     try getter_name.writer.print(
-        "zdef_union_{s}_{s}_getter\x00",
+        "foreign_union_{s}_{s}_getter\x00",
         .{
             union_name,
             field_name,
@@ -6716,7 +6712,7 @@ fn buildZdefUnionGetter(
     return function;
 }
 
-fn buildZdefUnionSetter(
+fn buildForeignUnionSetter(
     self: *Self,
     union_name: []const u8,
     field_name: []const u8,
@@ -6727,7 +6723,7 @@ fn buildZdefUnionSetter(
     defer setter_name.deinit();
 
     try setter_name.writer.print(
-        "zdef_union_{s}_{s}_setter\x00",
+        "foreign_union_{s}_{s}_setter\x00",
         .{
             union_name,
             field_name,
@@ -6822,7 +6818,7 @@ fn buildZdefUnionSetter(
     return function;
 }
 
-fn buildZdefContainerGetter(
+fn buildForeignContainerGetter(
     self: *Self,
     offset: usize,
     struct_name: []const u8,
@@ -6834,7 +6830,7 @@ fn buildZdefContainerGetter(
     defer getter_name.deinit();
 
     try getter_name.writer.print(
-        "zdef_struct_{s}_{s}_getter\x00",
+        "foreign_struct_{s}_{s}_getter\x00",
         .{
             struct_name,
             field_name,
@@ -6910,7 +6906,7 @@ fn buildZdefContainerGetter(
     return function;
 }
 
-fn buildZdefContainerSetter(
+fn buildForeignContainerSetter(
     self: *Self,
     offset: usize,
     struct_name: []const u8,
@@ -6922,7 +6918,7 @@ fn buildZdefContainerSetter(
     defer setter_name.deinit();
 
     try setter_name.writer.print(
-        "zdef_struct_{s}_{s}_setter\x00",
+        "foreign_struct_{s}_{s}_setter\x00",
         .{
             struct_name,
             field_name,

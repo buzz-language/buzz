@@ -718,6 +718,7 @@ pub fn highlight(self: *Self, out: *std.Io.Writer, true_color: bool) void {
                     .Yield,
                     .Any,
                     .Zdef,
+                    .Cdef,
                     .Type,
                     .TypeOf,
                     .Var,

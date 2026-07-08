@@ -1,0 +1,115 @@
+import "buzz:std";
+import "buzz:buffer" as _;
+import "buzz:ffi";
+
+cdef(
+    "tests/utils/libforeign",
+    `
+        double acos(double value);
+        void fprint(const char *msg);
+        int sum(int *values, int len);
+    `
+);
+
+test "scalar type" {
+    std\assert(
+        acos(0.12) == 1.4505064444001086,
+        message: "Could call C function with scalar arguments"
+    );
+}
+
+test "cstring" {
+    fprint(ffi\cstr("hello world"));
+}
+
+test "pointer with Buffer" {
+    final buffer = Buffer.init();
+
+    buffer.writeZ::<int>("i32", values: [ 1, 2, 3 ]);
+    buffer.writeZ::<int>("i32", values: [ 1, 2, 3 ]);
+
+    final i32align = ffi\alignOf("i32");
+    final len = buffer.len(align: i32align);
+    final total = sum(buffer.ptr(), len: len);
+
+    std\assert(total == 12, message: "Could call C function with pointer argument");
+
+    var readTotal = 0;
+    foreach (i in 0..buffer.len(align: i32align)) {
+        readTotal = readTotal + buffer.readZAt::<int>(
+            at: i,
+            zigType: "i32",
+        );
+    }
+
+    std\assert(readTotal == total, message: "Could read from pointer");
+
+    final subTotal = sum(buffer.ptr(1, align: i32align), len: len - 1);
+
+    std\assert(subTotal == 11, message: "Could get ptr at offset");
+}
+
+cdef(
+    "tests/utils/libforeign",
+    `
+        struct Data {
+            int id;
+            char *msg;
+            double value;
+        };
+
+        char *get_data_msg(struct Data *data);
+        void set_data_id(struct Data *data);
+    `
+);
+
+test "struct" {
+    final data = Data{
+        msg = ffi\cstr("bye world"),
+        id = 123,
+        value = 42.0,
+    };
+
+    std\assert(data.msg == "bye world\000", message: "Could instantiate C struct");
+    std\assert(data.id == 123, message: "Could instantiate C struct");
+
+    data.id = 42;
+
+    std\assert(data.id == 42, message: "Could set C struct field");
+
+    std\assert(
+        get_data_msg(data) == "bye world\000",
+        message: "Could use C function with struct ptr param"
+    );
+
+    set_data_id(data);
+
+    std\assert(
+        data.id == 84,
+        message: "Could use C function with struct ptr param that modifies the struct"
+    );
+}
+
+test "write/read struct in buffer" {
+    final data = Data{
+        msg = ffi\cstr("bye world"),
+        id = 123,
+        value = 42.0,
+    };
+
+    final buffer = Buffer.init();
+
+    buffer.writeStruct::<Data>(Data, values: [ data ]);
+
+    std\assert(
+        buffer.toString().len() == ffi\sizeOfStruct(Data),
+        message: "Could write C struct to buffer"
+    );
+
+    final read = buffer.readStruct::<Data>(Data);
+
+    std\assert(
+        read.msg == data.msg and read.id == data.id,
+        message: "Could read C struct from buffer",
+    );
+}

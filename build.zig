@@ -58,6 +58,14 @@ pub fn build(b: *Build) !void {
         },
     );
 
+    const aro = b.dependency(
+        "aro",
+        .{
+            .target = target,
+            .optimize = build_mode,
+        },
+    );
+
     // Build executables
 
     // buzz
@@ -334,6 +342,7 @@ pub fn build(b: *Build) !void {
         if (comp) |c| {
             // BuildOptions
             c.root_module.addImport("build_options", build_option_module);
+            c.root_module.addImport("aro", aro.module("aro"));
 
             // Link non-zig deps to executables and library
             for (ext_deps) |dep| {

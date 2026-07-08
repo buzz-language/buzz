@@ -453,6 +453,7 @@ pub const Slice = struct {
             .StringLiteral,
             .Void,
             .Zdef,
+            .Cdef,
             => {},
         }
     }
@@ -675,6 +676,7 @@ pub const Slice = struct {
                 .While,
                 .Yield,
                 .Zdef,
+                .Cdef,
                 .BlockExpression,
                 .Out,
                 => {
@@ -1985,6 +1987,7 @@ pub const Node = struct {
         While,
         Yield,
         Zdef,
+        Cdef,
 
         pub fn isHotspot(self: Tag) bool {
             return switch (self) {
@@ -2063,7 +2066,8 @@ pub const Node = struct {
         Void: void,
         While: WhileDoUntil,
         Yield: Node.Index,
-        Zdef: Zdef,
+        Zdef: ForeignDef,
+        Cdef: ForeignDef,
 
         pub fn deinit(self: Components, allocator: std.mem.Allocator) void {
             switch (self) {
@@ -2107,6 +2111,7 @@ pub const Node = struct {
                 .Try => allocator.free(self.Try.clauses),
                 .UserType => allocator.free(self.UserType.name),
                 .Zdef => allocator.free(self.Zdef.elements),
+                .Cdef => allocator.free(self.Cdef.elements),
                 .AsyncCall,
                 .As,
                 .Binary,
@@ -2589,16 +2594,16 @@ pub const WhileDoUntil = struct {
     jit: Slice.JitComplexity = .{},
 };
 
-pub const Zdef = struct {
+pub const ForeignDef = struct {
     lib_name: TokenIndex,
     source: TokenIndex,
-    elements: []ZdefElement,
+    elements: []Element,
 
-    pub const ZdefElement = struct {
+    pub const Element = struct {
         fn_ptr: ?*anyopaque = null,
         obj_native: ?*obj.ObjNative = null,
         // TODO: On the stack, do we free it at some point?
-        zdef: *const FFI.Zdef,
+        foreign_def: *const FFI.ForeignDef,
         slot: Slot,
         // TODO: add TokenIndex which should wrap portion of the zdef string relative to this element
     };

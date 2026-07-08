@@ -393,6 +393,7 @@ pub const Renderer = struct {
         renderWhile,
         renderYield,
         renderZdef,
+        renderCdef,
     };
 
     fn renderAnonymousEnumCase(self: *Self, node: Ast.Node.Index, space: Space) Error!void {
@@ -3954,33 +3955,44 @@ pub const Renderer = struct {
     }
 
     fn renderZdef(self: *Self, node: Ast.Node.Index, _: Space) Error!void {
-        const locations = self.ast.nodes.items(.location);
-        const components = self.ast.nodes.items(.components)[node].Zdef;
+        try self.renderForeignDef(
+            node,
+            .Zdef,
+            self.ast.nodes.items(.components)[node].Zdef,
+        );
+    }
 
-        // zdef
+    fn renderCdef(self: *Self, node: Ast.Node.Index, _: Space) Error!void {
+        try self.renderForeignDef(
+            node,
+            .Cdef,
+            self.ast.nodes.items(.components)[node].Cdef,
+        );
+    }
+
+    fn renderForeignDef(self: *Self, node: Ast.Node.Index, keyword: Token.Tag, components: Ast.ForeignDef) Error!void {
+        const locations = self.ast.nodes.items(.location);
+
         try self.renderExpectedToken(
             locations[node],
-            .Zdef,
+            keyword,
             .None,
         );
 
         try self.ais.pushIndent(self.allocator, .normal);
 
-        // (
         try self.renderExpectedToken(
             locations[node] + 1,
             .LeftParen,
             .Newline,
         );
 
-        // lib name,
         try self.renderExpectedTokenSequence(
             components.lib_name,
             &.{ .String, .Comma },
             .Newline,
         );
 
-        // source
         try self.renderExpectedToken(
             components.source,
             .String,
@@ -3989,7 +4001,6 @@ pub const Renderer = struct {
 
         self.ais.popIndent();
 
-        // )
         try self.renderExpectedToken(
             components.source + 1,
             .RightParen,

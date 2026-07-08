@@ -16,6 +16,10 @@
             .url = "git+https://github.com/buzz-language/dap-kit.git#478f2adf40b70f2f8e669352d5c419e6192f1a51",
             .hash = "dap_kit-0.0.0-OvEgyANhAgAMRFGjEEJoqlAKKzuxV2VNRqsb6cO0nFUV",
         },
+        .aro = .{
+            .url = "../incoming/arocc",
+            .hash = "aro-0.0.0-JSD1Qi7QNgDnfcrdEJf82v3o6MhZySjYVrtdfEf3E4Se",
+        },
     },
     .paths = .{""},
 }

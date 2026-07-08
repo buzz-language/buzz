@@ -470,7 +470,7 @@ const ParseRule = struct {
     precedence: Precedence = .None,
 };
 
-const zdef_search_paths = if (builtin.os.tag == .windows)
+const foreign_def_search_paths = if (builtin.os.tag == .windows)
     [_][]const u8{
         "./?.!",
     }
@@ -580,6 +580,7 @@ const rules = [@typeInfo(Token.Tag).@"enum".fields.len]ParseRule{
     .{ .infix = range, .precedence = .Primary }, // ..
     .{}, // any
     .{}, // zdef
+    .{}, // cdef
     .{ .prefix = typeOfExpression, .precedence = .Unary }, // typeof
     .{}, // var
     .{}, // out
@@ -860,6 +861,7 @@ fn synchronize(self: *Self) !void {
             .Export,
             .Import,
             .Zdef,
+            .Cdef,
             .From,
             .Var,
             .Yield,
@@ -1777,6 +1779,9 @@ fn statement(self: *Self, docblock: ?Ast.TokenIndex, hanging: bool, loop_scope: 
         } else if (try self.match(.Zdef)) {
             std.debug.assert(!hanging);
             return try self.zdefStatement();
+        } else if (try self.match(.Cdef)) {
+            std.debug.assert(!hanging);
+            return try self.cdefStatement();
         } else if (try self.match(.Export)) {
             std.debug.assert(!hanging);
             return try self.exportStatement(docblock);
@@ -8819,7 +8824,7 @@ fn testStatement(self: *Self) Error!Ast.Node.Index {
     return @intCast(node_slot);
 }
 
-fn searchZdefLibPaths(self: *Self, file_name: []const u8) ![][]const u8 {
+fn searchForeignDefLibPaths(self: *Self, file_name: []const u8) ![][]const u8 {
     const file_names = [_][]const u8{
         file_name,
         if (builtin.os.tag == .windows and std.mem.startsWith(u8, file_name, "lib"))
@@ -8834,7 +8839,7 @@ fn searchZdefLibPaths(self: *Self, file_name: []const u8) ![][]const u8 {
             continue;
         }
 
-        for (zdef_search_paths) |path| {
+        for (foreign_def_search_paths) |path| {
             const filled = try std.mem.replaceOwned(u8, self.gc.allocator, path, "?", candidate_name);
             defer self.gc.allocator.free(filled);
             const suffixed = try std.mem.replaceOwned(
@@ -9788,73 +9793,119 @@ fn importStatement(self: *Self) Error!Ast.Node.Index {
 }
 
 fn zdefStatement(self: *Self) Error!Ast.Node.Index {
+    return try self.foreignDefStatement(.zdef, .Zdef, false);
+}
+
+fn cdefStatement(self: *Self) Error!Ast.Node.Index {
+    return try self.foreignDefStatement(.cdef, .Cdef, true);
+}
+
+fn foreignDefStatement(
+    self: *Self,
+    reporter_tag: Reporter.Error,
+    node_tag: Ast.Node.Tag,
+    comptime parse_c: bool,
+) Error!Ast.Node.Index {
     if (!BuildOptions.jit and BuildOptions.cycle_limit == null) {
         const location = self.ast.tokens.get(self.current_token.? - 1);
         self.reporter.reportErrorAt(
-            .zdef,
+            reporter_tag,
             location,
             location,
-            "zdef can't be used, this instance of buzz was built with JIT compiler disabled",
+            if (parse_c)
+                "cdef can't be used, this instance of buzz was built with JIT compiler disabled"
+            else
+                "zdef can't be used, this instance of buzz was built with JIT compiler disabled",
         );
     }
 
     if (is_wasm) {
         const location = self.ast.tokens.get(self.current_token.? - 1);
         self.reporter.reportErrorAt(
-            .zdef,
+            reporter_tag,
             location,
             location,
-            "zdef is not available in WASM build",
+            if (parse_c)
+                "cdef is not available in WASM build"
+            else
+                "zdef is not available in WASM build",
         );
     }
 
     const start_location = self.current_token.? - 1;
     const node_slot = try self.reserveNode(start_location);
 
-    try self.consume(.LeftParen, "Expected `(` after `zdef`.");
-    try self.consume(.String, "Expected identifier after `zdef(`.");
+    try self.consume(
+        .LeftParen,
+        if (parse_c)
+            "Expected `(` after `cdef`."
+        else
+            "Expected `(` after `zdef`.",
+    );
+    try self.consume(
+        .String,
+        if (parse_c)
+            "Expected identifier after `cdef(`."
+        else
+            "Expected identifier after `zdef(`.",
+    );
     const lib_name = self.current_token.? - 1;
     try self.consume(.Comma, "Expected `,` after lib name.");
-    try self.consume(.String, "Expected zdef declaration.");
+    try self.consume(
+        .String,
+        if (parse_c)
+            "Expected cdef declaration."
+        else
+            "Expected zdef declaration.",
+    );
     const source = self.current_token.? - 1;
-    try self.consume(.RightParen, "Expected `)` to close zdef");
+    try self.consume(
+        .RightParen,
+        if (parse_c)
+            "Expected `)` to close cdef"
+        else
+            "Expected `)` to close zdef",
+    );
     try self.consume(.Semicolon, "Expected `;`");
 
-    const zdefs = if (!is_wasm)
-        (self.ffi.parse(self, source, null) catch {
+    const defs = if (!is_wasm)
+        ((if (parse_c)
+            self.ffi.parseC(self, source)
+        else
+            self.ffi.parse(self, source, null)) catch {
             return Error.CantCompile;
         }) orelse return Error.CantCompile
     else
         return Error.CantCompile;
 
-    var elements = std.ArrayList(Ast.Zdef.ZdefElement).empty;
+    var elements = std.ArrayList(Ast.ForeignDef.Element).empty;
     if (!is_wasm) {
-        for (zdefs) |zdef| {
+        for (defs) |foreign_def| {
             var fn_ptr: ?*anyopaque = null;
             var slot: usize = undefined;
 
             std.debug.assert(self.current.?.scope_depth == 0);
-            const zdef_name_token = try self.insertUtilityToken(
-                Token.identifier(zdef.name),
+            const foreign_def_name_token = try self.insertUtilityToken(
+                Token.identifier(foreign_def.name),
                 true,
             );
             slot = try self.declareVariable(
                 @intCast(node_slot),
-                zdef.type_def,
-                zdef_name_token,
+                foreign_def.type_def,
+                foreign_def_name_token,
                 true,
                 false,
             );
-            // self.current_token.? - 1 = zdef_name_token;
+            // self.current_token.? - 1 = foreign_def_name_token;
             self.markInitialized();
 
             const lib_name_str = self.ast.tokens.items(.literal)[lib_name].String;
 
             // If zig_type is struct, we just push the objtypedef itself on the stack
             // Otherwise we try to build a wrapper around the imported function
-            if (zdef.zig_type == .Fn and self.flavor.resolveDynLib()) {
+            if (foreign_def.zig_type == .Fn and self.flavor.resolveDynLib()) {
                 // Load the lib
-                const paths = try self.searchZdefLibPaths(lib_name_str);
+                const paths = try self.searchForeignDefLibPaths(lib_name_str);
                 defer {
                     for (paths) |path| {
                         self.gc.allocator.free(path);
@@ -9872,7 +9923,7 @@ fn zdefStatement(self: *Self) Error!Ast.Node.Index {
 
                 if (lib) |*dlib| {
                     // Convert symbol names to zig slices
-                    const symbol = try self.gc.allocator.dupeZ(u8, zdef.name);
+                    const symbol = try self.gc.allocator.dupeZ(u8, foreign_def.name);
                     defer self.gc.allocator.free(symbol);
 
                     // Lookup symbol
@@ -9924,7 +9975,7 @@ fn zdefStatement(self: *Self) Error!Ast.Node.Index {
                 .{
                     .fn_ptr = fn_ptr,
                     .slot = @intCast(slot),
-                    .zdef = zdef,
+                    .foreign_def = foreign_def,
                 },
             );
         }
@@ -9933,16 +9984,26 @@ fn zdefStatement(self: *Self) Error!Ast.Node.Index {
     self.ast.nodes.set(
         node_slot,
         .{
-            .tag = .Zdef,
+            .tag = node_tag,
             .location = start_location,
             .end_location = self.current_token.? - 1,
             .type_def = null,
-            .components = .{
-                .Zdef = .{
-                    .lib_name = lib_name,
-                    .source = source,
-                    .elements = try elements.toOwnedSlice(self.gc.allocator),
+            .components = switch (node_tag) {
+                .Zdef => .{
+                    .Zdef = .{
+                        .lib_name = lib_name,
+                        .source = source,
+                        .elements = try elements.toOwnedSlice(self.gc.allocator),
+                    },
                 },
+                .Cdef => .{
+                    .Cdef = .{
+                        .lib_name = lib_name,
+                        .source = source,
+                        .elements = try elements.toOwnedSlice(self.gc.allocator),
+                    },
+                },
+                else => unreachable,
             },
         },
     );

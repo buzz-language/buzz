@@ -81,6 +81,7 @@ const checkers = [@typeInfo(Ast.Node.Tag).@"enum".fields.len]?NodeCheck{
     checkWhile,
     checkYield,
     null, // Zdef
+    null, // Cdef
 };
 
 /// Typecheck the node (but does not typecheck its leaf)
