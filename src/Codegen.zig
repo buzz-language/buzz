@@ -585,6 +585,11 @@ fn generateNode(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!Gener
         node,
     );
 
+    // Type errors leave the reporter in panic mode; don't emit bytecode for the rejected node.
+    if (self.reporter.panic_mode) {
+        return .{};
+    }
+
     const tag = self.ast.nodes.items(.tag)[node];
     const generator = Self.generators[@intFromEnum(tag)] orelse return .{};
 

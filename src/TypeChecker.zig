@@ -2450,7 +2450,7 @@ fn checkObjectInit(ast: Ast.Slice, reporter: *Reporter, gc: *GC, _: ?Ast.Node.In
             "Expected object or foreign struct.",
         );
 
-        had_error = true;
+        return true;
     }
 
     var fields = if (node_type_def.def_type == .ObjectInstance) inst: {
