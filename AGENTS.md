@@ -163,13 +163,6 @@ Useful build flags include:
 
 Current default JIT thresholds are intentionally conservative: call threshold `1024`, function score threshold `65535`, hotspot threshold `256`, hotspot score threshold `65535`, async enabled. When tuning, compare against the full `tests/bench` matrix instead of optimizing a single benchmark:
 
-```sh
-scripts/jit_bench_matrix.sh quick
-scripts/jit_bench_matrix.sh final nojit current sync-current hotspot-only
-```
-
-The matrix writes timings and output-hash comparisons under `zig-cache/jit-bench/`.
-
 ## Debugging Guidance
 
 - For parser/typechecker/codegen issues, prefer the smallest `.buzz` regression test that reproduces the behavior.
@@ -177,3 +170,4 @@ The matrix writes timings and output-hash comparisons under `zig-cache/jit-bench
 - For JIT issues, compare behavior with JIT enabled and disabled before changing JIT code.
 - For FFI issues, be careful with pointer lifetimes and ownership across the Zig/buzz boundary.
 - If a change may affect performance, mention that in the final response when relevant, but do not run benchmarks unless explicitly asked.
+- If, while working on somnething, you find an unrelated bug, stop the current task and report the isuee to the user with a minimal plan to fix it.

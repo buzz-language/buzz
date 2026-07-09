@@ -77,6 +77,8 @@ const Document = struct {
     is_wrapped_manifest: bool = false,
     /// Not owned by this struct
     uri: []const u8,
+    /// Parser-side script identifier for the current document, typically a local path.
+    script_name: []const u8,
     ast: Ast,
     errors: []const Reporter.Report,
 
@@ -270,7 +272,7 @@ const Document = struct {
             parser.ast;
 
         const codegen_errors = if (parser.reporter.last_error == null and
-            ((codegen.generate(ast.slice()) catch return error.OutOfMemory) == null) or codegen.reporter.reports.items.len > 0)
+            ((codegen.generate(ast.slice()) catch return error.OutOfMemory) == null or codegen.reporter.reports.items.len > 0))
             try codegen.reporter.reports.toOwnedSlice(allocator)
         else
             &.{};
@@ -287,6 +289,7 @@ const Document = struct {
             .parse_src = parse_src,
             .is_wrapped_manifest = package_document_kind != null,
             .uri = owned_uri,
+            .script_name = document_script_name,
             .ast = ast,
             .errors = errors.items,
         };
@@ -308,9 +311,15 @@ const Document = struct {
         return doc;
     }
 
+    /// Returns true when a parser-side script identifier belongs to the current document.
+    fn isClientScriptName(self: *const Document, script_name: []const u8) bool {
+        return std.mem.eql(u8, script_name, self.uri) or
+            std.mem.eql(u8, script_name, self.script_name);
+    }
+
     /// Returns true for tokens that belong to the served client document.
     fn isClientToken(self: *const Document, token: Token) bool {
-        if (!std.mem.eql(u8, token.script_name, self.uri)) {
+        if (!self.isClientScriptName(token.script_name)) {
             return false;
         }
 
@@ -389,7 +398,7 @@ const Document = struct {
             // Imported nodes can share the AST backing lists but belong to
             // another script.
             const script_names = ast_slice.tokens.items(.script_name);
-            if (!std.mem.eql(u8, script_names[location], self.uri)) {
+            if (!self.isClientScriptName(script_names[location])) {
                 continue;
             }
 
@@ -642,6 +651,8 @@ const Document = struct {
         result: ?Ast.Node.Index = null,
         /// URI of the client document being searched.
         uri: []const u8,
+        /// Parser-side script identifier of the client document.
+        script_name: []const u8,
         range: lsp.types.Range,
 
         pub fn processNode(
@@ -671,8 +682,14 @@ const Document = struct {
             // Walking from the document root must only visit document-local
             // nodes. Imported scripts share the backing token/node lists, so
             // assert the parser did not attach an imported token to this range.
-            std.debug.assert(std.mem.eql(u8, script_names[location_idx], self.uri));
-            std.debug.assert(std.mem.eql(u8, script_names[end_location_idx], self.uri));
+            std.debug.assert(
+                std.mem.eql(u8, script_names[location_idx], self.uri) or
+                    std.mem.eql(u8, script_names[location_idx], self.script_name),
+            );
+            std.debug.assert(
+                std.mem.eql(u8, script_names[end_location_idx], self.uri) or
+                    std.mem.eql(u8, script_names[end_location_idx], self.script_name),
+            );
 
             // If outside of the node range, don't go deeper
             if (self.range.start.line < location.line or
@@ -747,6 +764,7 @@ const Document = struct {
 
         var node_ctx = NodeContainingRangeContext{
             .uri = self.uri,
+            .script_name = self.script_name,
             .range = range,
         };
 
@@ -1768,7 +1786,7 @@ const Handler = struct {
 
             for (doc.errors) |report| {
                 for (report.items) |item| {
-                    if (std.mem.eql(u8, item.location.script_name, doc.uri)) {
+                    if (doc.isClientToken(item.location)) {
                         const tags: ?[]const lsp.types.Diagnostic.Tag = if (report.error_type == .unreachable_code)
                             &.{.Unnecessary}
                         else
@@ -2147,6 +2165,7 @@ const Handler = struct {
             const completion_prefix = completionPrefixAtOffset(
                 document.src,
                 document.uri,
+                document.script_name,
                 document.ast.slice(),
                 cursor_offset,
             );
@@ -2451,6 +2470,7 @@ fn appendBuiltinMemberCompletions(
 fn completionPrefixAtOffset(
     source: []const u8,
     uri: []const u8,
+    script_name: []const u8,
     ast: Ast.Slice,
     cursor_offset: usize,
 ) ?CompletionPrefix {
@@ -2472,7 +2492,8 @@ fn completionPrefixAtOffset(
 
     for (tags, 0..) |tag, index| {
         if (utility_tokens[index] or
-            !std.mem.eql(u8, script_names[index], uri) or
+            (!std.mem.eql(u8, script_names[index], uri) and
+                !std.mem.eql(u8, script_names[index], script_name)) or
             !isCompletionPrefixToken(tag, lexemes[index]))
         {
             continue;
@@ -2713,4 +2734,60 @@ fn isStaticScriptUri(uri: []const u8, file_name: []const u8) bool {
 
     return std.mem.endsWith(u8, uri, src_lib) or
         std.mem.endsWith(u8, uri, installed_lib);
+}
+
+test "lsp keeps interpolation diagnostics for the current document" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+
+    var environ_map = std.process.Environ.Map.init(std.testing.allocator);
+    defer environ_map.deinit();
+
+    const process = std.process.Init{
+        .minimal = .{
+            .environ = .empty,
+            .args = .{ .vector = &.{} },
+        },
+        .arena = &arena,
+        .gpa = std.testing.allocator,
+        .io = std.testing.io,
+        .environ_map = &environ_map,
+        .preopens = .empty,
+    };
+
+    var doc = try Document.init(
+        process,
+        std.testing.allocator,
+        &.{},
+        \\test "invalid object init target inside string interpolation does not crash" {
+        \\    final name = "buzz";
+        \\    _ = "{name{ field = 1 }}";
+        \\}
+    ,
+        "file:///tmp/interpolation-error.buzz",
+    );
+    defer doc.deinit();
+
+    try std.testing.expect(doc.hasErrors());
+
+    var client_error_count: usize = 0;
+    var saw_expected_error = false;
+
+    for (doc.errors) |report| {
+        for (report.items) |item| {
+            if (item.kind != .@"error" or !doc.isClientToken(item.location)) {
+                continue;
+            }
+
+            client_error_count += 1;
+            saw_expected_error = saw_expected_error or std.mem.eql(
+                u8,
+                item.message,
+                "Expected object or foreign struct.",
+            );
+        }
+    }
+
+    try std.testing.expect(client_error_count > 0);
+    try std.testing.expect(saw_expected_error);
 }

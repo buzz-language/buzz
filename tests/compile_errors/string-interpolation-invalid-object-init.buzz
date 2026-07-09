@@ -1,0 +1,5 @@
+// Expected object or foreign struct.
+test "invalid object init target inside string interpolation does not crash" {
+    final name = "buzz";
+    _ = "{name{ field = 1 }}";
+}
