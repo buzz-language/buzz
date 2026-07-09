@@ -498,27 +498,9 @@ fn pattern(self: *Self) Token {
 
 fn string(self: *Self, multiline: bool) Token {
     const delimiter: u8 = if (multiline) '`' else '"';
-    var in_interp: bool = false;
-    var interp_depth: usize = 0;
-    while ((self.peek() != delimiter or in_interp) and !self.isEOF()) {
+    while (self.peek() != delimiter and !self.isEOF()) {
         if (self.peek() == '\n' and !multiline) {
             return self.makeToken(.Error, .{ .String = "Unterminated string." });
-        } else if (self.peek() == '{') {
-            if (!in_interp) {
-                in_interp = true;
-            } else {
-                interp_depth += 1;
-            }
-        } else if (self.peek() == '}') {
-            if (in_interp) {
-                if (interp_depth > 0) {
-                    interp_depth -= 1;
-                }
-
-                if (interp_depth == 0) {
-                    in_interp = false;
-                }
-            }
         } else if (self.peek() == '\\' and self.peekNext() == delimiter) {
             // Escaped string delimiter, go past it
             _ = self.advance();
@@ -528,6 +510,12 @@ fn string(self: *Self, multiline: bool) Token {
         } else if (self.peek() == '\\' and self.peekNext() == '\\') {
             // Escaped backslash, go past it
             _ = self.advance();
+        } else if (self.peek() == '{') {
+            if (!self.scanInterpolation(multiline)) {
+                return self.makeToken(.Error, .{ .String = "Unterminated string." });
+            }
+
+            continue;
         } else if (self.peek() == '\n') {
             self.current.line += 1;
         }
@@ -548,6 +536,54 @@ fn string(self: *Self, multiline: bool) Token {
         else
             Token.NoLiteral,
     );
+}
+
+/// Scans interpolation as buzz tokens so nested strings, blocks, and comments delimit correctly.
+fn scanInterpolation(self: *Self, multiline: bool) bool {
+    var interpolation_scanner = Self.init(
+        self.allocator,
+        self.script_name,
+        self.source[self.current.offset + 1 ..],
+    );
+    var brace_depth: usize = 0;
+
+    while (true) {
+        const previous_offset = interpolation_scanner.current.offset;
+        const token = interpolation_scanner.scanToken() catch return false;
+
+        switch (token.tag) {
+            .LeftBrace => brace_depth += 1,
+            .RightBrace => {
+                if (brace_depth == 0) {
+                    return self.consumeStringBytes(interpolation_scanner.current.offset + 1, multiline);
+                }
+
+                brace_depth -= 1;
+            },
+            .Eof => return false,
+            .Error => if (interpolation_scanner.current.offset <= previous_offset) {
+                return false;
+            },
+            else => {},
+        }
+    }
+}
+
+/// Advances bytes that belong to a string while preserving the scanner's multiline rules.
+fn consumeStringBytes(self: *Self, len: usize, multiline: bool) bool {
+    for (0..len) |_| {
+        if (self.peek() == '\n') {
+            if (!multiline) {
+                return false;
+            }
+
+            self.current.line += 1;
+        }
+
+        _ = self.advance();
+    }
+
+    return true;
 }
 
 fn isEOF(self: *Self) bool {

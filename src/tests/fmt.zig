@@ -518,6 +518,52 @@ test "fmt preserves anonymous object call parentheses choice" {
     );
 }
 
+test "fmt preserves nested string interpolation literals" {
+    try expectFmtSource(
+        \\test "fmt"{final tag="div"; _ = "<{"{tag}"}>";}
+        \\
+    ,
+        \\test "fmt" {
+        \\    final tag = "div";
+        \\    _ = "<{"{tag}"}>";
+        \\}
+        \\
+    ,
+        .{},
+    );
+}
+
+test "fmt preserves deeply nested string interpolation literals" {
+    try expectFmtSource(
+        \\test "fmt"{final tag="div"; _ = "<{"<{"<{"{tag}"}>"}>"}>";}
+        \\
+    ,
+        \\test "fmt" {
+        \\    final tag = "div";
+        \\    _ = "<{"<{"<{"{tag}"}>"}>"}>";
+        \\}
+        \\
+    ,
+        .{},
+    );
+}
+
+test "fmt keeps quoted string interpolations on one line" {
+    try expectFmtSource(
+        \\test "fmt"{final tag="abc"; final n=3; _="<{"x-{"{tag.len() + n}:{tag.sub(1)}"}"}>";}
+        \\
+    ,
+        \\test "fmt" {
+        \\    final tag = "abc";
+        \\    final n = 3;
+        \\    _ = "<{"x-{"{tag.len() + n}:{tag.sub(1)}"}"}>";
+        \\}
+        \\
+    ,
+        .{},
+    );
+}
+
 test "fmt handles optional typed parameters with defaults" {
     try expectFmtSource(
         \\object Style {}

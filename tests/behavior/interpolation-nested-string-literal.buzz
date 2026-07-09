@@ -1,0 +1,29 @@
+import "buzz:std";
+
+test "string interpolation can contain nested string literals" {
+    final tag = "div";
+
+    std\assert(
+        "<{"{tag}"}>" == "<div>",
+        message: "nested string literals stay inside the interpolation",
+    );
+}
+
+test "string interpolation can contain multiple nested string interpolation levels" {
+    final tag = "div";
+
+    std\assert(
+        "<{"<{"<{"{tag}"}>"}>"}>" == "<<<div>>>",
+        message: "nested string interpolation stays balanced across levels",
+    );
+}
+
+test "string interpolation can contain nested string literals with complex expressions" {
+    final tag = "abc";
+    final n = 3;
+
+    std\assert(
+        "<{"x-{"{tag.len() + n}:{tag.sub(1)}"}"}>" == "<x-6:bc>",
+        message: "nested string literals can compose richer expressions",
+    );
+}

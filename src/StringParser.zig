@@ -132,6 +132,8 @@ fn interpolation(self: *Self) !void {
     // Replace parser scanner with one that only looks at that substring
     const scanner = self.parser.scanner;
     self.parser.scanner = expr_scanner;
+    self.parser.in_string_interpolation += 1;
+    defer self.parser.in_string_interpolation -= 1;
 
     try self.parser.advance();
 
@@ -142,7 +144,8 @@ fn interpolation(self: *Self) !void {
     self.previous_interp = self.offset;
 
     // Fix location of tokens created by this parsing
-    for (previous_current_token + 1..self.parser.current_token.?) |i| {
+    // Include the closing `}` token so nested interpolations keep monotonic token offsets.
+    for (previous_current_token + 1..self.parser.current_token.? + 1) |i| {
         self.parser.ast.tokens.items(.source)[i] = scanner.?.source;
         self.parser.ast.tokens.items(.offset)[i] += self.host_offset + previous_offset;
     }

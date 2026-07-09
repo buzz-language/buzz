@@ -1,0 +1,4 @@
+// Block expressions are not allowed inside string interpolation
+test "block expressions are forbidden inside string interpolation" {
+    _ = "{from { out "x"; }}";
+}

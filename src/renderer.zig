@@ -55,6 +55,9 @@ pub const Renderer = struct {
     suppress_docblock: bool = false,
     /// Suppresses source comments while rendering syntax that cannot contain comments.
     suppress_comments: bool = false,
+    /// While rendering an interpolation inside a `"` string, formatter-inserted
+    /// newlines must collapse to spaces so the resulting source stays valid.
+    single_line_string_interpolation: bool = false,
 
     pub const Error = error{
         AccessDenied,
@@ -209,6 +212,7 @@ pub const Renderer = struct {
             },
             .suppress_docblock = self.suppress_docblock,
             .suppress_comments = self.suppress_comments,
+            .single_line_string_interpolation = self.single_line_string_interpolation,
         };
 
         try measuring.renderNode(node, .None);
@@ -252,6 +256,7 @@ pub const Renderer = struct {
                 self.minimum_break_priority,
                 minimum_break_priority,
             ),
+            .single_line_string_interpolation = self.single_line_string_interpolation,
         };
 
         try measuring.renderNode(node, .None);
@@ -528,7 +533,16 @@ pub const Renderer = struct {
     }
 
     fn renderSpace(self: *Self, token: Ast.TokenIndex, lexeme_len: usize, space: Space) Error!void {
-        if (space == .Skip) return;
+        const effective_space = if (!self.single_line_string_interpolation)
+            space
+        else switch (space) {
+            .Newline => .Space,
+            .Comma => .CommaSpace,
+            .Semicolon => .SemicolonSpace,
+            else => space,
+        };
+
+        if (effective_space == .Skip) return;
 
         const offsets = self.ast.tokens.items(.offset);
         const script_names = self.ast.tokens.items(.script_name);
@@ -591,7 +605,7 @@ pub const Renderer = struct {
                 if (has_next_token) offsets[next_token] else self.ast.tokens.items(.source)[token].len,
             );
 
-        switch (space) {
+        switch (effective_space) {
             .None => {},
             .Space => if (!comment) try self.ais.writeByte(' '),
             .Newline => if (!comment) try self.ais.insertNewline(),
@@ -1331,13 +1345,82 @@ pub const Renderer = struct {
         );
     }
 
+    fn stringDelimiter(self: *Self, node: Ast.Node.Index) u8 {
+        const tags = self.ast.nodes.items(.tag);
+
+        for (self.ast.nodes.items(.components)[node].String) |part| {
+            if (tags[part] == .StringLiteral) {
+                return self.ast.nodes.items(.components)[part].StringLiteral.delimiter;
+            }
+        }
+
+        const location = self.ast.nodes.items(.location)[node];
+        return self.ast.tokens.items(.lexeme)[location][0];
+    }
+
+    fn writeInlineInterpolation(self: *Self, bytes: []const u8) Error!void {
+        var pending_newline = false;
+        var last_was_space = false;
+
+        for (bytes) |byte| {
+            switch (byte) {
+                '\r' => {},
+                '\n' => pending_newline = true,
+                ' ', '\t' => {
+                    if (pending_newline) {
+                        continue;
+                    }
+
+                    try self.ais.writeByte(' ');
+                    last_was_space = true;
+                },
+                else => {
+                    if (pending_newline and !last_was_space) {
+                        try self.ais.writeByte(' ');
+                        last_was_space = true;
+                    }
+
+                    pending_newline = false;
+                    try self.ais.writeByte(byte);
+                    last_was_space = false;
+                },
+            }
+        }
+    }
+
+    fn renderSingleLineStringInterpolation(self: *Self, node: Ast.Node.Index) Error!void {
+        var buffer = std.Io.Writer.Allocating.init(self.allocator);
+        defer buffer.deinit();
+
+        var ais: AutoIndentingStream = .init(&buffer.writer, 4);
+        defer ais.deinit(self.allocator);
+
+        var inline_renderer = Self{
+            .allocator = self.allocator,
+            .ast = self.ast,
+            .ais = &ais,
+            .options = .{
+                .line_width = std.math.maxInt(usize),
+            },
+            .minimum_break_priority = self.minimum_break_priority,
+            .suppress_docblock = self.suppress_docblock,
+            .suppress_comments = true,
+            .single_line_string_interpolation = true,
+        };
+
+        try inline_renderer.renderNode(node, .None);
+        try self.writeInlineInterpolation(buffer.written());
+    }
+
     fn renderString(self: *Self, node: Ast.Node.Index, space: Space) Error!void {
         const locations = self.ast.nodes.items(.location);
         const tags = self.ast.nodes.items(.tag);
         const string_lexeme = self.ast.tokens.items(.lexeme)[locations[node]];
+        const delimiter = self.stringDelimiter(node);
+        const keep_interpolation_single_line = delimiter == '"';
 
         // " or `
-        try self.ais.writeAll(string_lexeme[0..1]);
+        try self.ais.writeByte(delimiter);
 
         {
             const previous_suppress_comments = self.suppress_comments;
@@ -1348,7 +1431,9 @@ pub const Renderer = struct {
                 if (tags[part] != .StringLiteral) {
                     try self.ais.writeByte('{');
 
-                    {
+                    if (keep_interpolation_single_line) {
+                        try self.renderSingleLineStringInterpolation(part);
+                    } else {
                         const previous_options = self.options;
                         defer self.options = previous_options;
 
@@ -1364,7 +1449,7 @@ pub const Renderer = struct {
         }
 
         // " or `
-        try self.ais.writeByte(string_lexeme[string_lexeme.len - 1]);
+        try self.ais.writeByte(delimiter);
         try self.renderSpace(
             locations[node],
             string_lexeme.len,
@@ -2249,6 +2334,7 @@ pub const Renderer = struct {
     fn renderBlockExpression(self: *Self, node: Ast.Node.Index, space: Space) Error!void {
         const locations = self.ast.nodes.items(.location);
         const statements = self.ast.nodes.items(.components)[node].BlockExpression;
+        const keep_single_line = self.single_line_string_interpolation;
 
         // from
         try self.renderExpectedToken(
@@ -2264,14 +2350,14 @@ pub const Renderer = struct {
             locations[node] + 1,
             .LeftBrace,
             if (statements.len > 0)
-                .Newline
+                if (keep_single_line) .Space else .Newline
             else
                 .None,
         );
 
         for (statements) |stmt| {
             try self.ais.pushSpace(self.allocator, .Semicolon);
-            try self.renderNode(stmt, .Semicolon);
+            try self.renderNode(stmt, if (keep_single_line) .SemicolonSpace else .Semicolon);
             self.ais.popSpace();
         }
         self.ais.popIndent();

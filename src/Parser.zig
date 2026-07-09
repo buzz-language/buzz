@@ -142,6 +142,8 @@ exporting: bool = false,
 imports: *std.StringHashMapUnmanaged(ScriptImport),
 /// Keep track of things imported by the current script
 script_imports: std.StringHashMapUnmanaged(LocalScriptImport) = .empty,
+/// Nesting depth of expressions currently being parsed from string interpolation bodies.
+in_string_interpolation: usize = 0,
 test_count: u64 = 0,
 // FIXME: use SinglyLinkedList instead of heap allocated ptrs
 current: ?*Frame = null,
@@ -7255,6 +7257,21 @@ fn mutableExpression(self: *Self, _: bool) Error!Ast.Node.Index {
 
 fn blockExpression(self: *Self, _: bool) Error!Ast.Node.Index {
     const start_location = self.current_token.? - 1;
+
+    if (self.flavor != .Fmt and self.in_string_interpolation > 0) {
+        const location = self.ast.tokens.get(start_location);
+        // Block expressions currently close scopes relative to the surrounding frame and are not
+        // safe to evaluate from interpolation expressions.
+        self.reporter.reportErrorAt(
+            .syntax,
+            location,
+            location,
+            "Block expressions are not allowed inside string interpolation",
+        );
+        // Keep parsing this block so the interpolation can still consume its closing braces
+        // without cascading into a secondary parse error.
+        self.reporter.panic_mode = false;
+    }
 
     try self.consume(.LeftBrace, "Expected `{` at start of block expression");
 
