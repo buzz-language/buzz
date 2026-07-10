@@ -2269,6 +2269,12 @@ fn testingProcess(
     environ_map: *std.process.Environ.Map,
     argv: []const [*:0]const u8,
 ) !std.process.Init {
+    if (environ_map.get("BUZZ_PATH") == null) {
+        // These tests parse wrapped manifest source through the normal `buzz:...`
+        // import resolver, so point them at the installed std headers.
+        try environ_map.put("BUZZ_PATH", "zig-out");
+    }
+
     return .{
         .minimal = .{
             .args = .{ .vector = argv },
