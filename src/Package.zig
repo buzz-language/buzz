@@ -491,7 +491,7 @@ pub const Manifest = struct {
         progress: *InitProgress,
         label: []const u8,
     ) !CommandResult {
-        const output_limit = 1024 * 1024;
+        const output_limit = 10 * 1024 * 1024;
         const tick_timeout: std.Io.Timeout = .{
             .duration = .{
                 .clock = .awake,
