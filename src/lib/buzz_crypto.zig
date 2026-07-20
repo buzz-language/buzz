@@ -124,7 +124,7 @@ pub export fn argon2(ctx: *api.NativeCtx) callconv(.c) c_int {
 
     var hash_buf: [256]u8 = undefined;
     const io = ctx.getIo();
-    const hash_len = std.crypto.pwhash.argon2.strHash(
+    const hash = std.crypto.pwhash.argon2.strHash(
       password,
       .{ .allocator = api.VM.allocator,
          .params = .{ .t = t_cost, .m = m_cost, .p = parallelism },
@@ -136,7 +136,7 @@ pub export fn argon2(ctx: *api.NativeCtx) callconv(.c) c_int {
         return -1;
       };
     ctx.vm.bz_push(
-        api.VM.bz_stringToValue(ctx.vm, &hash_buf, hash_len),
+        api.VM.bz_stringToValue(ctx.vm, hash.ptr, hash.len),
     );
 
     return 1;
@@ -151,7 +151,7 @@ pub export fn verifyArgon2(ctx: *api.NativeCtx) callconv(.c) c_int {
     const hash_ptr = ctx.vm.bz_peek(0).bz_valueToString(&hash_len);
     const encoded_hash = hash_ptr.?[0..hash_len];
 
-    const valid = std.crypto.pwhash.argon2.strVerify(encoded_hash, password, .{ .allocator = api.VM.allocator }, ctx.getIo()) catch {
+    std.crypto.pwhash.argon2.strVerify(encoded_hash, password, .{ .allocator = api.VM.allocator }, ctx.getIo()) catch {
         ctx.vm.pushError("errors.AuthenticationFailed", "argon2 verification failed");
         return -1;
     };
