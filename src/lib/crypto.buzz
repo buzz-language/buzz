@@ -26,4 +26,4 @@ export extern fun hash(algo: HashAlgorithm, data: str) > str;
 /// Generate Cryptographically secure randombytes
 /// @param len Number of random bytes to generate
 /// @return randombytes as string
-export extern fn randomBytes(len: int) > str;
+export extern fun randomBytes(len: int) > str;
