@@ -1,0 +1,11 @@
+namespace base64;
+
+/// ENCODE bytes to a base64 String
+/// @params data byte to be encoded 
+/// @return Base64 encoded string
+export extern fun encode(data: str) > str;
+
+/// DECODE a Base64 string
+/// @params string to decode
+/// @return Decoded bytes
+export extern fun decode(data: str) > str;
