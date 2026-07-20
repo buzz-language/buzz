@@ -116,13 +116,8 @@ pub export fn randomBytes(ctx: *api.NativeCtx) callconv(.c) c_int {
 
 pub export fn argon2(ctx: *api.NativeCtx) callconv(.c) c_int {
     var pass_len: usize = 0;
-    const pass_ptr = ctx.vm.bz_peek(1).bz_valueToString(&pass_len);
+    const pass_ptr = ctx.vm.bz_peek(0).bz_valueToString(&pass_len);
     const password = pass_ptr.?[0..pass_len];
-
-    var salt_len: usize = 0;
-    const salt_ptr = ctx.vm.bz_peek(0).bz_valueToString(&salt_len);
-    const salt = salt_ptr.?[0..salt_len];
-
     const t_cost: u32 = 3;
     const m_cost: u32 = 65536;
     const parallelism: u24 = 1;
@@ -131,7 +126,7 @@ pub export fn argon2(ctx: *api.NativeCtx) callconv(.c) c_int {
     const io = ctx.getIo();
     const hash_len = std.crypto.pwhash.argon2.strHash(
       password,
-      .{ .allocator = api.vm.allocator,
+      .{ .allocator = api.VM.allocator,
          .params = .{ .t = t_cost, .m = m_cost, .p = parallelism },
        },
       &hash_buf,
@@ -156,7 +151,7 @@ pub export fn verifyArgon2(ctx: *api.NativeCtx) callconv(.c) c_int {
     const hash_ptr = ctx.vm.bz_peek(0).bz_valueToString(&hash_len);
     const encoded_hash = hash_ptr.?[0..hash_len];
 
-    const valid = std.crypto.pwhash.argon2.strVerify(encoded_hash, password, .{ .allocator = api.vm.allocator }, ctx.getIo()) catch {
+    const valid = std.crypto.pwhash.argon2.strVerify(encoded_hash, password, .{ .allocator = api.VM.allocator }, ctx.getIo()) catch {
         ctx.vm.pushError("errors.AuthenticationFailed", "argon2 verification failed");
         return -1;
     };
