@@ -103,7 +103,7 @@ pub export fn randomByes(ctx: *api.NativeCtx) callconv(.c) c_int {
   len = len_val.integer;
   var buffer: []u8 = try api.VM.allocator.alloc(u8, len);
   defer api.VM.allocator.free(buffer);
-  std.crypto.random.bytes(buffer);
+  std.Io.random(ctx.getIo(), buffer);
   ctx.vm.bz_push(
     api.VM.bz_stringToValue(ctx.vm, buffer.ptr, buffer.len),
     );
