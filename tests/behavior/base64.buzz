@@ -1,0 +1,34 @@
+import "buzz:std";
+import "buzz:base64";
+
+test "encode and decode roundtrip" {
+    let original = "Hello, World!";
+    let encoded = base64\encode(original);
+    let decoded = base64\decode(encoded) ! {
+        std\assert(false, "decode failed: {}", .{error});
+        return;
+    };
+    std\assert(original == decoded, "roundtrip should preserve data");
+}
+
+test "encode known string" {
+    let encoded = base64\encode("Hello");
+    std\assert(encoded == "SGVsbG8=", "Base64 encoding of 'Hello' should be 'SGVsbG8='");
+}
+
+test "decode known string" {
+    let decoded = base64\decode("SGVsbG8=") ! {
+        std\assert(false, "decode failed: {}", .{error});
+        return;
+    };
+    std\assert(decoded == "Hello", "Base64 decoding of 'SGVsbG8=' should be 'Hello'");
+}
+
+test "invalid base64 fails" {
+    let result = base64\decode("invalid!!!");
+    if (result -> _) {
+        std\assert(false, "invalid base64 should fail");
+    } else {
+        // Expected error – test passes
+    }
+}
