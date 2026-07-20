@@ -1,0 +1,16 @@
+namespace time;
+
+/// Real-time (wall-clock) in milliseconds since Unix epoch 
+ecport extern fun now() > double;
+
+/// Monotonic clock in milliseconds (never goes backwards for intervals) 
+export extern fun monotonic() > double;
+
+/// Cpu time used by the current process in milliseconds
+export extern fun cpu() > double !> errors\UnexpectedError;
+
+/// Format a timestamp as ISO 8601 string
+export extern fun format(timestamp: double) > str;
+
+/// Parse a ISO 8601 string as timestamp
+export extern fun parse(iso: str) > double;
