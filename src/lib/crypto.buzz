@@ -31,11 +31,9 @@ export extern fun randomBytes(len: int) > str;
 
 /// Hash a password using Argon2id
 /// @param password The password to hash
-/// @param salt The salt (use randomBytes(16) for new hashes)
 /// @return The encoded hash string
 export extern fun argon2(
     password: str,
-    salt: str
 ) > str;
 
 /// Verify a password against an Argon2id hash
