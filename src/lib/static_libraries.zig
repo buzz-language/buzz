@@ -17,7 +17,7 @@ pub const Library = struct {
 /// Libraries bundled with the compiler and runtime.
 pub const all = [_]Library{
     .{ .header = static_headers.buffer, .zig_path = "buzz_buffer.zig", .wasm_native = true },
-    .{ .header = static_headers.crypto, .zig_path = "buzz_crypto.zig", .wasm_native = true },
+    .{ .header = static_headers.crypto, .zig_path = "buzz_crypto.zig", .wasm_native = false },
     .{ .header = static_headers.debug, .zig_path = "buzz_debug.zig", .wasm_native = true },
     .{ .header = static_headers.errors, .zig_path = null, .wasm_native = false },
     .{ .header = static_headers.ffi, .zig_path = "buzz_ffi.zig", .wasm_native = false },
@@ -31,6 +31,8 @@ pub const all = [_]Library{
     .{ .header = static_headers.serialize, .zig_path = "buzz_serialize.zig", .wasm_native = true },
     .{ .header = static_headers.std, .zig_path = "buzz_std.zig", .wasm_native = true },
     .{ .header = static_headers.testing, .zig_path = null, .wasm_native = false },
+    .{ .header = static_headers.time, .zig_path = "buzz_time.zig", .wasm_native = false },
+    .{ .header = static_headers.base64, .zig_path = "buzz_base64.zig", .wasm_native = true },
 };
 
 /// Returns the library registered for a Buzz import name.
@@ -98,6 +100,8 @@ fn nativeMethods(comptime library: Library) std.StaticStringMap(buzz_api.NativeF
     if (std.mem.eql(u8, zig_path, "buzz_os.zig")) return checkedNativeMethods(library, @import("buzz_os.zig").library);
     if (std.mem.eql(u8, zig_path, "buzz_serialize.zig")) return checkedNativeMethods(library, @import("buzz_serialize.zig").library);
     if (std.mem.eql(u8, zig_path, "buzz_std.zig")) return checkedNativeMethods(library, @import("buzz_std.zig").library);
+    if (std.mem.eql(u8, zig_path, "buzz_time.zig")) return checkedNativeMethods(library, @import("buzz_time.zig").library);
+    if (std.mem.eql(u8, zig_path, "buzz_base64.zig")) return checkedNativeMethods(library, @import("buzz_base64.zig").library);
 
     @compileError("unknown native library path: " ++ zig_path);
 }
