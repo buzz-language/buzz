@@ -124,7 +124,7 @@ pub export fn argon2(ctx: *api.NativeCtx) callconv(.c) c_int {
 
     var hash_buf: [256]u8 = undefined;
     const io = ctx.getIo();
-    const hash = std.crypto.pwhash.argon2.strHash(
+    const hash_r = std.crypto.pwhash.argon2.strHash(
       password,
       .{ .allocator = api.VM.allocator,
          .params = .{ .t = t_cost, .m = m_cost, .p = parallelism },
@@ -136,7 +136,7 @@ pub export fn argon2(ctx: *api.NativeCtx) callconv(.c) c_int {
         return -1;
       };
     ctx.vm.bz_push(
-        api.VM.bz_stringToValue(ctx.vm, hash.ptr, hash.len),
+        api.VM.bz_stringToValue(ctx.vm, hash_r.ptr, hash_r.len),
     );
 
     return 1;
