@@ -113,10 +113,86 @@ pub export fn randomBytes(ctx: *api.NativeCtx) callconv(.c) c_int {
   return 1;
 }
 
+
+pub export fn hmacSha256(ctx: *api.NativeCtx) callconv(.c) c_int {
+    var key_len: usize = 0;
+    const key_ptr = ctx.vm.bz_peek(1).bz_valueToString(&key_len);
+    const key = key_ptr.?[0..key_len];
+
+    var data_len: usize = 0;
+    const data_ptr = ctx.vm.bz_peek(0).bz_valueToString(&data_len);
+    const data = data_ptr.?[0..data_len];
+
+    var result: [std.crypto.auth.hmac.HmacSha256.digest_length]u8 = undefined;
+    std.crypto.auth.hmac.HmacSha256.create(&result, data, key);
+
+    ctx.vm.bz_push(
+        api.VM.bz_stringToValue(ctx.vm, &result, result.len),
+    );
+
+    return 1;
+}
+
+pub export fn argon2id(ctx: *api.NativeCtx) callconv(.c) c_int {
+    var pass_len: usize = 0;
+    const pass_ptr = ctx.vm.bz_peek(1).bz_valueToString(&pass_len);
+    const password = pass_ptr.?[0..pass_len];
+
+    var salt_len: usize = 0;
+    const salt_ptr = ctx.vm.bz_peek(0).bz_valueToString(&salt_len);
+    const salt = salt_ptr.?[0..salt_len];
+
+    const t_cost: u32 = 3;
+    const m_cost: u32 = 65536;
+    const parallelism: u32 = 1;
+
+    var hash_buf: [256]u8 = undefined;
+    const hash_len = std.crypto.argon2.Argon2id.hash(
+        &hash_buf,
+        password,
+        salt,
+        t_cost,
+        m_cost,
+        parallelism,
+    ) catch {
+        ctx.vm.pushError("errors.InvalidArgumentError", "argon2id failed");
+        return -1;
+    };
+
+    ctx.vm.bz_push(
+        api.VM.bz_stringToValue(ctx.vm, hash_buf[0..hash_len].ptr, hash_len),
+    );
+
+    return 1;
+}
+
+pub export fn verifyArgon2id(ctx: *api.NativeCtx) callconv(.c) c_int {
+    var pass_len: usize = 0;
+    const pass_ptr = ctx.vm.bz_peek(1).bz_valueToString(&pass_len);
+    const password = pass_ptr.?[0..pass_len];
+
+    var hash_len: usize = 0;
+    const hash_ptr = ctx.vm.bz_peek(0).bz_valueToString(&hash_len);
+    const encoded_hash = hash_ptr.?[0..hash_len];
+
+    const valid = std.crypto.argon2.Argon2id.verify(encoded_hash, password) catch {
+        ctx.vm.pushError("errors.InvalidArgumentError", "argon2id verification failed");
+        return -1;
+    };
+
+    ctx.vm.bz_push(api.Value.fromBoolean(valid));
+
+    return 1;
+}
+ 
+
 pub const library = api.BuzzApi(
     "crypto",
     &.{
         &.{ "hash", hash },
         &.{ "randomBytes", randomBytes },
+        &.{ "hmacSha256", hmacSha256 },
+        &.{ "argon2id", argon2id },
+        &.{ "verifyArgon2id", verifyArgon2id },
     },
 ){};
