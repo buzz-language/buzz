@@ -17,7 +17,7 @@ pub const Library = struct {
 /// Libraries bundled with the compiler and runtime.
 pub const all = [_]Library{
     .{ .header = static_headers.buffer, .zig_path = "buzz_buffer.zig", .wasm_native = true },
-    .{ .header = static_headers.crypto, .zig_path = "buzz_crypto.zig", .wasm_native = true },
+    .{ .header = static_headers.crypto, .zig_path = "buzz_crypto.zig", .wasm_native = false },
     .{ .header = static_headers.debug, .zig_path = "buzz_debug.zig", .wasm_native = true },
     .{ .header = static_headers.errors, .zig_path = null, .wasm_native = false },
     .{ .header = static_headers.ffi, .zig_path = "buzz_ffi.zig", .wasm_native = false },
