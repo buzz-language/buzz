@@ -22,3 +22,8 @@ export enum HashAlgorithm {
 /// @param data Data to hash
 /// @return Hash of data has hex string
 export extern fun hash(algo: HashAlgorithm, data: str) > str;
+
+/// Generate Cryptographically secure randombytes
+/// @param len Number of random bytes to generate
+/// @return randombytes as string
+export extern fn randomBytes(len: int) > str !> errors\CryptoError;
