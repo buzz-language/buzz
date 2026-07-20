@@ -128,13 +128,14 @@ pub export fn argon2(ctx: *api.NativeCtx) callconv(.c) c_int {
     const parallelism: u24 = 1;
 
     var hash_buf: [256]u8 = undefined;
+    const io = ctx.getIo();
     const hash_len = std.crypto.pwhash.argon2.strHash(
       password,
       .{ .allocator = api.vm.allocator,
          .params = .{ .t = t_cost, .m = m_cost, .p = parallelism },
        },
       &hash_buf,
-      ctx.getIo();
+      io
       )  catch {
         ctx.vm.pushError("errors.AuthenticationFailed", "argon2 failed");
         return -1;
