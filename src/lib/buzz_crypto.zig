@@ -97,9 +97,23 @@ pub export fn hash(ctx: *api.NativeCtx) callconv(.c) c_int {
     return 1;
 }
 
+pub export fn randomByes(ctx: *api.NativeCtx) callconv(.c) c_int {
+  var len: usize = 0;
+  const len_val = ctx.vm.bz_peek(0);
+  len = len_val.integer;
+  var buffer: []u8 = try api.VM.allocator.alloc(u8, len);
+  defer api.VM.allocator.free(buffer);
+  std.crypto.random.bytes(buffer);
+  ctx.vm.bz_push(
+    api.VM.bz_stringToValue(ctx.vm, buffer.ptr, buffer.len),
+    );
+  return 1;
+}
+
 pub const library = api.BuzzApi(
     "crypto",
     &.{
         &.{ "hash", hash },
+        &.{ "randomBytes", randomBytes },
     },
 ){};
