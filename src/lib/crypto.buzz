@@ -27,3 +27,31 @@ export extern fun hash(algo: HashAlgorithm, data: str) > str;
 /// @param len Number of random bytes to generate
 /// @return randombytes as string
 export extern fun randomBytes(len: int) > str;
+
+/// Compute Hmac using Sha-256
+/// @param key the secret key
+/// @param data the message to be authenticate
+/// @return the Hmac-Sha256 digest (32 byte) 
+export extern fun hmacSha256(key: str, data: str) > str;
+
+/// Hash a password using Argon2id
+/// @param password The password to hash
+/// @param salt The salt (use randomBytes(16) for new hashes)
+/// @param memoryCost Memory in KiB (default: 65536)
+/// @param timeCost Number of iterations (default: 3)
+/// @param parallelism Degree of parallelism (default: 1)
+/// @return The encoded hash string
+export extern fun argon2id(
+    password: str,
+    salt: str,
+    memoryCost: int?,
+    timeCost: int?,
+    parallelism: int?
+) > str;
+
+/// Verify a password against an Argon2id hash
+/// @param password The password to verify
+/// @param hash The encoded hash string from argon2id()
+/// @return true if the password matches the hash
+export extern fun verifyArgon2id(password: str, hash: str) > bool;
+
