@@ -101,7 +101,10 @@ pub export fn randomBytes(ctx: *api.NativeCtx) callconv(.c) c_int {
   var len: usize = 0;
   const len_val = ctx.vm.bz_peek(0);
   len = @as(usize, @intCast(len_val.integer()));
-  const buffer: []u8 = api.VM.allocator.alloc(u8, len);
+  const buffer: []u8 = api.VM.allocator.alloc(u8, len) catch {
+    ctx.vm.pushError("errors.OutOfMemoryError", null);
+     return -1;
+   };
   defer api.VM.allocator.free(buffer);
   std.Io.random(ctx.getIo(), buffer);
   ctx.vm.bz_push(
