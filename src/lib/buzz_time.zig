@@ -2,7 +2,6 @@ const api = @import("buzz_api.zig");
 const std = @import("std");
 
 pub export fn timeNow(ctx: *api.NativeCtx) callconv(.c) c_int {
-    conspub export fn timeNow(ctx: *api.NativeCtx) callconv(.c) c_int {
     const ts = std.Io.Clock.now(ctx.getIo(), .real);
     const ms = ts.toMilliseconds();
     ctx.vm.bz_push(.fromDouble(@floatFromInt(ms)));
