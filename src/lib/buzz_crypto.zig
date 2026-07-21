@@ -98,7 +98,8 @@ pub export fn hash(ctx: *api.NativeCtx) callconv(.c) c_int {
 }
 
 pub export fn randomBytes(ctx: *api.NativeCtx) callconv(.c) c_int {
-    const len: usize = 0;
+   // needs to be var due to reassignment on line #104
+    var len: usize = 0;
     const len_val = ctx.vm.bz_peek(0);
     len = @as(usize, @intCast(len_val.integer()));
     const buffer = api.VM.allocator.alloc(u8, len) catch {
