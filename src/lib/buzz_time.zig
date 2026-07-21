@@ -2,16 +2,17 @@ const api = @import("buzz_api.zig");
 const std = @import("std");
 
 pub export fn timeNow(ctx: *api.NativeCtx) callconv(.c) c_int {
+    conspub export fn timeNow(ctx: *api.NativeCtx) callconv(.c) c_int {
     const ts = std.Io.Clock.now(ctx.getIo(), .real);
     const ms = ts.toMilliseconds();
-    ctx.vm.bz_push(api.Value.fromDouble(@as(api.Double, @floatFromInt(ms))));
+    ctx.vm.bz_push(.fromDouble(@floatFromInt(ms)));
     return 1;
 }
 
 pub export fn timeMonotonic(ctx: *api.NativeCtx) callconv(.c) c_int {
     const ts = std.Io.Clock.now(ctx.getIo(), .awake);
     const ms = ts.toMilliseconds();
-    ctx.vm.bz_push(api.Value.fromDouble(@as(api.Double, @floatFromInt(ms))));
+    ctx.vm.bz_push(.fromDouble(@floatFromInt(ms)));
     return 1;
 }
 
@@ -21,7 +22,7 @@ pub export fn timeCpu(ctx: *api.NativeCtx) callconv(.c) c_int {
         return -1;
     };
     const ms = ts.toMilliseconds();
-    ctx.vm.bz_push(api.Value.fromDouble(@as(api.Double, @floatFromInt(ms))));
+    ctx.vm.bz_push(.fromDouble(@floatFromInt(ms)));
     return 1;
 }
 
@@ -35,14 +36,13 @@ pub export fn timeFormat(ctx: *api.NativeCtx) callconv(.c) c_int {
         return -1;
     };
 
-    const seconds: i64 = @as(i64, @intFromFloat(@floor(ts / 1000.0)));
-    const nanos: i64 = @as(i64, @intFromFloat(@mod(ts, 1000.0) * 1_000_000));
+    const seconds: i64 = @intFromFloat(@floor(ts / 1000.0)));
+    const nanos: i64 = @intFromFloat(@mod(ts, 1000.0) * 1_000_000));
 
     const epoch = std.Io.Clock.Timestamp.fromNanoseconds(@as(i96, seconds) * 1_000_000_000 + @as(i96, nanos));
 
-    var buf: [64]u8 = undefined;
-    const format = "{s}"; // ISO 8601 format
-    const formatted = std.Io.Clock.Timestamp.formatNumber(epoch, format, &buf) catch {
+    var buf: [64]u8 = undefined
+    const formatted = std.Io.Clock.Timestamp.formatNumber(epoch, "{s}", &buf) catch {
         ctx.vm.pushError("errors.UnexpectedError", "Failed to format time");
         return -1;
     };
