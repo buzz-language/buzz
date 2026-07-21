@@ -98,10 +98,10 @@ pub export fn hash(ctx: *api.NativeCtx) callconv(.c) c_int {
 }
 
 pub export fn randomBytes(ctx: *api.NativeCtx) callconv(.c) c_int {
-    var len: usize = 0;
+    const len: usize = 0;
     const len_val = ctx.vm.bz_peek(0);
     len = @as(usize, @intCast(len_val.integer()));
-    const buffer: []u8 = api.VM.allocator.alloc(u8, len) catch {
+    const buffer = api.VM.allocator.alloc(u8, len) catch {
         ctx.vm.pushError("errors.OutOfMemoryError", null);
         return -1;
     };
@@ -117,15 +117,11 @@ pub export fn argon2(ctx: *api.NativeCtx) callconv(.c) c_int {
     var pass_len: usize = 0;
     const pass_ptr = ctx.vm.bz_peek(0).bz_valueToString(&pass_len);
     const password = pass_ptr.?[0..pass_len];
-    const t_cost: u32 = 3;
-    const m_cost: u32 = 65536;
-    const parallelism: u24 = 1;
-
     var hash_buf: [256]u8 = undefined;
     const io = ctx.getIo();
     const hash_r = std.crypto.pwhash.argon2.strHash(password, .{
         .allocator = api.VM.allocator,
-        .params = .{ .t = t_cost, .m = m_cost, .p = parallelism },
+        .params = .{ .t = 2, .m = 19 * 1024, .p = 1 },
     }, &hash_buf, io) catch {
         ctx.vm.pushError("errors.AuthenticationFailed", "argon2 failed");
         return -1;
@@ -151,7 +147,7 @@ pub export fn verifyArgon2(ctx: *api.NativeCtx) callconv(.c) c_int {
         return -1;
     };
 
-    ctx.vm.bz_push(api.Value.fromBoolean(true));
+    ctx.vm.bz_push(.True);
 
     return 1;
 }

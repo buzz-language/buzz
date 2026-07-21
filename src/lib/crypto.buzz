@@ -1,5 +1,7 @@
 namespace crypto;
 
+import "buzz:errors";
+
 /// Hash algorithms
 export enum HashAlgorithm {
     Md5,
@@ -32,9 +34,7 @@ export extern fun randomBytes(len: int) > str;
 /// Hash a password using Argon2id
 /// @param password The password to hash
 /// @return The encoded hash string
-export extern fun argon2(
-    password: str,
-) > str;
+export extern fun argon2(password: str) > str;
 
 /// Verify a password against an Argon2id hash
 /// @param password The password to verify
