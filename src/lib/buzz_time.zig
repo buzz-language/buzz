@@ -65,7 +65,7 @@ pub export fn timeParse(ctx: *api.NativeCtx) callconv(.c) c_int {
     };
 
     const ms = parsed.toMilliseconds();
-    ctx.vm.bz_push(api.Value.fromDouble(@as(api.Double, @floatFromInt(ms))));
+    ctx.vm.bz_push(.fromDouble(@floatFromInt(ms)));
     return 1;
 }
 
