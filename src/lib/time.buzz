@@ -1,7 +1,7 @@
 namespace time;
 
 /// Real-time (wall-clock) in milliseconds since Unix epoch
-ecport extern fun now() > double;
+export extern fun now() > double;
 
 /// Monotonic clock in milliseconds (never goes backwards for intervals)
 export extern fun monotonic() > double;
