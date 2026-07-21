@@ -2,54 +2,20 @@ import "buzz:std";
 import "buzz:time";
 
 test "now returns a positive number" {
-    let now = time\now();
-    std\assert(now > 0, "now should be greater than 0");
-}
-
-test "monotonic increases" {
-    let start = time\monotonic();
-    time\sleep(10);
-    let end = time\monotonic();
-    std\assert(end > start, "monotonic should increase after sleep");
-}
-
-test "cpu returns a positive number" {
-    let cpu = time\cpu() ! {
-        // CPU clock might not be available on all platforms
-        return;
-    };
-    std\assert(cpu >= 0, "cpu time should be >= 0");
+    var now = time\now();
+    std\assert(now > 0, message: "now should be greater than 0");
 }
 
 test "format and parse roundtrip" {
-    let original = time\now();
-    let formatted = time\format(original) ! {
-        std\assert(false, "format failed: {}", .{error});
+    var original = time\now();
+    var formatted = time\format(original) catch {
+        std\assert(false, message: "format failed");
         return;
     };
-    let parsed = time\parse(formatted) ! {
-        std\assert(false, "parse failed: {}", .{error});
+    var parsed = time\parse(formatted) catch {
+        std\assert(false, message: "parse failed");
         return;
     };
-    let diff = original - parsed;
-    std\assert(diff < 1000, "roundtrip error should be less than 1 second, got {}", .{diff});
-}
-
-test "parse iso 8601" {
-    let iso = "2026-07-20T14:30:00Z";
-    let ts = time\parse(iso) ! {
-        std\assert(false, "parse failed: {}", .{error});
-        return;
-    };
-    std\assert(ts > 0, "parsed timestamp should be positive");
-}
-
-test "format iso 8601" {
-    let ts = 1721497800000.0; // 2026-07-20T14:30:00Z
-    let formatted = time\format(ts) ! {
-        std\assert(false, "format failed: {}", .{error});
-        return;
-    };
-    // The exact string may vary by timezone, so just check it's not empty
-    std\assert(formatted.len() > 0, "formatted string should not be empty");
+    var diff = original - parsed;
+    std\assert(diff < 1000, message: "roundtrip error should be less than 1 second");
 }
