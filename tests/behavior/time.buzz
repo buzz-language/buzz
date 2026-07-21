@@ -2,20 +2,20 @@ import "buzz:std";
 import "buzz:time";
 
 test "now returns a positive number" {
-    var now = time\now();
+    final now = time\now();
     std\assert(now > 0, message: "now should be greater than 0");
 }
 
 test "format and parse roundtrip" {
-    var original = time\now();
-    var formatted = time\format(original) catch {
-        std\assert(false, message: "format failed");
-        return;
-    };
-    var parsed = time\parse(formatted) catch {
+    final original = time\now();
+    final formatted = time\format(original) catch from {
+      std\assert(false, message: "format failed");
+       return;
+      };
+    final parsed = time\parse(formatted) catch {
         std\assert(false, message: "parse failed");
         return;
     };
-    var diff = original - parsed;
+    final diff = original - parsed;
     std\assert(diff < 1000, message: "roundtrip error should be less than 1 second");
 }
