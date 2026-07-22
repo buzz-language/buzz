@@ -598,11 +598,14 @@ fn generateNode(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!Gener
     else
         null;
 
-    try self.complexity_stack.append(self.gc.allocator, .{
-        .node = node,
-        .score = jitComplexityBase(tag),
-        .nearest_candidate = if (self.ast.jitComplexity(node) != null) node else nearest_candidate,
-    });
+    try self.complexity_stack.append(
+        self.gc.allocator,
+        .{
+            .node = node,
+            .score = jitComplexityBase(tag),
+            .nearest_candidate = if (self.ast.jitComplexity(node) != null) node else nearest_candidate,
+        },
+    );
     errdefer {
         const popped = self.complexity_stack.pop().?;
         std.debug.assert(popped.node == node);

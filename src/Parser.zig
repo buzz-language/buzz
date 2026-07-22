@@ -252,6 +252,260 @@ pub fn buzzLibPath(io: std.Io, env: *std.process.Environ.Map) []const u8 {
     ) catch unreachable;
 }
 
+/// Returns `path` without a trailing `.buzz` suffix.
+fn stripBuzzExtension(path: []const u8) []const u8 {
+    return if (std.mem.endsWith(u8, path, ".buzz"))
+        path[0 .. path.len - ".buzz".len]
+    else
+        path;
+}
+
+/// Returns `path` without any leading `./` or `.\` prefix segments.
+fn trimRelativePathPrefix(path: []const u8) []const u8 {
+    var trimmed = path;
+
+    while (trimmed.len >= 2 and
+        trimmed[0] == '.' and
+        (trimmed[1] == '/' or trimmed[1] == '\\' or trimmed[1] == std.fs.path.sep))
+    {
+        trimmed = trimmed[2..];
+    }
+
+    return trimmed;
+}
+
+/// Returns the slash-separated module path used when no namespace exists.
+/// Absolute paths are rewritten back to package-relative paths so generated names
+/// do not depend on the local checkout location.
+fn modulePathForScript(
+    allocator: std.mem.Allocator,
+    script_name: []const u8,
+    root_dir: []const u8,
+) ![]const u8 {
+    if (static_libraries.byName(script_name) != null) {
+        return allocator.dupe(u8, script_name);
+    }
+
+    if (std.fs.path.isAbsolute(script_name)) {
+        // Vendor scripts must keep their package name in the qualifier so two
+        // different dependencies exposing the same file layout still stay distinct.
+        const vendors_dir = try std.fs.path.join(
+            allocator,
+            &.{
+                root_dir,
+                "vendors",
+            },
+        );
+        defer allocator.free(vendors_dir);
+
+        if (pathWithinDir(script_name, vendors_dir)) |vendor_relative| {
+            if (std.mem.indexOfScalar(u8, vendor_relative, std.fs.path.sep)) |pkg_name_len| {
+                const pkg_name = vendor_relative[0..pkg_name_len];
+                const pkg_relative = vendor_relative[pkg_name_len + 1 ..];
+
+                if (pkg_name.len > 0 and
+                    pkg_relative.len > "src".len and
+                    std.mem.startsWith(u8, pkg_relative, "src") and
+                    pkg_relative["src".len] == std.fs.path.sep)
+                {
+                    return std.fs.path.join(
+                        allocator,
+                        &.{
+                            pkg_name,
+                            stripBuzzExtension(pkg_relative["src".len + 1 ..]),
+                        },
+                    );
+                }
+            }
+        }
+
+        // First-party modules map from `<root>/src/...` to `...` so generated
+        // names match the package-relative import layout instead of the filesystem.
+        const root_source_dir = try std.fs.path.join(
+            allocator,
+            &.{
+                root_dir,
+                "src",
+            },
+        );
+        defer allocator.free(root_source_dir);
+
+        if (pathWithinDir(script_name, root_source_dir)) |relative_source| {
+            return allocator.dupe(u8, stripBuzzExtension(relative_source));
+        }
+
+        if (pathWithinDir(script_name, root_dir)) |relative_path| {
+            return allocator.dupe(u8, stripBuzzExtension(relative_path));
+        }
+
+        return allocator.dupe(
+            u8,
+            stripBuzzExtension(std.fs.path.basename(script_name)),
+        );
+    }
+
+    // Relative paths can come from imports or synthetic parser inputs; normalize
+    // them into a single slash-separated representation before dot-qualifying them.
+    const trimmed = trimRelativePathPrefix(script_name);
+    const normalized = try allocator.dupe(u8, stripBuzzExtension(trimmed));
+    errdefer allocator.free(normalized);
+
+    std.mem.replaceScalar(u8, normalized, '\\', '/');
+    if (std.fs.path.sep != '/') {
+        std.mem.replaceScalar(u8, normalized, std.fs.path.sep, '/');
+    }
+
+    if (std.mem.startsWith(u8, normalized, "vendors/")) {
+        const vendor_relative = normalized["vendors/".len..];
+        if (std.mem.indexOfScalar(u8, vendor_relative, '/')) |pkg_name_len| {
+            const pkg_name = vendor_relative[0..pkg_name_len];
+            const pkg_relative = vendor_relative[pkg_name_len + 1 ..];
+
+            if (pkg_name.len > 0 and std.mem.startsWith(u8, pkg_relative, "src/")) {
+                const rebased_path = try std.fs.path.join(
+                    allocator,
+                    &.{
+                        pkg_name,
+                        pkg_relative["src/".len..],
+                    },
+                );
+                allocator.free(normalized);
+                return rebased_path;
+            }
+        }
+    }
+
+    if (std.mem.startsWith(u8, normalized, "src/")) {
+        const rebased_path = try allocator.dupe(u8, normalized["src/".len..]);
+        allocator.free(normalized);
+        return rebased_path;
+    }
+
+    return normalized;
+}
+
+/// Returns the dot-separated qualifier used for generated fully qualified names.
+/// A declared namespace is already stable and portable, so it takes precedence.
+/// Otherwise we derive the qualifier from the normalized module path.
+pub fn moduleQualifierFor(
+    allocator: std.mem.Allocator,
+    ast: *const Ast,
+    namespace: ?[]const Ast.TokenIndex,
+    script_name: []const u8,
+    root_dir: []const u8,
+) ![]const u8 {
+    var qualifier = std.Io.Writer.Allocating.init(allocator);
+    errdefer qualifier.deinit();
+
+    if (namespace) |script_namespace| {
+        // When a script declares a namespace, use it directly instead of deriving
+        // names from the file path, which may be machine-specific.
+        const lexemes = ast.tokens.items(.lexeme);
+        for (script_namespace, 0..) |part, i| {
+            if (i > 0) {
+                try qualifier.writer.writeByte('.');
+            }
+
+            try qualifier.writer.writeAll(lexemes[part]);
+        }
+    } else {
+        const module_path = try modulePathForScript(
+            allocator,
+            script_name,
+            root_dir,
+        );
+        defer allocator.free(module_path);
+
+        // The type system stores qualifiers with dot separators regardless of
+        // how the underlying path was written on disk.
+        var wrote_separator = true;
+        for (module_path) |char| {
+            if (char == '/' or char == '\\' or char == std.fs.path.sep) {
+                if (!wrote_separator) {
+                    try qualifier.writer.writeByte('.');
+                    wrote_separator = true;
+                }
+            } else {
+                try qualifier.writer.writeByte(char);
+                wrote_separator = false;
+            }
+        }
+    }
+
+    return qualifier.toOwnedSlice();
+}
+
+test "module qualifier prefers namespace" {
+    var ast = Ast.init(std.testing.allocator);
+    defer ast.deinit(std.testing.allocator);
+
+    const first = try ast.appendToken(Token.identifier("rather"));
+    const second = try ast.appendToken(Token.identifier("long"));
+    const namespace = [_]Ast.TokenIndex{
+        first,
+        second,
+    };
+
+    const qualifier = try moduleQualifierFor(
+        std.testing.allocator,
+        &ast,
+        namespace[0..],
+        "/tmp/project/src/ignored.buzz",
+        "/tmp/project",
+    );
+    defer std.testing.allocator.free(qualifier);
+
+    try std.testing.expectEqualStrings("rather.long", qualifier);
+}
+
+test "module qualifier strips root src prefix" {
+    var ast = Ast.init(std.testing.allocator);
+    defer ast.deinit(std.testing.allocator);
+
+    const qualifier = try moduleQualifierFor(
+        std.testing.allocator,
+        &ast,
+        null,
+        "/tmp/project/src/foo/bar.buzz",
+        "/tmp/project",
+    );
+    defer std.testing.allocator.free(qualifier);
+
+    try std.testing.expectEqualStrings("foo.bar", qualifier);
+}
+
+test "module qualifier includes vendor package name" {
+    var ast = Ast.init(std.testing.allocator);
+    defer ast.deinit(std.testing.allocator);
+
+    const qualifier = try moduleQualifierFor(
+        std.testing.allocator,
+        &ast,
+        null,
+        "/tmp/project/vendors/pkg/src/http/client.buzz",
+        "/tmp/project",
+    );
+    defer std.testing.allocator.free(qualifier);
+
+    try std.testing.expectEqualStrings("pkg.http.client", qualifier);
+}
+
+test "module qualifier falls back to loose script path" {
+    var ast = Ast.init(std.testing.allocator);
+    defer ast.deinit(std.testing.allocator);
+
+    const qualifier = try moduleQualifierFor(
+        std.testing.allocator,
+        &ast,
+        null,
+        "./scripts/tool.buzz",
+        "/tmp/project",
+    );
+    defer std.testing.allocator.free(qualifier);
+
+    try std.testing.expectEqualStrings("scripts.tool", qualifier);
+}
+
 pub const CompileError = error{
     Unrecoverable,
     Recoverable,
@@ -398,17 +652,22 @@ pub const ScriptImport = struct {
     function: Ast.Node.Index,
     globals: std.ArrayList(Global) = .empty,
     absolute_path: *obj.ObjString,
+    namespace: ?[]const Ast.TokenIndex = null,
     /// Prevent script from being imported more that once by the same script
     imported_by: std.AutoHashMapUnmanaged(*Frame, void) = .{},
 
     pub fn deinit(self: *ScriptImport, allocator: std.mem.Allocator) void {
         self.globals.deinit(allocator);
+        if (self.namespace) |namespace| {
+            allocator.free(namespace);
+        }
         self.imported_by.deinit(allocator);
     }
 };
 
 const LocalScriptImport = struct {
     referenced: bool = false,
+    namespace_exposed: bool = false,
     location: Ast.TokenIndex,
     end_location: Ast.TokenIndex,
 };
@@ -3601,16 +3860,26 @@ fn parseObjType(self: *Self, generic_types: ?std.AutoArrayHashMapUnmanaged(*obj.
 
     try self.consume(.LeftBrace, "Expected `{` after `obj`");
 
-    const qualifier = try std.mem.replaceOwned(u8, self.gc.allocator, self.script_name, "/", ".");
+    const qualifier = try moduleQualifierFor(
+        self.gc.allocator,
+        &self.ast,
+        self.namespace,
+        self.script_name,
+        self.root_dir,
+    );
     defer self.gc.allocator.free(qualifier);
-    var qualified_name = std.Io.Writer.Allocating.init(self.gc.allocator);
-    defer qualified_name.deinit();
-    try qualified_name.writer.print("{s}.anonymous", .{qualifier});
+
+    const qualified_name = try std.fmt.allocPrint(
+        self.gc.allocator,
+        "{s}.anonymous",
+        .{qualifier},
+    );
+    defer self.gc.allocator.free(qualified_name);
 
     const object_def = obj.ObjObject.ObjectDef.init(
         start_location,
         try self.gc.copyString("anonymous"),
-        try self.gc.copyString(qualified_name.written()),
+        try self.gc.copyString(qualified_name),
         true,
     );
 
@@ -3777,6 +4046,7 @@ fn parseUserType(self: *Self, instance: bool, mutable: bool) Error!Ast.Node.Inde
                 .{
                     .location = self.script_imports.get(imported_from).?.location,
                     .end_location = self.script_imports.get(imported_from).?.end_location,
+                    .namespace_exposed = self.script_imports.get(imported_from).?.namespace_exposed,
                     .referenced = true,
                 },
             );
@@ -4819,17 +5089,21 @@ fn anonymousEnumCase(self: *Self, _: bool) Error!Ast.Node.Index {
 fn anonymousObjectInit(self: *Self, _: bool) Error!Ast.Node.Index {
     const start_location = self.current_token.? - 2;
 
-    const qualifier = try std.mem.replaceOwned(
-        u8,
+    const qualifier = try moduleQualifierFor(
         self.gc.allocator,
+        &self.ast,
+        self.namespace,
         self.script_name,
-        "/",
-        ".",
+        self.root_dir,
     );
     defer self.gc.allocator.free(qualifier);
-    var qualified_name = std.Io.Writer.Allocating.init(self.gc.allocator);
-    defer qualified_name.deinit();
-    try qualified_name.writer.print("{s}.anonymous", .{qualifier});
+
+    const qualified_name = try std.fmt.allocPrint(
+        self.gc.allocator,
+        "{s}.anonymous",
+        .{qualifier},
+    );
+    defer self.gc.allocator.free(qualified_name);
 
     // We build the object type has we parse its instanciation
     var object_type = obj.ObjTypeDef{
@@ -4838,7 +5112,7 @@ fn anonymousObjectInit(self: *Self, _: bool) Error!Ast.Node.Index {
             .Object = obj.ObjObject.ObjectDef.init(
                 start_location,
                 try self.gc.copyString("anonymous"),
-                try self.gc.copyString(qualified_name.written()),
+                try self.gc.copyString(qualified_name),
                 true,
             ),
         },
@@ -6238,6 +6512,7 @@ fn namedVariable(self: *Self, qualified_name: Ast.QualifiedName, can_assign: boo
                     .{
                         .location = self.script_imports.get(imported_from).?.location,
                         .end_location = self.script_imports.get(imported_from).?.end_location,
+                        .namespace_exposed = self.script_imports.get(imported_from).?.namespace_exposed,
                         .referenced = true,
                     },
                 );
@@ -7557,6 +7832,7 @@ fn exportStatement(self: *Self, docblock: ?Ast.TokenIndex) Error!Ast.Node.Index 
                     .{
                         .location = self.script_imports.get(imported_from).?.location,
                         .end_location = self.script_imports.get(imported_from).?.end_location,
+                        .namespace_exposed = self.script_imports.get(imported_from).?.namespace_exposed,
                         .referenced = true,
                     },
                 );
@@ -7723,17 +7999,24 @@ fn objectDeclaration(self: *Self) Error!Ast.Node.Index {
     const object_name_lexeme = self.ast.tokens.items(.lexeme)[object_name_token];
 
     // Qualified name to avoid cross script collision
-    const qualifier = try std.mem.replaceOwned(u8, self.gc.allocator, self.script_name, "/", "\\");
+    const qualifier = try moduleQualifierFor(
+        self.gc.allocator,
+        &self.ast,
+        self.namespace,
+        self.script_name,
+        self.root_dir,
+    );
     defer self.gc.allocator.free(qualifier);
-    var qualified_object_name = std.Io.Writer.Allocating.init(self.gc.allocator);
-    defer qualified_object_name.deinit();
-    try qualified_object_name.writer.print(
+
+    const qualified_object_name = try std.fmt.allocPrint(
+        self.gc.allocator,
         "{s}.{s}",
         .{
             qualifier,
             self.ast.tokens.items(.lexeme)[object_name_token],
         },
     );
+    defer self.gc.allocator.free(qualified_object_name);
 
     // Create a placeholder for self-reference which will be resolved at the end when declaring the object
     const placeholder_index = try self.declarePlaceholder(object_name_token, null);
@@ -7742,7 +8025,7 @@ fn objectDeclaration(self: *Self) Error!Ast.Node.Index {
     var object_def = obj.ObjObject.ObjectDef.init(
         object_name_token,
         try self.gc.copyString(object_name_lexeme),
-        try self.gc.copyString(qualified_object_name.written()),
+        try self.gc.copyString(qualified_object_name),
         false,
     );
 
@@ -8219,17 +8502,24 @@ fn protocolDeclaration(self: *Self) Error!Ast.Node.Index {
     const protocol_name = self.current_token.? - 1;
 
     // Qualified name to avoid cross script collision
-    const qualifier = try std.mem.replaceOwned(u8, self.gc.allocator, self.script_name, "/", "\\");
+    const qualifier = try moduleQualifierFor(
+        self.gc.allocator,
+        &self.ast,
+        self.namespace,
+        self.script_name,
+        self.root_dir,
+    );
     defer self.gc.allocator.free(qualifier);
-    var qualified_protocol_name = std.Io.Writer.Allocating.init(self.gc.allocator);
-    defer qualified_protocol_name.deinit();
-    try qualified_protocol_name.writer.print(
+
+    const qualified_protocol_name = try std.fmt.allocPrint(
+        self.gc.allocator,
         "{s}.{s}",
         .{
             qualifier,
             self.ast.tokens.items(.lexeme)[protocol_name],
         },
     );
+    defer self.gc.allocator.free(qualified_protocol_name);
 
     // Create a placeholder for self-reference which will be resolved at the end when declaring the object
     const placeholder_index = try self.declarePlaceholder(protocol_name, null);
@@ -8242,7 +8532,7 @@ fn protocolDeclaration(self: *Self) Error!Ast.Node.Index {
             .Protocol = obj.ObjObject.ProtocolDef.init(
                 protocol_name,
                 try self.gc.copyString(self.ast.tokens.items(.lexeme)[protocol_name]),
-                try self.gc.copyString(qualified_protocol_name.written()),
+                try self.gc.copyString(qualified_protocol_name),
             ),
         },
     };
@@ -8392,19 +8682,29 @@ fn enumDeclaration(self: *Self) Error!Ast.Node.Index {
     const enum_name_lexeme = self.ast.tokens.items(.lexeme)[enum_name];
 
     // Qualified name to avoid cross script collision
-    const qualifier = try std.mem.replaceOwned(u8, self.gc.allocator, self.script_name, "/", ".");
-    defer self.gc.allocator.free(qualifier);
-    var qualified_name = std.Io.Writer.Allocating.init(self.gc.allocator);
-    defer qualified_name.deinit();
-    try qualified_name.writer.print(
-        "{s}.{s}",
-        .{ qualifier, enum_name_lexeme },
+    const qualifier = try moduleQualifierFor(
+        self.gc.allocator,
+        &self.ast,
+        self.namespace,
+        self.script_name,
+        self.root_dir,
     );
+    defer self.gc.allocator.free(qualifier);
+
+    const qualified_name = try std.fmt.allocPrint(
+        self.gc.allocator,
+        "{s}.{s}",
+        .{
+            qualifier,
+            enum_name_lexeme,
+        },
+    );
+    defer self.gc.allocator.free(qualified_name);
 
     const enum_def = obj.ObjEnum.EnumDef{
         .name = try self.gc.copyString(enum_name_lexeme),
         .location = enum_name,
-        .qualified_name = try self.gc.copyString(qualified_name.written()),
+        .qualified_name = try self.gc.copyString(qualified_name),
         .enum_type = enum_case_type,
         .cases = undefined,
         .cases_locations = undefined,
@@ -9135,12 +9435,28 @@ fn readScript(self: *Self, raw_file_name: []const u8) Error!?Import {
     return null;
 }
 
-fn checkImportedNamespaceCollision(self: *Self, namespace: []const Ast.TokenIndex) Error!void {
+/// Reports whether importing `imported_path` would expose a namespace that is already owned.
+fn checkImportedNamespaceCollision(
+    self: *Self,
+    path_token: Ast.TokenIndex,
+    imported_path: []const u8,
+    namespace: []const Ast.TokenIndex,
+) Error!bool {
+    var namespace_str = std.ArrayList(u8).empty;
+    errdefer namespace_str.deinit(self.gc.allocator);
+
+    const lexemes = self.ast.tokens.items(.lexeme);
+    for (namespace) |part| {
+        try namespace_str.appendSlice(self.gc.allocator, lexemes[part]);
+        try namespace_str.append(self.gc.allocator, '\\');
+    }
+    const namespace_label = try namespace_str.toOwnedSlice(self.gc.allocator);
+    defer self.gc.allocator.free(namespace_label);
+
     // Does imported namespace collides with our own
     if (self.namespace) |own_namespace| {
         if (namespace.len == own_namespace.len) {
             var matches = true;
-            const lexemes = self.ast.tokens.items(.lexeme);
             for (namespace, own_namespace) |part, own_part| {
                 if (!std.mem.eql(u8, lexemes[part], lexemes[own_part])) {
                     matches = false;
@@ -9148,59 +9464,67 @@ fn checkImportedNamespaceCollision(self: *Self, namespace: []const Ast.TokenInde
                 }
             }
 
-            if (matches) {
-                var namespace_str = std.ArrayList(u8).empty;
-                defer namespace_str.deinit(self.gc.allocator);
-
-                for (namespace) |part| {
-                    try namespace_str.appendSlice(self.gc.allocator, lexemes[part]);
-                    try namespace_str.append(self.gc.allocator, '\\');
-                }
-
+            if (!matches) {
+                // Fall through to imported namespace ownership checks.
+            } else {
                 self.reporter.reportWithOrigin(
                     .import_already_exists,
-                    self.ast.tokens.get(namespace[0]),
-                    self.ast.tokens.get(namespace[namespace.len - 1]),
+                    self.ast.tokens.get(path_token),
+                    self.ast.tokens.get(path_token),
                     self.ast.tokens.get(own_namespace[0]),
                     self.ast.tokens.get(own_namespace[own_namespace.len - 1]),
                     "The namespace `{s}` already exists",
                     .{
-                        namespace_str.items,
+                        namespace_label,
                     },
                     "defined here",
                 );
+
+                return true;
             }
         }
     }
 
-    // Does imported namespace collides we something we already imported?
-    for (self.globals.items) |global| {
-        if (global.matchNamespace(self.ast, namespace)) {
-            var namespace_str = std.ArrayList(u8).empty;
-            defer namespace_str.deinit(self.gc.allocator);
+    // Does imported namespace collides we something we already introduced?
+    var imported_scripts = self.script_imports.iterator();
+    while (imported_scripts.next()) |entry| {
+        if (!entry.value_ptr.namespace_exposed or std.mem.eql(u8, entry.key_ptr.*, imported_path)) {
+            continue;
+        }
 
-            const lexemes = self.ast.tokens.items(.lexeme);
-            for (namespace) |part| {
-                try namespace_str.appendSlice(self.gc.allocator, lexemes[part]);
-                try namespace_str.append(self.gc.allocator, '\\');
+        const previous_import = self.imports.get(entry.key_ptr.*) orelse continue;
+        const previous_namespace = previous_import.namespace orelse continue;
+        if (namespace.len != previous_namespace.len) {
+            continue;
+        }
+
+        var matches = true;
+        for (namespace, previous_namespace) |part, previous_part| {
+            if (!std.mem.eql(u8, lexemes[part], lexemes[previous_part])) {
+                matches = false;
+                break;
             }
+        }
 
+        if (matches) {
             self.reporter.reportWithOrigin(
-                .import_already_exists,
-                self.ast.tokens.get(namespace[0]),
-                self.ast.tokens.get(namespace[namespace.len - 1]),
-                self.ast.tokens.get(global.qualified_name.namespace[0]),
-                self.ast.tokens.get(global.qualified_name.namespace[global.qualified_name.namespace.len - 1]),
-                "The namespace `{s}` already exists",
+                .import_namespace_conflict,
+                self.ast.tokens.get(path_token),
+                self.ast.tokens.get(path_token),
+                self.ast.tokens.get(entry.value_ptr.location),
+                self.ast.tokens.get(entry.value_ptr.end_location),
+                "The namespace `{s}` is already exposed by another script",
                 .{
-                    namespace_str.items,
+                    namespace_label,
                 },
-                "defined here",
+                "first exposed here",
             );
 
-            break;
+            return true;
         }
     }
+
+    return false;
 }
 
 fn importScript(
@@ -9214,7 +9538,6 @@ fn importScript(
         return null;
     };
 
-    var imported_namespace: ?[]const Ast.TokenIndex = null;
     var import = self.imports.getPtr(source_and_path.path);
     if (import) |uimport| {
         source_and_path.deinit(self.gc.allocator);
@@ -9271,13 +9594,10 @@ fn importScript(
             self.ast = ast;
             self.ast.nodes.items(.components)[self.ast.root.?].Function.import_root = true;
 
-            if (prefix == null and imported_symbols.count() == 0) {
-                imported_namespace = try ast.slice().namespace(self.gc.allocator, ast.root.?);
-            }
-
             var new_import = ScriptImport{
                 .function = self.ast.root.?,
                 .absolute_path = try self.gc.copyString(source_and_path.path),
+                .namespace = try ast.slice().namespace(self.gc.allocator, ast.root.?),
             };
 
             try new_import.imported_by.put(
@@ -9307,14 +9627,6 @@ fn importScript(
                 new_import,
             );
             import = self.imports.getPtr(new_import.absolute_path.string).?;
-            try self.script_imports.put(
-                self.gc.allocator,
-                import.?.absolute_path.string,
-                .{
-                    .location = path_token,
-                    .end_location = path_token,
-                },
-            );
 
             // Caught up this parser with the import parser status
             self.ast.root = previous_root;
@@ -9337,8 +9649,27 @@ fn importScript(
     }
 
     if (import) |imported| {
-        if (imported_namespace) |namespace| {
-            try self.checkImportedNamespaceCollision(namespace);
+        const exposes_namespace = prefix == null and imported_symbols.count() == 0;
+        if (exposes_namespace and imported.namespace != null and
+            try self.checkImportedNamespaceCollision(
+                path_token,
+                imported.absolute_path.string,
+                imported.namespace.?,
+            ))
+        {
+            return null;
+        }
+
+        if (self.script_imports.get(imported.absolute_path.string) == null) {
+            try self.script_imports.put(
+                self.gc.allocator,
+                imported.absolute_path.string,
+                .{
+                    .namespace_exposed = exposes_namespace and imported.namespace != null,
+                    .location = path_token,
+                    .end_location = path_token,
+                },
+            );
         }
 
         const selective_import = imported_symbols.count() > 0;
@@ -10005,6 +10336,7 @@ fn userVarDeclaration(self: *Self, identifier: Ast.TokenIndex, final: bool, muta
                     .{
                         .location = self.script_imports.get(imported_from).?.location,
                         .end_location = self.script_imports.get(imported_from).?.end_location,
+                        .namespace_exposed = self.script_imports.get(imported_from).?.namespace_exposed,
                         .referenced = true,
                     },
                 );

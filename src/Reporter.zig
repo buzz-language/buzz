@@ -142,6 +142,7 @@ pub const Error = enum(u8) {
     match_condition_type = 106,
     match_duplicate_condition = 107,
     unreachable_code = 108,
+    import_namespace_conflict = 109,
 };
 
 pub const ReportKind = enum {
