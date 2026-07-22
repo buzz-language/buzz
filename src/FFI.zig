@@ -253,7 +253,13 @@ pub fn parse(self: *Self, parser: ?*Parser, source: Ast.TokenIndex, type_expr: ?
 
     self.state = .{
         .script = if (parser) |uparser|
-            try std.mem.replaceOwned(u8, self.gc.allocator, uparser.script_name, "/", ".")
+            try Parser.moduleQualifierFor(
+                self.gc.allocator,
+                &uparser.ast,
+                uparser.namespace,
+                uparser.script_name,
+                uparser.root_dir,
+            )
         else
             "zdef",
         .type_expr = type_expr,
@@ -565,7 +571,6 @@ fn unionContainer(self: *Self, name: []const u8, container: Ast.full.ContainerDe
                     .ForeignContainer = .{
                         .location = self.state.?.source,
                         .name = try self.gc.copyString(name),
-                        // FIXME
                         .qualified_name = try self.gc.copyString(qualified_name.written()),
                         .zig_type = zig_type,
                         .buzz_type = buzz_fields,
@@ -654,11 +659,21 @@ fn structContainer(self: *Self, name: []const u8, container: Ast.full.ContainerD
         },
     };
 
+    var qualified_name = std.Io.Writer.Allocating.init(self.gc.allocator);
+    defer qualified_name.deinit();
+
+    try qualified_name.writer.print(
+        "{s}.{s}",
+        .{
+            self.state.?.script,
+            name,
+        },
+    );
+
     const foreign_def = o.ObjForeignContainer.ContainerDef{
         .location = self.state.?.source,
         .name = try self.gc.copyString(name),
-        // FIXME
-        .qualified_name = try self.gc.copyString(name),
+        .qualified_name = try self.gc.copyString(qualified_name.written()),
         .zig_type = zig_type,
         .buzz_type = buzz_fields,
         .fields = get_set_fields,

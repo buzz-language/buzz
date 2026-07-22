@@ -1,4 +1,4 @@
-// The namespace `duplicated\` already exists
+// The namespace `duplicated\` is already exposed by another script
 import "../utils/duplicate-namespace-1";
 import "../utils/duplicate-namespace-2";
 
