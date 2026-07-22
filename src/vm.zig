@@ -2246,6 +2246,8 @@ pub const VM = struct {
         frame.ip = 0;
         frame.call_site = call_site;
         frame.error_value = catch_value;
+        frame.try_ip = null;
+        frame.try_top = null;
     }
 
     fn OP_RETURN(self: *Self, current_frame: *CallFrame, _: u32, _: Chunk.OpCode, _: u24) void {
