@@ -49,14 +49,14 @@ test "randomBytes returns different values" {
 
 test "argon2 hashes and verifies" {
     final password = "my-secure-password";
-    final hash = argon2(password) catch {
+    final hash = argon2(password) catch from {
         std\assert(
             false,
             message: "argon2 failed"
         );
         return;
     };
-    final valid = verifyArgon2(password, hash) catch {
+    final valid = verifyArgon2(password, hash) catch from {
         std\assert(
             false,
             message: "verifyArgon2 failed"
@@ -72,14 +72,14 @@ test "argon2 hashes and verifies" {
 test "argon2 fails for wrong password" {
     final password = "my-secure-password";
     final wrong = "wrong-password";
-    final hash = argon2(password) catch {
+    final hash = argon2(password) catch from {
         std\assert(
             false,
             message: "argon2 failed"
         );
         return;
     };
-    final valid = verifyArgon2(wrong, hash) catch {
+    final valid = verifyArgon2(wrong, hash) catch from {
         std\assert(
             false,
             message: "verifyArgon2 failed"
