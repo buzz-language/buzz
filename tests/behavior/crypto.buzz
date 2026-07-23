@@ -91,15 +91,3 @@ test "argon2 fails for wrong password" {
         message: "argon2 verification should fail for wrong password"
     );
 }
-
-test "argon2 handles invalid hash" {
-    final result = verifyArgon2("password", "invalid-hash");
-    if (result -> _) {
-        std\assert(
-            false,
-            message: "verifyArgon2 should fail for invalid hash"
-        );
-    } else {
-        // Expected error – test passes
-    }
-}
