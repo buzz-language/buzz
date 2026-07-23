@@ -1,33 +1,3 @@
-import "buzz:std";
-import "buzz:crypto" as _;
-
-test "hash" {
-    std\assert(
-        "c3fcd3d76192e4007dfb496cca67e13b" == hash(
-            .Md5,
-            data: "abcdefghijklmnopqrstuvwxyz"
-        ).hex(),
-        message: "md5",
-    );
-
-    std\assert(
-        "a9993e364706816aba3e25717850c26c9cd0d89d"
-            == hash(.Sha1, data: "abc").hex(),
-        message: "sha1",
-    );
-
-    std\assert(
-        "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
-            == hash(.Sha256, data: "abc").hex(),
-        message: "sha256",
-    );
-
-    std\assert(
-        "3a985da74fe225b2045c172d6bd390bd855f086e3e9d525b46bfe24511431532"
-            == hash(.Sha3256, data: "abc").hex(),
-        message: "sha3-256",
-    );
-}
 
 import "buzz:std";
 import "buzz:crypto" as _;
