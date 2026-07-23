@@ -28,3 +28,16 @@ test "hash" {
         message: "sha3-256",
     );
 }
+
+test "randomBytes returns correct length" {
+    final len = 16;
+    final bytes = crypto\randomBytes(len);
+    std\assert(bytes.len == len, "randomBytes should return a string of the requested length");
+}
+
+test "randomBytes returns different values" {
+    final b1 = crypto\randomBytes(8);
+    final b2 = crypto\randomBytes(8);
+    std\assert(b1 != b2, "randomBytes should return different values");
+}
+
