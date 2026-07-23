@@ -1,4 +1,3 @@
-
 import "buzz:std";
 import "buzz:crypto" as _;
 
@@ -33,48 +32,47 @@ test "hash" {
 test "randomBytes returns correct length" {
     final len = 16;
     final bytes = randomBytes(len);
-    std\assert(bytes.len() == len, "randomBytes should return a string of the requested length");
+    std\assert(bytes.len() == len, message: "randomBytes should return a string of the requested length");
 }
 
 test "randomBytes returns different values" {
     final b1 = randomBytes(8);
     final b2 = randomBytes(8);
-    std\assert(b1 != b2, "randomBytes should return different values");
+    std\assert(b1 != b2, message: "randomBytes should return different values");
 }
 
 test "argon2 hashes and verifies" {
     final password = "my-secure-password";
     final hash = argon2(password) ! {
-        std\assert(false, "argon2 failed: {}", .{error});
+        std\assert(false, message: "argon2 failed: {}", .{error});
         return;
     };
     final valid = verifyArgon2(password, hash) ! {
-        std\assert(false, "verifyArgon2 failed: {}", .{error});
+        std\assert(false, message: "verifyArgon2 failed: {}", .{error});
         return;
     };
-    std\assert(valid, "argon2 verification should succeed for correct password");
+    std\assert(valid, message: "argon2 verification should succeed for correct password");
 }
 
 test "argon2 fails for wrong password" {
     final password = "my-secure-password";
     final wrong = "wrong-password";
     final hash = argon2(password) ! {
-        std\assert(false, "argon2 failed: {}", .{error});
+        std\assert(false, message: "argon2 failed: {}", .{error});
         return;
     };
     final valid = verifyArgon2(wrong, hash) ! {
-        std\assert(false, "verifyArgon2 failed: {}", .{error});
+        std\assert(false, message: "verifyArgon2 failed: {}", .{error});
         return;
     };
-    std\assert(!valid, "argon2 verification should fail for wrong password");
+    std\assert(!valid, message: "argon2 verification should fail for wrong password");
 }
 
 test "argon2 handles invalid hash" {
     final result = verifyArgon2("password", "invalid-hash");
     if (result -> _) {
-        std\assert(false, "verifyArgon2 should fail for invalid hash");
+        std\assert(false, message: "verifyArgon2 should fail for invalid hash");
     } else {
         // Expected error – test passes
     }
 }
-
