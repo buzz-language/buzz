@@ -29,15 +29,82 @@ test "hash" {
     );
 }
 
+import "buzz:std";
+import "buzz:crypto" as _;
+
+test "hash" {
+    std\assert(
+        "c3fcd3d76192e4007dfb496cca67e13b" == hash(
+            .Md5,
+            data: "abcdefghijklmnopqrstuvwxyz"
+        ).hex(),
+        message: "md5",
+    );
+
+    std\assert(
+        "a9993e364706816aba3e25717850c26c9cd0d89d"
+            == hash(.Sha1, data: "abc").hex(),
+        message: "sha1",
+    );
+
+    std\assert(
+        "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+            == hash(.Sha256, data: "abc").hex(),
+        message: "sha256",
+    );
+
+    std\assert(
+        "3a985da74fe225b2045c172d6bd390bd855f086e3e9d525b46bfe24511431532"
+            == hash(.Sha3256, data: "abc").hex(),
+        message: "sha3-256",
+    );
+}
+
 test "randomBytes returns correct length" {
     final len = 16;
-    final bytes = crypto\randomBytes(len);
-    std\assert(bytes.len == len, "randomBytes should return a string of the requested length");
+    final bytes = randomBytes(len);
+    std\assert(bytes.len() == len, "randomBytes should return a string of the requested length");
 }
 
 test "randomBytes returns different values" {
-    final b1 = crypto\randomBytes(8);
-    final b2 = crypto\randomBytes(8);
+    final b1 = randomBytes(8);
+    final b2 = randomBytes(8);
     std\assert(b1 != b2, "randomBytes should return different values");
+}
+
+test "argon2 hashes and verifies" {
+    final password = "my-secure-password";
+    final hash = argon2(password) ! {
+        std\assert(false, "argon2 failed: {}", .{error});
+        return;
+    };
+    final valid = verifyArgon2(password, hash) ! {
+        std\assert(false, "verifyArgon2 failed: {}", .{error});
+        return;
+    };
+    std\assert(valid, "argon2 verification should succeed for correct password");
+}
+
+test "argon2 fails for wrong password" {
+    final password = "my-secure-password";
+    final wrong = "wrong-password";
+    final hash = argon2(password) ! {
+        std\assert(false, "argon2 failed: {}", .{error});
+        return;
+    };
+    final valid = verifyArgon2(wrong, hash) ! {
+        std\assert(false, "verifyArgon2 failed: {}", .{error});
+        return;
+    };
+    std\assert(!valid, "argon2 verification should fail for wrong password");
+}
+
+test "argon2 handles invalid hash" {
+    final result = verifyArgon2("password", "invalid-hash");
+    if (result -> _) {
+        std\assert(false, "verifyArgon2 should fail for invalid hash");
+    } else {
+        // Expected error – test passes
+    }
 }
 
