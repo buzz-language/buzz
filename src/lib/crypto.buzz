@@ -40,4 +40,4 @@ export extern fun argon2(password: str) > str;
 /// @param password The password to verify
 /// @param hash The encoded hash string from argon2id()
 /// @return true if the password matches the hash
-export extern fun verifyArgon2(password: str, hash: str) > bool;
+export extern fun verifyArgon2(password: str, hash: str) > bool !> errors\InvalidArgumentError;
