@@ -40,7 +40,7 @@ pub export fn timeFormat(ctx: *api.NativeCtx) callconv(.c) c_int {
 
     const epoch = std.Io.Clock.Timestamp.fromNanoseconds(@as(i96, seconds) * 1_000_000_000 + @as(i96, nanos));
 
-    var buf: [64]u8 = undefined
+    var buf: [64]u8 = undefined;
     const formatted = std.Io.Clock.Timestamp.formatNumber(epoch, "{s}", &buf) catch {
         ctx.vm.pushError("errors.UnexpectedError", "Failed to format time");
         return -1;
