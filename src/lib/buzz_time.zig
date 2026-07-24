@@ -35,7 +35,7 @@ pub export fn timeFormat(ctx: *api.NativeCtx) callconv(.c) c_int {
         return -1;
     };
 
-    const seconds: i64 = @intFromFloat(@floor(ts / 1000.0)));
+    const seconds: i64 = @intFromFloat(@floor(ts / 1000.0));
     const nanos: i64 = @intFromFloat(@mod(ts, 1000.0) * 1_000_000));
 
     const epoch = std.Io.Clock.Timestamp.fromNanoseconds(@as(i96, seconds) * 1_000_000_000 + @as(i96, nanos));
