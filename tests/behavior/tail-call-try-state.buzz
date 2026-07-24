@@ -1,0 +1,46 @@
+import "buzz:serialize";
+import "buzz:std";
+
+/// Return the numeric amount stored in a serialized resource box.
+fun resourceAmount(box: serialize\Boxed) > int => box.q([ "amount" ])
+    .integerValue();
+
+/// Read several boxed resources after a tail call from inside a try block.
+/// This used to inherit stale try state from the caller's frame and crash while
+/// building the boxed query list literals.
+fun tailCalledDecode(data: serialize\Boxed) > int {
+    final resources = data.q([ "resources" ]);
+    final catnip = resourceAmount(resources.q([ "catnip" ]));
+    final wood = resourceAmount(resources.q([ "wood" ]));
+    final minerals = resourceAmount(resources.q([ "minerals" ]));
+    final science = resourceAmount(resources.q([ "science" ]));
+    final parchment = resourceAmount(resources.q([ "parchment" ]));
+    final beam = resourceAmount(resources.q([ "beam" ]));
+    final slab = resourceAmount(resources.q([ "slab" ]));
+    return catnip + wood + minerals + science + parchment + beam + slab;
+}
+
+/// Decode JSON inside a try block and tail-call into the boxed resource reader.
+/// The tail-called function must not inherit this frame's try scope.
+fun decodeWithinTry(json: str) > int {
+    try {
+        final data = serialize\jsonDecode(json);
+        return tailCalledDecode(data);
+    } catch {
+        return -1;
+    }
+
+    return -2;
+}
+
+test "tail call clears inherited try state" {
+    final total =
+        decodeWithinTry(
+            "\{\"resources\":\{\"catnip\":\{\"amount\":1},\"wood\":\{\"amount\":2},\"minerals\":\{\"amount\":3},\"science\":\{\"amount\":4},\"parchment\":\{\"amount\":5},\"beam\":\{\"amount\":6},\"slab\":\{\"amount\":7}}}"
+        );
+
+    std\assert(
+        total == 28,
+        message: "tail-called frame should not inherit try state"
+    );
+}
