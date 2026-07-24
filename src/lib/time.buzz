@@ -1,5 +1,7 @@
 namespace time;
 
+import "buzz:errors";
+
 /// Real-time (wall-clock) in milliseconds since Unix epoch
 export extern fun now() > double;
 
@@ -8,10 +10,3 @@ export extern fun monotonic() > double;
 
 /// Cpu time used by the current process in milliseconds
 export extern fun cpu() > double !> errors\UnexpectedError;
-
-/// Format a timestamp as ISO 8601 string
-export extern fun format(timestamp: double) > str;
-
-/// Parse a ISO 8601 string as timestamp
-/// returns the timestamp as a double
-export extern fun parse(iso: str) > double;
