@@ -775,6 +775,9 @@ export fn bz_newQualifiedObjectInstance(self: *VM, qualified_name: [*]const u8, 
         @panic("Could not create error");
     };
 
+    // Keep the new instance rooted while cloning defaults may allocate.
+    self.push(instance.toValue());
+
     // Set instance fields with default values
     for (object.defaults, 0..) |default, idx| {
         if (default) |udefault| {
@@ -786,7 +789,7 @@ export fn bz_newQualifiedObjectInstance(self: *VM, qualified_name: [*]const u8, 
         }
     }
 
-    return instance.toValue();
+    return self.pop();
 }
 
 fn instanciateError(
@@ -890,6 +893,9 @@ export fn bz_newObjectInstance(vm: *VM, object_value: v.Value, typedef_value: v.
         ) catch @panic("Out of memory"),
     ) catch @panic("Could not instanciate object");
 
+    // Keep the new instance rooted while cloning defaults may allocate.
+    vm.push(instance.toValue());
+
     // If not anonymous, set default fields
     if (object) |uobject| {
         for (uobject.defaults, 0..) |default, idx| {
@@ -903,7 +909,7 @@ export fn bz_newObjectInstance(vm: *VM, object_value: v.Value, typedef_value: v.
         }
     }
 
-    return instance.toValue();
+    return vm.pop();
 }
 
 export fn bz_getObjectField(object_value: v.Value, field_idx: usize) callconv(.c) v.Value {
