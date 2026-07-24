@@ -3,19 +3,29 @@ import "buzz:time";
 
 test "now returns a positive number" {
     final now = time\now();
-    std\assert(now > 0, message: "now should be greater than 0");
+    std\assert(
+         now > 0, 
+         message: "now should be greater than 0"
+    );
 }
 
 test "format and parse roundtrip" {
     final original = time\now();
     final formatted = time\format(original) catch from {
-      std\assert(false, message: "format failed");
-       return;
+      std\assert(
+            false, 
+            message: "format failed"
+       );
       };
-    final parsed = time\parse(formatted) catch {
-        std\assert(false, message: "parse failed");
-        return;
+    final parsed = time\parse(formatted) catch from {
+        std\assert(
+           false, 
+           message: "parse failed"
+        );
     };
     final diff = original - parsed;
-    std\assert(diff < 1000, message: "roundtrip error should be less than 1 second");
+    std\assert(
+          diff < 1000, 
+          message: "roundtrip error should be less than 1 second"
+    );
 }
