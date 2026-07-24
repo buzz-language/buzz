@@ -23,6 +23,27 @@ static int argCount(NativeCtx *ctx) {
     return 1;
 }
 
+static int instantiateDefaultedObject(NativeCtx *ctx) {
+    Value object_value = bz_peek(ctx->vm, 1);
+    Value typedef_value = bz_peek(ctx->vm, 0);
+    Integer total = 0;
+
+    for (int i = 0; i < 20000; i++) {
+        Value instance = bz_newObjectInstance(
+            ctx->vm,
+            object_value,
+            typedef_value
+        );
+        Value tokens = bz_getObjectInstanceProperty(instance, 0);
+
+        total += (Integer)bz_listLen(tokens);
+    }
+
+    bz_push(ctx->vm, bz_valueFromInteger(total));
+
+    return 1;
+}
+
 NativeFn buzz_c_api(const char *symbol) {
     if (strcmp(symbol, "add") == 0) {
         return add;
@@ -34,6 +55,10 @@ NativeFn buzz_c_api(const char *symbol) {
 
     if (strcmp(symbol, "argCount") == 0) {
         return argCount;
+    }
+
+    if (strcmp(symbol, "instantiateDefaultedObject") == 0) {
+        return instantiateDefaultedObject;
     }
 
     return 0;

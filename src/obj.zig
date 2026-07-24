@@ -1571,16 +1571,20 @@ pub const ObjObjectInstance = struct {
         type_def: *ObjTypeDef,
         gc: *GC,
     ) !Self {
+        const fields = try gc.allocateMany(
+            Value,
+            type_def.resolved_type.?.ObjectInstance.of
+                .resolved_type.?.Object
+                .propertiesCount(),
+        );
+
+        @memset(fields, Value.Null);
+
         return .{
             .vm = vm,
             .object = object,
             .type_def = type_def,
-            .fields = try gc.allocateMany(
-                Value,
-                type_def.resolved_type.?.ObjectInstance.of
-                    .resolved_type.?.Object
-                    .propertiesCount(),
-            ),
+            .fields = fields,
         };
     }
 
@@ -1759,15 +1763,23 @@ pub const ObjObject = struct {
     property_count: ?usize = 0,
 
     pub fn init(allocator: Allocator, type_def: *ObjTypeDef) !Self {
+        const fields = try allocator.alloc(
+            Value,
+            type_def.resolved_type.?.Object.fields.count(),
+        );
+        errdefer allocator.free(fields);
+
+        const defaults = try allocator.alloc(
+            ?Value,
+            type_def.resolved_type.?.Object.propertiesCount(),
+        );
+
+        @memset(fields, Value.Void);
+        @memset(defaults, null);
+
         const self = Self{
-            .fields = try allocator.alloc(
-                Value,
-                type_def.resolved_type.?.Object.fields.count(),
-            ),
-            .defaults = try allocator.alloc(
-                ?Value,
-                type_def.resolved_type.?.Object.propertiesCount(),
-            ),
+            .fields = fields,
+            .defaults = defaults,
             .type_def = type_def,
         };
 
@@ -5925,24 +5937,38 @@ pub fn cloneObject(obj: *Obj, vm: *VM) !Value {
 
         .List => {
             const list = ObjList.cast(obj).?;
+            var items = try list.items.clone(vm.gc.allocator);
+            errdefer items.deinit(vm.gc.allocator);
+
+            const methods = try vm.gc.allocator.alloc(?*ObjNative, list.methods.len);
+            errdefer vm.gc.allocator.free(methods);
+
+            @memcpy(methods, list.methods);
 
             return (try vm.gc.allocateObject(
                 ObjList{
                     .type_def = list.type_def,
-                    .items = try list.items.clone(vm.gc.allocator),
-                    .methods = list.methods,
+                    .items = items,
+                    .methods = methods,
                 },
             )).toValue();
         },
 
         .Map => {
             const map = ObjMap.cast(obj).?;
+            var cloned_map = try map.map.clone(vm.gc.allocator);
+            errdefer cloned_map.deinit(vm.gc.allocator);
+
+            const methods = try vm.gc.allocator.alloc(?*ObjNative, map.methods.len);
+            errdefer vm.gc.allocator.free(methods);
+
+            @memcpy(methods, map.methods);
 
             return (try vm.gc.allocateObject(
                 ObjMap{
                     .type_def = map.type_def,
-                    .map = try map.map.clone(vm.gc.allocator),
-                    .methods = map.methods,
+                    .map = cloned_map,
+                    .methods = methods,
                 },
             )).toValue();
         },

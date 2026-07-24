@@ -3084,6 +3084,9 @@ pub const VM = struct {
             unreachable;
         };
 
+        // Keep the new instance rooted while cloning defaults may allocate.
+        self.push(obj_instance.toValue());
+
         // If not anonymous, set default fields
         if (object) |uobject| {
             // Set instance fields with default values
@@ -3103,8 +3106,6 @@ pub const VM = struct {
                 }
             }
         }
-
-        self.push(obj_instance.toValue());
 
         const frame = self.currentFrame().?;
         const next_full_instruction = self.readInstruction(frame);
