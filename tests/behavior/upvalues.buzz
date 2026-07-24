@@ -1,4 +1,10 @@
 import "buzz:std";
+import "buzz:gc";
+
+enum CapturedEnum {
+    one,
+    two,
+}
 
 fun upvals() > fun () {
     final upvalue = 12;
@@ -9,4 +15,18 @@ fun upvals() > fun () {
 
 test "Upvalues" {
     upvals()();
+}
+
+fun captureEnumCase() > fun () > CapturedEnum {
+    final captured = CapturedEnum.two;
+
+    return fun () > CapturedEnum => captured;
+}
+
+test "Closed upvalues can capture enum cases through GC" {
+    _ = captureEnumCase();
+
+    gc\collect();
+
+    std\assert(true, message: "collecting discarded closures with enum captures does not corrupt GC");
 }

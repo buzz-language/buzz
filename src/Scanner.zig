@@ -168,6 +168,8 @@ pub fn scanToken(self: *Self) Allocator.Error!Token {
 
 fn skipWhitespaces(self: *Self) void {
     while (true) {
+        self.simdHorizontalSkipWhitespaces();
+
         const char = self.peek();
 
         switch (char) {
@@ -202,6 +204,32 @@ fn skipWhitespaces(self: *Self) void {
                 }
             },
             else => return,
+        }
+    }
+}
+
+fn simdHorizontalSkipWhitespaces(self: *Self) void {
+    if (std.simd.suggestVectorLength(u8)) |lanes| {
+        const V = @Vector(lanes, u8);
+
+        while (self.source[self.current.offset..].len >= lanes) {
+            const chunk: V = @bitCast(self.source[self.current.offset..][0..lanes].*);
+            const one: @Vector(lanes, u1) = @splat(1);
+            const zero: @Vector(lanes, u1) = @splat(0);
+
+            const is_space = @select(u1, chunk == @as(V, @splat(' ')), one, zero);
+            const is_cr = @select(u1, chunk == @as(V, @splat('\r')), one, zero);
+            const is_tab = @select(u1, chunk == @as(V, @splat('\t')), one, zero);
+            const horizontal = is_space | is_cr | is_tab;
+
+            if (std.simd.firstIndexOfValue(horizontal, 0)) |first_non_horizontal| {
+                self.current.offset += first_non_horizontal;
+                self.current.column += first_non_horizontal;
+                return;
+            }
+
+            self.current.offset += lanes;
+            self.current.column += lanes;
         }
     }
 }
@@ -293,7 +321,52 @@ fn atIdentifier(self: *Self) Token {
     };
 }
 
+fn simdPlainIdentifier(self: *Self) void {
+    if (std.simd.suggestVectorLength(u8)) |lanes| {
+        const V = @Vector(lanes, u8);
+
+        while (self.source[self.current.offset..].len >= lanes) {
+            const chunk: V = @bitCast(self.source[self.current.offset..][0..lanes].*);
+            const one: @Vector(lanes, u1) = @splat(1);
+            const zero: @Vector(lanes, u1) = @splat(0);
+            const lowercased: V = chunk | @as(V, @splat(0x20));
+
+            const is_alpha = @select(
+                u1,
+                (lowercased -% @as(V, @splat('a'))) <= @as(V, @splat('z' - 'a')),
+                one,
+                zero,
+            );
+            const is_digit = @select(
+                u1,
+                (chunk -% @as(V, @splat('0'))) <= @as(V, @splat(9)),
+                one,
+                zero,
+            );
+            const is_underscore = @select(
+                u1,
+                chunk == @as(V, @splat('_')),
+                one,
+                zero,
+            );
+
+            const is_plain_identifier = is_alpha | is_digit | is_underscore;
+
+            if (std.simd.firstIndexOfValue(is_plain_identifier, 0)) |first_non_identifier_char| {
+                self.current.offset += first_non_identifier_char;
+                self.current.column += first_non_identifier_char;
+                return;
+            }
+
+            self.current.offset += lanes;
+            self.current.column += lanes;
+        }
+    }
+}
+
 fn identifier(self: *Self) Token {
+    self.simdPlainIdentifier();
+
     while (isLetter(self.peek()) or isNumber(self.peek()) or self.peek() == '_') {
         _ = self.advance();
     }
@@ -318,13 +391,47 @@ fn identifier(self: *Self) Token {
     }
 }
 
-fn number(self: *Self) Token {
-    var peeked: u8 = self.peek();
-    while (isNumber(peeked) or peeked == '_') {
-        _ = self.advance();
+fn simdNumber(self: *Self) void {
+    if (std.simd.suggestVectorLength(u8)) |lanes| {
+        const V = @Vector(lanes, u8);
 
-        peeked = self.peek();
+        while (self.source[self.current.offset..].len >= lanes) {
+            const chunk: V = @bitCast(self.source[self.current.offset..][0..lanes].*);
+            const one: @Vector(lanes, u1) = @splat(1);
+            const zero: @Vector(lanes, u1) = @splat(0);
+
+            const is_digit = @select(
+                u1,
+                (chunk -% @as(V, @splat('0'))) <= @as(V, @splat(9)),
+                one,
+                zero,
+            );
+            const is_underscore = @select(
+                u1,
+                chunk == @as(V, @splat('_')),
+                one,
+                zero,
+            );
+
+            const is_number = is_digit | is_underscore;
+
+            if (std.simd.firstIndexOfValue(is_number, 0)) |first_non_number_char| {
+                self.current.offset += first_non_number_char;
+                self.current.column += first_non_number_char;
+                return;
+            }
+
+            self.current.offset += lanes;
+            self.current.column += lanes;
+        }
     }
+}
+
+fn number(self: *Self) Token {
+    self.simdNumber();
+
+    while (isNumber(self.peek()) or self.peek() == '_')
+        _ = self.advance();
 
     if (self.source[self.current.offset - 1] == '_') {
         return self.makeToken(.Error, .{ .String = "'_' must be between digits" });
@@ -335,12 +442,10 @@ fn number(self: *Self) Token {
         is_double = true;
         _ = self.advance(); // Consume .
 
-        peeked = self.peek();
-        while (isNumber(peeked) or peeked == '_') {
-            _ = self.advance();
+        self.simdNumber();
 
-            peeked = self.peek();
-        }
+        while (isNumber(self.peek()) or self.peek() == '_')
+            _ = self.advance();
     }
 
     if (self.source[self.current.offset - 1] == '_') {
