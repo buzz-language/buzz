@@ -2,21 +2,21 @@ const api = @import("buzz_api.zig");
 const std = @import("std");
 
 pub export fn timeNow(ctx: *api.NativeCtx) callconv(.c) c_int {
-    const ts = std.Io.Clock.now(ctx.getIo(), .real);
+    const ts = std.Io.Clock.now(.real, ctx.getIo());
     const ms = ts.toMilliseconds();
     ctx.vm.bz_push(.fromDouble(@floatFromInt(ms)));
     return 1;
 }
 
 pub export fn timeMonotonic(ctx: *api.NativeCtx) callconv(.c) c_int {
-    const ts = std.Io.Clock.now(ctx.getIo(), .awake);
+    const ts = std.Io.Clock.now(.awake, ctx.getIo());
     const ms = ts.toMilliseconds();
     ctx.vm.bz_push(.fromDouble(@floatFromInt(ms)));
     return 1;
 }
 
 pub export fn timeCpu(ctx: *api.NativeCtx) callconv(.c) c_int {
-    const ts = std.Io.Clock.now(ctx.getIo(), .cpu_process) catch {
+    const ts = std.Io.Clock.now(.cpu_process, ctx.getIo()) catch {
         ctx.vm.pushError("errors.UnexpectedError", "CPU clock not available");
         return -1;
     };
