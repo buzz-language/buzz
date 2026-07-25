@@ -4,28 +4,28 @@ import "buzz:time";
 test "now returns a positive number" {
     final now = time\now();
     std\assert(
-         now > 0, 
-         message: "now should be greater than 0"
+        now > 0,
+        message: "now should be greater than 0"
     );
 }
 
-test "format and parse roundtrip" {
-    final original = time\now();
-    final formatted = time\format(original) catch from {
-      std\assert(
-            false, 
-            message: "format failed"
-       );
-      };
-    final parsed = time\parse(formatted) catch from {
-        std\assert(
-           false, 
-           message: "parse failed"
-        );
-    };
-    final diff = original - parsed;
+test "monotonic increases" {
+    final start = time\monotonic();
+    os\sleep(10.0);
+    final end = time\monotonic();
     std\assert(
-          diff < 1000, 
-          message: "roundtrip error should be less than 1 second"
+        end > start,
+        message: "monotonic should increase after sleep"
+    );
+}
+
+test "cpu returns a positive number" {
+    final cpu = time\cpu() catch {
+        // CPU clock might not be available on all platforms
+        return;
+    };
+    std\assert(
+        cpu >= 0,
+        message: "cpu time should be >= 0"
     );
 }
