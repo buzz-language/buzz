@@ -301,6 +301,18 @@ pub const Fiber = struct {
         self.status = .Running;
     }
 
+    fn finishPreviousInstruction(vm: *VM, new_top: Value) void {
+        if (vm.readPreviousInstruction()) |full_instruction| {
+            if (VM.getCode(full_instruction) == .OP_FIBER_FOREACH) {
+                _ = vm.pop();
+
+                const value_slot: *Value = @ptrCast(vm.current_fiber.stack_top - 2);
+
+                value_slot.* = new_top;
+            }
+        }
+    }
+
     pub fn yield(self: *Self, vm: *VM) void {
         std.debug.assert(self.status == .Running);
 
@@ -318,20 +330,7 @@ pub const Fiber = struct {
         self.status = .Yielded;
 
         // Do we need to finish OP_CODE that triggered the yield?
-        const full_instruction = vm.readPreviousInstruction();
-        if (full_instruction) |ufull_instruction| {
-            const instruction = VM.getCode(ufull_instruction);
-            switch (instruction) {
-                .OP_FIBER_FOREACH => {
-                    _ = vm.pop();
-
-                    const value_slot: *Value = @ptrCast(vm.current_fiber.stack_top - 2);
-
-                    value_slot.* = top;
-                },
-                else => {},
-            }
-        }
+        finishPreviousInstruction(vm, top);
     }
 
     pub fn @"resume"(self: *Self, vm: *VM) !void {
@@ -403,21 +402,7 @@ pub const Fiber = struct {
         }
 
         // Do we need to finish OP_CODE that triggered the yield?
-        const full_instruction = vm.readPreviousInstruction();
-        if (full_instruction) |ufull_instruction| {
-            const instruction = VM.getCode(ufull_instruction);
-            switch (instruction) {
-                .OP_FIBER_FOREACH => {
-                    // We don't care about the returned value
-                    _ = vm.pop();
-
-                    const value_slot: *Value = @ptrCast(vm.current_fiber.stack_top - 2);
-
-                    value_slot.* = Value.Null;
-                },
-                else => {},
-            }
-        }
+        finishPreviousInstruction(vm, .Sentinel);
     }
 };
 
@@ -704,6 +689,7 @@ pub const VM = struct {
     const op_table = [@typeInfo(Chunk.OpCode).@"enum".fields.len]OpFn{
         OP_CONSTANT,
         OP_NULL,
+        OP_SENTINEL,
         OP_VOID,
         OP_TRUE,
         OP_FALSE,
@@ -960,6 +946,23 @@ pub const VM = struct {
 
     fn OP_NULL(self: *Self, frame: *CallFrame, _: u32, _: Chunk.OpCode, _: u24) void {
         self.push(.Null);
+
+        const next_full_instruction = self.readInstruction(frame);
+        @call(
+            dispatch_call_modifier,
+            dispatch,
+            .{
+                self,
+                frame,
+                next_full_instruction,
+                getCode(next_full_instruction),
+                getArg(next_full_instruction),
+            },
+        );
+    }
+
+    fn OP_SENTINEL(self: *Self, frame: *CallFrame, _: u32, _: Chunk.OpCode, _: u24) void {
+        self.push(.Sentinel);
 
         const next_full_instruction = self.readInstruction(frame);
         @call(
@@ -4300,7 +4303,7 @@ pub const VM = struct {
         }) |new_index|
             .fromInteger(new_index)
         else
-            .Null;
+            .Sentinel;
 
         // Set new value
         if (key_slot.*.isInteger()) {
@@ -4343,7 +4346,7 @@ pub const VM = struct {
         }) |new_index|
             .fromInteger(new_index)
         else
-            .Null;
+            .Sentinel;
 
         // Set new value
         if (key_slot.*.isInteger()) {
@@ -4372,12 +4375,12 @@ pub const VM = struct {
         if (value_slot.integerOrNull()) |index| {
             if (range.low < range.high) {
                 value_slot.* = if (index + 1 >= range.high)
-                    .Null
+                    .Sentinel
                 else
                     .fromInteger(index + 1);
             } else {
                 value_slot.* = if (index - 1 <= range.high)
-                    .Null
+                    .Sentinel
                 else
                     .fromInteger(index - 1);
             }
@@ -4413,7 +4416,7 @@ pub const VM = struct {
             self.panic("Out of memory");
             unreachable;
         };
-        value_slot.* = (if (next_case) |new_case| .fromObj(new_case.toObj()) else .Null);
+        value_slot.* = if (next_case) |new_case| .fromObj(new_case.toObj()) else .Sentinel;
 
         const frame = self.currentFrame().?;
         const next_full_instruction = self.readInstruction(frame);
@@ -4434,13 +4437,12 @@ pub const VM = struct {
         const key_slot: *Value = @ptrCast(self.current_fiber.stack_top - 3);
         const value_slot: *Value = @ptrCast(self.current_fiber.stack_top - 2);
         var map: *obj.ObjMap = self.peek(0).obj().access(obj.ObjMap, .Map, self.gc).?;
-        const current_key = if (!key_slot.*.isNull()) key_slot.* else null;
 
-        const next_key = map.rawNext(current_key);
-        key_slot.* = if (next_key) |unext_key| unext_key else .Null;
+        const next_key = map.rawNext(key_slot.*);
+        key_slot.* = next_key;
 
-        if (next_key) |unext_key| {
-            value_slot.* = map.map.get(unext_key) orelse .Null;
+        if (!next_key.isSentinel()) {
+            value_slot.* = map.map.get(next_key) orelse .Null;
         }
 
         const frame = self.currentFrame().?;
@@ -4463,7 +4465,7 @@ pub const VM = struct {
         var fiber = self.peek(0).obj().access(obj.ObjFiber, .Fiber, self.gc).?;
 
         if (fiber.fiber.status == .Over) {
-            value_slot.* = .Null;
+            value_slot.* = .Sentinel;
         } else {
             fiber.fiber.@"resume"(self) catch {
                 self.panic("Out of memory");

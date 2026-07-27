@@ -45,6 +45,7 @@ This release brings a lot of useful tools to write buzz code: LSP, formatter and
 - `pattern.matchAgainst` returns now a list of `obj{ start: int, end: int, capture: str }` and `matchAllAgainst` a list of those lists
 - Tuples no longer require free form identifier to access their properties: `tuple.@"0"` can now be `tuple.0`
 - `as?` now warns when the cast target is already optional, and `as!` warns when used with an optional target
+- Removed `map.next`
 
 ### Imports
 - Import do rely on searchers any more, instead the import path provides a deterministic way of finding the imported script

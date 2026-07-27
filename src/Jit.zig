@@ -5434,11 +5434,11 @@ fn generateForEach(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
             },
         );
 
-        // If next key is null stop, otherwise do loop
+        // If next value is the sentinel stop, otherwise do loop
         self.BEQ(
             m.MIR_new_label_op(self.ctx, out_label),
             try self.LOAD(value_ptr),
-            m.MIR_new_uint_op(self.ctx, Value.Null.val),
+            m.MIR_new_uint_op(self.ctx, Value.Sentinel.val),
         );
     } else if (iterable_type_def.?.def_type == .Range) {
         try self.buildExternApiCall(
@@ -5454,7 +5454,7 @@ fn generateForEach(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
         self.BEQ(
             m.MIR_new_label_op(self.ctx, out_label),
             try self.LOAD(value_ptr),
-            m.MIR_new_uint_op(self.ctx, Value.Null.val),
+            m.MIR_new_uint_op(self.ctx, Value.Sentinel.val),
         );
     } else {
         // The `next` method will store the new key in the key local
@@ -5481,11 +5481,11 @@ fn generateForEach(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
                 },
         );
 
-        // If next key is null stop, otherwise loop
+        // If the iteration state slot is the sentinel stop, otherwise loop
         self.BEQ(
             m.MIR_new_label_op(self.ctx, out_label),
             try self.LOAD(key_ptr),
-            m.MIR_new_uint_op(self.ctx, Value.Null.val),
+            m.MIR_new_uint_op(self.ctx, Value.Sentinel.val),
         );
     }
 

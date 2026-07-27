@@ -1433,8 +1433,8 @@ export fn bz_stringNext(string_value: v.Value, index: *v.Value, vm: *VM) callcon
         return (vm.gc.copyString(&[_]u8{string.string[@as(usize, @intCast(new_index))]}) catch @panic("Could not iterate on string")).toValue();
     }
 
-    index.* = v.Value.Null;
-    return v.Value.Null;
+    index.* = v.Value.Sentinel;
+    return v.Value.Sentinel;
 }
 
 export fn bz_listNext(list_value: v.Value, index: *v.Value, _: *VM) callconv(.c) v.Value {
@@ -1447,8 +1447,8 @@ export fn bz_listNext(list_value: v.Value, index: *v.Value, _: *VM) callconv(.c)
         return list.items.items[@as(usize, @intCast(new_index))];
     }
 
-    index.* = v.Value.Null;
-    return v.Value.Null;
+    index.* = v.Value.Sentinel;
+    return v.Value.Sentinel;
 }
 
 export fn bz_rangeNext(range_value: v.Value, index_slot: v.Value) callconv(.c) v.Value {
@@ -1457,12 +1457,12 @@ export fn bz_rangeNext(range_value: v.Value, index_slot: v.Value) callconv(.c) v
     if (index_slot.integerOrNull()) |index| {
         if (range.low < range.high) {
             return if (index + 1 >= range.high)
-                v.Value.Null
+                v.Value.Sentinel
             else
                 v.Value.fromInteger(index + 1);
         } else {
             return if (index - 1 <= range.high)
-                v.Value.Null
+                v.Value.Sentinel
             else
                 v.Value.fromInteger(index - 1);
         }
@@ -1473,15 +1473,14 @@ export fn bz_rangeNext(range_value: v.Value, index_slot: v.Value) callconv(.c) v
 
 export fn bz_mapNext(map_value: v.Value, key: *v.Value) callconv(.c) v.Value {
     const map = o.ObjMap.cast(map_value.obj()).?;
+    const next_key = map.rawNext(if (key.isNull()) v.Value.Sentinel else key.*);
+    key.* = next_key;
 
-    if (map.rawNext(if (key.isNull()) null else key.*)) |new_key| {
-        key.* = new_key;
-
-        return map.map.get(new_key) orelse v.Value.Null;
+    if (!next_key.isSentinel()) {
+        return map.map.get(next_key) orelse v.Value.Null;
     }
 
-    key.* = v.Value.Null;
-    return v.Value.Null;
+    return v.Value.Sentinel;
 }
 
 export fn bz_enumNext(enum_value: v.Value, case: v.Value, vm: *VM) callconv(.c) v.Value {
@@ -1494,7 +1493,7 @@ export fn bz_enumNext(enum_value: v.Value, case: v.Value, vm: *VM) callconv(.c) 
         return new_case.toValue();
     }
 
-    return v.Value.Null;
+    return v.Value.Sentinel;
 }
 
 export fn bz_clone(vm: *VM, value: v.Value) callconv(.c) v.Value {

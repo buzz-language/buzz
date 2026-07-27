@@ -147,10 +147,10 @@ pub export fn pow(ctx: *api.NativeCtx) callconv(.c) c_int {
     const p = ctx.vm.bz_peek(0);
 
     const n_i = if (n.isInteger()) n.integer() else null;
-    const n_f = if (n.isFloat()) n.double() else null;
+    const n_f = if (n.isDouble()) n.double() else null;
 
     const p_i = if (p.isInteger()) p.integer() else null;
-    const p_f = if (p.isFloat()) p.double() else null;
+    const p_f = if (p.isDouble()) p.double() else null;
 
     if (p_f) |pf| {
         ctx.vm.bz_push(.fromDouble(

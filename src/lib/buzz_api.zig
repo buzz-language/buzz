@@ -28,6 +28,7 @@ pub const Double = f64;
 pub const Integer = i48;
 
 // FIXME: can we avoid duplicating this code from value.zig?
+// Internal runtime-only tagged immediates may exist without being surfaced here.
 const Tag = u3;
 const TagBoolean: Tag = 0;
 const TagInteger: Tag = 1;
@@ -96,12 +97,12 @@ pub const Value = extern struct {
         return self.val & (TaggedUpperValueMask | SignMask) == IntegerMask;
     }
 
-    pub fn isFloat(self: Value) bool {
+    pub fn isDouble(self: Value) bool {
         return self.val & TaggedValueMask != TaggedValueMask;
     }
 
     pub fn isNumber(self: Value) bool {
-        return self.isFloat() or self.isInteger();
+        return self.isDouble() or self.isInteger();
     }
 
     pub fn isObj(self: Value) bool {

@@ -2190,11 +2190,6 @@ pub const ObjList = struct {
             .doc = "Returns a list made from applying the callback to each item.",
         },
         .{
-            .name = "next",
-            .native = buzz_builtin.list.next,
-            .doc = "Returns the next iteration index, or null at the end.",
-        },
-        .{
             .name = "pop",
             .native = buzz_builtin.list.pop,
             .doc = "Removes and returns the last item, or null when the list is empty.",
@@ -2448,57 +2443,6 @@ pub const ObjList = struct {
                 try self.methods.put(
                     parser.gc.allocator,
                     "len",
-                    member_def,
-                );
-
-                return member_def;
-            } else if (mem.eql(u8, method, "next")) {
-                var parameters = std.AutoArrayHashMapUnmanaged(*ObjString, *ObjTypeDef){};
-
-                // We omit first arg: it'll be OP_SWAPed in and we already parsed it
-                // It's always the list.
-
-                // `key` arg is number
-                try parameters.put(
-                    parser.gc.allocator,
-                    try parser.gc.copyString("key"),
-                    try parser.gc.type_registry.getTypeDef(
-                        ObjTypeDef{
-                            .def_type = .Integer,
-                            .optional = true,
-                        },
-                    ),
-                );
-                const native_type = try parser.gc.type_registry.getTypeDef(
-                    .{
-                        .def_type = .Function,
-                        .resolved_type = .{
-                            .Function = .{
-                                .id = ObjFunction.FunctionDef.nextId(),
-                                .script_name = try parser.gc.copyString("builtin"),
-                                .name = try parser.gc.copyString("next"),
-                                .parameters = parameters,
-                                // When reached end of list, returns null
-                                .return_type = try parser.gc.type_registry.getTypeDef(
-                                    ObjTypeDef{
-                                        .def_type = .Integer,
-                                        .optional = true,
-                                    },
-                                ),
-                                .yield_type = parser.gc.type_registry.void_type,
-                                .function_type = .Extern,
-                            },
-                        },
-                    },
-                );
-
-                const member_def = Method{
-                    .type_def = native_type,
-                    .mutable = false,
-                };
-                try self.methods.put(
-                    parser.gc.allocator,
-                    "next",
                     member_def,
                 );
 
@@ -3561,20 +3505,17 @@ pub const ObjMap = struct {
         try gc.markObj(@constCast(self.type_def.toObj()));
     }
 
-    pub fn rawNext(self: *Self, key: ?Value) ?Value {
+    pub fn rawNext(self: *Self, key: Value) Value {
         const map_keys: []Value = self.map.keys();
 
-        if (key) |ukey| {
-            const index: usize = self.map.getIndex(ukey).?;
-
-            if (index < map_keys.len - 1) {
-                return map_keys[index + 1];
-            } else {
-                return null;
-            }
-        } else {
-            return if (map_keys.len > 0) map_keys[0] else null;
+        // Sentinel is the internal start/end marker so real `null` keys remain iterable.
+        if (key.isSentinel()) {
+            return if (map_keys.len > 0) map_keys[0] else Value.Sentinel;
         }
+
+        const index: usize = self.map.getIndex(key).?;
+
+        return if (index < map_keys.len - 1) map_keys[index + 1] else Value.Sentinel;
     }
 
     pub fn deinit(self: *Self, allocator: Allocator) void {
@@ -5547,21 +5488,21 @@ pub const ObjTypeDef = struct {
 
                 try writer.writeAll(")");
 
-                if (function_def.yield_type.def_type != .Void) {
-                    try writer.writeAll(" > ");
-                    try function_def.yield_type.toStringRaw(
-                        writer,
-                        qualified,
-                        show_unresolved,
-                    );
-                }
-
                 try writer.writeAll(" > ");
                 try function_def.return_type.toStringRaw(
                     writer,
                     qualified,
                     show_unresolved,
                 );
+
+                if (function_def.yield_type.def_type != .Void) {
+                    try writer.writeAll(" *> ");
+                    try function_def.yield_type.toStringRaw(
+                        writer,
+                        qualified,
+                        show_unresolved,
+                    );
+                }
 
                 if (function_def.error_types != null and function_def.error_types.?.len > 0) {
                     try writer.writeAll(" !> ");

@@ -23,6 +23,7 @@ struct Value {
     uint64_t val;
 };
 
+/* Internal runtime-only tagged immediates may exist without being surfaced here. */
 #define BZ_TAG_BOOLEAN UINT64_C(0)
 #define BZ_TAG_INTEGER UINT64_C(1)
 #define BZ_TAG_NULL UINT64_C(2)

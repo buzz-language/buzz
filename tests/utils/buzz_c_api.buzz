@@ -6,4 +6,7 @@ export extern fun isNumber(value: any) > bool;
 
 export extern fun argCount(a: int, b: int, c: int) > int;
 
-export extern fun instantiateDefaultedObject(object_value: any, typedef_value: type) > int;
+export extern fun instantiateDefaultedObject(
+    object_value: any,
+    typedef_value: type
+) > int;

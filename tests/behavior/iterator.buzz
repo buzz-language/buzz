@@ -43,3 +43,27 @@ test "dot async call" {
         std\print("i {i}");
     }
 }
+
+fun yieldNullableValues() > void *> int? {
+    _ = yield null;
+    _ = yield 1;
+}
+
+test "foreach on fiber can yield null" {
+    var saw_null = false;
+    var sum = 0;
+
+    foreach (value in &yieldNullableValues()) {
+        if (value == null) {
+            saw_null = true;
+        } else {
+            sum = sum + value!;
+        }
+    }
+
+    std\assert(saw_null, message: "foreach should keep a null fiber yield as data");
+    std\assert(
+        sum == 1,
+        message: "foreach should continue after a null fiber yield"
+    );
+}

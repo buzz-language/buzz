@@ -306,29 +306,6 @@ pub fn sub(ctx: *o.NativeCtx) callconv(.c) c_int {
     return 1;
 }
 
-pub fn next(ctx: *o.NativeCtx) callconv(.c) c_int {
-    const list_value = ctx.vm.peek(1);
-    const list = o.ObjList.cast(list_value.obj()).?;
-    const list_index = ctx.vm.peek(0);
-
-    const next_index: ?v.Integer = list.rawNext(
-        ctx.vm,
-        list_index.integerOrNull(),
-    ) catch {
-        ctx.vm.panic("Out of memory");
-        unreachable;
-    };
-
-    ctx.vm.push(
-        if (next_index) |unext_index|
-            v.Value.fromInteger(unext_index)
-        else
-            v.Value.Null,
-    );
-
-    return 1;
-}
-
 pub fn forEach(ctx: *o.NativeCtx) callconv(.c) c_int {
     const list = o.ObjList.cast(ctx.vm.peek(1).obj()).?;
     const closure = ctx.vm.peek(0);
