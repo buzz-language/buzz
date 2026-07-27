@@ -1994,7 +1994,6 @@ fn generateForEach(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!Ge
             }
         }
     }
-
     _ = try self.generateNode(components.key, breaks);
     _ = try self.generateNode(components.value, breaks);
     _ = try self.generateNode(components.iterable, breaks);

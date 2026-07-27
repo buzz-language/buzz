@@ -4336,7 +4336,6 @@ pub const VM = struct {
 
         // Get next index
         key_slot.* = if (list.rawNext(
-            self,
             if (key_slot.*.isNull()) null else key_slot.integer(),
         ) catch {
             self.panic("Out of memory");

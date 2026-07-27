@@ -1437,11 +1437,10 @@ export fn bz_stringNext(string_value: v.Value, index: *v.Value, vm: *VM) callcon
     return v.Value.Null;
 }
 
-export fn bz_listNext(list_value: v.Value, index: *v.Value, vm: *VM) callconv(.c) v.Value {
+export fn bz_listNext(list_value: v.Value, index: *v.Value, _: *VM) callconv(.c) v.Value {
     const list = o.ObjList.cast(list_value.obj()).?;
 
     if (list.rawNext(
-        vm,
         if (index.isNull()) null else index.integer(),
     ) catch @panic("Could not get next list index")) |new_index| {
         index.* = v.Value.fromInteger(new_index);

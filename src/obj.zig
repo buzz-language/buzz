@@ -2285,15 +2285,10 @@ pub const ObjList = struct {
     }
 
     // Used also by the VM
-    pub fn rawNext(self: *Self, vm: *VM, list_index: ?Integer) !?Integer {
+    pub fn rawNext(self: *Self, list_index: ?Integer) !?Integer {
         if (list_index) |index| {
             if (index < 0 or index >= @as(Integer, @intCast(self.items.items.len))) {
-                try vm.throw(
-                    VM.Error.OutOfBound,
-                    (try vm.gc.copyString("Out of bound access to list")).toValue(),
-                    null,
-                    null,
-                );
+                return null;
             }
 
             return if (index + 1 >= @as(Integer, @intCast(self.items.items.len)))
