@@ -463,12 +463,6 @@ fn freeObj(self: *GC, obj: *o.Obj) (std.mem.Allocator.Error || std.fmt.BufPrintE
         },
         .UpValue => {
             const obj_upvalue = o.ObjUpValue.cast(obj).?;
-            if (obj_upvalue.closed) |value| {
-                if (value.isObj()) {
-                    try freeObj(self, value.obj());
-                }
-            }
-
             free(self, o.ObjUpValue, obj_upvalue);
         },
         .Closure => {
