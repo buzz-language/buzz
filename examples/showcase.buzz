@@ -17,7 +17,7 @@ object Task {
     };
 }
 
-fun scores(tasks: [Task]) > str *> int? {
+fun scores(tasks: [Task]) > str *> int {
     foreach (task in tasks) {
         _ = yield task.score();
     }
@@ -33,7 +33,7 @@ fun main() > void {
 
     var total = 0;
     foreach (score in &scores(tasks)) {
-        total += score ?? 0;
+        total += score;
     }
 
     std\print("completed points: {total}");

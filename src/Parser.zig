@@ -3448,16 +3448,6 @@ fn parseFiberType(self: *Self, generic_types: ?std.AutoArrayHashMapUnmanaged(*ob
     try self.consume(.Comma, "Expected `,` after fiber return type");
     const yield_type = try self.parseTypeDef(generic_types, true);
 
-    const yield_type_def = self.ast.nodes.items(.type_def)[yield_type].?;
-    if (!yield_type_def.optional and yield_type_def.def_type != .Void) {
-        self.reportErrorAtNode(
-            .yield_type,
-            yield_type,
-            "Expected optional type or void",
-            .{},
-        );
-    }
-
     try self.consume(.Greater, "Expected `>` after fiber yield type");
 
     return self.ast.appendNode(
@@ -6939,18 +6929,7 @@ fn function(
             function_typedef.resolved_type.?.Function.generic_types,
             true,
         );
-        const yield_type = self.ast.nodes.items(.type_def)[yield_type_node].?;
-
-        if (!yield_type.optional and yield_type.def_type != .Void) {
-            self.reportErrorAtNode(
-                .yield_type,
-                yield_type_node,
-                "Expected optional type or void",
-                .{},
-            );
-        }
-
-        function_typedef.resolved_type.?.Function.yield_type = yield_type;
+        function_typedef.resolved_type.?.Function.yield_type = self.ast.nodes.items(.type_def)[yield_type_node].?;
 
         break :yield yield_type_node;
     } else null;
@@ -7355,8 +7334,8 @@ fn resumeFiber(self: *Self, _: bool) Error!Ast.Node.Index {
         } else {
             const fiber = fiber_type.?.resolved_type.?.Fiber;
 
-            // Resume returns null if nothing was yielded and/or fiber reached its return statement
-            self.ast.nodes.items(.type_def)[node] = fiber.yield_type;
+            // Resume returns null if nothing was yielded after the fiber was resumed.
+            self.ast.nodes.items(.type_def)[node] = try fiber.yield_type.cloneOptional(&self.gc.type_registry);
         }
     }
 

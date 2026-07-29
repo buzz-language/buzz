@@ -4720,7 +4720,10 @@ pub const ObjTypeDef = struct {
                         type_registry,
                         allocator,
                         visited_ptr,
-                    )).cloneOptional(type_registry),
+                    )).toInstance(
+                        type_registry,
+                        self.resolved_type.?.Fiber.yield_type.isMutable(),
+                    ),
                 };
 
                 const resolved = ObjTypeDef.TypeUnion{ .Fiber = new_fiber_def };
@@ -4961,7 +4964,7 @@ pub const ObjTypeDef = struct {
                         type_registry,
                         old_fun_def.return_type.isMutable(),
                     ),
-                    .yield_type = try (try (try old_fun_def.yield_type.populateGenerics(
+                    .yield_type = try (try old_fun_def.yield_type.populateGenerics(
                         where,
                         origin,
                         generics,
@@ -4972,8 +4975,7 @@ pub const ObjTypeDef = struct {
                         .toInstance(
                         type_registry,
                         old_fun_def.yield_type.isMutable(),
-                    ))
-                        .cloneOptional(type_registry),
+                    ),
                     .error_types = if (error_types) |*types| try types.toOwnedSlice(type_registry.gc.allocator) else null,
                     .parameters = parameters,
                     .defaults = old_fun_def.defaults,

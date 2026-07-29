@@ -1081,8 +1081,8 @@ fn generateCall(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!Gener
         switch (current_function_type) {
             // Even though a function can call a yieldable function without wrapping it in a fiber, the function itself could be called in a fiber
             .Function, .Method, .Anonymous => {
-                // `void?` is used by inferred function types but does not carry a yielded value.
-                const compatible_void_yield = current_function_yield_type.def_type == .Void and yield_type.def_type == .Void;
+                // Non-yielding callees are always valid inside a yielding function.
+                const compatible_void_yield = yield_type.def_type == .Void;
 
                 if (!compatible_void_yield and !current_function_yield_type.strictEql(yield_type)) {
                     self.reporter.reportTypeCheck(

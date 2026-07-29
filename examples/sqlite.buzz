@@ -180,7 +180,7 @@ export object Query {
 
     fun execute(
         db: Database
-    ) > [[Boxed]] *> [Boxed]? !> SQLiteError, errors\ReadWriteError {
+    ) > [[Boxed]] *> [Boxed] !> SQLiteError, errors\ReadWriteError {
         return db.prepare(this).execute();
     }
 }
@@ -190,7 +190,7 @@ export object Statement {
     db: ud,
     stmt: ud,
 
-    fun execute() > [[Boxed]] *> [Boxed]? !> SQLiteError {
+    fun execute() > [[Boxed]] *> [Boxed] !> SQLiteError {
         std\print("Executing query `{this.query}`");
         var code: ResultCode = .Ok;
 

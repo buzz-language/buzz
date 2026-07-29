@@ -1,13 +1,14 @@
 import "buzz:std";
 
 fun main() > void !> any {
-    // Async call, creates a new fiber, yield type must be nullable because resume will return null when nothing yielded
+    // Async call creates a new fiber. `resume` stays optional even when the
+    // declared yield type is not nullable.
     final counter = &count(10);
 
     // A fiber is over when a OP_RETURN as been executed
     var sum = 0;
     while (!counter.over()) {
-        // resume returns null if nothing was yielded and/or fiber is over
+        // resume returns null if the fiber reached return without yielding again
         sum = sum + resume counter ?? 0;
     }
 
@@ -29,9 +30,9 @@ fun main() > void !> any {
 }
 
 /// returns str, yields int
-fun count(n: int) > str *> int? {
+fun count(n: int) > str *> int {
     std\assert(
-        std\currentFiber() is fib<str, int?>,
+        std\currentFiber() is fib<str, int>,
         message: "Can get current fiber"
     );
     std\assert(
@@ -57,7 +58,7 @@ object FiberTask {
 }
 
 /// Yields a method call result without requiring parentheses around the call.
-fun yieldTaskScore(task: FiberTask) > str *> int? {
+fun yieldTaskScore(task: FiberTask) > str *> int {
     _ = yield task.score();
 
     return "Scored task";
@@ -68,6 +69,28 @@ test "yield operand includes method calls" {
 
     std\assert(resume fiber == 8, message: "Yielded method call result");
     std\assert(resolve fiber == "Scored task", message: "Resolved yielding fiber");
+}
+
+fun nullableYield() > str *> int? {
+    _ = yield null;
+
+    return "nullable done";
+}
+
+test "resume null yield requires fiber.over to interpret null" {
+    final fiber = &nullableYield();
+
+    std\assert(resume fiber == null, message: "Yielded null reaches resume");
+    std\assert(!fiber.over(), message: "Fiber is not over after yielding null");
+    std\assert(
+        resume fiber == null,
+        message: "Resume still returns null when the fiber finishes"
+    );
+    std\assert(fiber.over(), message: "Fiber is over after the final resume");
+    std\assert(
+        resolve fiber == "nullable done",
+        message: "Return value stays available after checking over"
+    );
 }
 
 fun fail() > bool !> str {
@@ -119,7 +142,7 @@ test "Wrapping call inside complex expressions" {
 }
 
 /// Top level of a regular-call chain that yields from its deepest callee.
-fun deepYieldA(events: mut [str]) > str *> int? {
+fun deepYieldA(events: mut [str]) > str *> int {
     events.append("a:start");
 
     final fromB = deepYieldB(events, base: 10);
@@ -129,7 +152,7 @@ fun deepYieldA(events: mut [str]) > str *> int? {
 }
 
 /// Second level of a regular-call chain that propagates the yield type.
-fun deepYieldB(events: mut [str], base: int) > int *> int? {
+fun deepYieldB(events: mut [str], base: int) > int *> int {
     final local = base + 1;
     events.append("b:start:{local}");
 
@@ -140,7 +163,7 @@ fun deepYieldB(events: mut [str], base: int) > int *> int? {
 }
 
 /// Third level of a regular-call chain that propagates the yield type.
-fun deepYieldC(events: mut [str], value: int) > int *> int? {
+fun deepYieldC(events: mut [str], value: int) > int *> int {
     final local = value + 2;
     events.append("c:start:{local}");
 
@@ -151,7 +174,7 @@ fun deepYieldC(events: mut [str], value: int) > int *> int? {
 }
 
 /// Deepest regular callee that actually yields values.
-fun deepYieldD(events: mut [str], value: int) > int *> int? {
+fun deepYieldD(events: mut [str], value: int) > int *> int {
     var local = value + 3;
     events.append("d:start:{local}");
 
@@ -218,7 +241,7 @@ object FiberDepthWorker {
     base: int,
 
     /// Method fiber entry that calls another method normally.
-    fun entry(events: mut [str]) > str *> int? {
+    fun entry(events: mut [str]) > str *> int {
         events.append("method:entry");
 
         final total = this.step(events);
@@ -228,7 +251,7 @@ object FiberDepthWorker {
     }
 
     /// Intermediate method that propagates the yield type.
-    fun step(events: mut [str]) > int *> int? {
+    fun step(events: mut [str]) > int *> int {
         events.append("method:step");
 
         return fiberDepthMethodLeaf(events, value: this.base + 1);
@@ -236,7 +259,7 @@ object FiberDepthWorker {
 }
 
 /// Leaf function called by a method chain that yields once.
-fun fiberDepthMethodLeaf(events: mut [str], value: int) > int *> int? {
+fun fiberDepthMethodLeaf(events: mut [str], value: int) > int *> int {
     events.append("method:leaf:{value}");
 
     _ = yield value;
@@ -268,10 +291,10 @@ test "Yield from deep method calls" {
 fun makeYieldingClosure(
     seed: int,
     events: mut [str],
-) > fun () > int *> int? {
+) > fun () > int *> int {
     var captured = seed;
 
-    return fun () > int *> int? {
+    return fun () > int *> int {
         events.append("closure:start:{captured}");
 
         _ = yield captured;
@@ -284,7 +307,7 @@ fun makeYieldingClosure(
 }
 
 /// Fiber entry that invokes a yielding closure through a regular call.
-fun closureYieldEntry(events: mut [str]) > int *> int? {
+fun closureYieldEntry(events: mut [str]) > int *> int {
     final closure = makeYieldingClosure(30, events);
     final value = closureYieldCaller(closure, events);
 
@@ -295,9 +318,9 @@ fun closureYieldEntry(events: mut [str]) > int *> int? {
 
 /// Regular function that calls a yielding closure.
 fun closureYieldCaller(
-    fn: fun () > int *> int?,
+    fn: fun () > int *> int,
     events: mut [str],
-) > int *> int? {
+) > int *> int {
     events.append("closure:caller");
 
     return fn();
