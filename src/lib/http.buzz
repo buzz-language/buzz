@@ -93,7 +93,7 @@ extern fun HttpClientSend(
 /// @private
 extern fun HttpRequestWait(
     request: ud
-) > Response
+) > Response?
     !>
     HttpError,
     errors\SocketError,
@@ -131,7 +131,7 @@ export object Client {
     /// @return Response from the server
     fun send(
         request: mut Request
-    ) > Response *> void
+    ) > Response *> Response?
         !>
         HttpError,
         errors\SocketError,
@@ -141,9 +141,14 @@ export object Client {
         HttpParseError {
         _ = this.start(request);
 
-        yield void;
+        while (true) {
+            if (request.wait() -> response) {
+                _ = yield response;
+                return response;
+            }
 
-        return request.wait();
+            _ = yield void;
+        }
     }
 
     /// Starts a request without waiting for the response.
@@ -201,7 +206,7 @@ export object Request {
 
     /// Waits for a started request to complete.
     /// @return Response from the server
-    fun wait() > Response
+    mut fun wait() > Response?
         !>
         HttpError,
         errors\SocketError,
@@ -214,7 +219,18 @@ export object Request {
         }
 
         if (this.request -> request) {
-            return HttpRequestWait(request);
+            try {
+                final response = HttpRequestWait(request);
+                if (response != null) {
+                    HttpRequestDeinit(request);
+                    this.request = null;
+                }
+                return response;
+            } catch (error: any) {
+                HttpRequestDeinit(request);
+                this.request = null;
+                throw error;
+            }
         }
 
         throw errors\InvalidArgumentError{};
@@ -248,6 +264,7 @@ export object Request {
         this.collected = true;
         if (this.request -> req) {
             HttpRequestDeinit(req);
+            this.request = null;
         }
     }
 }

@@ -1,18 +1,19 @@
 const std = @import("std");
 const api = @import("buzz_api.zig");
+const http_client = @import("buzz_http_client.zig");
 
 const HttpClient = struct {
-    client: std.http.Client,
+    client: http_client,
     arena: std.heap.ArenaAllocator,
 
-    pub fn deinit(self: *HttpClient) void {
+    fn deinit(self: *HttpClient) void {
         self.client.deinit();
         self.arena.deinit();
     }
 };
 
 const HttpRequest = struct {
-    request: std.http.Client.Request,
+    request: http_client.Request,
     extra_headers: std.ArrayList(std.http.Header),
 
     fn deinit(self: *HttpRequest) void {
@@ -26,7 +27,7 @@ fn innerHttpClientNew(ctx: *api.NativeCtx) !c_int {
 
     client.* = .{
         .arena = std.heap.ArenaAllocator.init(api.VM.allocator),
-        .client = std.http.Client{
+        .client = .{
             .io = ctx.getIo(),
             .allocator = api.VM.allocator,
         },
@@ -345,7 +346,6 @@ pub export fn HttpRequestWait(ctx: *api.NativeCtx) callconv(.c) c_int {
             error.Canceled,
             error.SystemResources,
             error.ConnectionResetByPeer,
-            error.WouldBlock,
             error.AccessDenied,
             error.ProcessFdQuotaExceeded,
             error.SystemFdQuotaExceeded,
@@ -370,6 +370,10 @@ pub export fn HttpRequestWait(ctx: *api.NativeCtx) callconv(.c) c_int {
             error.NoAddressReturned,
             error.DetectingNetworkConfigurationFailed,
             => ctx.vm.pushErrorEnum("errors.SocketError", @errorName(err)),
+            error.WouldBlock => {
+                ctx.vm.bz_push(.Null);
+                return 1;
+            },
             error.WriteFailed,
             error.ReadFailed,
             error.StreamTooLong,
