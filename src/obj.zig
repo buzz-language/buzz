@@ -3505,19 +3505,6 @@ pub const ObjMap = struct {
         try gc.markObj(@constCast(self.type_def.toObj()));
     }
 
-    pub fn rawNext(self: *Self, key: Value) Value {
-        const map_keys: []Value = self.map.keys();
-
-        // Sentinel is the internal start/end marker so real `null` keys remain iterable.
-        if (key.isSentinel()) {
-            return if (map_keys.len > 0) map_keys[0] else .Sentinel;
-        }
-
-        const index: usize = self.map.getIndex(key).?;
-
-        return if (index < map_keys.len - 1) map_keys[index + 1] else .Sentinel;
-    }
-
     pub fn deinit(self: *Self, allocator: Allocator) void {
         self.map.deinit(allocator);
         allocator.free(self.methods);

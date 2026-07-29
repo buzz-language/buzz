@@ -173,6 +173,7 @@ pub const Value = extern struct {
     pub extern fn bz_mapGet(map: Value, key: Value) callconv(.c) Value;
     pub extern fn bz_mapConcat(map: Value, other_map: Value, vm: *VM) callconv(.c) Value;
     pub extern fn bz_mapNext(map_value: Value, index: *Value) callconv(.c) Value;
+    pub extern fn bz_mapForeachNext(map_value: Value, key: *Value, value: *Value, index: *Value, vm: *VM) callconv(.c) void;
     pub extern fn bz_setObjectInstanceProperty(instance_value: Value, property_idx: usize, value: Value, vm: *VM) callconv(.c) void;
     pub extern fn bz_getObjectInstanceProperty(instance_value: Value, property_idx: usize) callconv(.c) Value;
     pub extern fn bz_getObjectInstanceMethod(instance_value: Value, method_idx: usize, bind: bool, vm: *VM) callconv(.c) Value;

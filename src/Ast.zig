@@ -247,10 +247,12 @@ pub const Slice = struct {
                     try node_queue.append(allocator, comp.ForEach.body);
                     try node_queue.append(allocator, comp.ForEach.key);
                     try node_queue.append(allocator, comp.ForEach.value);
+                    try node_queue.append(allocator, comp.ForEach.map_index);
                 },
                 .depthFirst => {
                     try node_queue.append(allocator, comp.ForEach.key);
                     try node_queue.append(allocator, comp.ForEach.value);
+                    try node_queue.append(allocator, comp.ForEach.map_index);
                     try node_queue.append(allocator, comp.ForEach.iterable);
                     try node_queue.append(allocator, comp.ForEach.body);
                 },
@@ -2316,6 +2318,7 @@ pub const ForEach = struct {
     iterable: Node.Index,
     key: Node.Index,
     value: Node.Index,
+    map_index: Node.Index,
     body: Node.Index,
     key_omitted: bool,
     label: ?TokenIndex,

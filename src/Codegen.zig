@@ -1996,15 +1996,19 @@ fn generateForEach(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!Ge
     }
     _ = try self.generateNode(components.key, breaks);
     _ = try self.generateNode(components.value, breaks);
+    _ = try self.generateNode(components.map_index, breaks);
     _ = try self.generateNode(components.iterable, breaks);
 
     if (iterable_type_def.def_type == .Map) {
-        // Map foreach uses the key slot as internal iteration state. Starting
-        // from the sentinel avoids colliding with real `null` keys.
-        try self.OP_SENTINEL(locations[node]);
+        // Map foreach uses a hidden local to track the current key index. Start
+        // at -1 so the first iteration advances to index 0.
+        try self.emitConstant(
+            locations[node],
+            Value.fromDouble(-1),
+        );
         try self.OP_SET_LOCAL(
             locations[node],
-            @intCast(node_components[components.key].VarDeclaration.slot),
+            @intCast(node_components[components.map_index].VarDeclaration.slot),
         );
         try self.OP_POP(locations[node]);
     }
@@ -2067,9 +2071,10 @@ fn generateForEach(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!Ge
     );
 
     try self.patchOptJumps(node);
-    // Should have key, [value,] iterable to pop
+    // Foreach always reserves key, value, hidden state, and iterable slots.
     std.debug.assert(
-        self.ast.nodes.items(.ends_scope)[node] != null and self.ast.nodes.items(.ends_scope)[node].?.len == 3,
+        self.ast.nodes.items(.ends_scope)[node] != null and
+            self.ast.nodes.items(.ends_scope)[node].?.len == 4,
     );
     try self.endScope(node);
 

@@ -306,7 +306,8 @@ pub const Fiber = struct {
             if (VM.getCode(full_instruction) == .OP_FIBER_FOREACH) {
                 _ = vm.pop();
 
-                const value_slot: *Value = @ptrCast(vm.current_fiber.stack_top - 2);
+                // Foreach scopes always reserve key, value, hidden state, and iterable.
+                const value_slot: *Value = @ptrCast(vm.current_fiber.stack_top - 3);
 
                 value_slot.* = new_top;
             }
@@ -374,8 +375,6 @@ pub const Fiber = struct {
 
                 vm.current_fiber = parent_fiber;
                 vm.push(top);
-
-                // FIXME: but this means we can do several `resolve fiber`
             },
             .Running => unreachable,
         }
@@ -4287,8 +4286,8 @@ pub const VM = struct {
     }
 
     fn OP_STRING_FOREACH(self: *Self, _: *CallFrame, _: u32, _: Chunk.OpCode, _: u24) void {
-        const key_slot: *Value = @ptrCast(self.current_fiber.stack_top - 3);
-        const value_slot: *Value = @ptrCast(self.current_fiber.stack_top - 2);
+        const key_slot: *Value = @ptrCast(self.current_fiber.stack_top - 4);
+        const value_slot: *Value = @ptrCast(self.current_fiber.stack_top - 3);
         const str = self.peek(0).obj().access(obj.ObjString, .String, self.gc).?;
 
         key_slot.* = if (str.next(
@@ -4333,8 +4332,8 @@ pub const VM = struct {
     }
 
     fn OP_LIST_FOREACH(self: *Self, _: *CallFrame, _: u32, _: Chunk.OpCode, _: u24) void {
-        var key_slot: *Value = @ptrCast(self.current_fiber.stack_top - 3);
-        const value_slot: *Value = @ptrCast(self.current_fiber.stack_top - 2);
+        var key_slot: *Value = @ptrCast(self.current_fiber.stack_top - 4);
+        const value_slot: *Value = @ptrCast(self.current_fiber.stack_top - 3);
         var list = self.peek(0).obj().access(obj.ObjList, .List, self.gc).?;
 
         // Get next index
@@ -4369,7 +4368,7 @@ pub const VM = struct {
     }
 
     fn OP_RANGE_FOREACH(self: *Self, _: *CallFrame, _: u32, _: Chunk.OpCode, _: u24) void {
-        const value_slot: *Value = @ptrCast(self.current_fiber.stack_top - 2);
+        const value_slot: *Value = @ptrCast(self.current_fiber.stack_top - 3);
         const range = self.peek(0).obj().access(obj.ObjRange, .Range, self.gc).?;
 
         if (value_slot.integerOrNull()) |index| {
@@ -4404,7 +4403,7 @@ pub const VM = struct {
     }
 
     fn OP_ENUM_FOREACH(self: *Self, _: *CallFrame, _: u32, _: Chunk.OpCode, _: u24) void {
-        var value_slot: *Value = @ptrCast(self.current_fiber.stack_top - 2);
+        var value_slot: *Value = @ptrCast(self.current_fiber.stack_top - 3);
         const enum_case = if (value_slot.*.isNull())
             null
         else
@@ -4434,15 +4433,44 @@ pub const VM = struct {
     }
 
     fn OP_MAP_FOREACH(self: *Self, _: *CallFrame, _: u32, _: Chunk.OpCode, _: u24) void {
-        const key_slot: *Value = @ptrCast(self.current_fiber.stack_top - 3);
-        const value_slot: *Value = @ptrCast(self.current_fiber.stack_top - 2);
+        const key_slot: *Value = @ptrCast(self.current_fiber.stack_top - 4);
+        const value_slot: *Value = @ptrCast(self.current_fiber.stack_top - 3);
+        const index_slot: *Value = @ptrCast(self.current_fiber.stack_top - 2);
         var map: *obj.ObjMap = self.peek(0).obj().access(obj.ObjMap, .Map, self.gc).?;
 
-        const next_key = map.rawNext(key_slot.*);
-        key_slot.* = next_key;
+        std.debug.assert(index_slot.*.isDouble());
 
-        if (!next_key.isSentinel()) {
-            value_slot.* = map.map.get(next_key) orelse .Null;
+        const current_index: i64 = @intFromFloat(index_slot.*.double());
+        const next_index: i64 = current_index + 1;
+        std.debug.assert(next_index >= 0);
+
+        if (@as(u64, @intCast(next_index)) >= Value.MaxExactDoubleInteger) {
+            self.throw(
+                Error.Custom,
+                (self.gc.copyString("Map foreach index exceeded maximum exact double integer (2^53)") catch {
+                    self.panic("Out of memory");
+                    unreachable;
+                }).toValue(),
+                null,
+                null,
+            ) catch |err| {
+                switch (err) {
+                    Error.RuntimeError => return,
+                    else => {
+                        self.panic("Out of memory");
+                        unreachable;
+                    },
+                }
+            };
+        }
+
+        const next_index_usize: usize = @intCast(next_index);
+        if (next_index_usize >= map.map.count()) {
+            key_slot.* = .Sentinel;
+        } else {
+            key_slot.* = map.map.keys()[next_index_usize];
+            value_slot.* = map.map.values()[next_index_usize];
+            index_slot.* = .fromDouble(@floatFromInt(next_index));
         }
 
         const frame = self.currentFrame().?;
@@ -4461,7 +4489,7 @@ pub const VM = struct {
     }
 
     fn OP_FIBER_FOREACH(self: *Self, _: *CallFrame, _: u32, _: Chunk.OpCode, _: u24) void {
-        const value_slot: *Value = @ptrCast(self.current_fiber.stack_top - 2);
+        const value_slot: *Value = @ptrCast(self.current_fiber.stack_top - 3);
         var fiber = self.peek(0).obj().access(obj.ObjFiber, .Fiber, self.gc).?;
 
         if (fiber.fiber.status == .Over) {

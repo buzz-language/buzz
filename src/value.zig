@@ -10,6 +10,9 @@ pub const Integer = i48;
 const Tag = u3;
 
 pub const Value = extern struct {
+    /// Largest integer magnitude for which every `f64` integer value remains exact.
+    pub const MaxExactDoubleInteger: u64 = 1 << 53;
+
     pub const TagBoolean: Tag = 0;
     pub const TagInteger: Tag = 1;
     pub const TagNull: Tag = 2;

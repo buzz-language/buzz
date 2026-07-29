@@ -10606,7 +10606,16 @@ fn forEachStatement(self: *Self) Error!Ast.Node.Index {
 
     try self.consume(.In, "Expected `in` after `foreach` variables.");
 
-    // Local not usable by user but needed so that locals are correct
+    // Hidden foreach state always occupies the third slot. It is only read for
+    // map iteration, but keeping a fixed layout avoids per-iterable variants.
+    const map_index = try self.implicitVarDeclaration(
+        try self.insertUtilityToken(Token.identifier("$map_index"), true),
+        self.gc.type_registry.double_type,
+        false,
+        false,
+    );
+
+    // Local not usable by user but needed so that locals are correct.
     const iterable_slot = try self.addLocal(
         @intCast(node_slot),
         try self.insertUtilityToken(Token.identifier("$iterable"), true),
@@ -10717,6 +10726,7 @@ fn forEachStatement(self: *Self) Error!Ast.Node.Index {
                 .ForEach = .{
                     .key = key,
                     .value = value.?,
+                    .map_index = map_index,
                     .iterable = iterable,
                     .body = undefined,
                     .key_omitted = key_omitted,

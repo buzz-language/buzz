@@ -49,6 +49,21 @@ enum Hey {
     three,
 }
 
+object ForeachCounter {
+    seen: {int: bool},
+
+    fun count() > int {
+        var total = 0;
+        foreach (key, value in this.seen) {
+            _ = key;
+            _ = value;
+            total += 1;
+        }
+
+        return total;
+    }
+}
+
 test "foreach on enum" {
     var sum = 0;
     foreach (case in Hey) {
@@ -85,4 +100,46 @@ test "Omit key in foreach" {
         sum = sum + n;
     }
     std\assert(sum == 3, message: "Could omit map key");
+}
+
+test "foreach on map in hotspot loop" {
+    final map = {
+        "one": 1,
+        "two": 2,
+        "three": 3,
+    };
+
+    var sum = 0;
+    foreach (_ in 0..300) {
+        foreach (key, value in map) {
+            if (key == "one") {
+                std\assert(
+                    value == 1,
+                    message: "foreach hotspot should keep matching map entries"
+                );
+            }
+
+            sum = sum + value;
+        }
+    }
+
+    std\assert(
+        sum == 1800,
+        message: "foreach hotspot should iterate every map entry"
+    );
+}
+
+test "foreach on late-resolved map field" {
+    final counter = ForeachCounter{
+        seen = {
+            1: true,
+            2: false,
+            3: true,
+        },
+    };
+
+    std\assert(
+        counter.count() == 3,
+        message: "foreach should support map fields resolved after parsing"
+    );
 }

@@ -1473,9 +1473,16 @@ export fn bz_rangeNext(range_value: v.Value, index_slot: v.Value) callconv(.c) v
 
 export fn bz_mapNext(map_value: v.Value, key: *v.Value) callconv(.c) v.Value {
     const map = o.ObjMap.cast(map_value.obj()).?;
-    // Map iteration uses sentinel as the internal start/end marker so real
-    // `null` keys remain iterable for both bytecode and JIT/native callers.
-    const next_key = map.rawNext(key.*);
+    const map_keys = map.map.keys();
+
+    // Sentinel is the external start/end marker here so real `null` keys stay iterable.
+    const next_key = if (key.isSentinel())
+        if (map_keys.len > 0) map_keys[0] else v.Value.Sentinel
+    else next: {
+        const index = map.map.getIndex(key.*) orelse break :next v.Value.Sentinel;
+        break :next if (index + 1 < map_keys.len) map_keys[index + 1] else v.Value.Sentinel;
+    };
+
     key.* = next_key;
 
     if (!next_key.isSentinel()) {
@@ -1483,6 +1490,42 @@ export fn bz_mapNext(map_value: v.Value, key: *v.Value) callconv(.c) v.Value {
     }
 
     return v.Value.Sentinel;
+}
+
+export fn bz_mapForeachNext(
+    map_value: v.Value,
+    key: *v.Value,
+    value: *v.Value,
+    index: *v.Value,
+    vm: *VM,
+) callconv(.c) void {
+    const map = o.ObjMap.cast(map_value.obj()).?;
+
+    std.debug.assert(index.*.isDouble());
+
+    const current_index: i64 = @intFromFloat(index.*.double());
+    const next_index: i64 = current_index + 1;
+    std.debug.assert(next_index >= 0);
+
+    if (@as(u64, @intCast(next_index)) >= v.Value.MaxExactDoubleInteger) {
+        bz_throw(
+            vm,
+            (vm.gc.copyString("Map foreach index exceeded maximum exact double integer (2^53)") catch {
+                vm.panic("Out of memory");
+                unreachable;
+            }).toValue(),
+        );
+    }
+
+    const next_index_usize: usize = @intCast(next_index);
+    if (next_index_usize >= map.map.count()) {
+        key.* = v.Value.Sentinel;
+        return;
+    }
+
+    key.* = map.map.keys()[next_index_usize];
+    value.* = map.map.values()[next_index_usize];
+    index.* = v.Value.fromDouble(@floatFromInt(next_index));
 }
 
 export fn bz_enumNext(enum_value: v.Value, case: v.Value, vm: *VM) callconv(.c) v.Value {
