@@ -3510,12 +3510,12 @@ pub const ObjMap = struct {
 
         // Sentinel is the internal start/end marker so real `null` keys remain iterable.
         if (key.isSentinel()) {
-            return if (map_keys.len > 0) map_keys[0] else Value.Sentinel;
+            return if (map_keys.len > 0) map_keys[0] else .Sentinel;
         }
 
         const index: usize = self.map.getIndex(key).?;
 
-        return if (index < map_keys.len - 1) map_keys[index + 1] else Value.Sentinel;
+        return if (index < map_keys.len - 1) map_keys[index + 1] else .Sentinel;
     }
 
     pub fn deinit(self: *Self, allocator: Allocator) void {

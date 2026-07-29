@@ -109,9 +109,9 @@ fn innerHttpClientSend(ctx: *api.NativeCtx) !c_int {
     const header_values = ctx.vm.bz_peek(1);
     var headers = std.ArrayList(std.http.Header).empty;
     errdefer if (!request_initialized) headers.deinit(api.VM.allocator);
-    var next_header_key = api.Value.Null;
+    var next_header_key = api.Value.Sentinel;
     var next_header_value = header_values.bz_mapNext(&next_header_key);
-    while (next_header_key.val != api.Value.Null.val) : (next_header_value = header_values.bz_mapNext(&next_header_key)) {
+    while (next_header_key.val != api.Value.Sentinel.val) : (next_header_value = header_values.bz_mapNext(&next_header_key)) {
         var key_len: usize = 0;
         const key = next_header_key.bz_valueToString(&key_len) orelse return error.OutOfMemory;
         var value_len: usize = 0;

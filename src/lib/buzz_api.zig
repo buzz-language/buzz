@@ -36,6 +36,7 @@ const TagNull: Tag = 2;
 const TagVoid: Tag = 3;
 const TagObj: Tag = 4;
 const TagError: Tag = 5;
+const TagSentinel: Tag = 6;
 
 /// Most significant bit.
 const SignMask: u64 = 1 << 63;
@@ -55,6 +56,7 @@ const IntegerMask: u64 = TaggedValueMask | (@as(u64, TagInteger) << 49);
 const NullMask: u64 = TaggedValueMask | (@as(u64, TagNull) << 32);
 const VoidMask: u64 = TaggedValueMask | (@as(u64, TagVoid) << 32);
 const ErrorMask: u64 = TaggedValueMask | (@as(u64, TagError) << 32);
+const SentinelMask: u64 = TaggedValueMask | (@as(u64, TagSentinel) << 32);
 
 const TagMask: u32 = (1 << 3) - 1;
 const TaggedPrimitiveMask = TaggedValueMask | (@as(u64, TagMask) << 32) | IntegerMask;
@@ -68,6 +70,7 @@ pub const Value = extern struct {
     pub const False = Value{ .val = FalseMask };
     // We only need this so that an NativeFn can see the error returned by its raw function
     pub const Error = Value{ .val = ErrorMask };
+    pub const Sentinel = Value{ .val = SentinelMask };
 
     pub fn fromBoolean(val: bool) Value {
         return if (val) True else False;
@@ -119,6 +122,10 @@ pub const Value = extern struct {
 
     pub fn isError(self: Value) bool {
         return self.val == ErrorMask;
+    }
+
+    pub fn isSentinel(self: Value) bool {
+        return self.val == SentinelMask;
     }
 
     pub fn boolean(self: Value) bool {

@@ -5398,6 +5398,15 @@ fn generateForEach(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
     const key_ptr = try self.buildStackPtr(2);
     const value_ptr = try self.buildStackPtr(1);
 
+    if (self.state.?.ast_node != node and iterable_type_def.?.def_type == .Map) {
+        // Mirror bytecode foreach setup: use the sentinel as the internal map
+        // iteration marker so a real `null` key does not restart the loop.
+        self.MOV(
+            try self.LOAD(key_ptr),
+            m.MIR_new_uint_op(self.ctx, Value.Sentinel.val),
+        );
+    }
+
     const cond_label = m.MIR_new_label(self.ctx);
     const out_label = m.MIR_new_label(self.ctx);
 

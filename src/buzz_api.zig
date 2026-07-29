@@ -1473,7 +1473,9 @@ export fn bz_rangeNext(range_value: v.Value, index_slot: v.Value) callconv(.c) v
 
 export fn bz_mapNext(map_value: v.Value, key: *v.Value) callconv(.c) v.Value {
     const map = o.ObjMap.cast(map_value.obj()).?;
-    const next_key = map.rawNext(if (key.isNull()) v.Value.Sentinel else key.*);
+    // Map iteration uses sentinel as the internal start/end marker so real
+    // `null` keys remain iterable for both bytecode and JIT/native callers.
+    const next_key = map.rawNext(key.*);
     key.* = next_key;
 
     if (!next_key.isSentinel()) {
