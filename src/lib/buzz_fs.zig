@@ -59,7 +59,7 @@ fn handleMakeDirectoryError(ctx: *api.NativeCtx, err: std.Io.Dir.CreateDirError)
 
 pub export fn makeDirectory(ctx: *api.NativeCtx) callconv(.c) c_int {
     var len: usize = 0;
-    const filename = ctx.vm.bz_peek(0).bz_valueToString(&len);
+    const filename = ctx.vm.bz_peek(0).bz_valueToString(&len, ctx.vm);
 
     const filename_slice = filename.?[0..len];
     if (std.Io.Dir.path.isAbsolute(filename_slice)) {
@@ -149,7 +149,7 @@ fn relativePathExists(io: std.Io, path: []const u8) bool {
 
 pub export fn deleteFile(ctx: *api.NativeCtx) callconv(.c) c_int {
     var len: usize = 0;
-    const filename = ctx.vm.bz_peek(0).bz_valueToString(&len);
+    const filename = ctx.vm.bz_peek(0).bz_valueToString(&len, ctx.vm);
 
     const filename_slice = filename.?[0..len];
     if (std.Io.Dir.path.isAbsolute(filename_slice)) {
@@ -169,7 +169,7 @@ pub export fn deleteFile(ctx: *api.NativeCtx) callconv(.c) c_int {
 
 pub export fn deleteDirectory(ctx: *api.NativeCtx) callconv(.c) c_int {
     var len: usize = 0;
-    const filename = ctx.vm.bz_peek(0).bz_valueToString(&len);
+    const filename = ctx.vm.bz_peek(0).bz_valueToString(&len, ctx.vm);
 
     const filename_slice = filename.?[0..len];
 
@@ -289,10 +289,10 @@ fn handleRealPathError(ctx: *api.NativeCtx, err: std.Io.Dir.RealPathError) void 
 
 pub export fn move(ctx: *api.NativeCtx) callconv(.c) c_int {
     var len: usize = 0;
-    const source = ctx.vm.bz_peek(1).bz_valueToString(&len);
+    const source = ctx.vm.bz_peek(1).bz_valueToString(&len, ctx.vm);
     const source_slice = source.?[0..len];
 
-    const destination = ctx.vm.bz_peek(0).bz_valueToString(&len);
+    const destination = ctx.vm.bz_peek(0).bz_valueToString(&len, ctx.vm);
     const destination_slice = destination.?[0..len];
 
     const source_is_absolute = std.fs.path.isAbsolute(source_slice);
@@ -403,7 +403,7 @@ fn handleDirIterateError(ctx: *api.NativeCtx, err: std.Io.Dir.Iterator.Error) vo
 
 pub export fn list(ctx: *api.NativeCtx) callconv(.c) c_int {
     var len: usize = 0;
-    const filename = ctx.vm.bz_peek(0).bz_valueToString(&len);
+    const filename = ctx.vm.bz_peek(0).bz_valueToString(&len, ctx.vm);
     const filename_slice = filename.?[0..len];
     const io = ctx.getIo();
 
@@ -457,7 +457,7 @@ pub export fn list(ctx: *api.NativeCtx) callconv(.c) c_int {
 
 pub export fn exists(ctx: *api.NativeCtx) callconv(.c) c_int {
     var len: usize = 0;
-    const filename = ctx.vm.bz_peek(0).bz_valueToString(&len);
+    const filename = ctx.vm.bz_peek(0).bz_valueToString(&len, ctx.vm);
     const filename_slice = filename.?[0..len];
 
     var accessed = true;

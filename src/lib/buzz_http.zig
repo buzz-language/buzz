@@ -68,7 +68,7 @@ pub export fn HttpClientNew(ctx: *api.NativeCtx) callconv(.c) c_int {
 }
 
 pub export fn HttpClientDeinit(ctx: *api.NativeCtx) callconv(.c) c_int {
-    const userdata = ctx.vm.bz_peek(0).bz_getUserDataPtr();
+    const userdata = ctx.vm.bz_peek(0).bz_getUserDataPtr(ctx.vm);
     const client = @as(*HttpClient, @ptrCast(@alignCast(@as(*anyopaque, @ptrFromInt(userdata)))));
 
     client.deinit();
@@ -92,17 +92,17 @@ const methods = std.StaticStringMap(std.http.Method).initComptime(
 );
 
 fn innerHttpClientSend(ctx: *api.NativeCtx) !c_int {
-    const userdata = ctx.vm.bz_peek(4).bz_getUserDataPtr();
+    const userdata = ctx.vm.bz_peek(4).bz_getUserDataPtr(ctx.vm);
     const client: *HttpClient = @ptrCast(@alignCast(@as(*anyopaque, @ptrFromInt(userdata))));
 
     var len: usize = 0;
     const method_str = ctx.vm.bz_peek(3)
-        .bz_getEnumInstanceValue()
-        .bz_valueToString(&len) orelse return error.OutOfMemory;
+        .bz_getEnumInstanceValue(ctx.vm)
+        .bz_valueToString(&len, ctx.vm) orelse return error.OutOfMemory;
     const method = methods.get(method_str[0..len]).?;
 
     var uri_len: usize = 0;
-    const uri = ctx.vm.bz_peek(2).bz_valueToString(&uri_len) orelse return error.OutOfMemory;
+    const uri = ctx.vm.bz_peek(2).bz_valueToString(&uri_len, ctx.vm) orelse return error.OutOfMemory;
 
     var request_initialized = false;
 
@@ -110,12 +110,12 @@ fn innerHttpClientSend(ctx: *api.NativeCtx) !c_int {
     var headers = std.ArrayList(std.http.Header).empty;
     errdefer if (!request_initialized) headers.deinit(api.VM.allocator);
     var next_header_key = api.Value.Sentinel;
-    var next_header_value = header_values.bz_mapNext(&next_header_key);
-    while (next_header_key.val != api.Value.Sentinel.val) : (next_header_value = header_values.bz_mapNext(&next_header_key)) {
+    var next_header_value = header_values.bz_mapNext(&next_header_key, ctx.vm);
+    while (next_header_key.val != api.Value.Sentinel.val) : (next_header_value = header_values.bz_mapNext(&next_header_key, ctx.vm)) {
         var key_len: usize = 0;
-        const key = next_header_key.bz_valueToString(&key_len) orelse return error.OutOfMemory;
+        const key = next_header_key.bz_valueToString(&key_len, ctx.vm) orelse return error.OutOfMemory;
         var value_len: usize = 0;
-        const value = next_header_value.bz_valueToString(&value_len) orelse return error.OutOfMemory;
+        const value = next_header_value.bz_valueToString(&value_len, ctx.vm) orelse return error.OutOfMemory;
 
         try headers.append(
             api.VM.allocator,
@@ -149,7 +149,7 @@ fn innerHttpClientSend(ctx: *api.NativeCtx) !c_int {
     if (method.requestHasBody()) {
         const body_str =
             if (!body_value.isNull())
-                body_value.bz_valueToString(&len) orelse return error.OutOfMemory
+                body_value.bz_valueToString(&len, ctx.vm) orelse return error.OutOfMemory
             else
                 null;
         const body = if (body_str) |str| str[0..len] else null;
@@ -237,7 +237,7 @@ pub export fn HttpClientSend(ctx: *api.NativeCtx) callconv(.c) c_int {
 
 fn innerHttpRequestWait(ctx: *api.NativeCtx) !c_int {
     const userdata_value = ctx.vm.bz_peek(0);
-    const userdata = userdata_value.bz_getUserDataPtr();
+    const userdata = userdata_value.bz_getUserDataPtr(ctx.vm);
     const request = @as(
         *HttpRequest,
         @ptrCast(
@@ -401,7 +401,7 @@ pub export fn HttpRequestWait(ctx: *api.NativeCtx) callconv(.c) c_int {
 
 pub export fn HttpRequestDeinit(ctx: *api.NativeCtx) callconv(.c) c_int {
     const userdata_value = ctx.vm.bz_peek(0);
-    const userdata = userdata_value.bz_getUserDataPtr();
+    const userdata = userdata_value.bz_getUserDataPtr(ctx.vm);
     const request = @as(
         *HttpRequest,
         @ptrCast(

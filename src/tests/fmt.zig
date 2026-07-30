@@ -86,6 +86,7 @@ fn testFmt(process: std.process.Init, prefix: []const u8, entry: std.Io.Dir.Entr
             allocator,
             &result.writer,
             ast,
+            &gc,
             .{},
         );
 
@@ -175,6 +176,7 @@ fn expectFmtSource(source: []const u8, expected: []const u8, options: Renderer.O
             allocator,
             &result.writer,
             ast,
+            &gc,
             options,
         );
 
@@ -788,6 +790,7 @@ test "fmt does not render comments while inside interpolated strings" {
             allocator,
             &result.writer,
             ast,
+            &gc,
             .{},
         );
 
@@ -899,6 +902,7 @@ test "fmt tolerates stale function type metadata" {
             allocator,
             &result.writer,
             ast,
+            &gc,
             .{},
         );
 

@@ -1009,6 +1009,11 @@ const BuildOptions = struct {
                     "memory_limit",
                     "Memory limit in bytes",
                 ) orelse null,
+                .pool_page_size = b.option(
+                    usize,
+                    "gc_pool_page_size",
+                    "Number of objects stored per GC multipool page",
+                ) orelse 64,
             },
             .jit = .{
                 .debug = b.option(
@@ -1139,6 +1144,7 @@ const BuildOptions = struct {
         next_gc_ratio: usize,
         next_full_gc_ratio: usize,
         memory_limit: ?usize,
+        pool_page_size: usize,
 
         pub fn step(self: GCOptions, options: *Build.Step.Options) void {
             options.addOption(@TypeOf(self.debug), "gc_debug", self.debug);
@@ -1149,6 +1155,7 @@ const BuildOptions = struct {
             options.addOption(@TypeOf(self.next_gc_ratio), "next_gc_ratio", self.next_gc_ratio);
             options.addOption(@TypeOf(self.next_full_gc_ratio), "next_full_gc_ratio", self.next_full_gc_ratio);
             options.addOption(@TypeOf(self.memory_limit), "memory_limit", self.memory_limit);
+            options.addOption(@TypeOf(self.pool_page_size), "gc_pool_page_size", self.pool_page_size);
         }
     };
 };

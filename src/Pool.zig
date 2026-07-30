@@ -1,4 +1,5 @@
 const std = @import("std");
+const assert = std.debug.assert;
 
 /// A fixed-capacity page that can reuse freed slots without moving live items
 pub fn PoolPage(comptime T: type, comptime size: usize) type {
@@ -8,16 +9,20 @@ pub fn PoolPage(comptime T: type, comptime size: usize) type {
         /// Errors returned by page allocation and insertion operations
         pub const Error = error{
             PoolPageFull,
-            OutOfMemory,
         };
 
         /// Stable slot identifier used to address values stored in a page
         pub const Idx = struct {
-            index: u64,
+            index: usize,
 
             /// Wraps a raw integer as an index
-            pub fn idx(raw_idx: u64) Idx {
+            pub fn idx(raw_idx: usize) Idx {
                 return .{ .index = raw_idx };
+            }
+
+            /// Returns whether two typed indices refer to the same slot
+            pub fn eql(self: Idx, other: Idx) bool {
+                return self.index == other.index;
             }
         };
 
@@ -68,6 +73,21 @@ pub fn PoolPage(comptime T: type, comptime size: usize) type {
         pub fn remove(self: *Self, index: Idx) void {
             self.free_slots[self.free_slots_count] = index;
             self.free_slots_count += 1;
+        }
+
+        /// Returns whether the page currently stores a live item at the given local slot
+        pub fn hasLocalSlot(self: *const Self, local_index: usize) bool {
+            if (local_index >= self.slots.len) {
+                return false;
+            }
+
+            for (self.free_slots[0..self.free_slots_count]) |free_idx| {
+                if (free_idx.index == local_index) {
+                    return false;
+                }
+            }
+
+            return true;
         }
 
         /// Returns whether the page currently has no live items
@@ -139,13 +159,30 @@ pub fn MultiPool(comptime Types: []const type, comptime page_size: usize) type {
             return &pool.items[page_idx].slots[idx];
         }
 
+        /// Returns whether the given global index currently points to a live item
+        pub fn has(self: *Self, comptime T: type, index: PoolPage(T, page_size).Idx) bool {
+            const pool = &@field(self.pools, @typeName(T));
+            const page_idx = index.index / page_size;
+
+            if (page_idx >= pool.items.len) {
+                return false;
+            }
+
+            return pool.items[page_idx].hasLocalSlot(index.index % page_size);
+        }
+
+        /// Returns the number of pages currently allocated for the given type
+        pub fn pageCount(self: *Self, comptime T: type) usize {
+            return @field(self.pools, @typeName(T)).items.len;
+        }
+
         /// Appends an item to the pool for the given type and returns its global index
         pub fn append(
             self: *Self,
             allocator: std.mem.Allocator,
             comptime T: type,
             item: T,
-        ) PoolPage(T, page_size).Error!PoolPage(T, page_size).Idx {
+        ) std.mem.Allocator.Error!PoolPage(T, page_size).Idx {
             const pool = &@field(self.pools, @typeName(T));
 
             // Search for the first non-full page
@@ -158,7 +195,7 @@ pub fn MultiPool(comptime Types: []const type, comptime page_size: usize) type {
             }
 
             if (page_idx) |pidx| {
-                return pool.items[pidx].append(item);
+                return pool.items[pidx].append(item) catch unreachable;
             }
 
             // Everything is full, append a new page and append to it
@@ -167,7 +204,7 @@ pub fn MultiPool(comptime Types: []const type, comptime page_size: usize) type {
             errdefer allocator.destroy(page);
             try pool.append(allocator, page);
 
-            return pool.items[pool.items.len - 1].append(item);
+            return pool.items[pool.items.len - 1].append(item) catch unreachable;
         }
 
         /// Removes the item at the given global index and may trim an empty trailing page
@@ -176,7 +213,7 @@ pub fn MultiPool(comptime Types: []const type, comptime page_size: usize) type {
             allocator: std.mem.Allocator,
             comptime T: type,
             index: PoolPage(T, page_size).Idx,
-        ) PoolPage(T, page_size).Error!void {
+        ) void {
             const pool = &@field(self.pools, @typeName(T));
             const page_idx = (index.index / page_size);
             const idx = index.index % page_size;
@@ -188,6 +225,22 @@ pub fn MultiPool(comptime Types: []const type, comptime page_size: usize) type {
             // We don't do this for the last page only to avoid allocating/deallocating it too fast when
             // we sit at the edge of its capacity
             if (pool.items.len > 1 and pool.items[pool.items.len - 1].isEmpty() and pool.items[pool.items.len - 2].isEmpty()) {
+                allocator.destroy(pool.pop().?);
+            }
+        }
+
+        /// Removes empty trailing pages while keeping at least one reusable empty page
+        pub fn trimTrailingEmptyPages(
+            self: *Self,
+            allocator: std.mem.Allocator,
+            comptime T: type,
+        ) void {
+            const pool = &@field(self.pools, @typeName(T));
+
+            while (pool.items.len > 1 and
+                pool.items[pool.items.len - 1].isEmpty() and
+                pool.items[pool.items.len - 2].isEmpty())
+            {
                 allocator.destroy(pool.pop().?);
             }
         }
@@ -228,7 +281,7 @@ test "MultiPool" {
     std.debug.assert(multi.pools.u64.items.len == 3);
 
     for ([_]u64{ 6, 5, 4, 3 }) |idx|
-        try multi.remove(gpa, u64, .idx(idx));
+        multi.remove(gpa, u64, .idx(idx));
 
     // We should have one less page
     std.debug.assert(multi.pools.u64.items.len == 2);
@@ -298,7 +351,7 @@ test "MultiPool reuses freed slots and keeps types separated" {
     std.debug.assert(multi.get(u64, u64_idx).* == 10);
     std.debug.assert(multi.get(f64, f64_idx).* == 1.5);
 
-    try multi.remove(gpa, u64, u64_idx);
+        multi.remove(gpa, u64, u64_idx);
 
     const reused_u64_idx = try multi.append(gpa, u64, 99);
 
@@ -323,7 +376,7 @@ test "MultiPool keeps an empty trailing page available for reuse" {
 
     std.debug.assert(multi.pools.u64.items.len == 2);
 
-    try multi.remove(gpa, u64, trailing);
+    multi.remove(gpa, u64, trailing);
 
     // The final page is kept around until the previous page is also empty.
     std.debug.assert(multi.pools.u64.items.len == 2);
