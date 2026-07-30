@@ -17,19 +17,19 @@ const TypeRegistry = @This();
 pub const TypeDefHash = u64;
 
 gc: *GC,
-registry: std.AutoHashMapUnmanaged(TypeDefHash, *o.ObjTypeDef) = .empty,
+registry: std.AutoHashMapUnmanaged(TypeDefHash, o.ObjTypeDef.Idx) = .empty,
 
 // Common types we reuse all the time
-void_type: *o.ObjTypeDef,
-str_type: *o.ObjTypeDef,
-int_type: *o.ObjTypeDef,
-double_type: *o.ObjTypeDef,
-bool_type: *o.ObjTypeDef,
-any_type: *o.ObjTypeDef,
-pat_type: *o.ObjTypeDef,
-ud_type: *o.ObjTypeDef,
-rg_type: *o.ObjTypeDef,
-type_type: *o.ObjTypeDef,
+void_type: o.ObjTypeDef.Idx,
+str_type: o.ObjTypeDef.Idx,
+int_type: o.ObjTypeDef.Idx,
+double_type: o.ObjTypeDef.Idx,
+bool_type: o.ObjTypeDef.Idx,
+any_type: o.ObjTypeDef.Idx,
+pat_type: o.ObjTypeDef.Idx,
+ud_type: o.ObjTypeDef.Idx,
+rg_type: o.ObjTypeDef.Idx,
+type_type: o.ObjTypeDef.Idx,
 
 pub fn init(gc: *GC) !TypeRegistry {
     var self = TypeRegistry{
@@ -46,18 +46,18 @@ pub fn init(gc: *GC) !TypeRegistry {
         .type_type = undefined,
     };
 
-    self.void_type = try self.getTypeDef(.{ .def_type = .Void });
-    self.str_type = try self.getTypeDef(.{ .def_type = .String });
-    self.int_type = try self.getTypeDef(.{ .def_type = .Integer });
-    self.double_type = try self.getTypeDef(.{ .def_type = .Double });
-    self.bool_type = try self.getTypeDef(.{ .def_type = .Boolean });
-    self.any_type = try self.getTypeDef(
+    self.void_type = (try self.getTypeDef(.{ .def_type = .Void })).toIdx();
+    self.str_type = (try self.getTypeDef(.{ .def_type = .String })).toIdx();
+    self.int_type = (try self.getTypeDef(.{ .def_type = .Integer })).toIdx();
+    self.double_type = (try self.getTypeDef(.{ .def_type = .Double })).toIdx();
+    self.bool_type = (try self.getTypeDef(.{ .def_type = .Boolean })).toIdx();
+    self.any_type = (try self.getTypeDef(
         .{ .def_type = .Any },
-    );
-    self.pat_type = try self.getTypeDef(.{ .def_type = .Pattern });
-    self.ud_type = try self.getTypeDef(.{ .def_type = .UserData });
-    self.rg_type = try self.getTypeDef(.{ .def_type = .Range });
-    self.type_type = try self.getTypeDef(.{ .def_type = .Type });
+    )).toIdx();
+    self.pat_type = (try self.getTypeDef(.{ .def_type = .Pattern })).toIdx();
+    self.ud_type = (try self.getTypeDef(.{ .def_type = .UserData })).toIdx();
+    self.rg_type = (try self.getTypeDef(.{ .def_type = .Range })).toIdx();
+    self.type_type = (try self.getTypeDef(.{ .def_type = .Type })).toIdx();
 
     return self;
 }
@@ -75,7 +75,7 @@ pub fn dump(self: *TypeRegistry) void {
             .{
                 entry.key_ptr.*,
                 @intFromPtr(entry.value_ptr.*),
-                entry.value_ptr.*.toStringAlloc(self.gc.allocator) catch unreachable,
+                self.gc.getTypeDef(entry.value_ptr.*).toStringAlloc(self.gc.allocator, false, self.gc) catch unreachable,
             },
         );
     }
@@ -83,12 +83,12 @@ pub fn dump(self: *TypeRegistry) void {
 }
 
 pub fn getTypeDef(self: *TypeRegistry, type_def: o.ObjTypeDef) !*o.ObjTypeDef {
-    const hash = typeDefHash(type_def);
+    const hash = typeDefHash(self.gc, type_def);
 
     // We don't return a cached version of a placeholder since they all maintain a particular state (link)
     if (type_def.def_type != .Placeholder) {
         if (self.registry.get(hash)) |type_def_ptr| {
-            return type_def_ptr;
+            return self.gc.getTypeDef(type_def_ptr);
         }
     }
 
@@ -98,7 +98,7 @@ pub fn getTypeDef(self: *TypeRegistry, type_def: o.ObjTypeDef) !*o.ObjTypeDef {
         io.print(
             "`{s}` #{} @{}\n",
             .{
-                type_def_ptr.toStringAlloc(self.gc.allocator, true) catch unreachable,
+                type_def_ptr.toStringAlloc(self.gc.allocator, true, self.gc) catch unreachable,
                 hash,
                 @intFromPtr(type_def_ptr),
             },
@@ -109,28 +109,32 @@ pub fn getTypeDef(self: *TypeRegistry, type_def: o.ObjTypeDef) !*o.ObjTypeDef {
     try self.registry.put(
         self.gc.allocator,
         hash,
-        type_def_ptr,
+        type_def_ptr.toIdx(),
     );
 
     return type_def_ptr;
 }
 
 pub fn setTypeDef(self: *TypeRegistry, type_def: *o.ObjTypeDef) !void {
-    const hash = typeDefHash(type_def.*);
+    const hash = typeDefHash(self.gc, type_def.*);
 
     std.debug.assert(type_def.def_type != .Placeholder);
+
+    if (self.registry.get(hash) != null) {
+        return;
+    }
 
     try self.registry.put(
         self.gc.allocator,
         hash,
-        type_def,
+        type_def.toIdx(),
     );
 
     if (BuildOptions.debug_placeholders or BuildOptions.debug_type_registry) {
         io.print(
             "`{s}` type set to #{} @{}\n",
             .{
-                type_def.toStringAlloc(self.gc.allocator, true) catch unreachable,
+                type_def.toStringAlloc(self.gc.allocator, true, self.gc) catch unreachable,
                 hash,
                 @intFromPtr(type_def),
             },
@@ -139,17 +143,17 @@ pub fn setTypeDef(self: *TypeRegistry, type_def: *o.ObjTypeDef) !void {
 }
 
 pub inline fn getTypeDefByName(self: *TypeRegistry, name: []const u8) ?*o.ObjTypeDef {
-    return self.registry.get(name);
+    return if (self.registry.get(name)) |type_def| type_def.get(self.gc) else null;
 }
 
 pub fn mark(self: *TypeRegistry) !void {
     var it = self.registry.iterator();
     while (it.next()) |kv| {
-        try self.gc.markObj(@constCast(kv.value_ptr.*).toObj());
+        try self.gc.markObj(o.ObjIdx.init(.Type, kv.value_ptr.*.index));
     }
 }
 
-fn hashHelper(hasher: *std.hash.Wyhash, type_def: *const o.ObjTypeDef) void {
+fn hashHelper(gc: *GC, hasher: *std.hash.Wyhash, type_def: *const o.ObjTypeDef) void {
     std.hash.autoHash(hasher, type_def.def_type);
     std.hash.autoHash(hasher, type_def.optional);
     if (type_def.resolved_type) |resolved| {
@@ -171,96 +175,71 @@ fn hashHelper(hasher: *std.hash.Wyhash, type_def: *const o.ObjTypeDef) void {
             => {},
 
             .Any => std.hash.autoHash(hasher, resolved.Any),
-            .Enum => std.hash.autoHash(
-                hasher,
-                std.hash_map.hashString(resolved.Enum.qualified_name.string),
-            ),
+            .Enum => std.hash.autoHash(hasher, resolved.Enum.qualified_name.index),
             .EnumInstance => {
                 std.hash.autoHash(hasher, resolved.EnumInstance.mutable);
-                hashHelper(hasher, resolved.EnumInstance.of);
+                hashHelper(gc, hasher, gc.getTypeDef(resolved.EnumInstance.of));
             },
             .Fiber => {
-                hashHelper(hasher, resolved.Fiber.return_type);
-                hashHelper(hasher, resolved.Fiber.yield_type);
+                hashHelper(gc, hasher, gc.getTypeDef(resolved.Fiber.return_type));
+                hashHelper(gc, hasher, gc.getTypeDef(resolved.Fiber.yield_type));
             },
-            .ForeignContainer => std.hash.autoHash(
-                hasher,
-                std.hash_map.hashString(resolved.ForeignContainer.qualified_name.string),
-            ),
+            .ForeignContainer => std.hash.autoHash(hasher, resolved.ForeignContainer.qualified_name.index),
             .Function => {
-                std.hash.autoHash(
-                    hasher,
-                    std.hash_map.hashString(resolved.Function.name.string),
-                );
-                std.hash.autoHash(
-                    hasher,
-                    std.hash_map.hashString(resolved.Function.script_name.string),
-                );
-                hashHelper(hasher, resolved.Function.return_type);
-                hashHelper(hasher, resolved.Function.yield_type);
+                std.hash.autoHash(hasher, resolved.Function.name.index);
+                std.hash.autoHash(hasher, resolved.Function.script_name.index);
+                hashHelper(gc, hasher, gc.getTypeDef(resolved.Function.return_type));
+                hashHelper(gc, hasher, gc.getTypeDef(resolved.Function.yield_type));
                 if (resolved.Function.error_types) |types| {
                     for (types) |error_type| {
-                        hashHelper(hasher, error_type);
+                        hashHelper(gc, hasher, gc.getTypeDef(error_type));
                     }
                 }
 
                 {
-                    var it = resolved.Function.parameters.iterator();
-                    while (it.next()) |kv| {
-                        std.hash.autoHash(
-                            hasher,
-                            std.hash_map.hashString(kv.key_ptr.*.string),
-                        );
-                        hashHelper(hasher, kv.value_ptr.*);
+                    const parameter_types = resolved.Function.parameters.values();
+                    for (parameter_types) |parameter_type| {
+                        hashHelper(gc, hasher, gc.getTypeDef(parameter_type));
                     }
                 }
 
-                {
-                    var it = resolved.Function.defaults.iterator();
-                    while (it.next()) |kv| {
-                        std.hash.autoHash(
-                            hasher,
-                            std.hash_map.hashString(kv.key_ptr.*.string),
-                        );
-                        std.hash.autoHash(hasher, kv.value_ptr.*);
+                std.hash.autoHash(hasher, resolved.Function.defaults.count());
+                if (resolved.Function.defaults.count() > 0) {
+                    const default_keys = resolved.Function.defaults.keys();
+                    const default_values = resolved.Function.defaults.values();
+                    for (default_keys, default_values) |default_key, default_value| {
+                        std.hash.autoHash(hasher, default_key.index);
+                        std.hash.autoHash(hasher, default_value.val);
                     }
                 }
 
-                {
-                    var it = resolved.Function.default_nodes.iterator();
-                    while (it.next()) |kv| {
-                        std.hash.autoHash(
-                            hasher,
-                            std.hash_map.hashString(kv.key_ptr.*.string),
-                        );
-                        std.hash.autoHash(hasher, kv.value_ptr.*);
+                std.hash.autoHash(hasher, resolved.Function.default_nodes.count());
+                if (resolved.Function.default_nodes.count() > 0) {
+                    const default_node_keys = resolved.Function.default_nodes.keys();
+                    const default_node_values = resolved.Function.default_nodes.values();
+                    for (default_node_keys, default_node_values) |default_key, default_node| {
+                        std.hash.autoHash(hasher, default_key.index);
+                        std.hash.autoHash(hasher, default_node);
                     }
                 }
 
                 std.hash.autoHash(hasher, resolved.Function.function_type);
-                std.hash.autoHash(hasher, resolved.Function.lambda);
-
-                for (resolved.Function.generic_types.keys()) |generic| {
-                    std.hash.autoHash(
-                        hasher,
-                        std.hash_map.hashString(generic.string),
-                    );
-                }
+                std.hash.autoHash(hasher, resolved.Function.generic_types.count());
 
                 if (resolved.Function.resolved_generics) |types| {
                     for (types) |gen_type| {
-                        hashHelper(hasher, gen_type);
+                        hashHelper(gc, hasher, gc.getTypeDef(gen_type));
                     }
                 }
             },
             .Generic => std.hash.autoHash(hasher, resolved.Generic),
             .List => {
-                hashHelper(hasher, resolved.List.item_type);
+                hashHelper(gc, hasher, resolved.List.item_type);
                 std.hash.autoHash(hasher, resolved.List.mutable);
             },
             .Map => {
-                hashHelper(hasher, resolved.Map.key_type);
-                hashHelper(hasher, resolved.Map.value_type);
+                hashHelper(gc, hasher, resolved.Map.key_type);
+                hashHelper(gc, hasher, resolved.Map.value_type);
                 std.hash.autoHash(hasher, resolved.Map.mutable);
             },
             .Object => {
@@ -274,42 +253,36 @@ fn hashHelper(hasher: *std.hash.Wyhash, type_def: *const o.ObjTypeDef) void {
                             hasher,
                             std.hash_map.hashString(kv.key_ptr.*),
                         );
-                        hashHelper(hasher, kv.value_ptr.type_def);
+                        hashHelper(gc, hasher, gc.getTypeDef(kv.value_ptr.type_def));
                     }
                 } else {
                     // Actual object: name + resolved generics is distinction enough
-                    std.hash.autoHash(
-                        hasher,
-                        std.hash_map.hashString(resolved.Object.qualified_name.string),
-                    );
+                    std.hash.autoHash(hasher, resolved.Object.qualified_name.index);
 
                     if (resolved.Object.resolved_generics) |rg| {
                         for (rg) |gen| {
-                            hashHelper(hasher, gen);
+                            hashHelper(gc, hasher, gc.getTypeDef(gen));
                         }
                     }
                 }
             },
             .ObjectInstance => {
                 std.hash.autoHash(hasher, resolved.ObjectInstance.mutable);
-                hashHelper(hasher, resolved.ObjectInstance.of);
+                hashHelper(gc, hasher, gc.getTypeDef(resolved.ObjectInstance.of));
             },
-            .Protocol => std.hash.autoHash(
-                hasher,
-                std.hash_map.hashString(resolved.Protocol.qualified_name.string),
-            ),
+            .Protocol => std.hash.autoHash(hasher, resolved.Protocol.qualified_name.index),
             .ProtocolInstance => {
                 std.hash.autoHash(hasher, resolved.ProtocolInstance.mutable);
-                hashHelper(hasher, resolved.ProtocolInstance.of);
+                hashHelper(gc, hasher, gc.getTypeDef(resolved.ProtocolInstance.of));
             },
         }
     }
 }
 
-pub fn typeDefHash(type_def: o.ObjTypeDef) TypeDefHash {
+pub fn typeDefHash(gc: *GC, type_def: o.ObjTypeDef) TypeDefHash {
     var hasher = std.hash.Wyhash.init(0);
 
-    hashHelper(&hasher, &type_def);
+    hashHelper(gc, &hasher, &type_def);
 
     return hasher.final();
 }

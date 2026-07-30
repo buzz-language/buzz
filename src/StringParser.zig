@@ -103,7 +103,7 @@ fn push(self: *Self, chars: []const u8) !void {
                 .components = .{
                     .StringLiteral = .{
                         .delimiter = self.delimiter,
-                        .literal = try self.parser.gc.copyString(chars),
+                        .literal = (try self.parser.gc.copyString(chars)).toIdx(),
                     },
                 },
             },

@@ -34,9 +34,9 @@ static int instantiateDefaultedObject(NativeCtx *ctx) {
             object_value,
             typedef_value
         );
-        Value tokens = bz_getObjectInstanceProperty(instance, 0);
+        Value tokens = bz_getObjectInstanceProperty(instance, 0, ctx->vm);
 
-        total += (Integer)bz_listLen(tokens);
+        total += (Integer)bz_listLen(tokens, ctx->vm);
     }
 
     bz_push(ctx->vm, bz_valueFromInteger(total));

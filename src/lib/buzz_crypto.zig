@@ -10,9 +10,9 @@ else
     std.os;
 
 pub export fn hash(ctx: *api.NativeCtx) callconv(.c) c_int {
-    const algo_index = ctx.vm.bz_peek(1).bz_getEnumInstanceValue().integer();
+    const algo_index = ctx.vm.bz_peek(1).bz_getEnumInstanceValue(ctx.vm).integer();
     var data_len: usize = 0;
-    const data = ctx.vm.bz_peek(0).bz_valueToString(&data_len) orelse @panic("Could not hash data");
+    const data = ctx.vm.bz_peek(0).bz_valueToString(&data_len, ctx.vm) orelse @panic("Could not hash data");
 
     // Since alog_index is not static, we're forced to repeat ourselves...
     var result_hash: []u8 = undefined;

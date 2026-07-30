@@ -234,7 +234,7 @@ pub const ExternApi = enum {
                 self.pname(),
                 1,
                 &.{m.MIR_T_U64},
-                3,
+                4,
                 &.{
                     .{
                         .type = m.MIR_T_U64,
@@ -251,6 +251,11 @@ pub const ExternApi = enum {
                         .name = "checked",
                         .size = undefined,
                     },
+                    .{
+                        .type = m.MIR_T_P,
+                        .name = "vm",
+                        .size = undefined,
+                    },
                 },
             ),
             .bz_mapGet => m.MIR_new_proto_arr(
@@ -258,7 +263,7 @@ pub const ExternApi = enum {
                 self.pname(),
                 1,
                 &.{m.MIR_T_U64},
-                2,
+                3,
                 &.{
                     .{
                         .type = m.MIR_T_U64,
@@ -268,6 +273,11 @@ pub const ExternApi = enum {
                     .{
                         .type = m.MIR_T_U64,
                         .name = "index",
+                        .size = undefined,
+                    },
+                    .{
+                        .type = m.MIR_T_P,
+                        .name = "vm",
                         .size = undefined,
                     },
                 },
@@ -308,7 +318,7 @@ pub const ExternApi = enum {
                 self.pname(),
                 1,
                 &.{m.MIR_T_U64},
-                2,
+                3,
                 &.{
                     .{
                         .type = m.MIR_T_U64,
@@ -318,6 +328,11 @@ pub const ExternApi = enum {
                     .{
                         .type = m.MIR_T_U64,
                         .name = "other",
+                        .size = undefined,
+                    },
+                    .{
+                        .type = m.MIR_T_P,
+                        .name = "vm",
                         .size = undefined,
                     },
                 },
@@ -405,11 +420,16 @@ pub const ExternApi = enum {
                 self.pname(),
                 1,
                 &.{m.MIR_T_U64},
-                1,
+                2,
                 &.{
                     .{
                         .type = m.MIR_T_U64,
                         .name = "enum_instance",
+                        .size = undefined,
+                    },
+                    .{
+                        .type = m.MIR_T_P,
+                        .name = "vm",
                         .size = undefined,
                     },
                 },
@@ -422,7 +442,7 @@ pub const ExternApi = enum {
                 self.pname(),
                 1,
                 &.{m.MIR_T_U64},
-                2,
+                3,
                 &.{
                     .{
                         .type = m.MIR_T_U64,
@@ -432,6 +452,11 @@ pub const ExternApi = enum {
                     .{
                         .type = m.MIR_T_U64,
                         .name = "field",
+                        .size = undefined,
+                    },
+                    .{
+                        .type = m.MIR_T_P,
+                        .name = "vm",
                         .size = undefined,
                     },
                 },
@@ -795,7 +820,7 @@ pub const ExternApi = enum {
                 self.pname(),
                 1,
                 &.{m.MIR_T_U64},
-                2,
+                3,
                 &.{
                     .{
                         .type = m.MIR_T_U64,
@@ -805,6 +830,11 @@ pub const ExternApi = enum {
                     .{
                         .type = m.MIR_T_P,
                         .name = "key",
+                        .size = undefined,
+                    },
+                    .{
+                        .type = m.MIR_T_P,
+                        .name = "vm",
                         .size = undefined,
                     },
                 },
@@ -848,7 +878,7 @@ pub const ExternApi = enum {
                 self.pname(),
                 1,
                 &.{m.MIR_T_U64},
-                2,
+                3,
                 &.{
                     .{
                         .type = m.MIR_T_U64,
@@ -858,6 +888,11 @@ pub const ExternApi = enum {
                     .{
                         .type = m.MIR_T_U64,
                         .name = "index",
+                        .size = undefined,
+                    },
+                    .{
+                        .type = m.MIR_T_P,
+                        .name = "vm",
                         .size = undefined,
                     },
                 },
@@ -914,11 +949,16 @@ pub const ExternApi = enum {
                 self.pname(),
                 1,
                 &.{m.MIR_T_P},
-                1,
+                2,
                 &.{
                     .{
                         .type = m.MIR_T_U64,
                         .name = "value",
+                        .size = undefined,
+                    },
+                    .{
+                        .type = m.MIR_T_P,
+                        .name = "vm",
                         .size = undefined,
                     },
                 },
@@ -928,11 +968,16 @@ pub const ExternApi = enum {
                 self.pname(),
                 1,
                 &.{m.MIR_T_P},
-                1,
+                2,
                 &.{
                     .{
                         .type = m.MIR_T_U64,
                         .name = "value",
+                        .size = undefined,
+                    },
+                    .{
+                        .type = m.MIR_T_P,
+                        .name = "vm",
                         .size = undefined,
                     },
                 },
@@ -961,11 +1006,16 @@ pub const ExternApi = enum {
                 self.pname(),
                 1,
                 &.{m.MIR_T_P},
-                1,
+                2,
                 &.{
                     .{
                         .type = m.MIR_T_U64,
                         .name = "value",
+                        .size = undefined,
+                    },
+                    .{
+                        .type = m.MIR_T_P,
+                        .name = "vm",
                         .size = undefined,
                     },
                 },

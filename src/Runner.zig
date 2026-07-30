@@ -209,6 +209,7 @@ pub fn runFile(
                 arena.allocator(),
                 &stdout.interface,
                 ast,
+                &runner.gc,
                 runner.renderer_options,
             );
         }
@@ -307,7 +308,7 @@ pub fn evaluate(self: *Runner, parent_fiber: *Fiber, parent_frame: *CallFrame, e
         const local_dbg = parent_fiber.locals_dbg.items[i];
 
         if (local_dbg.isObj()) {
-            const name = o.ObjString.cast(local_dbg.obj()).?.string;
+            const name = o.ObjString.cast(local_dbg.obj(&self.gc)).?.string;
 
             // "Hidden" locals start with `$`
             if (name[0] != '$') {
@@ -316,7 +317,7 @@ pub fn evaluate(self: *Runner, parent_fiber: *Fiber, parent_frame: *CallFrame, e
                     .{
                         name,
                         try (try parent_fiber.stack[i + 1].typeOf(&self.gc))
-                            .toStringAlloc(self.gc.allocator, false),
+                            .toStringAlloc(self.gc.allocator, false, &self.gc),
                     },
                 );
             }
@@ -436,10 +437,14 @@ pub fn evaluate(self: *Runner, parent_fiber: *Fiber, parent_frame: *CallFrame, e
             // Should be our eval function
             std.debug.assert(
                 eval_value.isObj() and
-                    o.ObjClosure.cast(eval_value.obj()) != null and
+                    o.ObjClosure.cast(eval_value.obj(&self.gc)) != null and
                     std.mem.eql(
                         u8,
-                        o.ObjClosure.cast(eval_value.obj()).?.function.type_def.resolved_type.?.Function.name.string,
+                        self.gc.getString(
+                            self.gc.getTypeDef(
+                                self.gc.getFunction(o.ObjClosure.cast(eval_value.obj(&self.gc)).?.function).type_def,
+                            ).resolved_type.?.Function.name,
+                        ).string,
                         "eval",
                     ),
             );

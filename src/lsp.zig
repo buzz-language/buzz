@@ -79,6 +79,7 @@ const Document = struct {
     uri: []const u8,
     /// Parser-side script identifier for the current document, typically a local path.
     script_name: []const u8,
+    gc: GC,
     ast: Ast,
     errors: []const Reporter.Report,
 
@@ -290,6 +291,7 @@ const Document = struct {
             .is_wrapped_manifest = package_document_kind != null,
             .uri = owned_uri,
             .script_name = document_script_name,
+            .gc = gc,
             .ast = ast,
             .errors = errors.items,
         };
@@ -412,7 +414,7 @@ const Document = struct {
                             allocator,
                             .{
                                 .name = name,
-                                .detail = try global.type_def.toStringAlloc(allocator, false),
+                                .detail = try global.type_def.toStringAlloc(allocator, false, &self.gc),
                                 .kind = if (!global.type_def.isMutable() and comp.final)
                                     .Constant
                                 else
@@ -452,7 +454,7 @@ const Document = struct {
                         allocator,
                         .{
                             .name = name,
-                            .detail = try global.type_def.toStringAlloc(allocator, false),
+                            .detail = try global.type_def.toStringAlloc(allocator, false, &self.gc),
                             .kind = .Enum,
                             .range = tokenToRange(ast_slice, locations[node], end_locations[node]),
                             .selectionRange = tokenToRange(ast_slice, locations[node], end_locations[node]),
@@ -472,7 +474,7 @@ const Document = struct {
                                 allocator,
                                 .{
                                     .name = field.name,
-                                    .detail = try field.type_def.toStringAlloc(allocator, false),
+                                    .detail = try self.gc.getTypeDef(field.type_def).toStringAlloc(allocator, false, &self.gc),
                                     .kind = if (field.method)
                                         .Method
                                     else
@@ -488,7 +490,7 @@ const Document = struct {
                         allocator,
                         .{
                             .name = name,
-                            .detail = try global.type_def.toStringAlloc(allocator, false),
+                            .detail = try global.type_def.toStringAlloc(allocator, false, &self.gc),
                             .kind = .Struct,
                             .range = tokenToRange(ast_slice, locations[node], end_locations[node]),
                             .selectionRange = tokenToRange(ast_slice, locations[node], end_locations[node]),
@@ -510,7 +512,7 @@ const Document = struct {
                                 allocator,
                                 .{
                                     .name = kv.key_ptr.*,
-                                    .detail = try method.type_def.toStringAlloc(allocator, false),
+                                    .detail = try self.gc.getTypeDef(method.type_def).toStringAlloc(allocator, false, &self.gc),
                                     .kind = .Method,
                                     .range = range,
                                     .selectionRange = range,
@@ -523,7 +525,7 @@ const Document = struct {
                         allocator,
                         .{
                             .name = name,
-                            .detail = try global.type_def.toStringAlloc(allocator, false),
+                            .detail = try global.type_def.toStringAlloc(allocator, false, &self.gc),
                             .kind = .Interface,
                             .range = tokenToRange(ast_slice, locations[node], end_locations[node]),
                             .selectionRange = tokenToRange(ast_slice, locations[node], end_locations[node]),
@@ -560,8 +562,8 @@ const Document = struct {
                             .name = if (fun_def.function_type == .Test)
                                 lexemes[function_comp.test_message.?]
                             else
-                                fun_def.name.string,
-                            .detail = try global.type_def.toStringAlloc(allocator, false),
+                                self.gc.getString(fun_def.name).string,
+                            .detail = try global.type_def.toStringAlloc(allocator, false, &self.gc),
                             .kind = .Function,
                             .range = tokenToRange(ast_slice, locations[function_node], end_locations[function_node]),
                             .selectionRange = tokenToRange(ast_slice, locations[function_node], end_locations[function_node]),
@@ -831,9 +833,10 @@ const Document = struct {
         const ast_slice = self.ast.slice();
         const comp = ast_slice.nodes.items(.components)[node_index].Dot;
         const callee_type_def = ast_slice.nodes.items(.type_def)[comp.callee] orelse return null;
+        const callee_type = self.gc.getTypeDef(callee_type_def);
         const member_name = ast_slice.tokens.items(.lexeme)[comp.identifier];
 
-        return switch (callee_type_def.def_type) {
+        return switch (callee_type.def_type) {
             .List => if (o.ObjList.memberIndexByName(member_name)) |idx| o.ObjList.member_defs[idx].doc else null,
             .Map => if (o.ObjMap.memberIndexByName(member_name)) |idx| o.ObjMap.member_defs[idx].doc else null,
             .String => if (o.ObjString.memberIndexByName(member_name)) |idx| o.ObjString.member_defs[idx].doc else null,
@@ -856,7 +859,7 @@ const Document = struct {
         }
 
         return .{
-            .type_def = self.ast.nodes.items(.type_def)[node_index],
+            .type_def = if (self.ast.nodes.items(.type_def)[node_index]) |type_def| self.gc.getTypeDef(type_def) else null,
             .doc = doc,
         };
     }
@@ -942,7 +945,7 @@ const Document = struct {
         }
 
         return .{
-            .type_def = type_def,
+            .type_def = self.gc.getTypeDef(type_def),
             .doc = if (docblock) |doc| .{ .token = doc } else null,
         };
     }
@@ -951,15 +954,17 @@ const Document = struct {
     fn objectInitFieldHoverInfo(self: *Document, node_index: Ast.Node.Index, token: Ast.TokenIndex) ?HoverInfo {
         const ast_slice = self.ast.slice();
         const type_def = ast_slice.nodes.items(.type_def)[node_index] orelse return null;
-        if (type_def.def_type != .ObjectInstance) {
+        const resolved_type = self.gc.getTypeDef(type_def);
+
+        if (resolved_type.def_type != .ObjectInstance) {
             return null;
         }
 
-        const object_def = type_def.resolved_type.?.ObjectInstance.of.resolved_type.?.Object;
+        const object_def = self.gc.getTypeDef(resolved_type.resolved_type.?.ObjectInstance.of).resolved_type.?.Object;
         const field = object_def.fields.get(ast_slice.tokens.items(.lexeme)[token]) orelse return null;
 
         return .{
-            .type_def = field.type_def,
+            .type_def = self.gc.getTypeDef(field.type_def),
             .doc = if (self.object_member_docblocks.getContext(
                 .{
                     .owner = object_def.location,
@@ -1003,7 +1008,7 @@ const Document = struct {
 
         if (hover_info.type_def) |type_def| {
             try markup.writer.writeAll("\n```buzz\n");
-            type_def.toString(&markup.writer, false) catch |err| {
+            type_def.toString(&markup.writer, false, &self.gc) catch |err| {
                 log.err("textDocument/hover: {any}", .{err});
             };
             try markup.writer.writeAll("\n```");
@@ -1185,10 +1190,12 @@ const Document = struct {
             .Dot => {
                 const comp = components[node].Dot;
                 if (ast_slice.nodes.items(.type_def)[comp.callee]) |callee_type_def| {
-                    switch (callee_type_def.def_type) {
+                    const callee_type = self.gc.getTypeDef(callee_type_def);
+
+                    switch (callee_type.def_type) {
                         .Enum => {
                             if (comp.member_kind == .EnumCase) {
-                                const enum_def = callee_type_def.resolved_type.?.Enum;
+                                const enum_def = callee_type.resolved_type.?.Enum;
                                 const case_index = comp.value_or_call_or_enum.EnumCase;
 
                                 if (case_index < enum_def.cases_locations.len) {
@@ -1228,10 +1235,10 @@ const Document = struct {
                             }
                         },
                         .ObjectInstance, .Object => {
-                            const object_def = if (callee_type_def.def_type == .ObjectInstance)
-                                callee_type_def.resolved_type.?.ObjectInstance.of.resolved_type.?.Object
+                            const object_def = if (callee_type.def_type == .ObjectInstance)
+                                self.gc.getTypeDef(callee_type.resolved_type.?.ObjectInstance.of).resolved_type.?.Object
                             else
-                                callee_type_def.resolved_type.?.Object;
+                                callee_type.resolved_type.?.Object;
 
                             if (object_def.fields.get(ast_slice.tokens.items(.lexeme)[comp.identifier])) |field| {
                                 try self.definitions.put(
@@ -1268,13 +1275,15 @@ const Document = struct {
             },
             .UserType => {
                 if (ast_slice.nodes.items(.type_def)[node]) |type_def| {
-                    if (switch (type_def.def_type) {
-                        .Object => type_def.resolved_type.?.Object.location,
-                        .ObjectInstance => type_def.resolved_type.?.ObjectInstance.of.resolved_type.?.Object.location,
-                        .Enum => type_def.resolved_type.?.Enum.location,
-                        .EnumInstance => type_def.resolved_type.?.EnumInstance.of.resolved_type.?.Enum.location,
-                        .Protocol => type_def.resolved_type.?.Protocol.location,
-                        .ProtocolInstance => type_def.resolved_type.?.ProtocolInstance.of.resolved_type.?.Protocol.location,
+                    const resolved_type = self.gc.getTypeDef(type_def);
+
+                    if (switch (resolved_type.def_type) {
+                        .Object => resolved_type.resolved_type.?.Object.location,
+                        .ObjectInstance => self.gc.getTypeDef(resolved_type.resolved_type.?.ObjectInstance.of).resolved_type.?.Object.location,
+                        .Enum => resolved_type.resolved_type.?.Enum.location,
+                        .EnumInstance => self.gc.getTypeDef(resolved_type.resolved_type.?.EnumInstance.of).resolved_type.?.Enum.location,
+                        .Protocol => resolved_type.resolved_type.?.Protocol.location,
+                        .ProtocolInstance => self.gc.getTypeDef(resolved_type.resolved_type.?.ProtocolInstance.of).resolved_type.?.Protocol.location,
                         else => null,
                     }) |location| {
                         try self.definitions.put(
@@ -1324,7 +1333,7 @@ const Document = struct {
             var inlay = std.Io.Writer.Allocating.init(allocator);
 
             try inlay.writer.writeAll(prefix);
-            try type_def.toStringWithoutUnresolved(&inlay.writer, false);
+            try type_def.toStringWithoutUnresolved(&inlay.writer, false, &self.document.gc);
             if (suffix) |sx| try inlay.writer.writeAll(sx);
 
             if (!self.document.isClientToken(location)) {
@@ -1362,7 +1371,7 @@ const Document = struct {
                     if (!comp.implicit and comp.type == null and type_def != null) {
                         try self.addTypeInlay(
                             allocator,
-                            type_def.?,
+                            self.document.gc.getTypeDef(type_def.?),
                             name,
                             ": ",
                             null,
@@ -1380,7 +1389,7 @@ const Document = struct {
                     if (comp.test_message == null and fun_type.lambda and fun_type.return_type == null and fun_type_def != null) {
                         try self.addTypeInlay(
                             allocator,
-                            fun_type_def.?.resolved_type.?.Function.return_type,
+                            self.document.gc.getTypeDef(self.document.gc.getTypeDef(fun_type_def.?).resolved_type.?.Function.return_type),
                             location,
                             " > ",
                             null,
@@ -1397,8 +1406,8 @@ const Document = struct {
                     for (comp.properties) |property| {
                         const prop_type = if (comp.object) |object|
                             if (type_defs[object]) |type_def|
-                                if (type_def.def_type == .Object)
-                                    if (type_def.resolved_type.?.Object.fields.get(lexemes[property.name])) |field|
+                                if (self.document.gc.getTypeDef(type_def).def_type == .Object)
+                                    if (self.document.gc.getTypeDef(type_def).resolved_type.?.Object.fields.get(lexemes[property.name])) |field|
                                         field.type_def
                                     else
                                         null
@@ -1415,7 +1424,7 @@ const Document = struct {
                             if (name_token.utility_token) {
                                 try self.addTypeInlay(
                                     allocator,
-                                    type_def,
+                                    self.document.gc.getTypeDef(type_def),
                                     ast.tokens.get(locations[property.value]),
                                     ":",
                                     " ",
@@ -1424,7 +1433,7 @@ const Document = struct {
                             } else {
                                 try self.addTypeInlay(
                                     allocator,
-                                    type_def,
+                                    self.document.gc.getTypeDef(type_def),
                                     name_token,
                                     ": ",
                                     null,
@@ -1453,11 +1462,13 @@ const Document = struct {
             switch (ast.nodes.items(.tag)[node]) {
                 .ObjectDeclaration => {
                     const type_def = ast.nodes.items(.type_def)[node] orelse return false;
-                    if (type_def.def_type != .Object) {
+                    const resolved_type = self.document.gc.getTypeDef(type_def);
+
+                    if (resolved_type.def_type != .Object) {
                         return false;
                     }
 
-                    const object_def = type_def.resolved_type.?.Object;
+                    const object_def = resolved_type.resolved_type.?.Object;
 
                     for (ast.nodes.items(.components)[node].ObjectDeclaration.members) |member| {
                         if (member.docblock) |docblock| {
@@ -1475,11 +1486,13 @@ const Document = struct {
                 },
                 .Enum => {
                     const type_def = ast.nodes.items(.type_def)[node] orelse return false;
-                    if (type_def.def_type != .Enum) {
+                    const resolved_type = self.document.gc.getTypeDef(type_def);
+
+                    if (resolved_type.def_type != .Enum) {
                         return false;
                     }
 
-                    const enum_def = type_def.resolved_type.?.Enum;
+                    const enum_def = resolved_type.resolved_type.?.Enum;
 
                     for (ast.nodes.items(.components)[node].Enum.cases) |case| {
                         if (case.docblock) |docblock| {
@@ -2023,6 +2036,8 @@ const Handler = struct {
 
         if (dot_callee) |callee| {
             if (document.ast.nodes.items(.type_def)[callee]) |callee_type_def| {
+                const callee_type = document.gc.getTypeDef(callee_type_def);
+
                 // Adjust prefix: we only want to filter from the `.`
                 const prefix = if (at_dot)
                     CompletionPrefix{
@@ -2052,12 +2067,12 @@ const Handler = struct {
                 log.debug(
                     "Possible callee of type {s} with prefix {s}",
                     .{
-                        @tagName(callee_type_def.def_type),
+                        @tagName(callee_type.def_type),
                         prefix.text,
                     },
                 );
 
-                switch (callee_type_def.def_type) {
+                switch (callee_type.def_type) {
                     .List => {
                         try appendBuiltinMemberCompletions(result, allocator, o.ObjList.member_defs[0..], prefix);
                     },
@@ -2077,7 +2092,7 @@ const Handler = struct {
                         try appendBuiltinMemberCompletions(result, allocator, o.ObjFiber.member_defs[0..], prefix);
                     },
                     .Object => {
-                        var it = callee_type_def.resolved_type.?.Object.fields.iterator();
+                        var it = callee_type.resolved_type.?.Object.fields.iterator();
                         while (it.next()) |kv| {
                             if (kv.value_ptr.*.static) {
                                 try appendCompletionItem(
@@ -2090,7 +2105,7 @@ const Handler = struct {
                         }
                     },
                     .ObjectInstance => {
-                        var it = callee_type_def.resolved_type.?.ObjectInstance.of.resolved_type.?.Object.fields.iterator();
+                        var it = document.gc.getTypeDef(callee_type.resolved_type.?.ObjectInstance.of).resolved_type.?.Object.fields.iterator();
                         while (it.next()) |kv| {
                             if (!kv.value_ptr.*.static) {
                                 try appendCompletionItem(
@@ -2103,7 +2118,7 @@ const Handler = struct {
                         }
                     },
                     .ProtocolInstance => {
-                        for (callee_type_def.resolved_type.?.ProtocolInstance.of.resolved_type.?.Protocol.methods.keys()) |key| {
+                        for (document.gc.getTypeDef(callee_type.resolved_type.?.ProtocolInstance.of).resolved_type.?.Protocol.methods.keys()) |key| {
                             try appendCompletionItem(
                                 result,
                                 allocator,
@@ -2113,7 +2128,7 @@ const Handler = struct {
                         }
                     },
                     .ForeignContainer => {
-                        for (callee_type_def.resolved_type.?.ForeignContainer.fields.keys()) |key| {
+                        for (callee_type.resolved_type.?.ForeignContainer.fields.keys()) |key| {
                             try appendCompletionItem(
                                 result,
                                 allocator,
@@ -2129,7 +2144,7 @@ const Handler = struct {
                         prefix,
                     ),
                     .Enum => {
-                        for (callee_type_def.resolved_type.?.Enum.cases) |key| {
+                        for (callee_type.resolved_type.?.Enum.cases) |key| {
                             try appendCompletionItem(
                                 result,
                                 allocator,
@@ -2309,6 +2324,7 @@ const Handler = struct {
                 self.allocator,
                 &result.writer,
                 document.ast,
+                @constCast(&document.gc),
                 .{},
             ) catch |err| {
                 log.err(

@@ -27,7 +27,7 @@ pub export fn time(ctx: *api.NativeCtx) callconv(.c) c_int {
 
 pub export fn env(ctx: *api.NativeCtx) callconv(.c) c_int {
     var len: usize = 0;
-    const key = ctx.vm.bz_peek(0).bz_valueToString(&len);
+    const key = ctx.vm.bz_peek(0).bz_valueToString(&len, ctx.vm);
 
     if (len == 0) {
         ctx.vm.bz_push(.Null);
@@ -91,7 +91,7 @@ pub export fn tmpDir(ctx: *api.NativeCtx) callconv(.c) c_int {
 // TODO: what if file with same random name exists already?
 pub export fn tmpFilename(ctx: *api.NativeCtx) callconv(.c) c_int {
     var prefix_len: usize = 0;
-    const prefix = ctx.vm.bz_peek(0).bz_valueToString(&prefix_len);
+    const prefix = ctx.vm.bz_peek(0).bz_valueToString(&prefix_len, ctx.vm);
 
     const prefix_slice = if (prefix_len == 0) "" else prefix.?[0..prefix_len];
 
@@ -230,15 +230,16 @@ pub export fn execute(ctx: *api.NativeCtx) callconv(.c) c_int {
     defer command.deinit(api.VM.allocator);
 
     const argv = ctx.vm.bz_peek(0);
-    const len = argv.bz_listLen();
+    const len = argv.bz_listLen(ctx.vm);
     var i: usize = 0;
     while (i < len) : (i += 1) {
         const arg = argv.bz_listGet(
             @intCast(i),
             false,
+            ctx.vm,
         );
         var arg_len: usize = 0;
-        var arg_str = arg.bz_valueToString(&arg_len);
+        var arg_str = arg.bz_valueToString(&arg_len, ctx.vm);
 
         std.debug.assert(arg_len > 0);
 
@@ -334,7 +335,7 @@ fn handleConnectUnixError(ctx: *api.NativeCtx, err: std.Io.net.UnixAddress.Conne
 
 pub export fn SocketConnect(ctx: *api.NativeCtx) callconv(.c) c_int {
     var len: usize = 0;
-    const address_value = api.Value.bz_valueToString(ctx.vm.bz_peek(2), &len);
+    const address_value = api.Value.bz_valueToString(ctx.vm.bz_peek(2), &len, ctx.vm);
     const address = if (len > 0) address_value.?[0..len] else "";
     const port: ?api.Integer = ctx.vm.bz_peek(1).integer();
     if (port == null or port.? < 0) {
@@ -607,7 +608,7 @@ pub export fn SocketWrite(ctx: *api.NativeCtx) callconv(.c) c_int {
     };
 
     var len: usize = 0;
-    var value = ctx.vm.bz_peek(0).bz_valueToString(&len);
+    var value = ctx.vm.bz_peek(0).bz_valueToString(&len, ctx.vm);
 
     if (len == 0) {
         return 0;
@@ -629,7 +630,7 @@ pub export fn SocketWrite(ctx: *api.NativeCtx) callconv(.c) c_int {
 
 pub export fn SocketServerStart(ctx: *api.NativeCtx) callconv(.c) c_int {
     var len: usize = 0;
-    const address_value = api.Value.bz_valueToString(ctx.vm.bz_peek(3), &len);
+    const address_value = api.Value.bz_valueToString(ctx.vm.bz_peek(3), &len, ctx.vm);
     const address = if (len > 0) address_value.?[0..len] else "";
     const port: ?api.Integer = ctx.vm.bz_peek(2).integer();
     if (port == null or port.? < 0) {

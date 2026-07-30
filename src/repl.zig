@@ -329,6 +329,7 @@ pub fn repl(process: std.process.Init, allocator: std.mem.Allocator) !void {
                         runner.gc.allocator,
                         &formatted.writer,
                         ast,
+                        &runner.gc,
                         .{},
                     ) catch break :format_echo;
 

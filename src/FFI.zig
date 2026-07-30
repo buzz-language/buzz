@@ -182,7 +182,7 @@ const zig_basic_types = std.StaticStringMap(ZigType).initComptime(
 
 pub const Zdef = struct {
     name: []const u8,
-    type_def: *o.ObjTypeDef,
+    type_def: o.ObjTypeDef.Idx,
     zig_type: ZigType,
 };
 
@@ -406,7 +406,7 @@ fn getZdef(self: *Self, decl_index: Ast.Node.Index) !?*Zdef {
                             .child = &uzdef.zig_type,
                         },
                     },
-                    .type_def = try uzdef.type_def.cloneOptional(&self.gc.type_registry),
+                    .type_def = (try self.gc.getTypeDef(uzdef.type_def).cloneOptional(&self.gc.type_registry)).toIdx(),
                     .name = uzdef.name,
                 };
 
@@ -497,7 +497,7 @@ fn containerDecl(self: *Self, name: []const u8, decl_index: Ast.Node.Index) Erro
 fn unionContainer(self: *Self, name: []const u8, container: Ast.full.ContainerDecl) Error!*Zdef {
     var fields = std.ArrayList(ZigType.UnionField).empty;
     var get_set_fields = std.StringArrayHashMapUnmanaged(o.ObjForeignContainer.ContainerDef.Field).empty;
-    var buzz_fields = std.StringArrayHashMapUnmanaged(*o.ObjTypeDef).empty;
+    var buzz_fields = std.StringArrayHashMapUnmanaged(o.ObjTypeDef.Idx).empty;
     var decls = std.ArrayList(ZigType.Declaration).empty;
     var next_field: ?*Zdef = null;
     for (container.ast.members, 0..) |member, idx| {
@@ -564,21 +564,21 @@ fn unionContainer(self: *Self, name: []const u8, container: Ast.full.ContainerDe
 
     const zdef = try self.gc.allocator.create(Zdef);
     zdef.* = .{
-        .type_def = try self.gc.type_registry.getTypeDef(
+        .type_def = (try self.gc.type_registry.getTypeDef(
             .{
                 .def_type = .ForeignContainer,
                 .resolved_type = .{
                     .ForeignContainer = .{
                         .location = self.state.?.source,
-                        .name = try self.gc.copyString(name),
-                        .qualified_name = try self.gc.copyString(qualified_name.written()),
+                        .name = (try self.gc.copyString(name)).toIdx(),
+                        .qualified_name = (try self.gc.copyString(qualified_name.written())).toIdx(),
                         .zig_type = zig_type,
                         .buzz_type = buzz_fields,
                         .fields = get_set_fields,
                     },
                 },
             },
-        ),
+        )).toIdx(),
         .zig_type = zig_type,
         .name = name,
     };
@@ -589,7 +589,7 @@ fn unionContainer(self: *Self, name: []const u8, container: Ast.full.ContainerDe
 fn structContainer(self: *Self, name: []const u8, container: Ast.full.ContainerDecl) Error!*Zdef {
     var fields = std.ArrayList(ZigType.StructField).empty;
     var get_set_fields = std.StringArrayHashMapUnmanaged(o.ObjForeignContainer.ContainerDef.Field).empty;
-    var buzz_fields = std.StringArrayHashMapUnmanaged(*o.ObjTypeDef).empty;
+    var buzz_fields = std.StringArrayHashMapUnmanaged(o.ObjTypeDef.Idx).empty;
     var decls = std.ArrayList(ZigType.Declaration).empty;
     var offset: usize = 0;
     var next_field: ?*Zdef = null;
@@ -672,8 +672,8 @@ fn structContainer(self: *Self, name: []const u8, container: Ast.full.ContainerD
 
     const foreign_def = o.ObjForeignContainer.ContainerDef{
         .location = self.state.?.source,
-        .name = try self.gc.copyString(name),
-        .qualified_name = try self.gc.copyString(qualified_name.written()),
+        .name = (try self.gc.copyString(name)).toIdx(),
+        .qualified_name = (try self.gc.copyString(qualified_name.written())).toIdx(),
         .zig_type = zig_type,
         .buzz_type = buzz_fields,
         .fields = get_set_fields,
@@ -686,7 +686,7 @@ fn structContainer(self: *Self, name: []const u8, container: Ast.full.ContainerD
 
     const zdef = try self.gc.allocator.create(Zdef);
     zdef.* = .{
-        .type_def = try self.gc.type_registry.getTypeDef(type_def),
+        .type_def = (try self.gc.type_registry.getTypeDef(type_def)).toIdx(),
         .zig_type = zig_type,
         .name = name,
     };
@@ -744,7 +744,7 @@ fn identifier(self: *Self, decl_index: Ast.Node.Index) Error!*Zdef {
 
         if (global == null) {
             if (self.state.?.structs.get(id)) |container| {
-                type_def = container.type_def.*;
+                type_def = self.gc.getTypeDef(container.type_def).*;
                 zig_type = container.zig_type;
             }
         }
@@ -766,7 +766,7 @@ fn identifier(self: *Self, decl_index: Ast.Node.Index) Error!*Zdef {
 
     const zdef = try self.gc.allocator.create(Zdef);
     zdef.* = .{
-        .type_def = try self.gc.type_registry.getTypeDef(type_def orelse .{ .def_type = .Void }),
+        .type_def = (try self.gc.type_registry.getTypeDef(type_def orelse .{ .def_type = .Void })).toIdx(),
         .zig_type = zig_type orelse ZigType{ .Void = {} },
         .name = id,
     };
@@ -809,7 +809,7 @@ fn ptrType(self: *Self, tag: Ast.Node.Tag, decl_index: Ast.Node.Index) Error!*Zd
                 },
                 .name = "ptr",
             }
-        else if (child_type.type_def.def_type == .ForeignContainer)
+        else if (self.gc.getTypeDef(child_type.type_def).def_type == .ForeignContainer)
             .{
                 .type_def = child_type.type_def,
                 .zig_type = ZigType{
@@ -875,10 +875,10 @@ fn fnProto(self: *Self, tag: Ast.Node.Tag, decl_index: Ast.Node.Index) Error!*Zd
 
     var function_def = o.ObjFunction.FunctionDef{
         .id = o.ObjFunction.FunctionDef.nextId(),
-        .name = try self.gc.copyString(name orelse "unknown"),
-        .script_name = try self.gc.copyString(
+        .name = (try self.gc.copyString(name orelse "unknown")).toIdx(),
+        .script_name = (try self.gc.copyString(
             self.state.?.buzz_ast.?.tokens.items(.script_name)[self.state.?.source],
-        ),
+        )).toIdx(),
         .return_type = if (return_type_zdef) |return_type|
             return_type.type_def
         else
@@ -926,7 +926,7 @@ fn fnProto(self: *Self, tag: Ast.Node.Tag, decl_index: Ast.Node.Index) Error!*Zd
 
         try function_def.parameters.put(
             self.gc.allocator,
-            try self.gc.copyString(param_name orelse "$"),
+            (try self.gc.copyString(param_name orelse "$")).toIdx(),
             param_zdef.?.type_def,
         );
 
@@ -950,7 +950,7 @@ fn fnProto(self: *Self, tag: Ast.Node.Tag, decl_index: Ast.Node.Index) Error!*Zd
     const zdef = try self.gc.allocator.create(Zdef);
     zdef.* = .{
         .zig_type = ZigType{ .Fn = zig_fn_type },
-        .type_def = try self.gc.type_registry.getTypeDef(type_def),
+        .type_def = (try self.gc.type_registry.getTypeDef(type_def)).toIdx(),
         .name = name orelse "unknown",
     };
 

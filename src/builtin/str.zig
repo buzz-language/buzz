@@ -4,7 +4,7 @@ const VM = @import("../vm.zig").VM;
 const v = @import("../value.zig");
 
 pub fn trim(ctx: *o.NativeCtx) callconv(.c) c_int {
-    const str = o.ObjString.cast(ctx.vm.peek(0).obj()).?;
+    const str = o.ObjString.cast(ctx.vm.peek(0).obj(ctx.vm.gc)).?;
 
     const trimmed = std.mem.trim(u8, str.string, " \t\r\n");
 
@@ -17,7 +17,7 @@ pub fn trim(ctx: *o.NativeCtx) callconv(.c) c_int {
 }
 
 pub fn len(ctx: *o.NativeCtx) callconv(.c) c_int {
-    const str = o.ObjString.cast(ctx.vm.peek(0).obj()).?;
+    const str = o.ObjString.cast(ctx.vm.peek(0).obj(ctx.vm.gc)).?;
 
     ctx.vm.push(
         v.Value.fromInteger(
@@ -29,7 +29,7 @@ pub fn len(ctx: *o.NativeCtx) callconv(.c) c_int {
 }
 
 pub fn utf8Len(ctx: *o.NativeCtx) callconv(.c) c_int {
-    const str = o.ObjString.cast(ctx.vm.peek(0).obj()).?;
+    const str = o.ObjString.cast(ctx.vm.peek(0).obj(ctx.vm.gc)).?;
 
     ctx.vm.push(
         v.Value.fromInteger(
@@ -41,7 +41,7 @@ pub fn utf8Len(ctx: *o.NativeCtx) callconv(.c) c_int {
 }
 
 pub fn utf8Valid(ctx: *o.NativeCtx) callconv(.c) c_int {
-    const str = o.ObjString.cast(ctx.vm.peek(0).obj()).?;
+    const str = o.ObjString.cast(ctx.vm.peek(0).obj(ctx.vm.gc)).?;
 
     ctx.vm.push(
         v.Value.fromBoolean(
@@ -53,7 +53,7 @@ pub fn utf8Valid(ctx: *o.NativeCtx) callconv(.c) c_int {
 }
 
 pub fn utf8Codepoints(ctx: *o.NativeCtx) callconv(.c) c_int {
-    const str = o.ObjString.cast(ctx.vm.peek(0).obj()).?;
+    const str = o.ObjString.cast(ctx.vm.peek(0).obj(ctx.vm.gc)).?;
 
     const list_def_type = ctx.vm.gc.type_registry.getTypeDef(
         o.ObjTypeDef{
@@ -61,7 +61,7 @@ pub fn utf8Codepoints(ctx: *o.NativeCtx) callconv(.c) c_int {
             .optional = false,
             .resolved_type = .{
                 .List = o.ObjList.ListDef.init(
-                    ctx.vm.gc.type_registry.str_type,
+                    ctx.vm.gc.getTypeDef(ctx.vm.gc.type_registry.str_type),
                     false,
                 ),
             },
@@ -103,7 +103,7 @@ pub fn utf8Codepoints(ctx: *o.NativeCtx) callconv(.c) c_int {
 }
 
 pub fn repeat(ctx: *o.NativeCtx) callconv(.c) c_int {
-    const str = o.ObjString.cast(ctx.vm.peek(1).obj()).?;
+    const str = o.ObjString.cast(ctx.vm.peek(1).obj(ctx.vm.gc)).?;
     const n = ctx.vm.peek(0).integer();
 
     var new_string = std.ArrayList(u8).empty;
@@ -126,7 +126,7 @@ pub fn repeat(ctx: *o.NativeCtx) callconv(.c) c_int {
 }
 
 pub fn byte(ctx: *o.NativeCtx) callconv(.c) c_int {
-    const self = o.ObjString.cast(ctx.vm.peek(1).obj()).?;
+    const self = o.ObjString.cast(ctx.vm.peek(1).obj(ctx.vm.gc)).?;
     const index = @min(
         @max(
             0,
@@ -145,8 +145,8 @@ pub fn byte(ctx: *o.NativeCtx) callconv(.c) c_int {
 }
 
 pub fn indexOf(ctx: *o.NativeCtx) callconv(.c) c_int {
-    const self = o.ObjString.cast(ctx.vm.peek(1).obj()).?;
-    const needle = o.ObjString.cast(ctx.vm.peek(0).obj()).?;
+    const self = o.ObjString.cast(ctx.vm.peek(1).obj(ctx.vm.gc)).?;
+    const needle = o.ObjString.cast(ctx.vm.peek(0).obj(ctx.vm.gc)).?;
 
     const index = std.mem.indexOf(u8, self.string, needle.string);
 
@@ -161,8 +161,8 @@ pub fn indexOf(ctx: *o.NativeCtx) callconv(.c) c_int {
 }
 
 pub fn startsWith(ctx: *o.NativeCtx) callconv(.c) c_int {
-    const self = o.ObjString.cast(ctx.vm.peek(1).obj()).?;
-    const needle = o.ObjString.cast(ctx.vm.peek(0).obj()).?;
+    const self = o.ObjString.cast(ctx.vm.peek(1).obj(ctx.vm.gc)).?;
+    const needle = o.ObjString.cast(ctx.vm.peek(0).obj(ctx.vm.gc)).?;
 
     ctx.vm.push(
         v.Value.fromBoolean(
@@ -174,8 +174,8 @@ pub fn startsWith(ctx: *o.NativeCtx) callconv(.c) c_int {
 }
 
 pub fn endsWith(ctx: *o.NativeCtx) callconv(.c) c_int {
-    const self = o.ObjString.cast(ctx.vm.peek(1).obj()).?;
-    const needle = o.ObjString.cast(ctx.vm.peek(0).obj()).?;
+    const self = o.ObjString.cast(ctx.vm.peek(1).obj(ctx.vm.gc)).?;
+    const needle = o.ObjString.cast(ctx.vm.peek(0).obj(ctx.vm.gc)).?;
 
     ctx.vm.push(
         v.Value.fromBoolean(
@@ -187,9 +187,9 @@ pub fn endsWith(ctx: *o.NativeCtx) callconv(.c) c_int {
 }
 
 pub fn replace(ctx: *o.NativeCtx) callconv(.c) c_int {
-    const self = o.ObjString.cast(ctx.vm.peek(2).obj()).?;
-    const needle = o.ObjString.cast(ctx.vm.peek(1).obj()).?;
-    const replacement = o.ObjString.cast(ctx.vm.peek(0).obj()).?;
+    const self = o.ObjString.cast(ctx.vm.peek(2).obj(ctx.vm.gc)).?;
+    const needle = o.ObjString.cast(ctx.vm.peek(1).obj(ctx.vm.gc)).?;
+    const replacement = o.ObjString.cast(ctx.vm.peek(0).obj(ctx.vm.gc)).?;
 
     const new_string = std.mem.replaceOwned(
         u8,
@@ -213,7 +213,7 @@ pub fn replace(ctx: *o.NativeCtx) callconv(.c) c_int {
 }
 
 pub fn sub(ctx: *o.NativeCtx) callconv(.c) c_int {
-    const self = o.ObjString.cast(ctx.vm.peek(2).obj()).?;
+    const self = o.ObjString.cast(ctx.vm.peek(2).obj(ctx.vm.gc)).?;
     const start = @max(
         0,
         ctx.vm.peek(1).integer(),
@@ -244,8 +244,8 @@ pub fn sub(ctx: *o.NativeCtx) callconv(.c) c_int {
 }
 
 pub fn split(ctx: *o.NativeCtx) callconv(.c) c_int {
-    const self = o.ObjString.cast(ctx.vm.peek(1).obj()).?;
-    const separator = o.ObjString.cast(ctx.vm.peek(0).obj()).?;
+    const self = o.ObjString.cast(ctx.vm.peek(1).obj(ctx.vm.gc)).?;
+    const separator = o.ObjString.cast(ctx.vm.peek(0).obj(ctx.vm.gc)).?;
 
     const list_def_type = ctx.vm.gc.type_registry.getTypeDef(
         .{
@@ -253,7 +253,7 @@ pub fn split(ctx: *o.NativeCtx) callconv(.c) c_int {
             .optional = false,
             .resolved_type = .{
                 .List = o.ObjList.ListDef.init(
-                    ctx.vm.gc.type_registry.str_type,
+                    ctx.vm.gc.getTypeDef(ctx.vm.gc.type_registry.str_type),
                     false,
                 ),
             },
@@ -307,7 +307,7 @@ pub fn split(ctx: *o.NativeCtx) callconv(.c) c_int {
 }
 
 pub fn encodeBase64(ctx: *o.NativeCtx) callconv(.c) c_int {
-    const str = o.ObjString.cast(ctx.vm.peek(0).obj()).?;
+    const str = o.ObjString.cast(ctx.vm.peek(0).obj(ctx.vm.gc)).?;
 
     const encoded = ctx.vm.gc.allocator.alloc(
         u8,
@@ -332,7 +332,7 @@ pub fn encodeBase64(ctx: *o.NativeCtx) callconv(.c) c_int {
 
 // FIXME: signature should be fun decodeBase64(str self) > str !> DecodeError
 pub fn decodeBase64(ctx: *o.NativeCtx) callconv(.c) c_int {
-    const str = o.ObjString.cast(ctx.vm.peek(0).obj()).?;
+    const str = o.ObjString.cast(ctx.vm.peek(0).obj(ctx.vm.gc)).?;
 
     const size = std.base64.standard.Decoder.calcSizeForSlice(str.string) catch {
         ctx.vm.push((ctx.vm.gc.copyString("Could not decode string") catch {
@@ -368,7 +368,7 @@ pub fn decodeBase64(ctx: *o.NativeCtx) callconv(.c) c_int {
 }
 
 pub fn upper(ctx: *o.NativeCtx) callconv(.c) c_int {
-    const str = o.ObjString.cast(ctx.vm.peek(0).obj()).?;
+    const str = o.ObjString.cast(ctx.vm.peek(0).obj(ctx.vm.gc)).?;
 
     if (str.string.len == 0) {
         ctx.vm.push(str.toValue());
@@ -400,7 +400,7 @@ pub fn upper(ctx: *o.NativeCtx) callconv(.c) c_int {
 }
 
 pub fn lower(ctx: *o.NativeCtx) callconv(.c) c_int {
-    const str = o.ObjString.cast(ctx.vm.peek(0).obj()).?;
+    const str = o.ObjString.cast(ctx.vm.peek(0).obj(ctx.vm.gc)).?;
 
     if (str.string.len == 0) {
         ctx.vm.push(str.toValue());
@@ -432,7 +432,7 @@ pub fn lower(ctx: *o.NativeCtx) callconv(.c) c_int {
 }
 
 pub fn hex(ctx: *o.NativeCtx) callconv(.c) c_int {
-    const str = o.ObjString.cast(ctx.vm.peek(0).obj()).?;
+    const str = o.ObjString.cast(ctx.vm.peek(0).obj(ctx.vm.gc)).?;
 
     if (str.string.len == 0) {
         ctx.vm.push(str.toValue());
@@ -461,7 +461,7 @@ pub fn hex(ctx: *o.NativeCtx) callconv(.c) c_int {
 }
 
 pub fn bin(ctx: *o.NativeCtx) callconv(.c) c_int {
-    const str = o.ObjString.cast(ctx.vm.peek(0).obj()).?;
+    const str = o.ObjString.cast(ctx.vm.peek(0).obj(ctx.vm.gc)).?;
 
     if (str.string.len == 0) {
         ctx.vm.push(str.toValue());

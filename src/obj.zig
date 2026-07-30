@@ -19,6 +19,7 @@ const Value = v.Value;
 const Token = @import("Token.zig");
 const is_wasm = builtin.cpu.arch.isWasm();
 const BuildOptions = @import("build_options");
+const Pool = @import("Pool.zig");
 const CodeGen = @import("Codegen.zig");
 const buzz_api = @import("buzz_api.zig");
 const buzz_builtin = @import("builtin.zig");
@@ -34,7 +35,17 @@ pub const SerializeError = error{
     OutOfMemory,
 };
 
-pub const ObjType = enum {
+pub const ObjPoolPageSize = BuildOptions.gc_pool_page_size;
+pub const ObjIndexInt = u43;
+pub const ObjIndexBits = @bitSizeOf(ObjIndexInt);
+pub const ObjTypeBits = @bitSizeOf(ObjType);
+pub const ObjIndexMask = std.math.maxInt(ObjIndexInt);
+
+pub fn ObjIndex(comptime T: type) type {
+    return Pool.PoolPage(T, ObjPoolPageSize).Idx;
+}
+
+pub const ObjType = enum(u5) {
     String,
     Type,
     UpValue,
@@ -55,14 +66,60 @@ pub const ObjType = enum {
     Range,
 };
 
+pub const ObjIdx = struct {
+    index: ObjIndexInt,
+    obj_type: ObjType,
+
+    pub fn init(obj_type: ObjType, raw_index: usize) ObjIdx {
+        assert(raw_index <= std.math.maxInt(ObjIndexInt));
+
+        return .{
+            .index = @intCast(raw_index),
+            .obj_type = obj_type,
+        };
+    }
+
+    pub fn get(self: ObjIdx, gc: *GC) *Obj {
+        return gc.getObj(self);
+    }
+
+    pub fn access(self: ObjIdx, comptime T: type, obj_type: ObjType, gc: *GC) ?*T {
+        if (self.obj_type != obj_type) {
+            return null;
+        }
+
+        return self.get(gc).access(T, obj_type, gc);
+    }
+
+    pub fn eql(self: ObjIdx, other: ObjIdx) bool {
+        return self.obj_type == other.obj_type and self.index == other.index;
+    }
+
+    pub fn toValue(self: ObjIdx) Value {
+        return Value.fromObj(self);
+    }
+
+    pub fn toBits(self: ObjIdx) u48 {
+        return (@as(u48, @intFromEnum(self.obj_type)) << ObjIndexBits) |
+            @as(u48, self.index);
+    }
+
+    pub fn fromBits(bits: u48) ObjIdx {
+        return .{
+            .index = @truncate(bits & ObjIndexMask),
+            .obj_type = @enumFromInt(bits >> ObjIndexBits),
+        };
+    }
+};
+
 pub const Obj = struct {
     const Self = @This();
 
     obj_type: ObjType,
+    index: ObjIndexInt = 0,
     marked: bool = false,
     // True when old obj and was modified
     dirty: bool = false,
-    node: std.DoublyLinkedList.Node = .{},
 
     pub fn cast(obj: *Obj, comptime T: type, obj_type: ObjType) ?*T {
         if (obj.obj_type != obj_type) {
@@ -84,6 +141,10 @@ pub const Obj = struct {
         return obj.cast(T, obj_type);
     }
 
+    pub fn toIdx(self: *const Self) ObjIdx {
+        return .init(self.obj_type, self.index);
+    }
+
     pub fn serialize(self: *Self, vm: *VM, seen: *std.AutoHashMapUnmanaged(*Self, void)) SerializeError!Value {
         if (seen.get(self) != null) {
             return error.CircularReference;
@@ -93,7 +154,7 @@ pub const Obj = struct {
         defer _ = seen.remove(self);
 
         switch (self.obj_type) {
-            .String => return Value.fromObj(self),
+            .String => return self.toIdx().toValue(),
 
             .Pattern => {
                 const pattern = self.access(ObjPattern, .Pattern, vm.gc).?;
@@ -122,7 +183,7 @@ pub const Obj = struct {
             .Type => {
                 const type_def = self.access(ObjTypeDef, .Type, vm.gc).?;
 
-                const type_str = type_def.toStringAlloc(vm.gc.allocator, true) catch return error.OutOfMemory;
+                const type_str = type_def.toStringAlloc(vm.gc.allocator, true, vm.gc) catch return error.OutOfMemory;
                 defer vm.gc.allocator.free(type_str);
 
                 return (vm.gc.copyString(type_str) catch return error.OutOfMemory).toValue();
@@ -131,7 +192,7 @@ pub const Obj = struct {
             .EnumInstance => {
                 const enum_instance = self.access(ObjEnumInstance, .EnumInstance, vm.gc).?;
 
-                return try enum_instance.enum_ref.cases[enum_instance.case].serialize(vm, seen);
+                return try vm.gc.getEnum(enum_instance.enum_ref).cases[enum_instance.case].serialize(vm, seen);
             },
 
             .Range => {
@@ -143,8 +204,8 @@ pub const Obj = struct {
                         .def_type = .Map,
                         .resolved_type = .{
                             .Map = ObjMap.MapDef.init(
-                                vm.gc.type_registry.str_type,
-                                vm.gc.type_registry.int_type,
+                                vm.gc.getTypeDef(vm.gc.type_registry.str_type),
+                                vm.gc.getTypeDef(vm.gc.type_registry.int_type),
                                 true,
                             ),
                         },
@@ -181,8 +242,8 @@ pub const Obj = struct {
                         .def_type = .List,
                         .resolved_type = .{
                             .List = ObjList.ListDef.init(
-                                vm.gc.type_registry.any_type,
-                                list.type_def.resolved_type.?.List.mutable,
+                                vm.gc.getTypeDef(vm.gc.type_registry.any_type),
+                                vm.gc.getTypeDef(list.type_def).resolved_type.?.List.mutable,
                             ),
                         },
                     },
@@ -209,9 +270,9 @@ pub const Obj = struct {
                 const map = self.access(ObjMap, .Map, vm.gc).?;
 
                 const map_def = ObjMap.MapDef.init(
-                    vm.gc.type_registry.any_type,
-                    vm.gc.type_registry.any_type,
-                    map.type_def.resolved_type.?.Map.mutable,
+                    vm.gc.getTypeDef(vm.gc.type_registry.any_type),
+                    vm.gc.getTypeDef(vm.gc.type_registry.any_type),
+                    vm.gc.getTypeDef(map.type_def).resolved_type.?.Map.mutable,
                 );
 
                 const resolved_type = ObjTypeDef.TypeUnion{ .Map = map_def };
@@ -244,12 +305,13 @@ pub const Obj = struct {
 
             .ObjectInstance => {
                 const instance = self.access(ObjObjectInstance, .ObjectInstance, vm.gc).?;
-                const object_def = instance.type_def.resolved_type.?.ObjectInstance.of.resolved_type.?.Object;
+                const instance_type_def = vm.gc.getTypeDef(instance.type_def);
+                const object_def = vm.gc.getTypeDef(instance_type_def.resolved_type.?.ObjectInstance.of).resolved_type.?.Object;
 
                 const map_def = ObjMap.MapDef.init(
-                    vm.gc.type_registry.any_type,
-                    vm.gc.type_registry.any_type,
-                    instance.type_def.resolved_type.?.ObjectInstance.mutable,
+                    vm.gc.getTypeDef(vm.gc.type_registry.any_type),
+                    vm.gc.getTypeDef(vm.gc.type_registry.any_type),
+                    instance_type_def.resolved_type.?.ObjectInstance.mutable,
                 );
 
                 const resolved_type = ObjTypeDef.TypeUnion{ .Map = map_def };
@@ -287,11 +349,11 @@ pub const Obj = struct {
 
             .ForeignContainer => {
                 const container = self.access(ObjForeignContainer, .ForeignContainer, vm.gc).?;
-                const container_def = container.type_def.resolved_type.?.ForeignContainer;
+                const container_def = vm.gc.getTypeDef(container.type_def).resolved_type.?.ForeignContainer;
 
                 const map_def = ObjMap.MapDef.init(
-                    vm.gc.type_registry.any_type,
-                    vm.gc.type_registry.any_type,
+                    vm.gc.getTypeDef(vm.gc.type_registry.any_type),
+                    vm.gc.getTypeDef(vm.gc.type_registry.any_type),
                     true,
                 );
 
@@ -334,33 +396,36 @@ pub const Obj = struct {
 
     pub fn typeOf(self: *Self, gc: *GC) error{ OutOfMemory, NoSpaceLeft, ReachedMaximumMemoryUsage }!*ObjTypeDef {
         return switch (self.obj_type) {
-            .Range => gc.type_registry.rg_type,
-            .String => gc.type_registry.str_type,
-            .Pattern => gc.type_registry.pat_type,
+            .Range => gc.getTypeDef(gc.type_registry.rg_type),
+            .String => gc.getTypeDef(gc.type_registry.str_type),
+            .Pattern => gc.getTypeDef(gc.type_registry.pat_type),
             .Fiber => ObjFiber.cast(self).?.fiber.type_def,
             .Type => try gc.type_registry.getTypeDef(.{ .def_type = .Type }),
-            .Object => ObjObject.cast(self).?.type_def,
-            .Enum => ObjEnum.cast(self).?.type_def,
-            .ObjectInstance => ObjObjectInstance.cast(self).?.type_def,
-            .EnumInstance => try ObjEnumInstance.cast(self).?.enum_ref.type_def.toInstance(
+            .Object => gc.getTypeDef(ObjObject.cast(self).?.type_def),
+            .Enum => gc.getTypeDef(ObjEnum.cast(self).?.type_def),
+            .ObjectInstance => gc.getTypeDef(ObjObjectInstance.cast(self).?.type_def),
+            .EnumInstance => try gc.getTypeDef(gc.getEnum(ObjEnumInstance.cast(self).?.enum_ref).type_def).toInstance(
                 &gc.type_registry,
                 false,
             ),
-            .Function => ObjFunction.cast(self).?.type_def,
+            .Function => gc.getTypeDef(ObjFunction.cast(self).?.type_def),
             .UpValue => upvalue: {
                 const upvalue: *ObjUpValue = ObjUpValue.cast(self).?;
 
                 break :upvalue (upvalue.closed orelse upvalue.location.*).typeOf(gc);
             },
-            .Closure => ObjClosure.cast(self).?.function.type_def,
-            .List => ObjList.cast(self).?.type_def,
-            .Map => ObjMap.cast(self).?.type_def,
+            .Closure => gc.getTypeDef(gc.getFunction(ObjClosure.cast(self).?.function).type_def),
+            .List => gc.getTypeDef(ObjList.cast(self).?.type_def),
+            .Map => gc.getTypeDef(ObjMap.cast(self).?.type_def),
             .Bound => bound: {
                 const bound: *ObjBoundMethod = ObjBoundMethod.cast(self).?;
-                break :bound try (if (bound.closure) |cls| cls.function.toValue() else bound.native.?.toValue()).typeOf(gc);
+                break :bound try (if (bound.closure) |cls|
+                    gc.getFunction(gc.getClosure(cls).function).toValue()
+                else
+                    gc.getNative(bound.native.?).toValue()).typeOf(gc);
             },
-            .ForeignContainer => ObjForeignContainer.cast(self).?.type_def,
-            .UserData => gc.type_registry.ud_type,
+            .ForeignContainer => gc.getTypeDef(ObjForeignContainer.cast(self).?.type_def),
+            .UserData => gc.getTypeDef(gc.type_registry.ud_type),
             // FIXME: apart from list/map types we actually can embark typedef of objnatives at runtime
             // Or since native are ptr to unique function we can keep a map of ptr => typedef
             .Native => try gc.type_registry.getTypeDef(
@@ -369,8 +434,8 @@ pub const Obj = struct {
                     .resolved_type = .{
                         .Function = .{
                             .id = 0,
-                            .name = try gc.copyString("native"),
-                            .script_name = try gc.copyString("native"),
+                            .name = (try gc.copyString("native")).toIdx(),
+                            .script_name = (try gc.copyString("native")).toIdx(),
                             .return_type = gc.type_registry.any_type,
                             .yield_type = gc.type_registry.any_type,
                         },
@@ -380,7 +445,7 @@ pub const Obj = struct {
         };
     }
 
-    pub fn is(self: *Self, type_def: *ObjTypeDef) bool {
+    pub fn is(self: *Self, type_def: *ObjTypeDef, gc: *GC) bool {
         if (type_def.def_type == .Any) {
             return true;
         }
@@ -394,68 +459,78 @@ pub const Obj = struct {
             .Type, .Object, .Enum => type_def.def_type == .Type,
 
             .ObjectInstance => (type_def.def_type == .ObjectInstance or type_def.def_type == .Object or type_def.def_type == .Protocol or type_def.def_type == .ProtocolInstance) and
-                ObjObjectInstance.cast(self).?.is(type_def),
-            .EnumInstance => (type_def.def_type == .Enum and ObjEnumInstance.cast(self).?.enum_ref.type_def == type_def) or
-                (type_def.def_type == .EnumInstance and ObjEnumInstance.cast(self).?.enum_ref.type_def == type_def.resolved_type.?.EnumInstance.of),
+                ObjObjectInstance.cast(self).?.is(type_def, gc),
+            .EnumInstance => enum_instance: {
+                const enum_instance = ObjEnumInstance.cast(self).?;
+                const enum_type_def = gc.getTypeDef(gc.getEnum(enum_instance.enum_ref).type_def);
+
+                break :enum_instance (type_def.def_type == .Enum and enum_type_def == type_def) or
+                    (type_def.def_type == .EnumInstance and enum_type_def.eql(gc.getTypeDef(type_def.resolved_type.?.EnumInstance.of)));
+            },
             .Function => function: {
                 const function: *ObjFunction = ObjFunction.cast(self).?;
-                break :function function.type_def.eql(type_def);
+                break :function gc.getTypeDef(function.type_def).eql(type_def);
             },
 
             .UpValue => upvalue: {
                 const upvalue: *ObjUpValue = ObjUpValue.cast(self).?;
-                break :upvalue Value.fromObj(type_def.toObj()).is(
+                break :upvalue type_def.toValue().is(
                     upvalue.closed orelse upvalue.location.*,
+                    gc,
                 );
             },
-            .Closure => ObjClosure.cast(self).?.function.toObj().is(type_def),
-            .List => ObjList.cast(self).?.type_def.eql(type_def),
-            .Map => ObjMap.cast(self).?.type_def.eql(type_def),
+            .Closure => gc.getFunction(ObjClosure.cast(self).?.function).toObj().is(type_def, gc),
+            .List => gc.getTypeDef(ObjList.cast(self).?.type_def).eql(type_def),
+            .Map => gc.getTypeDef(ObjMap.cast(self).?.type_def).eql(type_def),
             .Bound => bound: {
                 const bound: *ObjBoundMethod = ObjBoundMethod.cast(self).?;
-                break :bound Value.fromObj(type_def.toObj()).is(
-                    Value.fromObj(if (bound.closure) |cls| cls.function.toObj() else bound.native.?.toObj()),
+                break :bound type_def.toValue().is(
+                    if (bound.closure) |cls| gc.getFunction(gc.getClosure(cls).function).toValue() else gc.getNative(bound.native.?).toValue(),
+                    gc,
                 );
             },
-            .ForeignContainer => type_def.def_type == .ForeignContainer and ObjForeignContainer.cast(self).?.is(type_def),
+            .ForeignContainer => type_def.def_type == .ForeignContainer and ObjForeignContainer.cast(self).?.is(type_def, gc),
             .UserData => type_def.def_type == .UserData,
             .Native => unreachable, // TODO: we don't know how to embark NativeFn type at runtime yet
         };
     }
 
-    pub fn typeEql(self: *Self, type_def: *ObjTypeDef) bool {
+    pub fn typeEql(self: *Self, type_def: *ObjTypeDef, gc: *GC) bool {
         return switch (self.obj_type) {
             .Pattern => type_def.def_type == .Pattern,
             .String => type_def.def_type == .String,
             .Type => type_def.def_type == .Type,
             .UpValue => uv: {
                 var upvalue: *ObjUpValue = ObjUpValue.cast(self).?;
-                break :uv (upvalue.closed orelse upvalue.location.*).typeEql(type_def);
+                break :uv (upvalue.closed orelse upvalue.location.*).typeEql(type_def, gc);
             },
             .EnumInstance => ei: {
-                var instance: *ObjEnumInstance = ObjEnumInstance.cast(self).?;
-                break :ei type_def.def_type == .EnumInstance and instance.enum_ref.type_def.eql(type_def.resolved_type.?.EnumInstance);
+                const instance: *ObjEnumInstance = ObjEnumInstance.cast(self).?;
+                break :ei type_def.def_type == .EnumInstance and gc.getTypeDef(gc.getEnum(instance.enum_ref).type_def).eql(type_def.resolved_type.?.EnumInstance.of);
             },
             .ObjectInstance => oi: {
-                var instance: *ObjObjectInstance = ObjObjectInstance.cast(self).?;
-                break :oi type_def.def_type == .ObjectInstance and instance.is(type_def.resolved_type.?.ObjectInstance);
+                const instance: *ObjObjectInstance = ObjObjectInstance.cast(self).?;
+                break :oi type_def.def_type == .ObjectInstance and instance.is(type_def, gc);
             },
-            .Enum => ObjEnum.cast(self).?.type_def.eql(type_def),
-            .Object => ObjObject.cast(self).?.type_def.eql(type_def),
-            .Function => ObjFunction.cast(self).?.type_def.eql(type_def),
-            .Closure => ObjClosure.cast(self).?.function.type_def.eql(type_def),
+            .Enum => gc.getTypeDef(ObjEnum.cast(self).?.type_def).eql(type_def),
+            .Object => gc.getTypeDef(ObjObject.cast(self).?.type_def).eql(type_def),
+            .Function => gc.getTypeDef(ObjFunction.cast(self).?.type_def).eql(type_def),
+            .Closure => gc.getTypeDef(gc.getFunction(ObjClosure.cast(self).?.function).type_def).eql(type_def),
             .Bound => bound: {
                 const bound = ObjBoundMethod.cast(self).?;
-                break :bound if (bound.closure) |cls| cls.function.type_def.eql(type_def) else unreachable; // TODO
+                break :bound if (bound.closure) |cls|
+                    gc.getTypeDef(gc.getFunction(gc.getClosure(cls).function).type_def).eql(type_def)
+                else
+                    unreachable; // TODO
             },
-            .List => ObjList.cast(self).?.type_def.eql(type_def),
-            .Map => ObjMap.cast(self).?.type_def.eql(type_def),
+            .List => gc.getTypeDef(ObjList.cast(self).?.type_def).eql(type_def),
+            .Map => gc.getTypeDef(ObjMap.cast(self).?.type_def).eql(type_def),
             .Fiber => ObjFiber.cast(self).?.type_def.eql(type_def),
             .UserData, .Native => unreachable, // TODO
         };
     }
 
-    pub fn eql(self: *Self, other: *Self) bool {
+    pub fn eql(self: *Self, other: *Self, gc: *GC) bool {
         if (self.obj_type != other.obj_type) {
             return false;
         }
@@ -483,13 +558,13 @@ pub const Obj = struct {
                 const self_upvalue: *ObjUpValue = ObjUpValue.cast(self).?;
                 const other_upvalue: *ObjUpValue = ObjUpValue.cast(other).?;
 
-                return (self_upvalue.closed orelse self_upvalue.location.*).eql(other_upvalue.closed orelse other_upvalue.location.*);
+                return (self_upvalue.closed orelse self_upvalue.location.*).eql(other_upvalue.closed orelse other_upvalue.location.*, gc);
             },
             .EnumInstance => {
                 const self_enum_instance: *ObjEnumInstance = ObjEnumInstance.cast(self).?;
                 const other_enum_instance: *ObjEnumInstance = ObjEnumInstance.cast(other).?;
 
-                return self_enum_instance.enum_ref == other_enum_instance.enum_ref and self_enum_instance.case == other_enum_instance.case;
+                return self_enum_instance.enum_ref.index == other_enum_instance.enum_ref.index and self_enum_instance.case == other_enum_instance.case;
             },
             .UserData => {
                 const self_userdata: *ObjUserData = ObjUserData.cast(self).?;
@@ -525,11 +600,7 @@ pub const Obj = struct {
         }
     }
 
-    pub fn format(obj: *Obj, w: *std.Io.Writer) std.Io.Writer.Error!void {
-        obj.toString(w) catch return error.WriteFailed;
-    }
-
-    pub fn toString(obj: *Obj, writer: *std.Io.Writer) (Allocator.Error || std.fmt.BufPrintError || error{WriteFailed})!void {
+    pub fn toString(obj: *Obj, writer: *std.Io.Writer, gc: *GC) (Allocator.Error || std.fmt.BufPrintError || error{WriteFailed})!void {
         return switch (obj.obj_type) {
             .String => {
                 const str = ObjString.cast(obj).?.string;
@@ -553,33 +624,38 @@ pub const Obj = struct {
                     @intFromPtr(type_def),
                 });
 
-                try type_def.toString(writer, true);
+                try type_def.toString(writer, true, gc);
 
                 try writer.writeAll("`");
             },
             .UpValue => {
                 const upvalue: *ObjUpValue = ObjUpValue.cast(obj).?;
 
-                try (upvalue.closed orelse upvalue.location.*).toString(writer);
+                try (upvalue.closed orelse upvalue.location.*).toString(writer, gc);
             },
             .Closure => try writer.print("closure: 0x{x} `{s}`", .{
                 @intFromPtr(ObjClosure.cast(obj).?),
-                ObjClosure.cast(obj).?.function.type_def.resolved_type.?.Function.name.string,
+                gc.getString(
+                    gc.getTypeDef(gc.getFunction(ObjClosure.cast(obj).?.function).type_def).resolved_type.?.Function.name,
+                ).string,
             }),
             .Function => try writer.print("function: 0x{x} `{s}`", .{
                 @intFromPtr(ObjFunction.cast(obj).?),
-                ObjFunction.cast(obj).?.type_def.resolved_type.?.Function.name.string,
+                gc.getString(
+                    gc.getTypeDef(ObjFunction.cast(obj).?.type_def).resolved_type.?.Function.name,
+                ).string,
             }),
             .ObjectInstance => {
                 const instance = ObjObjectInstance.cast(obj).?;
+                const type_def = gc.getTypeDef(instance.type_def);
 
                 if (instance.object) |object| {
                     try writer.print(
                         "object instance: 0x{x} {s}`{s}`",
                         .{
                             @intFromPtr(instance),
-                            object.type_def.resolved_type.?.Object.name.string,
-                            if (instance.type_def.resolved_type.?.ObjectInstance.mutable)
+                            gc.getString(gc.getTypeDef(gc.getObject(object).type_def).resolved_type.?.Object.name).string,
+                            if (type_def.resolved_type.?.ObjectInstance.mutable)
                                 "mut "
                             else
                                 "",
@@ -590,7 +666,7 @@ pub const Obj = struct {
                         "object instance: 0x{x} {s}obj{{ ",
                         .{
                             @intFromPtr(instance),
-                            if (instance.type_def.resolved_type.?.ObjectInstance.mutable)
+                            if (type_def.resolved_type.?.ObjectInstance.mutable)
                                 "mut "
                             else
                                 "",
@@ -598,20 +674,18 @@ pub const Obj = struct {
                     );
 
                     for (0..instance.fields.len) |i| {
-                        const object_def = instance
-                            .type_def
+                        const object_def = type_def
                             .resolved_type.?
                             .ObjectInstance
-                            .of
+                            .of;
+                        const object_type = gc.getTypeDef(object_def)
                             .resolved_type.?
                             .Object;
 
-                        const field_name = object_def.fields.keys()[i];
+                        const field_name = object_type.fields.keys()[i];
 
-                        try object_def
-                            .fields.get(field_name).?
-                            .type_def
-                            .toString(writer, true);
+                        const field_type = gc.getTypeDef(object_type.fields.get(field_name).?.type_def);
+                        try field_type.toString(writer, true, gc);
 
                         try writer.print(" {s}, ", .{field_name});
                     }
@@ -622,7 +696,7 @@ pub const Obj = struct {
                 "object: 0x{x} `{s}`",
                 .{
                     @intFromPtr(ObjObject.cast(obj).?),
-                    ObjObject.cast(obj).?.type_def.resolved_type.?.Object.name.string,
+                    gc.getString(gc.getTypeDef(ObjObject.cast(obj).?.type_def).resolved_type.?.Object.name).string,
                 },
             ),
             .Range => {
@@ -644,14 +718,14 @@ pub const Obj = struct {
                     "list: 0x{x} {s}[",
                     .{
                         @intFromPtr(list),
-                        if (list.type_def.resolved_type.?.List.mutable)
+                        if (gc.getTypeDef(list.type_def).resolved_type.?.List.mutable)
                             "mut "
                         else
                             "",
                     },
                 );
 
-                try list.type_def.resolved_type.?.List.item_type.toString(writer, true);
+                try gc.getTypeDef(list.type_def).resolved_type.?.List.item_type.toString(writer, true, gc);
 
                 try writer.writeAll("]");
             },
@@ -662,53 +736,57 @@ pub const Obj = struct {
                     "map: 0x{x} {s}{{",
                     .{
                         @intFromPtr(map),
-                        if (map.type_def.resolved_type.?.Map.mutable)
+                        if (gc.getTypeDef(map.type_def).resolved_type.?.Map.mutable)
                             "mut "
                         else
                             "",
                     },
                 );
 
-                try map.type_def.resolved_type.?.Map.key_type.toString(writer, true);
+                try gc.getTypeDef(map.type_def).resolved_type.?.Map.key_type.toString(writer, true, gc);
 
                 try writer.writeAll(", ");
 
-                try map.type_def.resolved_type.?.Map.value_type.toString(writer, true);
+                try gc.getTypeDef(map.type_def).resolved_type.?.Map.value_type.toString(writer, true, gc);
 
                 try writer.writeAll("}");
             },
             .Enum => try writer.print("enum: 0x{x} `{s}`", .{
                 @intFromPtr(ObjEnum.cast(obj).?),
-                ObjEnum.cast(obj).?.type_def.resolved_type.?.Enum.name.string,
+                gc.getString(gc.getTypeDef(ObjEnum.cast(obj).?.type_def).resolved_type.?.Enum.name).string,
             }),
             .EnumInstance => enum_instance: {
                 const instance: *ObjEnumInstance = ObjEnumInstance.cast(obj).?;
-                const enum_: *ObjEnum = instance.enum_ref;
+                const enum_: *ObjEnum = gc.getEnum(instance.enum_ref);
 
                 break :enum_instance try writer.print("{s}.{s}", .{
-                    enum_.type_def.resolved_type.?.Enum.name.string,
-                    enum_.type_def.resolved_type.?.Enum.cases[instance.case],
+                    gc.getString(gc.getTypeDef(enum_.type_def).resolved_type.?.Enum.name).string,
+                    gc.getTypeDef(enum_.type_def).resolved_type.?.Enum.cases[instance.case],
                 });
             },
             .Bound => {
                 const bound: *ObjBoundMethod = ObjBoundMethod.cast(obj).?;
+                const receiver_str = try bound.receiver.toStringAlloc(gc.allocator, gc);
+                defer gc.allocator.free(receiver_str);
 
                 if (bound.closure) |closure| {
-                    const closure_name: []const u8 = closure.function.type_def.resolved_type.?.Function.name.string;
+                    const closure_name: []const u8 = gc.getString(
+                        gc.getTypeDef(gc.getFunction(gc.getClosure(closure).function).type_def).resolved_type.?.Function.name,
+                    ).string;
                     try writer.print(
-                        "bound method: {f} to {s}",
+                        "bound method: {s} to {s}",
                         .{
-                            bound.receiver,
+                            receiver_str,
                             closure_name,
                         },
                     );
                 } else {
                     assert(bound.native != null);
                     try writer.print(
-                        "bound method: {f} to native 0x{}",
+                        "bound method: {s} to native 0x{}",
                         .{
-                            bound.receiver,
-                            @intFromPtr(bound.native.?),
+                            receiver_str,
+                            @intFromPtr(gc.getNative(bound.native.?)),
                         },
                     );
                 }
@@ -728,7 +806,7 @@ pub const Obj = struct {
 
                 try writer.print("foreign struct: 0x{x} `{s}`", .{
                     @intFromPtr(foreign.data.ptr),
-                    foreign.type_def.resolved_type.?.ForeignContainer.name.string,
+                    gc.getString(gc.getTypeDef(foreign.type_def).resolved_type.?.ForeignContainer.name).string,
                 });
             },
         };
@@ -737,6 +815,7 @@ pub const Obj = struct {
 
 pub const ObjFiber = struct {
     const Self = @This();
+    pub const Idx = ObjIndex(Self);
 
     obj: Obj = .{ .obj_type = .Fiber },
 
@@ -751,7 +830,11 @@ pub const ObjFiber = struct {
     }
 
     pub inline fn toValue(self: *Self) Value {
-        return Value.fromObj(self.toObj());
+        return self.toObj().toIdx().toValue();
+    }
+
+    pub inline fn toIdx(self: *Self) Idx {
+        return .idx(self.obj.index);
     }
 
     pub inline fn cast(obj: *Obj) ?*Self {
@@ -793,7 +876,7 @@ pub const ObjFiber = struct {
 
     pub fn member(vm: *VM, method_idx: usize) !Value {
         if (vm.gc.objfiber_members[method_idx]) |umethod| {
-            return umethod.toValue();
+            return vm.gc.getNative(umethod).toValue();
         }
 
         var native = try vm.gc.allocateObject(
@@ -802,10 +885,10 @@ pub const ObjFiber = struct {
             },
         );
 
-        vm.gc.objfiber_members[method_idx] = native;
+        vm.gc.objfiber_members[method_idx] = native.toIdx();
 
         // We need to mark it otherwise it could be collected by a Young gc and then badly accessed by a Full gc
-        vm.gc.markObj(native.toObj()) catch @panic("Could not mark obj");
+        vm.gc.markObj(native.toObj().toIdx()) catch @panic("Could not mark obj");
 
         return native.toValue();
     }
@@ -819,12 +902,12 @@ pub const ObjFiber = struct {
 
     pub fn memberDef(parser: *Parser, method_idx: usize) !*ObjTypeDef {
         if (parser.gc.objfiber_memberDefs[method_idx]) |umethod| {
-            return umethod;
+            return parser.gc.getTypeDef(umethod);
         }
 
         const native_type = try parser.parseTypeDefFrom(Self.member_defs[method_idx].typedef.?);
 
-        parser.gc.objfiber_memberDefs[method_idx] = native_type;
+        parser.gc.objfiber_memberDefs[method_idx] = native_type.toIdx();
 
         return native_type;
     }
@@ -836,12 +919,12 @@ pub const ObjFiber = struct {
     pub const FiberDef = struct {
         const SelfFiberDef = @This();
 
-        return_type: *ObjTypeDef,
-        yield_type: *ObjTypeDef,
+        return_type: ObjTypeDef.Idx,
+        yield_type: ObjTypeDef.Idx,
 
         pub fn mark(self: *SelfFiberDef, gc: *GC) !void {
-            try gc.markObj(@constCast(self.return_type.toObj()));
-            try gc.markObj(@constCast(self.yield_type.toObj()));
+            try gc.markObj(ObjIdx.init(.Type, self.return_type.index));
+            try gc.markObj(ObjIdx.init(.Type, self.yield_type.index));
         }
     };
 };
@@ -854,6 +937,7 @@ else
 // Patterns are pcre regex, @see https://www.pcre.org/original/doc/html/index.html
 pub const ObjPattern = struct {
     const Self = @This();
+    pub const Idx = ObjIndex(Self);
 
     obj: Obj = .{ .obj_type = .Pattern },
 
@@ -867,7 +951,11 @@ pub const ObjPattern = struct {
     }
 
     pub inline fn toValue(self: *Self) Value {
-        return Value.fromObj(self.toObj());
+        return self.toObj().toIdx().toValue();
+    }
+
+    pub inline fn toIdx(self: *Self) Idx {
+        return .idx(self.obj.index);
     }
 
     pub inline fn cast(obj: *Obj) ?*Self {
@@ -924,7 +1012,7 @@ pub const ObjPattern = struct {
 
     pub fn member(vm: *VM, method_idx: usize) !Value {
         if (vm.gc.objpattern_members[method_idx]) |umethod| {
-            return umethod.toValue();
+            return vm.gc.getNative(umethod).toValue();
         }
 
         var native = try vm.gc.allocateObject(
@@ -933,10 +1021,10 @@ pub const ObjPattern = struct {
             },
         );
 
-        vm.gc.objpattern_members[method_idx] = native;
+        vm.gc.objpattern_members[method_idx] = native.toIdx();
 
         // We need to mark it otherwise it could be collected by a Young gc and then badly accessed by a Full gc
-        vm.gc.markObj(native.toObj()) catch @panic("Could not mark obj");
+        vm.gc.markObj(native.toObj().toIdx()) catch @panic("Could not mark obj");
 
         return native.toValue();
     }
@@ -950,12 +1038,12 @@ pub const ObjPattern = struct {
 
     pub fn memberDef(parser: *Parser, method_idx: usize) !*ObjTypeDef {
         if (parser.gc.objpattern_memberDefs[method_idx]) |umethod| {
-            return umethod;
+            return parser.gc.getTypeDef(umethod);
         }
 
         const native_type = try parser.parseTypeDefFrom(Self.member_defs[method_idx].typedef.?);
 
-        parser.gc.objpattern_memberDefs[method_idx] = native_type;
+        parser.gc.objpattern_memberDefs[method_idx] = native_type.toIdx();
 
         return native_type;
     }
@@ -971,6 +1059,7 @@ pub const ObjPattern = struct {
 /// User data, type around an opaque pointer
 pub const ObjUserData = struct {
     const Self = @This();
+    pub const Idx = ObjIndex(Self);
 
     obj: Obj = .{ .obj_type = .UserData },
 
@@ -983,7 +1072,7 @@ pub const ObjUserData = struct {
     }
 
     pub inline fn toValue(self: *Self) Value {
-        return Value.fromObj(self.toObj());
+        return self.toObj().toIdx().toValue();
     }
 
     pub inline fn cast(obj: *Obj) ?*Self {
@@ -994,6 +1083,7 @@ pub const ObjUserData = struct {
 /// A String
 pub const ObjString = struct {
     const Self = @This();
+    pub const Idx = ObjIndex(Self);
 
     obj: Obj = .{ .obj_type = .String },
 
@@ -1007,11 +1097,15 @@ pub const ObjString = struct {
     }
 
     pub inline fn toValue(self: *Self) Value {
-        return Value.fromObj(self.toObj());
+        return self.toObj().toIdx().toValue();
     }
 
     pub inline fn cast(obj: *Obj) ?*Self {
         return obj.cast(Self, .String);
+    }
+
+    pub inline fn toIdx(self: *Self) Idx {
+        return .idx(self.obj.index);
     }
 
     pub fn concat(self: *Self, vm: *VM, other: *Self) !*Self {
@@ -1173,7 +1267,7 @@ pub const ObjString = struct {
 
     pub fn member(vm: *VM, method_idx: usize) !Value {
         if (vm.gc.objstring_members[method_idx]) |umethod| {
-            return umethod.toValue();
+            return vm.gc.getNative(umethod).toValue();
         }
 
         var native = try vm.gc.allocateObject(
@@ -1182,10 +1276,10 @@ pub const ObjString = struct {
             },
         );
 
-        vm.gc.objstring_members[method_idx] = native;
+        vm.gc.objstring_members[method_idx] = native.toIdx();
 
         // We need to mark it otherwise it could be collected by a Young gc and then badly accessed by a Full gc
-        vm.gc.markObj(native.toObj()) catch @panic("Could not mark obj");
+        vm.gc.markObj(native.toObj().toIdx()) catch @panic("Could not mark obj");
 
         return native.toValue();
     }
@@ -1199,12 +1293,12 @@ pub const ObjString = struct {
 
     pub fn memberDef(parser: *Parser, method_idx: usize) !*ObjTypeDef {
         if (parser.gc.objstring_memberDefs[method_idx]) |umethod| {
-            return umethod;
+            return parser.gc.getTypeDef(umethod);
         }
 
         const native_type = try parser.parseTypeDefFrom(Self.member_defs[method_idx].typedef.?);
 
-        parser.gc.objstring_memberDefs[method_idx] = native_type;
+        parser.gc.objstring_memberDefs[method_idx] = native_type.toIdx();
 
         return native_type;
     }
@@ -1213,13 +1307,14 @@ pub const ObjString = struct {
 /// Upvalue
 pub const ObjUpValue = struct {
     const Self = @This();
+    pub const Idx = ObjIndex(Self);
 
     obj: Obj = .{ .obj_type = .UpValue },
 
     /// Slot on the stack
     location: *Value,
     closed: ?Value,
-    next: ?*ObjUpValue = null,
+    next: ?Idx = null,
 
     pub fn init(slot: *Value) Self {
         return Self{
@@ -1241,7 +1336,11 @@ pub const ObjUpValue = struct {
     }
 
     pub inline fn toValue(self: *Self) Value {
-        return Value.fromObj(self.toObj());
+        return self.toObj().toIdx().toValue();
+    }
+
+    pub inline fn toIdx(self: *Self) Idx {
+        return .idx(self.obj.index);
     }
 
     pub inline fn cast(obj: *Obj) ?*Self {
@@ -1252,28 +1351,29 @@ pub const ObjUpValue = struct {
 /// Closure
 pub const ObjClosure = struct {
     const Self = @This();
+    pub const Idx = ObjIndex(Self);
 
     obj: Obj = .{ .obj_type = .Closure },
 
     // Buzz function
-    function: *ObjFunction,
+    function: ObjFunction.Idx,
 
-    upvalues: []*ObjUpValue,
+    upvalues: []ObjUpValue.Idx,
     // Pointer to the global with which the function was declared
     globals: *std.ArrayList(Value),
 
     pub fn init(allocator: Allocator, vm: *VM, function: *ObjFunction) !Self {
         return Self{
             .globals = &vm.globals,
-            .function = function,
-            .upvalues = try allocator.alloc(*ObjUpValue, function.upvalue_count),
+            .function = function.toIdx(),
+            .upvalues = try allocator.alloc(ObjUpValue.Idx, function.upvalue_count),
         };
     }
 
     pub fn mark(self: *Self, gc: *GC) !void {
-        try gc.markObj(self.function.toObj());
+        try gc.markObj(ObjIdx.init(.Function, self.function.index));
         for (self.upvalues) |upvalue| {
-            try gc.markObj(upvalue.toObj());
+            try gc.markObj(ObjIdx.init(.UpValue, upvalue.index));
         }
         for (self.globals.items) |global| {
             try gc.markValue(global);
@@ -1289,7 +1389,15 @@ pub const ObjClosure = struct {
     }
 
     pub inline fn toValue(self: *Self) Value {
-        return .fromObj(self.toObj());
+        return self.toObj().toIdx().toValue();
+    }
+
+    pub inline fn toIdx(self: *Self) Idx {
+        return .idx(self.obj.index);
+    }
+
+    pub inline fn getFunction(self: *Self, gc: *GC) *ObjFunction {
+        return gc.getFunction(self.function);
     }
 
     pub inline fn cast(obj: *Obj) ?*Self {
@@ -1301,7 +1409,7 @@ pub const NativeCtx = extern struct {
     vm: *VM,
     process: *Init,
     globals: [*]Value,
-    upvalues: [*]*ObjUpValue,
+    upvalues: [*]ObjUpValue.Idx,
     // Where to reset the stack when we exit the function
     base: [*]Value,
     // Pointer to the stack_top field of the current fiber
@@ -1309,6 +1417,10 @@ pub const NativeCtx = extern struct {
     stack_top: *[*]Value,
     callee: Value,
     arg_count: usize,
+
+    pub inline fn getUpvalue(self: *NativeCtx, slot: usize) *ObjUpValue {
+        return self.vm.gc.getUpValue(self.upvalues[slot]);
+    }
 };
 
 // 1 = return value on stack, 0 = no return value, -1 = error
@@ -1357,6 +1469,7 @@ pub const CompiledFn = *const Compiled;
 /// Native function
 pub const ObjNative = struct {
     const Self = @This();
+    pub const Idx = ObjIndex(Self);
 
     obj: Obj = .{ .obj_type = .Native },
 
@@ -1371,7 +1484,11 @@ pub const ObjNative = struct {
     }
 
     pub inline fn toValue(self: *Self) Value {
-        return Value.fromObj(self.toObj());
+        return self.toObj().toIdx().toValue();
+    }
+
+    pub inline fn toIdx(self: *Self) Idx {
+        return .idx(self.obj.index);
     }
 
     pub inline fn cast(obj: *Obj) ?*Self {
@@ -1382,6 +1499,7 @@ pub const ObjNative = struct {
 /// Function
 pub const ObjFunction = struct {
     const Self = @This();
+    pub const Idx = ObjIndex(Self);
 
     pub const FunctionType = enum {
         Function,
@@ -1414,7 +1532,7 @@ pub const ObjFunction = struct {
 
     obj: Obj = .{ .obj_type = .Function },
 
-    type_def: *ObjTypeDef = undefined, // Undefined because function initialization is in several steps
+    type_def: ObjTypeDef.Idx = undefined, // Undefined because function initialization is in several steps
 
     chunk: Chunk,
     upvalue_count: u8 = 0,
@@ -1442,13 +1560,14 @@ pub const ObjFunction = struct {
     }
 
     pub fn mark(self: *Self, gc: *GC) !void {
-        try gc.markObj(@constCast(self.type_def.toObj()));
+        const type_def = gc.getTypeDef(self.type_def);
+        try gc.markObj(ObjIdx.init(.Type, self.type_def.index));
         if (BuildOptions.gc_debug) {
             io.print(
                 "MARKING CONSTANTS OF FUNCTION @{} {s}\n",
                 .{
                     @intFromPtr(self),
-                    self.type_def.resolved_type.?.Function.name.string,
+                    gc.getString(type_def.resolved_type.?.Function.name).string,
                 },
             );
         }
@@ -1460,7 +1579,7 @@ pub const ObjFunction = struct {
                 "DONE MARKING CONSTANTS OF FUNCTION @{} {s}\n",
                 .{
                     @intFromPtr(self),
-                    self.type_def.resolved_type.?.Function.name.string,
+                    gc.getString(type_def.resolved_type.?.Function.name).string,
                 },
             );
         }
@@ -1471,7 +1590,15 @@ pub const ObjFunction = struct {
     }
 
     pub inline fn toValue(self: *Self) Value {
-        return Value.fromObj(self.toObj());
+        return self.toObj().toIdx().toValue();
+    }
+
+    pub inline fn toIdx(self: *Self) Idx {
+        return .idx(self.obj.index);
+    }
+
+    pub inline fn getTypeDef(self: *Self, gc: *GC) *ObjTypeDef {
+        return gc.getTypeDef(self.type_def);
     }
 
     pub inline fn cast(obj: *Obj) ?*Self {
@@ -1484,22 +1611,22 @@ pub const ObjFunction = struct {
         var next_id: usize = 0;
 
         id: usize,
-        name: *ObjString,
-        script_name: *ObjString,
-        return_type: *ObjTypeDef,
-        yield_type: *ObjTypeDef,
-        error_types: ?[]const *ObjTypeDef = null,
+        name: ObjString.Idx,
+        script_name: ObjString.Idx,
+        return_type: ObjTypeDef.Idx,
+        yield_type: ObjTypeDef.Idx,
+        error_types: ?[]const ObjTypeDef.Idx = null,
         // TODO: rename 'arguments'
-        parameters: std.AutoArrayHashMapUnmanaged(*ObjString, *ObjTypeDef) = .empty,
+        parameters: std.AutoArrayHashMapUnmanaged(ObjString.Idx, ObjTypeDef.Idx) = .empty,
         // Storing here the defaults means they can only be non-Obj values
-        defaults: std.AutoArrayHashMapUnmanaged(*ObjString, Value) = .empty,
+        defaults: std.AutoArrayHashMapUnmanaged(ObjString.Idx, Value) = .empty,
         /// Explicit default parameter expressions waiting for codegen-time folding.
-        default_nodes: std.AutoArrayHashMapUnmanaged(*ObjString, Ast.Node.Index) = .empty,
+        default_nodes: std.AutoArrayHashMapUnmanaged(ObjString.Idx, Ast.Node.Index) = .empty,
         function_type: FunctionType = .Function,
         lambda: bool = false,
 
-        generic_types: std.AutoArrayHashMapUnmanaged(*ObjString, *ObjTypeDef) = .empty,
-        resolved_generics: ?[]*ObjTypeDef = null,
+        generic_types: std.AutoArrayHashMapUnmanaged(ObjString.Idx, ObjTypeDef.Idx) = .empty,
+        resolved_generics: ?[]ObjTypeDef.Idx = null,
 
         pub fn nextId() usize {
             FunctionDefSelf.next_id += 1;
@@ -1508,38 +1635,38 @@ pub const ObjFunction = struct {
         }
 
         pub fn mark(self: *FunctionDefSelf, gc: *GC) !void {
-            try gc.markObj(self.name.toObj());
-            try gc.markObj(self.script_name.toObj());
-            try gc.markObj(@constCast(self.return_type.toObj()));
-            try gc.markObj(@constCast(self.yield_type.toObj()));
+            try gc.markObj(ObjIdx.init(.String, self.name.index));
+            try gc.markObj(ObjIdx.init(.String, self.script_name.index));
+            try gc.markObj(ObjIdx.init(.Type, self.return_type.index));
+            try gc.markObj(ObjIdx.init(.Type, self.yield_type.index));
 
             var it = self.parameters.iterator();
             while (it.next()) |parameter| {
-                try gc.markObj(parameter.key_ptr.*.toObj());
-                try gc.markObj(@constCast(parameter.value_ptr.*.toObj()));
+                try gc.markObj(ObjIdx.init(.String, parameter.key_ptr.*.index));
+                try gc.markObj(ObjIdx.init(.Type, parameter.value_ptr.*.index));
             }
 
             var it2 = self.defaults.iterator();
             while (it2.next()) |default| {
-                try gc.markObj(default.key_ptr.*.toObj());
+                try gc.markObj(ObjIdx.init(.String, default.key_ptr.*.index));
                 try gc.markValue(default.value_ptr.*);
             }
 
             var default_nodes_it = self.default_nodes.iterator();
             while (default_nodes_it.next()) |default| {
-                try gc.markObj(default.key_ptr.*.toObj());
+                try gc.markObj(ObjIdx.init(.String, default.key_ptr.*.index));
             }
 
             if (self.error_types) |error_types| {
                 for (error_types) |error_item| {
-                    try gc.markObj(@constCast(error_item.toObj()));
+                    try gc.markObj(ObjIdx.init(.Type, error_item.index));
                 }
             }
 
             var it3 = self.generic_types.iterator();
             while (it3.next()) |kv| {
-                try gc.markObj(kv.key_ptr.*.toObj());
-                try gc.markObj(@constCast(kv.value_ptr.*.toObj()));
+                try gc.markObj(ObjIdx.init(.String, kv.key_ptr.*.index));
+                try gc.markObj(ObjIdx.init(.Type, kv.value_ptr.*.index));
             }
         }
     };
@@ -1548,13 +1675,14 @@ pub const ObjFunction = struct {
 /// Object instance
 pub const ObjObjectInstance = struct {
     const Self = @This();
+    pub const Idx = ObjIndex(Self);
 
     obj: Obj = .{ .obj_type = .ObjectInstance },
 
     /// Object (null when anonymous)
-    object: ?*ObjObject,
+    object: ?ObjObject.Idx,
     /// Populated object type
-    type_def: *ObjTypeDef,
+    type_def: ObjTypeDef.Idx,
     /// Fields value
     fields: []Value,
     /// VM in which the instance was created, we need this so the instance destructor can be called in the appropriate vm
@@ -1562,7 +1690,7 @@ pub const ObjObjectInstance = struct {
 
     pub fn setField(self: *Self, gc: *GC, key: usize, value: Value) !void {
         self.fields[key] = value;
-        try gc.markObjDirty(&self.obj);
+        try gc.markObjDirty(self.toObj().toIdx());
     }
 
     pub fn init(
@@ -1573,7 +1701,7 @@ pub const ObjObjectInstance = struct {
     ) !Self {
         const fields = try gc.allocateMany(
             Value,
-            type_def.resolved_type.?.ObjectInstance.of
+            gc.getTypeDef(type_def.resolved_type.?.ObjectInstance.of)
                 .resolved_type.?.Object
                 .propertiesCount(),
         );
@@ -1582,17 +1710,17 @@ pub const ObjObjectInstance = struct {
 
         return .{
             .vm = vm,
-            .object = object,
-            .type_def = type_def,
+            .object = if (object) |obj_object| obj_object.toIdx() else null,
+            .type_def = type_def.toIdx(),
             .fields = fields,
         };
     }
 
     pub fn mark(self: *Self, gc: *GC) !void {
         if (self.object) |object| {
-            try gc.markObj(object.toObj());
+            try gc.markObj(ObjIdx.init(.Object, object.index));
         }
-        try gc.markObj(@constCast(self.type_def.toObj()));
+        try gc.markObj(ObjIdx.init(.Type, self.type_def.index));
         for (self.fields) |field| {
             try gc.markValue(field);
         }
@@ -1607,38 +1735,41 @@ pub const ObjObjectInstance = struct {
     }
 
     pub inline fn toValue(self: *Self) Value {
-        return Value.fromObj(self.toObj());
+        return self.toObj().toIdx().toValue();
     }
 
     pub inline fn cast(obj: *Obj) ?*Self {
         return obj.cast(Self, .ObjectInstance);
     }
 
-    fn is(self: *Self, type_def: *ObjTypeDef) bool {
+    fn is(self: *Self, type_def: *ObjTypeDef, gc: *GC) bool {
+        const self_type_def = gc.getTypeDef(self.type_def);
+
         if (type_def.def_type == .ObjectInstance) {
-            return self.type_def.resolved_type.?.ObjectInstance.of == type_def.resolved_type.?.ObjectInstance.of;
+            return self_type_def.resolved_type.?.ObjectInstance.of.eql(type_def.resolved_type.?.ObjectInstance.of);
         } else if (type_def.def_type == .Protocol) {
-            return self.type_def.resolved_type.?.ObjectInstance.of.resolved_type.?.Object.conforms_to.get(type_def) != null;
+            return gc.getTypeDef(self_type_def.resolved_type.?.ObjectInstance.of).resolved_type.?.Object.conforms_to.get(type_def.toIdx()) != null;
         } else if (type_def.def_type == .Object) {
-            return self.type_def.resolved_type.?.ObjectInstance.of == type_def;
+            return self_type_def.resolved_type.?.ObjectInstance.of.eql(type_def.toIdx());
         } else if (type_def.def_type == .ProtocolInstance) {
-            return self.type_def.resolved_type.?.ObjectInstance.of.resolved_type.?.Object.conforms_to.get(type_def.resolved_type.?.ProtocolInstance.of) != null;
+            return gc.getTypeDef(self_type_def.resolved_type.?.ObjectInstance.of).resolved_type.?.Object.conforms_to.get(type_def.resolved_type.?.ProtocolInstance.of) != null;
         }
 
         return false;
     }
 
-    pub fn getFieldValue(self: *Self, comptime field_name: []const u8) Value {
-        const idx = self.type_def.resolved_type.?.ObjectInstance
-            .of.resolved_type.?.Object
-            .fields.get(field_name).?.index;
+    pub fn getFieldValue(self: *Self, comptime field_name: []const u8, gc: *GC) Value {
+        const object_def = gc.getTypeDef(
+            gc.getTypeDef(self.type_def).resolved_type.?.ObjectInstance.of,
+        ).resolved_type.?.Object;
+        const idx = object_def.fields.get(field_name).?.index;
 
         return self.fields[idx];
     }
 
     /// Utility function to read a buzz object from zig, will break if field does not exists or type mismatch on the buzz side
-    pub fn get(self: *Self, comptime T: type, comptime field_name: []const u8) T {
-        const field = self.getFieldValue(field_name);
+    pub fn get(self: *Self, comptime T: type, comptime field_name: []const u8, gc: *GC) T {
+        const field = self.getFieldValue(field_name, gc);
         const is_optional = @typeInfo(T) == .optional;
 
         if (is_optional and field.isNull()) return null;
@@ -1649,9 +1780,9 @@ pub const ObjObjectInstance = struct {
             T;
 
         return switch (UT) {
-            []const u8 => field.obj().cast(ObjString, .String).?.string,
+            []const u8 => field.obj(gc).cast(ObjString, .String).?.string,
             Integer => if (field.isObj())
-                field.obj().cast(ObjEnumInstance, .EnumInstance).?.case
+                field.obj(gc).cast(ObjEnumInstance, .EnumInstance).?.case
             else
                 field.integer(),
             Double => field.double(),
@@ -1664,39 +1795,40 @@ pub const ObjObjectInstance = struct {
 /// FFI struct or union
 pub const ObjForeignContainer = struct {
     const Self = @This();
+    pub const Idx = ObjIndex(Self);
 
     obj: Obj = .{ .obj_type = .ForeignContainer },
 
-    type_def: *ObjTypeDef,
+    type_def: ObjTypeDef.Idx,
     data: []u8,
 
     pub fn init(vm: *VM, type_def: *ObjTypeDef) !Self {
         const zig_type = type_def.resolved_type.?.ForeignContainer.zig_type;
 
         return .{
-            .type_def = type_def,
+            .type_def = type_def.toIdx(),
             .data = try vm.gc.allocateMany(u8, zig_type.size()),
         };
     }
 
     pub fn setField(self: *Self, vm: *VM, field_idx: usize, value: Value) !void {
-        self.type_def.resolved_type.?.ForeignContainer.fields.values()[field_idx].setter(
+        vm.gc.getTypeDef(self.type_def).resolved_type.?.ForeignContainer.fields.values()[field_idx].setter(
             vm,
             self.data.ptr,
             value,
         );
-        try vm.gc.markObjDirty(&self.obj);
+        try vm.gc.markObjDirty(self.toObj().toIdx());
     }
 
     pub fn getField(self: *Self, vm: *VM, field_idx: usize) Value {
-        return self.type_def.resolved_type.?.ForeignContainer.fields.values()[field_idx].getter(
+        return vm.gc.getTypeDef(self.type_def).resolved_type.?.ForeignContainer.fields.values()[field_idx].getter(
             vm,
             self.data.ptr,
         );
     }
 
-    fn is(self: *Self, type_def: *ObjTypeDef) bool {
-        return self.type_def == type_def;
+    fn is(self: *Self, type_def: *ObjTypeDef, gc: *GC) bool {
+        return gc.getTypeDef(self.type_def) == type_def;
     }
 
     pub const ContainerDef = struct {
@@ -1710,27 +1842,27 @@ pub const ObjForeignContainer = struct {
         };
 
         location: Ast.TokenIndex,
-        name: *ObjString,
-        qualified_name: *ObjString,
+        name: ObjString.Idx,
+        qualified_name: ObjString.Idx,
 
         zig_type: ZigType,
-        buzz_type: std.StringArrayHashMapUnmanaged(*ObjTypeDef),
+        buzz_type: std.StringArrayHashMapUnmanaged(ObjTypeDef.Idx),
 
         // Filled by codegen
         fields: std.StringArrayHashMapUnmanaged(Field),
 
         pub fn mark(def: *ContainerDef, gc: *GC) !void {
-            try gc.markObj(def.name.toObj());
-            try gc.markObj(def.qualified_name.toObj());
+            try gc.markObj(ObjIdx.init(.String, def.name.index));
+            try gc.markObj(ObjIdx.init(.String, def.qualified_name.index));
             var it = def.buzz_type.iterator();
             while (it.next()) |kv| {
-                try gc.markObj(@constCast(kv.value_ptr.*.toObj()));
+                try gc.markObj(ObjIdx.init(.Type, kv.value_ptr.*.index));
             }
         }
     };
 
     pub fn mark(self: *Self, gc: *GC) !void {
-        try gc.markObj(@constCast(self.type_def.toObj()));
+        try gc.markObj(ObjIdx.init(.Type, self.type_def.index));
     }
 
     pub inline fn toObj(self: *Self) *Obj {
@@ -1738,7 +1870,7 @@ pub const ObjForeignContainer = struct {
     }
 
     pub inline fn toValue(self: *Self) Value {
-        return Value.fromObj(self.toObj());
+        return self.toObj().toIdx().toValue();
     }
 
     pub inline fn cast(obj: *Obj) ?*Self {
@@ -1749,10 +1881,11 @@ pub const ObjForeignContainer = struct {
 /// Object
 pub const ObjObject = struct {
     const Self = @This();
+    pub const Idx = ObjIndex(Self);
 
     obj: Obj = .{ .obj_type = .Object },
 
-    type_def: *ObjTypeDef,
+    type_def: ObjTypeDef.Idx,
 
     /// Static fields and methods
     fields: []Value,
@@ -1780,7 +1913,7 @@ pub const ObjObject = struct {
         const self = Self{
             .fields = fields,
             .defaults = defaults,
-            .type_def = type_def,
+            .type_def = type_def.toIdx(),
         };
 
         return self;
@@ -1807,21 +1940,21 @@ pub const ObjObject = struct {
 
     pub fn setField(self: *Self, gc: *GC, key: usize, value: Value) !void {
         self.fields[key] = value;
-        try gc.markObjDirty(&self.obj);
+        try gc.markObjDirty(self.toObj().toIdx());
     }
 
     pub fn setDefault(self: *Self, gc: *GC, key: usize, value: Value) !void {
         self.defaults[key] = value;
-        try gc.markObjDirty(&self.obj);
+        try gc.markObjDirty(self.toObj().toIdx());
     }
 
     pub fn setPropertyDefaultValue(self: *Self, gc: *GC, key: usize, value: Value) !void {
         self.defaults[key] = value;
-        try gc.markObjDirty(&self.obj);
+        try gc.markObjDirty(self.toObj().toIdx());
     }
 
     pub fn mark(self: *Self, gc: *GC) !void {
-        try gc.markObj(@constCast(self.type_def.toObj()));
+        try gc.markObj(ObjIdx.init(.Type, self.type_def.index));
 
         for (self.fields) |field| {
             try gc.markValue(field);
@@ -1844,7 +1977,11 @@ pub const ObjObject = struct {
     }
 
     pub inline fn toValue(self: *Self) Value {
-        return Value.fromObj(self.toObj());
+        return self.toObj().toIdx().toValue();
+    }
+
+    pub inline fn toIdx(self: *Self) Idx {
+        return .idx(self.obj.index);
     }
 
     pub inline fn cast(obj: *Obj) ?*Self {
@@ -1856,20 +1993,20 @@ pub const ObjObject = struct {
 
         pub const Method = struct {
             mutable: bool,
-            type_def: *ObjTypeDef,
+            type_def: ObjTypeDef.Idx,
         };
 
         location: Ast.TokenIndex,
-        name: *ObjString,
-        qualified_name: *ObjString,
+        name: ObjString.Idx,
+        qualified_name: ObjString.Idx,
         methods: std.StringArrayHashMapUnmanaged(Method),
         methods_locations: std.StringArrayHashMapUnmanaged(Ast.TokenIndex),
 
         pub fn init(location: Ast.TokenIndex, name: *ObjString, qualified_name: *ObjString) ProtocolDefSelf {
             return ProtocolDefSelf{
-                .name = name,
+                .name = name.toIdx(),
                 .location = location,
-                .qualified_name = qualified_name,
+                .qualified_name = qualified_name.toIdx(),
                 .methods = .empty,
                 .methods_locations = .empty,
             };
@@ -1881,12 +2018,12 @@ pub const ObjObject = struct {
         }
 
         pub fn mark(self: *ProtocolDefSelf, gc: *GC) !void {
-            try gc.markObj(self.name.toObj());
-            try gc.markObj(self.qualified_name.toObj());
+            try gc.markObj(ObjIdx.init(.String, self.name.index));
+            try gc.markObj(ObjIdx.init(.String, self.qualified_name.index));
 
             var it = self.methods.iterator();
             while (it.next()) |kv| {
-                try gc.markObj(@constCast(kv.value_ptr.*.type_def.toObj()));
+                try gc.markObj(ObjIdx.init(.Type, kv.value_ptr.*.type_def.index));
             }
         }
     };
@@ -1897,7 +2034,7 @@ pub const ObjObject = struct {
         pub const Field = struct {
             name: []const u8,
             location: Ast.TokenIndex,
-            type_def: *ObjTypeDef,
+            type_def: ObjTypeDef.Idx,
             final: bool,
             method: bool,
             static: bool,
@@ -1918,14 +2055,14 @@ pub const ObjObject = struct {
         };
 
         pub const Placeholder = struct {
-            placeholder: *ObjTypeDef,
+            placeholder: ObjTypeDef.Idx,
             referrers: std.ArrayList(Ast.Node.Index) = .empty,
         };
 
         id: usize,
         location: Ast.TokenIndex,
-        name: *ObjString,
-        qualified_name: *ObjString,
+        name: ObjString.Idx,
+        qualified_name: ObjString.Idx,
         fields: std.StringArrayHashMapUnmanaged(Field),
         // When we have placeholders we don't know if they are properties or methods
         // That information is available only when the placeholder is resolved
@@ -1934,10 +2071,10 @@ pub const ObjObject = struct {
         anonymous: bool,
         /// True when an anonymous object was parsed with tuple notation.
         is_tuple: bool,
-        conforms_to: std.AutoHashMapUnmanaged(*ObjTypeDef, void),
+        conforms_to: std.AutoHashMapUnmanaged(ObjTypeDef.Idx, void),
 
-        generic_types: std.AutoArrayHashMapUnmanaged(*ObjString, *ObjTypeDef),
-        resolved_generics: ?[]*ObjTypeDef = null,
+        generic_types: std.AutoArrayHashMapUnmanaged(ObjString.Idx, ObjTypeDef.Idx),
+        resolved_generics: ?[]ObjTypeDef.Idx = null,
 
         pub fn nextId() usize {
             ObjectDef.next_id += 1;
@@ -1953,9 +2090,9 @@ pub const ObjObject = struct {
         ) ObjectDef {
             return ObjectDef{
                 .id = ObjectDef.nextId(),
-                .name = name,
+                .name = name.toIdx(),
                 .location = location,
-                .qualified_name = qualified_name,
+                .qualified_name = qualified_name.toIdx(),
                 .fields = .{},
                 .placeholders = .{},
                 .static_placeholders = .{},
@@ -2039,11 +2176,11 @@ pub const ObjObject = struct {
         }
 
         // Do they both conform to a common protocol?
-        pub fn bothConforms(self: ObjectDef, other: ObjectDef) ?*ObjTypeDef {
+        pub fn bothConforms(self: ObjectDef, other: ObjectDef, gc: *GC) ?*ObjTypeDef {
             var it = self.conforms_to.iterator();
             while (it.next()) |kv| {
                 if (other.conforms_to.get(kv.key_ptr.*) != null) {
-                    return kv.key_ptr.*;
+                    return gc.getTypeDef(kv.key_ptr.*);
                 }
             }
 
@@ -2051,33 +2188,33 @@ pub const ObjObject = struct {
         }
 
         pub fn mark(self: *ObjectDef, gc: *GC) !void {
-            try gc.markObj(self.name.toObj());
-            try gc.markObj(self.qualified_name.toObj());
+            try gc.markObj(ObjIdx.init(.String, self.name.index));
+            try gc.markObj(ObjIdx.init(.String, self.qualified_name.index));
 
             var it = self.fields.iterator();
             while (it.next()) |kv| {
-                try gc.markObj(@constCast(kv.value_ptr.*.type_def.toObj()));
+                try gc.markObj(ObjIdx.init(.Type, kv.value_ptr.*.type_def.index));
             }
 
             var it5 = self.placeholders.iterator();
             while (it5.next()) |kv| {
-                try gc.markObj(@constCast(kv.value_ptr.*.placeholder.toObj()));
+                try gc.markObj(ObjIdx.init(.Type, kv.value_ptr.*.placeholder.index));
             }
 
             var it6 = self.static_placeholders.iterator();
             while (it6.next()) |kv| {
-                try gc.markObj(@constCast(kv.value_ptr.*.placeholder.toObj()));
+                try gc.markObj(ObjIdx.init(.Type, kv.value_ptr.*.placeholder.index));
             }
 
             var it7 = self.conforms_to.iterator();
             while (it7.next()) |kv| {
-                try gc.markObj(@constCast(kv.key_ptr.*.toObj()));
+                try gc.markObj(ObjIdx.init(.Type, kv.key_ptr.*.index));
             }
 
             var it8 = self.generic_types.iterator();
             while (it8.next()) |kv| {
-                try gc.markObj(kv.key_ptr.*.toObj());
-                try gc.markObj(@constCast(kv.value_ptr.*.toObj()));
+                try gc.markObj(ObjIdx.init(.String, kv.key_ptr.*.index));
+                try gc.markObj(ObjIdx.init(.Type, kv.value_ptr.*.index));
             }
         }
     };
@@ -2086,22 +2223,23 @@ pub const ObjObject = struct {
 /// List
 pub const ObjList = struct {
     const Self = @This();
+    pub const Idx = ObjIndex(Self);
 
     obj: Obj = .{ .obj_type = .List },
 
-    type_def: *ObjTypeDef,
+    type_def: ObjTypeDef.Idx,
 
     /// List items
     items: std.ArrayList(Value),
 
-    methods: []?*ObjNative,
+    methods: []?ObjNative.Idx,
 
     pub fn init(allocator: Allocator, type_def: *ObjTypeDef) !Self {
         const self = Self{
             .items = std.ArrayList(Value).empty,
-            .type_def = type_def,
+            .type_def = type_def.toIdx(),
             .methods = try allocator.alloc(
-                ?*ObjNative,
+                ?ObjNative.Idx,
                 Self.member_defs.len,
             ),
         };
@@ -2117,11 +2255,11 @@ pub const ObjList = struct {
         for (self.items.items) |value| {
             try gc.markValue(value);
         }
-        try gc.markObj(@constCast(self.type_def.toObj()));
+        try gc.markObj(ObjIdx.init(.Type, self.type_def.index));
 
         for (self.methods) |method_opt| {
             if (method_opt) |method| {
-                try gc.markObj(method.toObj());
+                try gc.markObj(ObjIdx.init(.Native, method.index));
             }
         }
     }
@@ -2136,7 +2274,7 @@ pub const ObjList = struct {
     }
 
     pub inline fn toValue(self: *Self) Value {
-        return Value.fromObj(self.toObj());
+        return self.toObj().toIdx().toValue();
     }
 
     pub inline fn cast(obj: *Obj) ?*Self {
@@ -2240,7 +2378,7 @@ pub const ObjList = struct {
 
     pub fn member(self: *Self, vm: *VM, method_idx: usize) !Value {
         if (self.methods[method_idx]) |native| {
-            return native.toValue();
+            return vm.gc.getNative(native).toValue();
         }
 
         var native = try vm.gc.allocateObject(
@@ -2249,10 +2387,10 @@ pub const ObjList = struct {
             },
         );
 
-        self.methods[method_idx] = native;
+        self.methods[method_idx] = native.toIdx();
 
         // We need to mark it otherwise it could be collected by a Young gc and then badly accessed by a Full gc
-        vm.gc.markObj(native.toObj()) catch @panic("Could not mark obj");
+        vm.gc.markObj(native.toObj().toIdx()) catch @panic("Could not mark obj");
 
         return native.toValue();
     }
@@ -2262,7 +2400,7 @@ pub const ObjList = struct {
             gc.allocator,
             value,
         );
-        try gc.markObjDirty(&self.obj);
+        try gc.markObjDirty(self.toObj().toIdx());
     }
 
     pub fn rawInsert(self: *Self, gc: *GC, index: usize, value: Value) !void {
@@ -2271,12 +2409,12 @@ pub const ObjList = struct {
             index,
             value,
         );
-        try gc.markObjDirty(&self.obj);
+        try gc.markObjDirty(self.toObj().toIdx());
     }
 
     pub fn set(self: *Self, gc: *GC, index: usize, value: Value) !void {
         self.items.items[index] = value;
-        try gc.markObjDirty(&self.obj);
+        try gc.markObjDirty(self.toObj().toIdx());
     }
 
     // Used also by the VM
@@ -2320,10 +2458,10 @@ pub const ObjList = struct {
         }
 
         pub fn mark(self: *SelfListDef, gc: *GC) !void {
-            try gc.markObj(@constCast(self.item_type.toObj()));
+            try gc.markObj(self.item_type.toObj().toIdx());
             var it = self.methods.iterator();
             while (it.next()) |method| {
-                try gc.markObj(@constCast(method.value_ptr.*.type_def.toObj()));
+                try gc.markObj(method.value_ptr.*.type_def.toObj().toIdx());
             }
         }
 
@@ -2353,9 +2491,9 @@ pub const ObjList = struct {
                         .resolved_type = .{
                             .Function = .{
                                 .id = ObjFunction.FunctionDef.nextId(),
-                                .script_name = try parser.gc.copyString("builtin"),
-                                .name = try parser.gc.copyString("append"),
-                                .parameters = parameters,
+                                .script_name = (try parser.gc.copyString("builtin")).toIdx(),
+                                .name = (try parser.gc.copyString("append")).toIdx(),
+                                .parameters = try idxTypeDefMapFromPtrMap(parser.gc.allocator, parameters),
                                 .return_type = parser.gc.type_registry.void_type,
                                 .yield_type = parser.gc.type_registry.void_type,
                                 .function_type = .Extern,
@@ -2384,7 +2522,7 @@ pub const ObjList = struct {
                 try parameters.put(
                     parser.gc.allocator,
                     try parser.gc.copyString("at"),
-                    parser.gc.type_registry.int_type,
+                    parser.gc.getTypeDef(parser.gc.type_registry.int_type),
                 );
 
                 const native_type = try parser.gc.type_registry.getTypeDef(
@@ -2393,14 +2531,14 @@ pub const ObjList = struct {
                         .resolved_type = .{
                             .Function = .{
                                 .id = ObjFunction.FunctionDef.nextId(),
-                                .script_name = try parser.gc.copyString("builtin"),
-                                .name = try parser.gc.copyString("remove"),
-                                .parameters = parameters,
-                                .return_type = try parser.gc.type_registry.getTypeDef(.{
+                                .script_name = (try parser.gc.copyString("builtin")).toIdx(),
+                                .name = (try parser.gc.copyString("remove")).toIdx(),
+                                .parameters = try idxTypeDefMapFromPtrMap(parser.gc.allocator, parameters),
+                                .return_type = (try parser.gc.type_registry.getTypeDef(.{
                                     .optional = true,
                                     .def_type = self.item_type.def_type,
                                     .resolved_type = self.item_type.resolved_type,
-                                }),
+                                })).toIdx(),
                                 .yield_type = parser.gc.type_registry.void_type,
                                 .function_type = .Extern,
                             },
@@ -2426,8 +2564,8 @@ pub const ObjList = struct {
                         .resolved_type = .{
                             .Function = .{
                                 .id = ObjFunction.FunctionDef.nextId(),
-                                .script_name = try parser.gc.copyString("builtin"),
-                                .name = try parser.gc.copyString("len"),
+                                .script_name = (try parser.gc.copyString("builtin")).toIdx(),
+                                .name = (try parser.gc.copyString("len")).toIdx(),
                                 .return_type = parser.gc.type_registry.int_type,
                                 .yield_type = parser.gc.type_registry.void_type,
                                 .function_type = .Extern,
@@ -2456,7 +2594,7 @@ pub const ObjList = struct {
                 try parameters.put(
                     parser.gc.allocator,
                     try parser.gc.copyString("start"),
-                    parser.gc.type_registry.int_type,
+                    parser.gc.getTypeDef(parser.gc.type_registry.int_type),
                 );
 
                 const len_str = try parser.gc.copyString("len");
@@ -2480,11 +2618,11 @@ pub const ObjList = struct {
                         .resolved_type = .{
                             .Function = .{
                                 .id = ObjFunction.FunctionDef.nextId(),
-                                .script_name = try parser.gc.copyString("builtin"),
-                                .name = try parser.gc.copyString("sub"),
-                                .parameters = parameters,
-                                .defaults = defaults,
-                                .return_type = obj_list,
+                                .script_name = (try parser.gc.copyString("builtin")).toIdx(),
+                                .name = (try parser.gc.copyString("sub")).toIdx(),
+                                .parameters = try idxTypeDefMapFromPtrMap(parser.gc.allocator, parameters),
+                                .defaults = try idxValueMapFromPtrMap(parser.gc.allocator, defaults),
+                                .return_type = obj_list.toIdx(),
                                 .yield_type = parser.gc.type_registry.void_type,
                                 .function_type = .Extern,
                             },
@@ -2512,7 +2650,7 @@ pub const ObjList = struct {
                 try parameters.put(
                     parser.gc.allocator,
                     try parser.gc.copyString("value"),
-                    parser.gc.type_registry.any_type,
+                    parser.gc.getTypeDef(parser.gc.type_registry.any_type),
                 );
 
                 const start_str = try parser.gc.copyString("start");
@@ -2549,11 +2687,11 @@ pub const ObjList = struct {
                         .resolved_type = .{
                             .Function = .{
                                 .id = ObjFunction.FunctionDef.nextId(),
-                                .script_name = try parser.gc.copyString("builtin"),
-                                .name = try parser.gc.copyString("fill"),
-                                .parameters = parameters,
-                                .defaults = defaults,
-                                .return_type = obj_list,
+                                .script_name = (try parser.gc.copyString("builtin")).toIdx(),
+                                .name = (try parser.gc.copyString("fill")).toIdx(),
+                                .parameters = try idxTypeDefMapFromPtrMap(parser.gc.allocator, parameters),
+                                .defaults = try idxValueMapFromPtrMap(parser.gc.allocator, defaults),
+                                .return_type = obj_list.toIdx(),
                                 .yield_type = parser.gc.type_registry.void_type,
                                 .function_type = .Extern,
                             },
@@ -2590,15 +2728,15 @@ pub const ObjList = struct {
                         .resolved_type = .{
                             .Function = .{
                                 .id = ObjFunction.FunctionDef.nextId(),
-                                .script_name = try parser.gc.copyString("builtin"),
-                                .name = try parser.gc.copyString("indexOf"),
-                                .parameters = parameters,
-                                .return_type = try parser.gc.type_registry.getTypeDef(
+                                .script_name = (try parser.gc.copyString("builtin")).toIdx(),
+                                .name = (try parser.gc.copyString("indexOf")).toIdx(),
+                                .parameters = try idxTypeDefMapFromPtrMap(parser.gc.allocator, parameters),
+                                .return_type = (try parser.gc.type_registry.getTypeDef(
                                     .{
                                         .def_type = .Integer,
                                         .optional = true,
                                     },
-                                ),
+                                )).toIdx(),
                                 .yield_type = parser.gc.type_registry.void_type,
                                 .function_type = .Extern,
                             },
@@ -2626,7 +2764,7 @@ pub const ObjList = struct {
                 try parameters.put(
                     parser.gc.allocator,
                     try parser.gc.copyString("separator"),
-                    parser.gc.type_registry.str_type,
+                    parser.gc.getTypeDef(parser.gc.type_registry.str_type),
                 );
 
                 const native_type = try parser.gc.type_registry.getTypeDef(
@@ -2635,9 +2773,9 @@ pub const ObjList = struct {
                         .resolved_type = .{
                             .Function = .{
                                 .id = ObjFunction.FunctionDef.nextId(),
-                                .script_name = try parser.gc.copyString("builtin"),
-                                .name = try parser.gc.copyString("join"),
-                                .parameters = parameters,
+                                .script_name = (try parser.gc.copyString("builtin")).toIdx(),
+                                .name = (try parser.gc.copyString("join")).toIdx(),
+                                .parameters = try idxTypeDefMapFromPtrMap(parser.gc.allocator, parameters),
                                 .return_type = parser.gc.type_registry.str_type,
                                 .yield_type = parser.gc.type_registry.void_type,
                                 .function_type = .Extern,
@@ -2666,7 +2804,7 @@ pub const ObjList = struct {
                 try parameters.put(
                     parser.gc.allocator,
                     try parser.gc.copyString("index"),
-                    parser.gc.type_registry.int_type,
+                    parser.gc.getTypeDef(parser.gc.type_registry.int_type),
                 );
 
                 // `value` arg is of item_type
@@ -2682,10 +2820,10 @@ pub const ObjList = struct {
                         .resolved_type = .{
                             .Function = .{
                                 .id = ObjFunction.FunctionDef.nextId(),
-                                .script_name = try parser.gc.copyString("builtin"),
-                                .name = try parser.gc.copyString("insert"),
-                                .parameters = parameters,
-                                .return_type = try self.item_type.cloneOptional(&parser.gc.type_registry),
+                                .script_name = (try parser.gc.copyString("builtin")).toIdx(),
+                                .name = (try parser.gc.copyString("insert")).toIdx(),
+                                .parameters = try idxTypeDefMapFromPtrMap(parser.gc.allocator, parameters),
+                                .return_type = (try self.item_type.cloneOptional(&parser.gc.type_registry)).toIdx(),
                                 .yield_type = parser.gc.type_registry.void_type,
                                 .function_type = .Extern,
                             },
@@ -2711,9 +2849,9 @@ pub const ObjList = struct {
                         .resolved_type = .{
                             .Function = .{
                                 .id = ObjFunction.FunctionDef.nextId(),
-                                .script_name = try parser.gc.copyString("builtin"),
-                                .name = try parser.gc.copyString("pop"),
-                                .return_type = try self.item_type.cloneOptional(&parser.gc.type_registry),
+                                .script_name = (try parser.gc.copyString("builtin")).toIdx(),
+                                .name = (try parser.gc.copyString("pop")).toIdx(),
+                                .return_type = (try self.item_type.cloneOptional(&parser.gc.type_registry)).toIdx(),
                                 .yield_type = parser.gc.type_registry.void_type,
                                 .function_type = .Extern,
                             },
@@ -2741,7 +2879,7 @@ pub const ObjList = struct {
                 try callback_parameters.put(
                     parser.gc.allocator,
                     try parser.gc.copyString("index"),
-                    parser.gc.type_registry.int_type,
+                    parser.gc.getTypeDef(parser.gc.type_registry.int_type),
                 );
                 try callback_parameters.put(
                     parser.gc.allocator,
@@ -2756,9 +2894,9 @@ pub const ObjList = struct {
                             .Function = .{
                                 .id = ObjFunction.FunctionDef.nextId(),
                                 // TODO: is this ok?
-                                .script_name = try parser.gc.copyString("builtin"),
-                                .name = try parser.gc.copyString("anonymous"),
-                                .parameters = callback_parameters,
+                                .script_name = (try parser.gc.copyString("builtin")).toIdx(),
+                                .name = (try parser.gc.copyString("anonymous")).toIdx(),
+                                .parameters = try idxTypeDefMapFromPtrMap(parser.gc.allocator, callback_parameters),
                                 .return_type = parser.gc.type_registry.void_type,
                                 .yield_type = parser.gc.type_registry.void_type,
                             },
@@ -2780,9 +2918,9 @@ pub const ObjList = struct {
                         .resolved_type = .{
                             .Function = .{
                                 .id = ObjFunction.FunctionDef.nextId(),
-                                .script_name = try parser.gc.copyString("builtin"),
-                                .name = try parser.gc.copyString("forEach"),
-                                .parameters = parameters,
+                                .script_name = (try parser.gc.copyString("builtin")).toIdx(),
+                                .name = (try parser.gc.copyString("forEach")).toIdx(),
+                                .parameters = try idxTypeDefMapFromPtrMap(parser.gc.allocator, parameters),
                                 .return_type = parser.gc.type_registry.void_type,
                                 .yield_type = parser.gc.type_registry.void_type,
                                 .function_type = .Extern,
@@ -2824,7 +2962,7 @@ pub const ObjList = struct {
                 try callback_parameters.put(
                     parser.gc.allocator,
                     try parser.gc.copyString("index"),
-                    parser.gc.type_registry.int_type,
+                    parser.gc.getTypeDef(parser.gc.type_registry.int_type),
                 );
                 try callback_parameters.put(
                     parser.gc.allocator,
@@ -2839,10 +2977,10 @@ pub const ObjList = struct {
                             .Function = .{
                                 .id = ObjFunction.FunctionDef.nextId(),
                                 // TODO: is this ok?
-                                .script_name = try parser.gc.copyString("builtin"),
-                                .name = try parser.gc.copyString("anonymous"),
-                                .parameters = callback_parameters,
-                                .return_type = generic_type,
+                                .script_name = (try parser.gc.copyString("builtin")).toIdx(),
+                                .name = (try parser.gc.copyString("anonymous")).toIdx(),
+                                .parameters = try idxTypeDefMapFromPtrMap(parser.gc.allocator, callback_parameters),
+                                .return_type = generic_type.toIdx(),
                                 .yield_type = parser.gc.type_registry.void_type,
                                 // FIXME: user could provide an .Extern function and JIT will be lost here
                             },
@@ -2867,21 +3005,21 @@ pub const ObjList = struct {
 
                 var method_def = ObjFunction.FunctionDef{
                     .id = map_origin,
-                    .script_name = try parser.gc.copyString("builtin"),
-                    .name = try parser.gc.copyString("map"),
-                    .parameters = parameters,
-                    .return_type = try parser.gc.type_registry.getTypeDef(.{
+                    .script_name = (try parser.gc.copyString("builtin")).toIdx(),
+                    .name = (try parser.gc.copyString("map")).toIdx(),
+                    .parameters = try idxTypeDefMapFromPtrMap(parser.gc.allocator, parameters),
+                    .return_type = (try parser.gc.type_registry.getTypeDef(.{
                         .def_type = .List,
                         .resolved_type = new_list_type,
-                    }),
+                    })).toIdx(),
                     .yield_type = parser.gc.type_registry.void_type,
                     .function_type = .Extern,
                 };
 
                 try method_def.generic_types.put(
                     parser.gc.allocator,
-                    try parser.gc.copyString("T"),
-                    generic_type,
+                    (try parser.gc.copyString("T")).toIdx(),
+                    generic_type.toIdx(),
                 );
 
                 const resolved_type: ObjTypeDef.TypeUnion = .{ .Function = method_def };
@@ -2913,7 +3051,7 @@ pub const ObjList = struct {
                 try callback_parameters.put(
                     parser.gc.allocator,
                     try parser.gc.copyString("index"),
-                    parser.gc.type_registry.int_type,
+                    parser.gc.getTypeDef(parser.gc.type_registry.int_type),
                 );
 
                 try callback_parameters.put(
@@ -2929,9 +3067,9 @@ pub const ObjList = struct {
                             .Function = .{
                                 .id = ObjFunction.FunctionDef.nextId(),
                                 // TODO: is this ok?
-                                .script_name = try parser.gc.copyString("builtin"),
-                                .name = try parser.gc.copyString("anonymous"),
-                                .parameters = callback_parameters,
+                                .script_name = (try parser.gc.copyString("builtin")).toIdx(),
+                                .name = (try parser.gc.copyString("anonymous")).toIdx(),
+                                .parameters = try idxTypeDefMapFromPtrMap(parser.gc.allocator, callback_parameters),
                                 .return_type = parser.gc.type_registry.bool_type,
                                 .yield_type = parser.gc.type_registry.void_type,
                             },
@@ -2953,10 +3091,10 @@ pub const ObjList = struct {
                         .resolved_type = .{
                             .Function = .{
                                 .id = ObjFunction.FunctionDef.nextId(),
-                                .script_name = try parser.gc.copyString("builtin"),
-                                .name = try parser.gc.copyString("filter"),
-                                .parameters = parameters,
-                                .return_type = obj_list,
+                                .script_name = (try parser.gc.copyString("builtin")).toIdx(),
+                                .name = (try parser.gc.copyString("filter")).toIdx(),
+                                .parameters = try idxTypeDefMapFromPtrMap(parser.gc.allocator, parameters),
+                                .return_type = obj_list.toIdx(),
                                 .yield_type = parser.gc.type_registry.void_type,
                                 .function_type = .Extern,
                             },
@@ -2996,7 +3134,7 @@ pub const ObjList = struct {
                 try callback_parameters.put(
                     parser.gc.allocator,
                     try parser.gc.copyString("index"),
-                    parser.gc.type_registry.int_type,
+                    parser.gc.getTypeDef(parser.gc.type_registry.int_type),
                 );
                 try callback_parameters.put(
                     parser.gc.allocator,
@@ -3016,10 +3154,10 @@ pub const ObjList = struct {
                             .Function = .{
                                 .id = ObjFunction.FunctionDef.nextId(),
                                 // TODO: is this ok?
-                                .script_name = try parser.gc.copyString("builtin"),
-                                .name = try parser.gc.copyString("anonymous"),
-                                .parameters = callback_parameters,
-                                .return_type = generic_type,
+                                .script_name = (try parser.gc.copyString("builtin")).toIdx(),
+                                .name = (try parser.gc.copyString("anonymous")).toIdx(),
+                                .parameters = try idxTypeDefMapFromPtrMap(parser.gc.allocator, callback_parameters),
+                                .return_type = generic_type.toIdx(),
                                 .yield_type = parser.gc.type_registry.void_type,
                             },
                         },
@@ -3052,12 +3190,12 @@ pub const ObjList = struct {
                         .resolved_type = .{
                             .Function = .{
                                 .id = reduce_origin,
-                                .script_name = try parser.gc.copyString("builtin"),
-                                .name = try parser.gc.copyString("reduce"),
-                                .parameters = parameters,
-                                .return_type = generic_type,
+                                .script_name = (try parser.gc.copyString("builtin")).toIdx(),
+                                .name = (try parser.gc.copyString("reduce")).toIdx(),
+                                .parameters = try idxTypeDefMapFromPtrMap(parser.gc.allocator, parameters),
+                                .return_type = generic_type.toIdx(),
                                 .yield_type = parser.gc.type_registry.void_type,
-                                .generic_types = generic_types,
+                                .generic_types = try idxTypeDefMapFromPtrMap(parser.gc.allocator, generic_types),
                                 .function_type = .Extern,
                             },
                         },
@@ -3099,9 +3237,9 @@ pub const ObjList = struct {
                             .Function = .{
                                 .id = ObjFunction.FunctionDef.nextId(),
                                 // TODO: is this ok?
-                                .script_name = try parser.gc.copyString("builtin"),
-                                .name = try parser.gc.copyString("anonymous"),
-                                .parameters = callback_parameters,
+                                .script_name = (try parser.gc.copyString("builtin")).toIdx(),
+                                .name = (try parser.gc.copyString("anonymous")).toIdx(),
+                                .parameters = try idxTypeDefMapFromPtrMap(parser.gc.allocator, callback_parameters),
                                 .return_type = parser.gc.type_registry.bool_type,
                                 .yield_type = parser.gc.type_registry.void_type,
                             },
@@ -3123,10 +3261,10 @@ pub const ObjList = struct {
                         .resolved_type = .{
                             .Function = .{
                                 .id = ObjFunction.FunctionDef.nextId(),
-                                .script_name = try parser.gc.copyString("builtin"),
-                                .name = try parser.gc.copyString("sort"),
-                                .parameters = parameters,
-                                .return_type = obj_list,
+                                .script_name = (try parser.gc.copyString("builtin")).toIdx(),
+                                .name = (try parser.gc.copyString("sort")).toIdx(),
+                                .parameters = try idxTypeDefMapFromPtrMap(parser.gc.allocator, parameters),
+                                .return_type = obj_list.toIdx(),
                                 .yield_type = parser.gc.type_registry.void_type,
                                 .function_type = .Extern,
                             },
@@ -3155,9 +3293,9 @@ pub const ObjList = struct {
                         .resolved_type = .{
                             .Function = .{
                                 .id = ObjFunction.FunctionDef.nextId(),
-                                .script_name = try parser.gc.copyString("builtin"),
-                                .name = try parser.gc.copyString("reverse"),
-                                .return_type = obj_list,
+                                .script_name = (try parser.gc.copyString("builtin")).toIdx(),
+                                .name = (try parser.gc.copyString("reverse")).toIdx(),
+                                .return_type = obj_list.toIdx(),
                                 .yield_type = parser.gc.type_registry.void_type,
                                 .function_type = .Extern,
                             },
@@ -3191,12 +3329,12 @@ pub const ObjList = struct {
                             .resolved_type = .{
                                 .Function = .{
                                     .id = ObjFunction.FunctionDef.nextId(),
-                                    .script_name = try parser.gc.copyString("builtin"),
-                                    .name = try parser.gc.copyString(method),
-                                    .return_type = try obj_list.cloneMutable(
+                                    .script_name = (try parser.gc.copyString("builtin")).toIdx(),
+                                    .name = (try parser.gc.copyString(method)).toIdx(),
+                                    .return_type = (try obj_list.cloneMutable(
                                         &parser.gc.type_registry,
                                         mem.eql(u8, method, "cloneMutable") or mem.eql(u8, method, "copyMutable"),
-                                    ),
+                                    )).toIdx(),
                                     .yield_type = parser.gc.type_registry.void_type,
                                     .function_type = .Extern,
                                 },
@@ -3222,6 +3360,7 @@ pub const ObjList = struct {
 
 pub const ObjRange = struct {
     const Self = @This();
+    pub const Idx = ObjIndex(Self);
 
     obj: Obj = .{ .obj_type = .Range },
 
@@ -3235,7 +3374,7 @@ pub const ObjRange = struct {
     }
 
     pub inline fn toValue(self: *Self) Value {
-        return Value.fromObj(self.toObj());
+        return self.toObj().toIdx().toValue();
     }
 
     pub inline fn cast(obj: *Obj) ?*Self {
@@ -3313,7 +3452,7 @@ pub const ObjRange = struct {
 
     pub fn member(vm: *VM, method_idx: usize) !Value {
         if (vm.gc.objrange_members[method_idx]) |native| {
-            return native.toValue();
+            return vm.gc.getNative(native).toValue();
         }
 
         var native = try vm.gc.allocateObject(
@@ -3322,10 +3461,10 @@ pub const ObjRange = struct {
             },
         );
 
-        vm.gc.objrange_members[method_idx] = native;
+        vm.gc.objrange_members[method_idx] = native.toIdx();
 
         // We need to mark it otherwise it could be collected by a Young gc and then badly accessed by a Full gc
-        vm.gc.markObj(native.toObj()) catch @panic("Could not mark obj");
+        vm.gc.markObj(native.toObj().toIdx()) catch @panic("Could not mark obj");
 
         return native.toValue();
     }
@@ -3339,12 +3478,12 @@ pub const ObjRange = struct {
 
     pub fn memberDef(parser: *Parser, method_idx: usize) !*ObjTypeDef {
         if (parser.gc.objrange_memberDefs[method_idx]) |umethod| {
-            return umethod;
+            return parser.gc.getTypeDef(umethod);
         }
 
         const native_type = try parser.parseTypeDefFrom(Self.member_defs[method_idx].typedef.?);
 
-        parser.gc.objrange_memberDefs[method_idx] = native_type;
+        parser.gc.objrange_memberDefs[method_idx] = native_type.toIdx();
 
         return native_type;
     }
@@ -3353,23 +3492,24 @@ pub const ObjRange = struct {
 /// Map
 pub const ObjMap = struct {
     const Self = @This();
+    pub const Idx = ObjIndex(Self);
 
     pub const Map = std.AutoArrayHashMapUnmanaged(Value, Value);
 
     obj: Obj = .{ .obj_type = .Map },
 
-    type_def: *ObjTypeDef,
+    type_def: ObjTypeDef.Idx,
 
     // We need an ArrayHashMap for `next`
     map: Map = .empty,
 
-    methods: []?*ObjNative,
+    methods: []?ObjNative.Idx,
 
     pub fn init(allocator: Allocator, type_def: *ObjTypeDef) !Self {
         const self = Self{
-            .type_def = type_def,
+            .type_def = type_def.toIdx(),
             .methods = try allocator.alloc(
-                ?*ObjNative,
+                ?ObjNative.Idx,
                 Self.member_defs.len,
             ),
         };
@@ -3387,7 +3527,7 @@ pub const ObjMap = struct {
             key,
             value,
         );
-        try gc.markObjDirty(&self.obj);
+        try gc.markObjDirty(self.toObj().toIdx());
     }
 
     pub const member_defs = [_]BuiltinMember{
@@ -3472,7 +3612,7 @@ pub const ObjMap = struct {
 
     pub fn member(self: *Self, vm: *VM, method_idx: usize) !Value {
         if (self.methods[method_idx]) |native| {
-            return native.toValue();
+            return vm.gc.getNative(native).toValue();
         }
 
         const native = try vm.gc.allocateObject(
@@ -3481,10 +3621,10 @@ pub const ObjMap = struct {
             },
         );
 
-        self.methods[method_idx] = native;
+        self.methods[method_idx] = native.toIdx();
 
         // We need to mark it otherwise it could be collected by a Young gc and then badly accessed by a Full gc
-        vm.gc.markObj(native.toObj()) catch @panic("Could not mark obj");
+        vm.gc.markObj(native.toObj().toIdx()) catch @panic("Could not mark obj");
 
         return native.toValue();
     }
@@ -3498,11 +3638,11 @@ pub const ObjMap = struct {
 
         for (self.methods) |method_opt| {
             if (method_opt) |method| {
-                try gc.markObj(method.toObj());
+                try gc.markObj(ObjIdx.init(.Native, method.index));
             }
         }
 
-        try gc.markObj(@constCast(self.type_def.toObj()));
+        try gc.markObj(ObjIdx.init(.Type, self.type_def.index));
     }
 
     pub fn deinit(self: *Self, allocator: Allocator) void {
@@ -3515,7 +3655,7 @@ pub const ObjMap = struct {
     }
 
     pub inline fn toValue(self: *Self) Value {
-        return Value.fromObj(self.toObj());
+        return self.toObj().toIdx().toValue();
     }
 
     pub inline fn cast(obj: *Obj) ?*Self {
@@ -3550,11 +3690,11 @@ pub const ObjMap = struct {
         }
 
         pub fn mark(self: *SelfMapDef, gc: *GC) !void {
-            try gc.markObj(@constCast(self.key_type.toObj()));
-            try gc.markObj(@constCast(self.value_type.toObj()));
+            try gc.markObj(self.key_type.toObj().toIdx());
+            try gc.markObj(self.value_type.toObj().toIdx());
             var it = self.methods.iterator();
             while (it.next()) |method| {
-                try gc.markObj(@constCast(method.value_ptr.*.type_def.toObj()));
+                try gc.markObj(method.value_ptr.*.type_def.toObj().toIdx());
             }
         }
 
@@ -3572,8 +3712,8 @@ pub const ObjMap = struct {
                         .resolved_type = .{
                             .Function = .{
                                 .id = ObjFunction.FunctionDef.nextId(),
-                                .script_name = try parser.gc.copyString("builtin"),
-                                .name = try parser.gc.copyString("size"),
+                                .script_name = (try parser.gc.copyString("builtin")).toIdx(),
+                                .name = (try parser.gc.copyString("size")).toIdx(),
                                 .return_type = parser.gc.type_registry.int_type,
                                 .yield_type = parser.gc.type_registry.void_type,
                                 .function_type = .Extern,
@@ -3611,16 +3751,16 @@ pub const ObjMap = struct {
                         .resolved_type = .{
                             .Function = .{
                                 .id = ObjFunction.FunctionDef.nextId(),
-                                .script_name = try parser.gc.copyString("builtin"),
-                                .name = try parser.gc.copyString("remove"),
-                                .parameters = parameters,
-                                .return_type = try parser.gc.type_registry.getTypeDef(
+                                .script_name = (try parser.gc.copyString("builtin")).toIdx(),
+                                .name = (try parser.gc.copyString("remove")).toIdx(),
+                                .parameters = try idxTypeDefMapFromPtrMap(parser.gc.allocator, parameters),
+                                .return_type = (try parser.gc.type_registry.getTypeDef(
                                     .{
                                         .optional = true,
                                         .def_type = self.value_type.def_type,
                                         .resolved_type = self.value_type.resolved_type,
                                     },
-                                ),
+                                )).toIdx(),
                                 .yield_type = parser.gc.type_registry.void_type,
                                 .function_type = .Extern,
                             },
@@ -3657,9 +3797,9 @@ pub const ObjMap = struct {
                         .resolved_type = .{
                             .Function = .{
                                 .id = ObjFunction.FunctionDef.nextId(),
-                                .script_name = try parser.gc.copyString("builtin"),
-                                .name = try parser.gc.copyString("hasKey"),
-                                .parameters = parameters,
+                                .script_name = (try parser.gc.copyString("builtin")).toIdx(),
+                                .name = (try parser.gc.copyString("hasKey")).toIdx(),
+                                .parameters = try idxTypeDefMapFromPtrMap(parser.gc.allocator, parameters),
                                 .return_type = parser.gc.type_registry.bool_type,
                                 .yield_type = parser.gc.type_registry.void_type,
                                 .function_type = .Extern,
@@ -3686,9 +3826,9 @@ pub const ObjMap = struct {
                         .resolved_type = .{
                             .Function = .{
                                 .id = ObjFunction.FunctionDef.nextId(),
-                                .script_name = try parser.gc.copyString("builtin"),
-                                .name = try parser.gc.copyString("keys"),
-                                .return_type = try parser.gc.type_registry.getTypeDef(
+                                .script_name = (try parser.gc.copyString("builtin")).toIdx(),
+                                .name = (try parser.gc.copyString("keys")).toIdx(),
+                                .return_type = (try parser.gc.type_registry.getTypeDef(
                                     .{
                                         .def_type = .List,
                                         .optional = false,
@@ -3699,7 +3839,7 @@ pub const ObjMap = struct {
                                             ),
                                         },
                                     },
-                                ),
+                                )).toIdx(),
                                 .yield_type = parser.gc.type_registry.void_type,
                                 .function_type = .Extern,
                             },
@@ -3725,9 +3865,9 @@ pub const ObjMap = struct {
                         .resolved_type = .{
                             .Function = .{
                                 .id = ObjFunction.FunctionDef.nextId(),
-                                .script_name = try parser.gc.copyString("builtin"),
-                                .name = try parser.gc.copyString("values"),
-                                .return_type = try parser.gc.type_registry.getTypeDef(.{
+                                .script_name = (try parser.gc.copyString("builtin")).toIdx(),
+                                .name = (try parser.gc.copyString("values")).toIdx(),
+                                .return_type = (try parser.gc.type_registry.getTypeDef(.{
                                     .def_type = .List,
                                     .optional = false,
                                     .resolved_type = .{
@@ -3736,7 +3876,7 @@ pub const ObjMap = struct {
                                             false,
                                         ),
                                     },
-                                }),
+                                })).toIdx(),
                                 .yield_type = parser.gc.type_registry.void_type,
                                 .function_type = .Extern,
                             },
@@ -3779,9 +3919,9 @@ pub const ObjMap = struct {
                             .Function = .{
                                 .id = ObjFunction.FunctionDef.nextId(),
                                 // TODO: is this ok?
-                                .script_name = try parser.gc.copyString("builtin"),
-                                .name = try parser.gc.copyString("anonymous"),
-                                .parameters = callback_parameters,
+                                .script_name = (try parser.gc.copyString("builtin")).toIdx(),
+                                .name = (try parser.gc.copyString("anonymous")).toIdx(),
+                                .parameters = try idxTypeDefMapFromPtrMap(parser.gc.allocator, callback_parameters),
                                 .return_type = parser.gc.type_registry.bool_type,
                                 .yield_type = parser.gc.type_registry.void_type,
                             },
@@ -3803,10 +3943,10 @@ pub const ObjMap = struct {
                         .resolved_type = .{
                             .Function = .{
                                 .id = ObjFunction.FunctionDef.nextId(),
-                                .script_name = try parser.gc.copyString("builtin"),
-                                .name = try parser.gc.copyString("sort"),
-                                .parameters = parameters,
-                                .return_type = obj_map,
+                                .script_name = (try parser.gc.copyString("builtin")).toIdx(),
+                                .name = (try parser.gc.copyString("sort")).toIdx(),
+                                .parameters = try idxTypeDefMapFromPtrMap(parser.gc.allocator, parameters),
+                                .return_type = obj_map.toIdx(),
                                 .yield_type = parser.gc.type_registry.void_type,
                                 .function_type = .Extern,
                             },
@@ -3843,10 +3983,10 @@ pub const ObjMap = struct {
                         .resolved_type = .{
                             .Function = .{
                                 .id = ObjFunction.FunctionDef.nextId(),
-                                .script_name = try parser.gc.copyString("builtin"),
-                                .name = try parser.gc.copyString("diff"),
-                                .parameters = parameters,
-                                .return_type = obj_map,
+                                .script_name = (try parser.gc.copyString("builtin")).toIdx(),
+                                .name = (try parser.gc.copyString("diff")).toIdx(),
+                                .parameters = try idxTypeDefMapFromPtrMap(parser.gc.allocator, parameters),
+                                .return_type = obj_map.toIdx(),
                                 .yield_type = parser.gc.type_registry.void_type,
                                 .function_type = .Extern,
                             },
@@ -3883,10 +4023,10 @@ pub const ObjMap = struct {
                         .resolved_type = .{
                             .Function = .{
                                 .id = ObjFunction.FunctionDef.nextId(),
-                                .script_name = try parser.gc.copyString("builtin"),
-                                .name = try parser.gc.copyString("intersect"),
-                                .parameters = parameters,
-                                .return_type = obj_map,
+                                .script_name = (try parser.gc.copyString("builtin")).toIdx(),
+                                .name = (try parser.gc.copyString("intersect")).toIdx(),
+                                .parameters = try idxTypeDefMapFromPtrMap(parser.gc.allocator, parameters),
+                                .return_type = obj_map.toIdx(),
                                 .yield_type = parser.gc.type_registry.void_type,
                                 .function_type = .Extern,
                             },
@@ -3929,9 +4069,9 @@ pub const ObjMap = struct {
                             .Function = .{
                                 .id = ObjFunction.FunctionDef.nextId(),
                                 // TODO: is this ok?
-                                .script_name = try parser.gc.copyString("builtin"),
-                                .name = try parser.gc.copyString("anonymous"),
-                                .parameters = callback_parameters,
+                                .script_name = (try parser.gc.copyString("builtin")).toIdx(),
+                                .name = (try parser.gc.copyString("anonymous")).toIdx(),
+                                .parameters = try idxTypeDefMapFromPtrMap(parser.gc.allocator, callback_parameters),
                                 .return_type = parser.gc.type_registry.void_type,
                                 .yield_type = parser.gc.type_registry.void_type,
                             },
@@ -3953,9 +4093,9 @@ pub const ObjMap = struct {
                         .resolved_type = .{
                             .Function = .{
                                 .id = ObjFunction.FunctionDef.nextId(),
-                                .script_name = try parser.gc.copyString("builtin"),
-                                .name = try parser.gc.copyString("forEach"),
-                                .parameters = parameters,
+                                .script_name = (try parser.gc.copyString("builtin")).toIdx(),
+                                .name = (try parser.gc.copyString("forEach")).toIdx(),
+                                .parameters = try idxTypeDefMapFromPtrMap(parser.gc.allocator, parameters),
                                 .return_type = parser.gc.type_registry.void_type,
                                 .yield_type = parser.gc.type_registry.void_type,
                                 .function_type = .Extern,
@@ -3992,9 +4132,9 @@ pub const ObjMap = struct {
                 var callback_method_def = ObjFunction.FunctionDef{
                     .id = ObjFunction.FunctionDef.nextId(),
                     // TODO: is this ok?
-                    .script_name = try parser.gc.copyString("builtin"),
-                    .name = try parser.gc.copyString("anonymous"),
-                    .parameters = callback_parameters,
+                    .script_name = (try parser.gc.copyString("builtin")).toIdx(),
+                    .name = (try parser.gc.copyString("anonymous")).toIdx(),
+                    .parameters = try idxTypeDefMapFromPtrMap(parser.gc.allocator, callback_parameters),
                     .return_type = undefined,
                     .yield_type = parser.gc.type_registry.void_type,
                     // FIXME: user could provide an .Extern function and JIT will be lost here
@@ -4040,7 +4180,7 @@ pub const ObjMap = struct {
                     "key",
                     .{
                         .name = "key",
-                        .type_def = generic_key_type,
+                        .type_def = generic_key_type.toIdx(),
                         .final = false,
                         .method = false,
                         .static = false,
@@ -4055,7 +4195,7 @@ pub const ObjMap = struct {
                     "value",
                     .{
                         .name = "value",
-                        .type_def = generic_value_type,
+                        .type_def = generic_value_type.toIdx(),
                         .final = false,
                         .method = false,
                         .static = false,
@@ -4073,10 +4213,10 @@ pub const ObjMap = struct {
                     },
                 );
 
-                callback_method_def.return_type = try entry_type_def.toInstance(
+                callback_method_def.return_type = (try entry_type_def.toInstance(
                     &parser.gc.type_registry,
                     false,
-                );
+                )).toIdx();
 
                 const callback_type = try parser.gc.type_registry.getTypeDef(
                     .{
@@ -4095,10 +4235,10 @@ pub const ObjMap = struct {
 
                 var method_def = ObjFunction.FunctionDef{
                     .id = map_origin,
-                    .script_name = try parser.gc.copyString("builtin"),
-                    .name = try parser.gc.copyString("map"),
-                    .parameters = parameters,
-                    .return_type = try parser.gc.type_registry.getTypeDef(.{
+                    .script_name = (try parser.gc.copyString("builtin")).toIdx(),
+                    .name = (try parser.gc.copyString("map")).toIdx(),
+                    .parameters = try idxTypeDefMapFromPtrMap(parser.gc.allocator, parameters),
+                    .return_type = (try parser.gc.type_registry.getTypeDef(.{
                         .def_type = .Map,
                         .resolved_type = .{
                             .Map = ObjMap.MapDef.init(
@@ -4107,21 +4247,21 @@ pub const ObjMap = struct {
                                 false,
                             ),
                         },
-                    }),
+                    })).toIdx(),
                     .yield_type = parser.gc.type_registry.void_type,
                     .function_type = .Extern,
                 };
 
                 try method_def.generic_types.put(
                     parser.gc.allocator,
-                    try parser.gc.copyString("K"),
-                    generic_key_type,
+                    (try parser.gc.copyString("K")).toIdx(),
+                    generic_key_type.toIdx(),
                 );
 
                 try method_def.generic_types.put(
                     parser.gc.allocator,
-                    try parser.gc.copyString("V"),
-                    generic_value_type,
+                    (try parser.gc.copyString("V")).toIdx(),
+                    generic_value_type.toIdx(),
                 );
 
                 const native_type = try parser.gc.type_registry.getTypeDef(
@@ -4166,9 +4306,9 @@ pub const ObjMap = struct {
                             .Function = .{
                                 .id = ObjFunction.FunctionDef.nextId(),
                                 // TODO: is this ok?
-                                .script_name = try parser.gc.copyString("builtin"),
-                                .name = try parser.gc.copyString("anonymous"),
-                                .parameters = callback_parameters,
+                                .script_name = (try parser.gc.copyString("builtin")).toIdx(),
+                                .name = (try parser.gc.copyString("anonymous")).toIdx(),
+                                .parameters = try idxTypeDefMapFromPtrMap(parser.gc.allocator, callback_parameters),
                                 .return_type = parser.gc.type_registry.bool_type,
                                 .yield_type = parser.gc.type_registry.void_type,
                             },
@@ -4190,10 +4330,10 @@ pub const ObjMap = struct {
                         .resolved_type = .{
                             .Function = .{
                                 .id = ObjFunction.FunctionDef.nextId(),
-                                .script_name = try parser.gc.copyString("builtin"),
-                                .name = try parser.gc.copyString("filter"),
-                                .parameters = parameters,
-                                .return_type = obj_map,
+                                .script_name = (try parser.gc.copyString("builtin")).toIdx(),
+                                .name = (try parser.gc.copyString("filter")).toIdx(),
+                                .parameters = try idxTypeDefMapFromPtrMap(parser.gc.allocator, parameters),
+                                .return_type = obj_map.toIdx(),
                                 .yield_type = parser.gc.type_registry.void_type,
                                 .function_type = .Extern,
                             },
@@ -4253,10 +4393,10 @@ pub const ObjMap = struct {
                             .Function = .{
                                 .id = ObjFunction.FunctionDef.nextId(),
                                 // TODO: is this ok?
-                                .script_name = try parser.gc.copyString("builtin"),
-                                .name = try parser.gc.copyString("anonymous"),
-                                .parameters = callback_parameters,
-                                .return_type = generic_type,
+                                .script_name = (try parser.gc.copyString("builtin")).toIdx(),
+                                .name = (try parser.gc.copyString("anonymous")).toIdx(),
+                                .parameters = try idxTypeDefMapFromPtrMap(parser.gc.allocator, callback_parameters),
+                                .return_type = generic_type.toIdx(),
                                 .yield_type = parser.gc.type_registry.void_type,
                             },
                         },
@@ -4289,12 +4429,12 @@ pub const ObjMap = struct {
                         .resolved_type = .{
                             .Function = .{
                                 .id = reduce_origin,
-                                .script_name = try parser.gc.copyString("builtin"),
-                                .name = try parser.gc.copyString("reduce"),
-                                .parameters = parameters,
-                                .return_type = generic_type,
+                                .script_name = (try parser.gc.copyString("builtin")).toIdx(),
+                                .name = (try parser.gc.copyString("reduce")).toIdx(),
+                                .parameters = try idxTypeDefMapFromPtrMap(parser.gc.allocator, parameters),
+                                .return_type = generic_type.toIdx(),
                                 .yield_type = parser.gc.type_registry.void_type,
-                                .generic_types = generic_types,
+                                .generic_types = try idxTypeDefMapFromPtrMap(parser.gc.allocator, generic_types),
                                 .function_type = .Extern,
                             },
                         },
@@ -4327,12 +4467,12 @@ pub const ObjMap = struct {
                             .resolved_type = .{
                                 .Function = .{
                                     .id = ObjFunction.FunctionDef.nextId(),
-                                    .script_name = try parser.gc.copyString("builtin"),
-                                    .name = try parser.gc.copyString(method),
-                                    .return_type = try obj_map.cloneMutable(
+                                    .script_name = (try parser.gc.copyString("builtin")).toIdx(),
+                                    .name = (try parser.gc.copyString(method)).toIdx(),
+                                    .return_type = (try obj_map.cloneMutable(
                                         &parser.gc.type_registry,
                                         mem.eql(u8, method, "cloneMutable") or mem.eql(u8, method, "copyMutable"),
-                                    ),
+                                    )).toIdx(),
                                     .yield_type = parser.gc.type_registry.void_type,
                                     .function_type = .Extern,
                                 },
@@ -4359,23 +4499,24 @@ pub const ObjMap = struct {
 /// Enum
 pub const ObjEnum = struct {
     const Self = @This();
+    pub const Idx = ObjIndex(Self);
 
     obj: Obj = .{ .obj_type = .Enum },
 
     /// Used to allow type checking at runtime
-    type_def: *ObjTypeDef,
+    type_def: ObjTypeDef.Idx,
 
     cases: []Value,
 
     pub fn init(def: *ObjTypeDef) Self {
         return Self{
-            .type_def = def,
+            .type_def = def.toIdx(),
             .cases = undefined,
         };
     }
 
     pub fn mark(self: *Self, gc: *GC) !void {
-        try gc.markObj(@constCast(self.type_def.toObj()));
+        try gc.markObj(ObjIdx.init(.Type, self.type_def.index));
         for (self.cases) |case| {
             try gc.markValue(case);
         }
@@ -4383,7 +4524,7 @@ pub const ObjEnum = struct {
 
     pub fn rawNext(self: *Self, vm: *VM, enum_case: ?*ObjEnumInstance) !?*ObjEnumInstance {
         if (enum_case) |case| {
-            assert(case.enum_ref == self);
+            assert(case.enum_ref.index == self.obj.index);
 
             if (case.case == self.cases.len - 1) {
                 return null;
@@ -4391,14 +4532,14 @@ pub const ObjEnum = struct {
 
             return try vm.gc.allocateObject(
                 ObjEnumInstance{
-                    .enum_ref = self,
+                    .enum_ref = self.toIdx(),
                     .case = @as(u8, @intCast(case.case + 1)),
                 },
             );
         } else {
             return try vm.gc.allocateObject(
                 ObjEnumInstance{
-                    .enum_ref = self,
+                    .enum_ref = self.toIdx(),
                     .case = 0,
                 },
             );
@@ -4410,7 +4551,11 @@ pub const ObjEnum = struct {
     }
 
     pub inline fn toValue(self: *Self) Value {
-        return Value.fromObj(&self.obj);
+        return self.toObj().toIdx().toValue();
+    }
+
+    pub inline fn toIdx(self: *Self) Idx {
+        return .idx(self.obj.index);
     }
 
     pub inline fn cast(obj: *Obj) ?*Self {
@@ -4420,33 +4565,34 @@ pub const ObjEnum = struct {
     pub const EnumDef = struct {
         const EnumDefSelf = @This();
 
-        name: *ObjString,
-        qualified_name: *ObjString,
+        name: ObjString.Idx,
+        qualified_name: ObjString.Idx,
         location: Ast.TokenIndex,
-        enum_type: *ObjTypeDef,
+        enum_type: ObjTypeDef.Idx,
         cases: [][]const u8,
         cases_locations: []Ast.TokenIndex,
         // Circular reference but needed so that we can generate enum case at compile time
-        value: ?*ObjEnum = null,
+        value: ?Idx = null,
 
         pub fn mark(self: *EnumDefSelf, gc: *GC) !void {
-            try gc.markObj(self.name.toObj());
-            try gc.markObj(self.qualified_name.toObj());
-            try gc.markObj(@constCast(self.enum_type.toObj()));
+            try gc.markObj(ObjIdx.init(.String, self.name.index));
+            try gc.markObj(ObjIdx.init(.String, self.qualified_name.index));
+            try gc.markObj(ObjIdx.init(.Type, self.enum_type.index));
         }
     };
 };
 
 pub const ObjEnumInstance = struct {
     const Self = @This();
+    pub const Idx = ObjIndex(Self);
 
     obj: Obj = .{ .obj_type = .EnumInstance },
 
-    enum_ref: *ObjEnum,
+    enum_ref: ObjEnum.Idx,
     case: u24,
 
     pub fn mark(self: *Self, gc: *GC) !void {
-        try gc.markObj(self.enum_ref.toObj());
+        try gc.markObj(ObjIdx.init(.Enum, self.enum_ref.index));
     }
 
     pub inline fn toObj(self: *Self) *Obj {
@@ -4454,35 +4600,36 @@ pub const ObjEnumInstance = struct {
     }
 
     pub inline fn toValue(self: *Self) Value {
-        return Value.fromObj(self.toObj());
+        return self.toObj().toIdx().toValue();
     }
 
     pub inline fn cast(obj: *Obj) ?*Self {
         return obj.cast(Self, .EnumInstance);
     }
 
-    pub fn value(self: *Self) Value {
-        return self.enum_ref.cases[self.case];
+    pub fn value(self: *Self, gc: *GC) Value {
+        return gc.getEnum(self.enum_ref).cases[self.case];
     }
 };
 
 /// Bound
 pub const ObjBoundMethod = struct {
     const Self = @This();
+    pub const Idx = ObjIndex(Self);
 
     obj: Obj = .{ .obj_type = .Bound },
 
     receiver: Value,
-    closure: ?*ObjClosure = null,
-    native: ?*ObjNative = null,
+    closure: ?ObjClosure.Idx = null,
+    native: ?ObjNative.Idx = null,
 
     pub fn mark(self: *Self, gc: *GC) !void {
         try gc.markValue(self.receiver);
         if (self.closure) |closure| {
-            try gc.markObj(closure.toObj());
+            try gc.markObj(ObjIdx.init(.Closure, closure.index));
         }
         if (self.native) |native| {
-            try gc.markObj(native.toObj());
+            try gc.markObj(ObjIdx.init(.Native, native.index));
         }
     }
 
@@ -4491,7 +4638,7 @@ pub const ObjBoundMethod = struct {
     }
 
     pub inline fn toValue(self: *Self) Value {
-        return Value.fromObj(self.toObj());
+        return self.toObj().toIdx().toValue();
     }
 
     pub inline fn cast(obj: *Obj) ?*Self {
@@ -4502,6 +4649,7 @@ pub const ObjBoundMethod = struct {
 /// Type
 pub const ObjTypeDef = struct {
     const Self = @This();
+    pub const Idx = ObjIndex(Self);
 
     // WARN: order is important
     pub const Type = enum(u8) {
@@ -4566,7 +4714,7 @@ pub const ObjTypeDef = struct {
     };
 
     pub const Instance = struct {
-        of: *ObjTypeDef,
+        of: ObjTypeDef.Idx,
         mutable: bool,
     };
 
@@ -4593,8 +4741,8 @@ pub const ObjTypeDef = struct {
     pub fn mark(self: *Self, gc: *GC) !void {
         if (self.resolved_type) |*resolved| {
             switch (self.def_type) {
-                .ObjectInstance => try gc.markObj(@constCast(resolved.ObjectInstance.of.toObj())),
-                .EnumInstance => try gc.markObj(@constCast(resolved.EnumInstance.of.toObj())),
+                .ObjectInstance => try gc.markObj(ObjIdx.init(.Type, resolved.ObjectInstance.of.index)),
+                .EnumInstance => try gc.markObj(ObjIdx.init(.Type, resolved.EnumInstance.of.index)),
                 .Object => try resolved.Object.mark(gc),
                 .Protocol => try resolved.Protocol.mark(gc),
                 .Enum => try resolved.Enum.mark(gc),
@@ -4666,7 +4814,11 @@ pub const ObjTypeDef = struct {
                     ),
                 };
 
-                placeholder_resolved_type.Placeholder.resolved_generics = generics;
+                const resolved_generics = try allocator.alloc(ObjTypeDef.Idx, generics.len);
+                for (generics, 0..) |generic, idx| {
+                    resolved_generics[idx] = generic.toIdx();
+                }
+                placeholder_resolved_type.Placeholder.resolved_generics = resolved_generics;
 
                 const placeholder = try type_registry.getTypeDef(
                     .{
@@ -4692,15 +4844,15 @@ pub const ObjTypeDef = struct {
 
             .Fiber => fiber: {
                 const new_fiber_def = ObjFiber.FiberDef{
-                    .return_type = try self.resolved_type.?.Fiber.return_type.populateGenerics(
+                    .return_type = (try type_registry.gc.getTypeDef(self.resolved_type.?.Fiber.return_type).populateGenerics(
                         where,
                         origin,
                         generics,
                         type_registry,
                         allocator,
                         visited_ptr,
-                    ),
-                    .yield_type = try (try self.resolved_type.?.Fiber.yield_type.populateGenerics(
+                    )).toIdx(),
+                    .yield_type = (try (try type_registry.gc.getTypeDef(self.resolved_type.?.Fiber.yield_type).populateGenerics(
                         where,
                         origin,
                         generics,
@@ -4709,8 +4861,8 @@ pub const ObjTypeDef = struct {
                         visited_ptr,
                     )).toInstance(
                         type_registry,
-                        self.resolved_type.?.Fiber.yield_type.isMutable(),
-                    ),
+                        type_registry.gc.getTypeDef(self.resolved_type.?.Fiber.yield_type).isMutable(),
+                    )).toIdx(),
                 };
 
                 const resolved = ObjTypeDef.TypeUnion{ .Fiber = new_fiber_def };
@@ -4723,7 +4875,7 @@ pub const ObjTypeDef = struct {
 
                 break :fiber try type_registry.getTypeDef(new_fiber);
             },
-            .ObjectInstance => try (try self.resolved_type.?.ObjectInstance.of.populateGenerics(
+            .ObjectInstance => try (try type_registry.gc.getTypeDef(self.resolved_type.?.ObjectInstance.of).populateGenerics(
                 where,
                 origin,
                 generics,
@@ -4740,8 +4892,8 @@ pub const ObjTypeDef = struct {
 
                 var resolved = ObjObject.ObjectDef.init(
                     old_object_def.location,
-                    old_object_def.name,
-                    old_object_def.qualified_name,
+                    type_registry.gc.getString(old_object_def.name),
+                    type_registry.gc.getString(old_object_def.qualified_name),
                     old_object_def.anonymous,
                 );
                 resolved.is_tuple = old_object_def.is_tuple;
@@ -4750,7 +4902,11 @@ pub const ObjTypeDef = struct {
                 resolved.generic_types = try old_object_def.generic_types.clone(type_registry.gc.allocator);
 
                 if (resolved.generic_types.count() == generics.len) {
-                    resolved.resolved_generics = generics;
+                    const resolved_generics = try allocator.alloc(ObjTypeDef.Idx, generics.len);
+                    for (generics, 0..) |generic, idx| {
+                        resolved_generics[idx] = generic.toIdx();
+                    }
+                    resolved.resolved_generics = resolved_generics;
                 }
 
                 {
@@ -4767,14 +4923,14 @@ pub const ObjTypeDef = struct {
                                 .location = kv.value_ptr.*.location,
                                 .method = kv.value_ptr.*.method,
                                 .mutable = kv.value_ptr.*.mutable,
-                                .type_def = try kv.value_ptr.*.type_def.populateGenerics(
+                                .type_def = (try type_registry.gc.getTypeDef(kv.value_ptr.*.type_def).populateGenerics(
                                     where,
                                     origin,
                                     generics,
                                     type_registry,
                                     allocator,
                                     visited_ptr,
-                                ),
+                                )).toIdx(),
                                 .has_default = kv.value_ptr.*.has_default,
                                 .index = kv.value_ptr.*.index,
                             },
@@ -4895,32 +5051,32 @@ pub const ObjTypeDef = struct {
             .Function => function: {
                 const old_fun_def = self.resolved_type.?.Function;
 
-                var error_types: ?std.ArrayList(*ObjTypeDef) = null;
+                var error_types: ?std.ArrayList(ObjTypeDef.Idx) = null;
                 if (old_fun_def.error_types) |old_error_types| {
                     error_types = .empty;
                     for (old_error_types) |error_type| {
                         try error_types.?.append(
                             type_registry.gc.allocator,
-                            try error_type.populateGenerics(
+                            (try type_registry.gc.getTypeDef(error_type).populateGenerics(
                                 where,
                                 origin,
                                 generics,
                                 type_registry,
                                 allocator,
                                 visited_ptr,
-                            ),
+                            )).toIdx(),
                         );
                     }
                 }
 
-                var parameters = std.AutoArrayHashMapUnmanaged(*ObjString, *ObjTypeDef){};
+                var parameters = std.AutoArrayHashMapUnmanaged(ObjString.Idx, ObjTypeDef.Idx){};
                 {
                     var it = old_fun_def.parameters.iterator();
                     while (it.next()) |kv| {
                         try parameters.put(
                             type_registry.gc.allocator,
                             kv.key_ptr.*,
-                            try (try kv.value_ptr.*.populateGenerics(
+                            (try (try type_registry.gc.getTypeDef(kv.value_ptr.*).populateGenerics(
                                 where,
                                 origin,
                                 generics,
@@ -4929,9 +5085,17 @@ pub const ObjTypeDef = struct {
                                 visited_ptr,
                             )).toInstance(
                                 type_registry,
-                                kv.value_ptr.*.isMutable(),
-                            ),
+                                type_registry.gc.getTypeDef(kv.value_ptr.*).isMutable(),
+                            )).toIdx(),
                         );
+                    }
+                }
+
+                var resolved_generics: ?[]ObjTypeDef.Idx = null;
+                if (generics.len > 0) {
+                    resolved_generics = try allocator.alloc(ObjTypeDef.Idx, generics.len);
+                    for (generics, 0..) |generic, idx| {
+                        resolved_generics.?[idx] = generic.toIdx();
                     }
                 }
 
@@ -4939,7 +5103,7 @@ pub const ObjTypeDef = struct {
                     .id = ObjFunction.FunctionDef.nextId(),
                     .name = old_fun_def.name,
                     .script_name = old_fun_def.script_name,
-                    .return_type = try (try old_fun_def.return_type.populateGenerics(
+                    .return_type = (try (try type_registry.gc.getTypeDef(old_fun_def.return_type).populateGenerics(
                         where,
                         origin,
                         generics,
@@ -4949,9 +5113,9 @@ pub const ObjTypeDef = struct {
                     ))
                         .toInstance(
                         type_registry,
-                        old_fun_def.return_type.isMutable(),
-                    ),
-                    .yield_type = try (try old_fun_def.yield_type.populateGenerics(
+                        type_registry.gc.getTypeDef(old_fun_def.return_type).isMutable(),
+                    )).toIdx(),
+                    .yield_type = (try (try type_registry.gc.getTypeDef(old_fun_def.yield_type).populateGenerics(
                         where,
                         origin,
                         generics,
@@ -4961,8 +5125,8 @@ pub const ObjTypeDef = struct {
                     ))
                         .toInstance(
                         type_registry,
-                        old_fun_def.yield_type.isMutable(),
-                    ),
+                        type_registry.gc.getTypeDef(old_fun_def.yield_type).isMutable(),
+                    )).toIdx(),
                     .error_types = if (error_types) |*types| try types.toOwnedSlice(type_registry.gc.allocator) else null,
                     .parameters = parameters,
                     .defaults = old_fun_def.defaults,
@@ -4970,7 +5134,7 @@ pub const ObjTypeDef = struct {
                     .function_type = old_fun_def.function_type,
                     .lambda = old_fun_def.lambda,
                     .generic_types = try old_fun_def.generic_types.clone(type_registry.gc.allocator),
-                    .resolved_generics = generics,
+                    .resolved_generics = resolved_generics,
                 };
 
                 const resolved = ObjTypeDef.TypeUnion{ .Function = new_fun_def };
@@ -5020,7 +5184,7 @@ pub const ObjTypeDef = struct {
             // Destroyed copied placeholder link
             optional.resolved_type.?.Placeholder.parent = null;
             optional.resolved_type.?.Placeholder.parent_relation = null;
-            optional.resolved_type.?.Placeholder.children = std.ArrayList(*ObjTypeDef).empty;
+            optional.resolved_type.?.Placeholder.children = std.ArrayList(ObjTypeDef.Idx).empty;
 
             // Make actual link
             try PlaceholderDef.link(
@@ -5046,7 +5210,7 @@ pub const ObjTypeDef = struct {
             // Destroyed copied placeholder link
             non_optional.resolved_type.?.Placeholder.parent = null;
             non_optional.resolved_type.?.Placeholder.parent_relation = null;
-            non_optional.resolved_type.?.Placeholder.children = std.ArrayList(*ObjTypeDef).empty;
+            non_optional.resolved_type.?.Placeholder.children = std.ArrayList(ObjTypeDef.Idx).empty;
 
             // Make actual link
             try PlaceholderDef.link(
@@ -5078,7 +5242,7 @@ pub const ObjTypeDef = struct {
                 if (clone.resolved_type.?.Placeholder.parent) |parent| {
                     try PlaceholderDef.link(
                         type_registry.gc.allocator,
-                        parent,
+                        type_registry.gc.getTypeDef(parent),
                         placeholder,
                         clone.resolved_type.?.Placeholder.parent_relation.?,
                     );
@@ -5145,31 +5309,32 @@ pub const ObjTypeDef = struct {
         // FIXME
     }
 
-    pub fn toStringAlloc(self: *const Self, allocator: Allocator, qualified: bool) (Allocator.Error || std.fmt.BufPrintError || error{WriteFailed})![]const u8 {
+    pub fn toStringAlloc(self: *const Self, allocator: Allocator, qualified: bool, gc: *GC) (Allocator.Error || std.fmt.BufPrintError || error{WriteFailed})![]const u8 {
         var str = std.Io.Writer.Allocating.init(allocator);
 
-        try self.toString(&str.writer, qualified);
+        try self.toString(&str.writer, qualified, gc);
 
         return try str.toOwnedSlice();
     }
 
     pub fn format(self: *Self, w: *std.Io.Writer) std.Io.Writer.Error!void {
-        self.toString(w, false) catch return error.WriteFailed;
+        _ = self;
+        try w.writeAll("<typedef>");
     }
 
-    pub fn toString(self: *const Self, writer: anytype, qualified: bool) (Allocator.Error || std.fmt.BufPrintError || error{WriteFailed})!void {
-        try self.toStringRaw(writer, qualified, true);
+    pub fn toString(self: *const Self, writer: anytype, qualified: bool, gc: *GC) (Allocator.Error || std.fmt.BufPrintError || error{WriteFailed})!void {
+        try self.toStringRaw(writer, qualified, true, gc);
     }
 
-    pub fn toStringWithoutUnresolved(self: *const Self, writer: anytype, qualified: bool) (Allocator.Error || std.fmt.BufPrintError || error{WriteFailed})!void {
-        try self.toStringRaw(writer, qualified, false);
+    pub fn toStringWithoutUnresolved(self: *const Self, writer: anytype, qualified: bool, gc: *GC) (Allocator.Error || std.fmt.BufPrintError || error{WriteFailed})!void {
+        try self.toStringRaw(writer, qualified, false, gc);
     }
 
-    pub fn toStringUnqualified(self: *const Self, writer: anytype) (Allocator.Error || std.fmt.BufPrintError || error{WriteFailed})!void {
-        try self.toStringRaw(writer, false, true);
+    pub fn toStringUnqualified(self: *const Self, writer: anytype, gc: *GC) (Allocator.Error || std.fmt.BufPrintError || error{WriteFailed})!void {
+        try self.toStringRaw(writer, false, true, gc);
     }
 
-    fn toStringRaw(self: *const Self, writer: anytype, qualified: bool, show_unresolved: bool) (Allocator.Error || std.fmt.BufPrintError || error{WriteFailed})!void {
+    fn toStringRaw(self: *const Self, writer: anytype, qualified: bool, show_unresolved: bool, gc: *GC) (Allocator.Error || std.fmt.BufPrintError || error{WriteFailed})!void {
         switch (self.def_type) {
             .Generic => if (show_unresolved)
                 try writer.print(
@@ -5191,16 +5356,18 @@ pub const ObjTypeDef = struct {
             .Range => try writer.writeAll("rg"),
             .Fiber => {
                 try writer.writeAll("fib<");
-                try self.resolved_type.?.Fiber.return_type.toStringRaw(
+                try gc.getTypeDef(self.resolved_type.?.Fiber.return_type).toStringRaw(
                     writer,
                     qualified,
                     show_unresolved,
+                    gc,
                 );
                 try writer.writeAll(", ");
-                try self.resolved_type.?.Fiber.yield_type.toStringRaw(
+                try gc.getTypeDef(self.resolved_type.?.Fiber.yield_type).toStringRaw(
                     writer,
                     qualified,
                     show_unresolved,
+                    gc,
                 );
                 try writer.writeAll(">");
             },
@@ -5216,10 +5383,11 @@ pub const ObjTypeDef = struct {
                     var i: usize = 0;
                     while (it.next()) |kv| {
                         try writer.print("{s}: ", .{kv.key_ptr.*});
-                        try kv.value_ptr.*.type_def.toStringRaw(
+                        try gc.getTypeDef(kv.value_ptr.*.type_def).toStringRaw(
                             writer,
                             qualified,
                             show_unresolved,
+                            gc,
                         );
 
                         if (i < count - 1) {
@@ -5232,9 +5400,9 @@ pub const ObjTypeDef = struct {
                 } else {
                     try writer.writeAll("object ");
                     if (qualified) {
-                        try writer.writeAll(object_def.qualified_name.string);
+                        try writer.writeAll(gc.getString(object_def.qualified_name).string);
                     } else {
-                        try writer.writeAll(object_def.name.string);
+                        try writer.writeAll(gc.getString(object_def.name).string);
                     }
                 }
 
@@ -5245,13 +5413,14 @@ pub const ObjTypeDef = struct {
                     var it = object_def.generic_types.iterator();
                     while (it.next()) |kv| : (i = i + 1) {
                         if (object_def.resolved_generics != null and i < object_def.resolved_generics.?.len) {
-                            try object_def.resolved_generics.?[i].toStringRaw(
+                            try gc.getTypeDef(object_def.resolved_generics.?[i]).toStringRaw(
                                 writer,
                                 qualified,
                                 show_unresolved,
+                                gc,
                             );
                         } else {
-                            try writer.print("{s}", .{kv.key_ptr.*.string});
+                            try writer.print("{s}", .{gc.getString(kv.key_ptr.*).string});
                         }
 
                         if (i < size - 1) {
@@ -5266,22 +5435,22 @@ pub const ObjTypeDef = struct {
                 const protocol_def = self.resolved_type.?.Protocol;
 
                 if (qualified) {
-                    try writer.print("protocol {s}", .{protocol_def.qualified_name.string});
+                    try writer.print("protocol {s}", .{gc.getString(protocol_def.qualified_name).string});
                 } else {
-                    try writer.print("protocol {s}", .{protocol_def.name.string});
+                    try writer.print("protocol {s}", .{gc.getString(protocol_def.name).string});
                 }
             },
             .Enum => {
                 try writer.writeAll("enum ");
                 if (qualified) {
-                    try writer.writeAll(self.resolved_type.?.Enum.qualified_name.string);
+                    try writer.writeAll(gc.getString(self.resolved_type.?.Enum.qualified_name).string);
                 } else {
-                    try writer.writeAll(self.resolved_type.?.Enum.name.string);
+                    try writer.writeAll(gc.getString(self.resolved_type.?.Enum.name).string);
                 }
             },
 
             .ObjectInstance => {
-                const object_def = self.resolved_type.?.ObjectInstance.of.resolved_type.?.Object;
+                const object_def = gc.getTypeDef(self.resolved_type.?.ObjectInstance.of).resolved_type.?.Object;
 
                 try writer.print(
                     "{s}",
@@ -5299,10 +5468,11 @@ pub const ObjTypeDef = struct {
                     var i: usize = 0;
                     while (it.next()) |kv| {
                         try writer.print("{s}: ", .{kv.key_ptr.*});
-                        try kv.value_ptr.*.type_def.toStringRaw(
+                        try gc.getTypeDef(kv.value_ptr.*.type_def).toStringRaw(
                             writer,
                             qualified,
                             show_unresolved,
+                            gc,
                         );
 
                         if (i < count - 1) {
@@ -5314,9 +5484,9 @@ pub const ObjTypeDef = struct {
                     try writer.writeAll(" }");
                 } else {
                     if (qualified) {
-                        try writer.writeAll(object_def.qualified_name.string);
+                        try writer.writeAll(gc.getString(object_def.qualified_name).string);
                     } else {
-                        try writer.writeAll(object_def.name.string);
+                        try writer.writeAll(gc.getString(object_def.name).string);
                     }
                 }
 
@@ -5327,13 +5497,14 @@ pub const ObjTypeDef = struct {
                     var it = object_def.generic_types.iterator();
                     while (it.next()) |kv| : (i += 1) {
                         if (object_def.resolved_generics != null and i < object_def.resolved_generics.?.len) {
-                            try object_def.resolved_generics.?[i].toStringRaw(
+                            try gc.getTypeDef(object_def.resolved_generics.?[i]).toStringRaw(
                                 writer,
                                 qualified,
                                 show_unresolved,
+                                gc,
                             );
                         } else {
-                            try writer.print("{s}", .{kv.key_ptr.*.string});
+                            try writer.print("{s}", .{gc.getString(kv.key_ptr.*).string});
                         }
 
                         if (i < size - 1) {
@@ -5346,9 +5517,9 @@ pub const ObjTypeDef = struct {
             },
             .ForeignContainer => {
                 if (qualified) {
-                    try writer.writeAll(self.resolved_type.?.ForeignContainer.qualified_name.string);
+                    try writer.writeAll(gc.getString(self.resolved_type.?.ForeignContainer.qualified_name).string);
                 } else {
-                    try writer.writeAll(self.resolved_type.?.ForeignContainer.name.string);
+                    try writer.writeAll(gc.getString(self.resolved_type.?.ForeignContainer.name).string);
                 }
             },
             .ProtocolInstance => {
@@ -5362,19 +5533,21 @@ pub const ObjTypeDef = struct {
                     },
                 );
 
-                const protocol_def = self.resolved_type.?.ProtocolInstance.of.resolved_type.?.Protocol;
+                const protocol_def = gc.getTypeDef(self.resolved_type.?.ProtocolInstance.of).resolved_type.?.Protocol;
 
                 if (qualified) {
-                    try writer.writeAll(protocol_def.qualified_name.string);
+                    try writer.writeAll(gc.getString(protocol_def.qualified_name).string);
                 } else {
-                    try writer.writeAll(protocol_def.name.string);
+                    try writer.writeAll(gc.getString(protocol_def.name).string);
                 }
             },
             .EnumInstance => {
+                const enum_def = gc.getTypeDef(self.resolved_type.?.EnumInstance.of).resolved_type.?.Enum;
+
                 if (qualified) {
-                    try writer.writeAll(self.resolved_type.?.EnumInstance.of.resolved_type.?.Enum.qualified_name.string);
+                    try writer.writeAll(gc.getString(enum_def.qualified_name).string);
                 } else {
-                    try writer.writeAll(self.resolved_type.?.EnumInstance.of.resolved_type.?.Enum.name.string);
+                    try writer.writeAll(gc.getString(enum_def.name).string);
                 }
             },
 
@@ -5392,6 +5565,7 @@ pub const ObjTypeDef = struct {
                     writer,
                     qualified,
                     show_unresolved,
+                    gc,
                 );
                 try writer.writeAll("]");
             },
@@ -5410,12 +5584,14 @@ pub const ObjTypeDef = struct {
                     writer,
                     qualified,
                     show_unresolved,
+                    gc,
                 );
                 try writer.writeAll(": ");
                 try self.resolved_type.?.Map.value_type.toStringRaw(
                     writer,
                     qualified,
                     show_unresolved,
+                    gc,
                 );
                 try writer.writeAll("}");
             },
@@ -5426,7 +5602,7 @@ pub const ObjTypeDef = struct {
                     try writer.writeAll("extern ");
                 }
                 try writer.writeAll("fun ");
-                try writer.writeAll(function_def.name.string);
+                try writer.writeAll(gc.getString(function_def.name).string);
 
                 {
                     const size = function_def.generic_types.count();
@@ -5436,9 +5612,9 @@ pub const ObjTypeDef = struct {
                         var it = function_def.generic_types.iterator();
                         while (it.next()) |kv| : (i = i + 1) {
                             if (function_def.resolved_generics != null and i < function_def.resolved_generics.?.len) {
-                                try function_def.resolved_generics.?[i].toString(writer, true);
+                                try gc.getTypeDef(function_def.resolved_generics.?[i]).toString(writer, true, gc);
                             } else {
-                                try writer.print("{s}", .{kv.key_ptr.*.string});
+                                try writer.print("{s}", .{gc.getString(kv.key_ptr.*).string});
                             }
 
                             if (i < size - 1) {
@@ -5461,12 +5637,13 @@ pub const ObjTypeDef = struct {
                     var i: usize = 0;
                     var it = function_def.parameters.iterator();
                     while (it.next()) |kv| : (i = i + 1) {
-                        try writer.writeAll(kv.key_ptr.*.string);
+                        try writer.writeAll(gc.getString(kv.key_ptr.*).string);
                         try writer.writeAll(": ");
-                        try kv.value_ptr.*.toStringRaw(
+                        try gc.getTypeDef(kv.value_ptr.*).toStringRaw(
                             writer,
                             qualified,
                             show_unresolved,
+                            gc,
                         );
 
                         if (i < size - 1) {
@@ -5478,28 +5655,31 @@ pub const ObjTypeDef = struct {
                 try writer.writeAll(")");
 
                 try writer.writeAll(" > ");
-                try function_def.return_type.toStringRaw(
+                try gc.getTypeDef(function_def.return_type).toStringRaw(
                     writer,
                     qualified,
                     show_unresolved,
+                    gc,
                 );
 
-                if (function_def.yield_type.def_type != .Void) {
+                if (gc.getTypeDef(function_def.yield_type).def_type != .Void) {
                     try writer.writeAll(" *> ");
-                    try function_def.yield_type.toStringRaw(
+                    try gc.getTypeDef(function_def.yield_type).toStringRaw(
                         writer,
                         qualified,
                         show_unresolved,
+                        gc,
                     );
                 }
 
                 if (function_def.error_types != null and function_def.error_types.?.len > 0) {
                     try writer.writeAll(" !> ");
                     for (function_def.error_types.?, 0..) |error_type, index| {
-                        try error_type.toStringRaw(
+                        try gc.getTypeDef(error_type).toStringRaw(
                             writer,
                             qualified,
                             show_unresolved,
+                            gc,
                         );
 
                         if (index < function_def.error_types.?.len - 1) {
@@ -5531,10 +5711,11 @@ pub const ObjTypeDef = struct {
                             @tagName(relation),
                         },
                     );
-                    try placeholder.parent.?.toStringRaw(
+                    try gc.getTypeDef(placeholder.parent.?).toStringRaw(
                         writer,
                         qualified,
                         show_unresolved,
+                        gc,
                     );
                 }
 
@@ -5552,17 +5733,21 @@ pub const ObjTypeDef = struct {
     }
 
     pub inline fn toValue(self: *Self) Value {
-        return Value.fromObj(self.toObj());
+        return self.toObj().toIdx().toValue();
+    }
+
+    pub inline fn toIdx(self: *Self) Idx {
+        return .idx(self.obj.index);
     }
 
     pub fn toParentType(self: *Self, type_registry: *TypeRegistry) !*Self {
         return switch (self.def_type) {
-            .ObjectInstance => self.resolved_type.?.ObjectInstance.of,
-            .ProtocolInstance => self.resolved_type.?.ProtocolInstance.of,
-            .EnumInstance => self.resolved_type.?.EnumInstance.of,
+            .ObjectInstance => type_registry.gc.getTypeDef(self.resolved_type.?.ObjectInstance.of),
+            .ProtocolInstance => type_registry.gc.getTypeDef(self.resolved_type.?.ProtocolInstance.of),
+            .EnumInstance => type_registry.gc.getTypeDef(self.resolved_type.?.EnumInstance.of),
             .Placeholder => placeholder: {
                 if (self.resolved_type.?.Placeholder.parent_relation != null and self.resolved_type.?.Placeholder.parent_relation.? == .Instance) {
-                    return self.resolved_type.?.Placeholder.parent.?;
+                    return type_registry.gc.getTypeDef(self.resolved_type.?.Placeholder.parent.?);
                 }
 
                 const placeholder = try type_registry.getTypeDef(Self{
@@ -5602,7 +5787,7 @@ pub const ObjTypeDef = struct {
                     .def_type = .ObjectInstance,
                     .resolved_type = .{
                         .ObjectInstance = .{
-                            .of = try self.cloneNonOptional(type_registry),
+                            .of = (try self.cloneNonOptional(type_registry)).toIdx(),
                             .mutable = mutable,
                         },
                     },
@@ -5611,7 +5796,7 @@ pub const ObjTypeDef = struct {
                     .optional = self.optional,
                     .def_type = .ProtocolInstance,
                     .resolved_type = .{
-                        .ProtocolInstance = .{ .of = try self.cloneNonOptional(type_registry), .mutable = mutable },
+                        .ProtocolInstance = .{ .of = (try self.cloneNonOptional(type_registry)).toIdx(), .mutable = mutable },
                     },
                 },
                 .Enum => Self{
@@ -5619,7 +5804,7 @@ pub const ObjTypeDef = struct {
                     .def_type = .EnumInstance,
                     .resolved_type = .{
                         .EnumInstance = .{
-                            .of = try self.cloneNonOptional(type_registry),
+                            .of = (try self.cloneNonOptional(type_registry)).toIdx(),
                             .mutable = false,
                         },
                     },
@@ -5683,19 +5868,19 @@ pub const ObjTypeDef = struct {
 
             .Any => expected.Any == actual.Any,
 
-            .ForeignContainer => std.mem.eql(u8, expected.ForeignContainer.name.string, actual.ForeignContainer.name.string),
+            .ForeignContainer => expected.ForeignContainer.name.eql(actual.ForeignContainer.name),
 
             .Generic => expected.Generic.origin == actual.Generic.origin and expected.Generic.index == actual.Generic.index,
 
             .Fiber => expected.Fiber.return_type.eql(actual.Fiber.return_type) and expected.Fiber.yield_type.eql(actual.Fiber.yield_type),
 
-            .ObjectInstance => expected.ObjectInstance.of.eql(actual.ObjectInstance.of) or expected.ObjectInstance.of == actual.ObjectInstance.of,
+            .ObjectInstance => expected.ObjectInstance.of.eql(actual.ObjectInstance.of),
             .ProtocolInstance => {
                 if (actual == .ProtocolInstance) {
-                    return expected.ProtocolInstance.of.eql(actual.ProtocolInstance.of) or expected.ProtocolInstance.of == actual.ProtocolInstance.of;
+                    return expected.ProtocolInstance.of.eql(actual.ProtocolInstance.of);
                 } else {
                     assert(actual == .ObjectInstance);
-                    return actual.ObjectInstance.of.resolved_type.?.Object.conforms_to.get(expected.ProtocolInstance.of) != null;
+                    return false;
                 }
             },
             .EnumInstance => expected.EnumInstance.of.eql(actual.EnumInstance.of),
@@ -5745,8 +5930,8 @@ pub const ObjTypeDef = struct {
                 }
 
                 // Compare parameters (we ignore argument names and only compare types)
-                const a_keys: []*ObjString = expected.Function.parameters.keys();
-                const b_keys: []*ObjString = actual.Function.parameters.keys();
+                const a_keys: []ObjString.Idx = expected.Function.parameters.keys();
+                const b_keys: []ObjString.Idx = actual.Function.parameters.keys();
 
                 if (a_keys.len != b_keys.len) {
                     return false;
@@ -5858,14 +6043,14 @@ pub fn cloneObject(obj: *Obj, vm: *VM) !Value {
         .Fiber,
         .ForeignContainer,
         .Range,
-        => return Value.fromObj(obj),
+        => return obj.toIdx().toValue(),
 
         .List => {
             const list = ObjList.cast(obj).?;
             var items = try list.items.clone(vm.gc.allocator);
             errdefer items.deinit(vm.gc.allocator);
 
-            const methods = try vm.gc.allocator.alloc(?*ObjNative, list.methods.len);
+            const methods = try vm.gc.allocator.alloc(?ObjNative.Idx, list.methods.len);
             errdefer vm.gc.allocator.free(methods);
 
             @memcpy(methods, list.methods);
@@ -5884,7 +6069,7 @@ pub fn cloneObject(obj: *Obj, vm: *VM) !Value {
             var cloned_map = try map.map.clone(vm.gc.allocator);
             errdefer cloned_map.deinit(vm.gc.allocator);
 
-            const methods = try vm.gc.allocator.alloc(?*ObjNative, map.methods.len);
+            const methods = try vm.gc.allocator.alloc(?ObjNative.Idx, map.methods.len);
             errdefer vm.gc.allocator.free(methods);
 
             @memcpy(methods, map.methods);
@@ -5901,6 +6086,34 @@ pub fn cloneObject(obj: *Obj, vm: *VM) !Value {
         // TODO
         .ObjectInstance => unreachable,
     }
+}
+
+fn idxTypeDefMapFromPtrMap(allocator: Allocator, map: std.AutoArrayHashMapUnmanaged(*ObjString, *ObjTypeDef)) !std.AutoArrayHashMapUnmanaged(ObjString.Idx, ObjTypeDef.Idx) {
+    var converted = std.AutoArrayHashMapUnmanaged(ObjString.Idx, ObjTypeDef.Idx).empty;
+    var it = map.iterator();
+    while (it.next()) |kv| {
+        try converted.put(
+            allocator,
+            kv.key_ptr.*.toIdx(),
+            kv.value_ptr.*.toIdx(),
+        );
+    }
+
+    return converted;
+}
+
+fn idxValueMapFromPtrMap(allocator: Allocator, map: std.AutoArrayHashMapUnmanaged(*ObjString, Value)) !std.AutoArrayHashMapUnmanaged(ObjString.Idx, Value) {
+    var converted = std.AutoArrayHashMapUnmanaged(ObjString.Idx, Value).empty;
+    var it = map.iterator();
+    while (it.next()) |kv| {
+        try converted.put(
+            allocator,
+            kv.key_ptr.*.toIdx(),
+            kv.value_ptr.*,
+        );
+    }
+
+    return converted;
 }
 
 pub const PlaceholderDef = struct {
@@ -5927,15 +6140,15 @@ pub const PlaceholderDef = struct {
     where_end: Ast.TokenIndex,
     /// When accessing/calling/subscrit/assign a placeholder we produce another. We keep them linked so we
     /// can trace back the root of the unknown type.
-    parent: ?*ObjTypeDef = null,
+    parent: ?ObjTypeDef.Idx = null,
     /// What's the relation with the parent?
     parent_relation: ?Relation = null,
     /// Children adds themselves here
-    children: std.ArrayList(*ObjTypeDef) = .empty,
+    children: std.ArrayList(ObjTypeDef.Idx) = .empty,
     mutable: ?bool,
 
     /// If the placeholder is a function return, we need to remember eventual generic types defined in that call
-    resolved_generics: ?[]*ObjTypeDef = null,
+    resolved_generics: ?[]ObjTypeDef.Idx = null,
 
     pub fn init(where: Ast.TokenIndex, where_end: Ast.TokenIndex, mutable: ?bool) Self {
         return Self{
@@ -5971,8 +6184,8 @@ pub const PlaceholderDef = struct {
             return;
         }
 
-        child.resolved_type.?.Placeholder.parent = parent;
-        try parent.resolved_type.?.Placeholder.children.append(allocator, child);
+        child.resolved_type.?.Placeholder.parent = parent.toIdx();
+        try parent.resolved_type.?.Placeholder.children.append(allocator, child.toIdx());
         child.resolved_type.?.Placeholder.parent_relation = relation;
 
         if (BuildOptions.debug_placeholders) {

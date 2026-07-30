@@ -2,6 +2,8 @@ const std = @import("std");
 const assert = std.debug.assert;
 const builtin = @import("builtin");
 const Ast = @import("Ast.zig");
+const GC = @import("GC.zig");
+const obj = @import("obj.zig");
 const Token = @import("Token.zig");
 
 pub const Renderer = struct {
@@ -44,6 +46,7 @@ pub const Renderer = struct {
 
     allocator: std.mem.Allocator,
     ast: Ast.Slice,
+    gc: *GC,
     ais: *AutoIndentingStream,
     /// Options controlling formatter decisions for this render pass.
     options: Options,
@@ -115,13 +118,14 @@ pub const Renderer = struct {
     };
 
     /// Render an AST to canonical Buzz source using the provided options.
-    pub fn render(allocator: std.mem.Allocator, out: *std.Io.Writer, ast: Ast, options: Options) Error!void {
+    pub fn render(allocator: std.mem.Allocator, out: *std.Io.Writer, ast: Ast, gc: *GC, options: Options) Error!void {
         var ais: AutoIndentingStream = .init(out, 4);
         defer ais.deinit(allocator);
 
         var self = Self{
             .allocator = allocator,
             .ast = ast.slice(),
+            .gc = gc,
             .ais = &ais,
             .options = options,
         };
@@ -148,6 +152,13 @@ pub const Renderer = struct {
 
     inline fn renderNode(self: *Self, node: Ast.Node.Index, space: Space) Error!void {
         return Self.renderers[@intFromEnum(self.ast.nodes.items(.tag)[node])](self, node, space);
+    }
+
+    inline fn nodeType(self: *Self, node: Ast.Node.Index) ?*obj.ObjTypeDef {
+        return if (self.ast.nodes.items(.type_def)[node]) |type_def|
+            self.gc.getTypeDef(type_def)
+        else
+            null;
     }
 
     /// Returns true when adding `additional_columns` would exceed the configured line width.
@@ -206,6 +217,7 @@ pub const Renderer = struct {
         var measuring = Self{
             .allocator = self.allocator,
             .ast = self.ast,
+            .gc = self.gc,
             .ais = &ais,
             .options = .{
                 .line_width = std.math.maxInt(usize),
@@ -248,6 +260,7 @@ pub const Renderer = struct {
         var measuring = Self{
             .allocator = self.allocator,
             .ast = self.ast,
+            .gc = self.gc,
             .ais = &ais,
             .options = self.options,
             .suppress_docblock = self.suppress_docblock,
@@ -942,7 +955,7 @@ pub const Renderer = struct {
 
         const components = self.ast.nodes.items(.components);
         const comp = components[node].FunctionType;
-        const is_optional = !comp.is_signature and if (self.ast.nodes.items(.type_def)[node]) |type_def|
+        const is_optional = !comp.is_signature and if (self.nodeType(node)) |type_def|
             type_def.optional
         else
             false;
@@ -1265,7 +1278,7 @@ pub const Renderer = struct {
 
     fn renderSimpleType(self: *Self, node: Ast.Node.Index, space: Space) Error!void {
         const location = self.ast.nodes.items(.location)[node];
-        const optional = self.ast.nodes.items(.type_def)[node].?.optional;
+        const optional = self.nodeType(node).?.optional;
 
         try self.renderToken(location, if (optional) .None else space);
 
@@ -1283,10 +1296,11 @@ pub const Renderer = struct {
     /// Format `{'}` treats contents as a single-quoted string.
     // FIXME: should operate on graphemes otherwise we replace emojis with series of escaped bytes?
     fn stringEscape(
+        self: *Self,
         literal: Ast.StringLiteral,
         writer: *std.Io.Writer,
     ) !void {
-        for (literal.literal.string) |byte| switch (byte) {
+        for (self.gc.getString(literal.literal).string) |byte| switch (byte) {
             '{' => try writer.writeAll("\\{"),
             '\n' => if (literal.delimiter == '`') try writer.writeAll("\n") else try writer.writeAll("\\n"),
             '\r' => if (literal.delimiter == '`') try writer.writeAll("\r") else try writer.writeAll("\\r"),
@@ -1322,14 +1336,11 @@ pub const Renderer = struct {
 
     fn renderStringLiteral(self: *Self, node: Ast.Node.Index, space: Space) Error!void {
         const string_literal = self.ast.nodes.items(.components)[node].StringLiteral;
-        var formatter = std.fmt.Alt(Ast.StringLiteral, stringEscape){
-            .data = string_literal,
-        };
 
         var buffer = std.Io.Writer.Allocating.init(self.allocator);
         defer buffer.deinit();
 
-        try formatter.format(&buffer.writer);
+        try self.stringEscape(string_literal, &buffer.writer);
 
         if (string_literal.delimiter == '`') {
             try self.ais.writeFixingWhitespace(buffer.written());
@@ -1398,6 +1409,7 @@ pub const Renderer = struct {
         var inline_renderer = Self{
             .allocator = self.allocator,
             .ast = self.ast,
+            .gc = self.gc,
             .ais = &ais,
             .options = .{
                 .line_width = std.math.maxInt(usize),
@@ -1512,7 +1524,7 @@ pub const Renderer = struct {
         const end_location = end_locations[node];
         const components = self.ast.nodes.items(.components)[node].ObjectInit;
         const utility_token = self.ast.tokens.items(.utility_token);
-        const mutable = self.ast.nodes.items(.type_def)[node].?.isMutable();
+        const mutable = self.nodeType(node).?.isMutable();
         const width_multiline = try self.nodeWouldExceedLine(node);
 
         var token_idx = location;
@@ -1673,13 +1685,13 @@ pub const Renderer = struct {
 
         // }
         try self.renderExpectedToken(
-            if (object_type.optional) end_location - 1 else end_location,
+            if (self.gc.getTypeDef(object_type).optional) end_location - 1 else end_location,
             .RightBrace,
-            if (object_type.optional) .None else space,
+            if (self.gc.getTypeDef(object_type).optional) .None else space,
         );
 
         // ?
-        if (object_type.optional) {
+        if (self.gc.getTypeDef(object_type).optional) {
             try self.renderExpectedToken(
                 end_location,
                 .Question,
@@ -2007,7 +2019,7 @@ pub const Renderer = struct {
 
         try self.ais.pushIndent(self.allocator, .normal);
 
-        const mutable = self.ast.nodes.items(.type_def)[node].?.isMutable();
+        const mutable = self.nodeType(node).?.isMutable();
         var token_idx = location;
         if (mutable) {
             try self.renderExpectedToken(
@@ -2083,7 +2095,7 @@ pub const Renderer = struct {
         const end_locations = self.ast.nodes.items(.end_location);
         const location = locations[node];
 
-        const type_def = self.ast.nodes.items(.type_def)[node].?;
+        const type_def = self.nodeType(node).?;
         const is_optional = type_def.optional;
         const is_mutable = type_def.isMutable();
 
@@ -2156,7 +2168,7 @@ pub const Renderer = struct {
                 entry_count > 0 and
                 self.canBreakAt(commaListBreakPriority(entry_count, has_trailing_comma)));
 
-        const mutable = self.ast.nodes.items(.type_def)[node].?.isMutable();
+        const mutable = self.nodeType(node).?.isMutable();
         var token_idx = location;
         if (mutable) {
             try self.renderExpectedToken(
@@ -2256,7 +2268,7 @@ pub const Renderer = struct {
         const end_locations = self.ast.nodes.items(.end_location);
         const location = locations[node];
 
-        const type_def = self.ast.nodes.items(.type_def)[node].?;
+        const type_def = self.nodeType(node).?;
         const is_optional = type_def.optional;
         const is_mutable = type_def.isMutable();
 
@@ -2928,7 +2940,7 @@ pub const Renderer = struct {
 
     fn renderGenericType(self: *Self, node: Ast.Node.Index, space: Space) Error!void {
         const location = self.ast.nodes.items(.location)[node];
-        const is_optional = self.ast.nodes.items(.type_def)[node].?.optional;
+        const is_optional = self.nodeType(node).?.optional;
 
         try self.renderExpectedToken(
             location,
@@ -3278,7 +3290,7 @@ pub const Renderer = struct {
         const end_locations = self.ast.nodes.items(.end_location);
         const type_defs = self.ast.nodes.items(.type_def);
         const components = self.ast.nodes.items(.components)[node].ObjectDeclaration;
-        const fields = type_defs[node].?.resolved_type.?
+        const fields = self.gc.getTypeDef(type_defs[node].?).resolved_type.?
             .Object.fields;
 
         // docblock
@@ -3463,7 +3475,7 @@ pub const Renderer = struct {
                 // method
                 try self.renderNode(
                     member.method_or_default_value.?,
-                    if (type_defs[member.method_or_default_value.?].?.resolved_type.?.Function.lambda)
+                    if (self.gc.getTypeDef(type_defs[member.method_or_default_value.?].?).resolved_type.?.Function.lambda)
                         .Semicolon
                     else
                         .Newline,
@@ -3495,7 +3507,7 @@ pub const Renderer = struct {
                 );
 
                 const has_default_value = if (member.method_or_default_value) |default_value|
-                    !type_defs[member.property_type.?].?.optional or self.ast.nodes.items(.tag)[default_value] != .Null
+                    !self.gc.getTypeDef(type_defs[member.property_type.?].?).optional or self.ast.nodes.items(.tag)[default_value] != .Null
                 else
                     false;
 
@@ -3596,11 +3608,10 @@ pub const Renderer = struct {
             }
 
             // mut
-            if (type_defs[node].?.resolved_type.?
+            if (self.gc.getTypeDef(type_defs[node].?).resolved_type.?
                 .Protocol.methods
                 .get(
-                    type_defs[method.method].?.resolved_type.?
-                        .Function.name.string,
+                    self.gc.getString(self.gc.getTypeDef(type_defs[method.method].?).resolved_type.?.Function.name).string,
                 ).?.mutable)
             {
                 try self.renderExpectedToken(
@@ -3888,7 +3899,7 @@ pub const Renderer = struct {
     fn renderUserType(self: *Self, node: Ast.Node.Index, space: Space) Error!void {
         const components = self.ast.nodes.items(.components)[node].UserType;
         const end_locations = self.ast.nodes.items(.end_location);
-        const type_def = self.ast.nodes.items(.type_def)[node].?;
+        const type_def = self.nodeType(node).?;
         const is_optional = type_def.optional;
 
         if (type_def.isMutable()) {

@@ -621,6 +621,7 @@ pub const Slice = struct {
     }
 
     const IsConstantContext = struct {
+        gc: *GC,
         result: ?bool = null,
 
         pub fn processNode(
@@ -685,7 +686,7 @@ pub const Slice = struct {
                 },
 
                 .Dot => {
-                    const type_def = ast.nodes.items(.type_def)[ast.nodes.items(.components)[node].Dot.callee].?;
+                    const type_def = self.gc.getTypeDef(ast.nodes.items(.type_def)[ast.nodes.items(.components)[node].Dot.callee].?);
 
                     self.result = (self.result == null or self.result.?) and type_def.def_type == .Enum;
 
@@ -702,7 +703,7 @@ pub const Slice = struct {
                 .Match => {
                     const components = ast.nodes.items(.components)[node].Match;
                     const type_defs = ast.nodes.items(.type_def);
-                    const value_type_def = type_defs[components.value].?;
+                    const value_type_def = self.gc.getTypeDef(type_defs[components.value].?);
 
                     if (components.is_statement) {
                         self.result = false;
@@ -711,7 +712,7 @@ pub const Slice = struct {
 
                     for (components.branches) |branch| {
                         for (branch.conditions) |condition| {
-                            const condition_type_def = type_defs[condition].?;
+                            const condition_type_def = self.gc.getTypeDef(type_defs[condition].?);
 
                             if ((!condition_type_def.optional and condition_type_def.def_type == .Pattern and
                                 value_type_def.def_type == .String and !value_type_def.optional) or
@@ -728,7 +729,7 @@ pub const Slice = struct {
                     const components = ast.nodes.items(.components)[node].List;
                     const node_types = ast.nodes.items(.tag);
 
-                    if (ast.nodes.items(.type_def)[node].?.resolved_type.?.List.mutable) {
+                    if (self.gc.getTypeDef(ast.nodes.items(.type_def)[node].?).resolved_type.?.List.mutable) {
                         self.result = false;
                         return true;
                     }
@@ -748,7 +749,7 @@ pub const Slice = struct {
                     const components = ast.nodes.items(.components)[node].Map;
                     const node_types = ast.nodes.items(.tag);
 
-                    if (ast.nodes.items(.type_def)[node].?.resolved_type.?.Map.mutable) {
+                    if (self.gc.getTypeDef(ast.nodes.items(.type_def)[node].?).resolved_type.?.Map.mutable) {
                         self.result = false;
                         return true;
                     }
@@ -795,8 +796,8 @@ pub const Slice = struct {
         }
     };
 
-    pub fn isConstant(self: Self.Slice, allocator: std.mem.Allocator, node: Node.Index) !bool {
-        var ctx = IsConstantContext{};
+    pub fn isConstant(self: Self.Slice, allocator: std.mem.Allocator, gc: *GC, node: Node.Index) !bool {
+        var ctx = IsConstantContext{ .gc = gc };
 
         try self.walk(allocator, &ctx, node, .breadthFirst);
 
@@ -979,17 +980,17 @@ pub const Slice = struct {
 
                 return Value.fromBoolean(left_float orelse left_integer.? <= right_float orelse right_integer.?);
             },
-            .BangEqual => return Value.fromBoolean(!left.eql(right)),
-            .EqualEqual => return Value.fromBoolean(left.eql(right)),
+            .BangEqual => return Value.fromBoolean(!left.eql(right, gc)),
+            .EqualEqual => return Value.fromBoolean(left.eql(right, gc)),
             .Plus => {
-                const right_string = if (right.isObj()) obj.ObjString.cast(right.obj()) else null;
-                const left_string = if (left.isObj()) obj.ObjString.cast(left.obj()) else null;
+                const right_string = if (right.isObj()) obj.ObjString.cast(right.obj(gc)) else null;
+                const left_string = if (left.isObj()) obj.ObjString.cast(left.obj(gc)) else null;
 
-                const right_list = if (right.isObj()) obj.ObjList.cast(right.obj()) else null;
-                const left_list = if (left.isObj()) obj.ObjList.cast(left.obj()) else null;
+                const right_list = if (right.isObj()) obj.ObjList.cast(right.obj(gc)) else null;
+                const left_list = if (left.isObj()) obj.ObjList.cast(left.obj(gc)) else null;
 
-                const right_map = if (right.isObj()) obj.ObjMap.cast(right.obj()) else null;
-                const left_map = if (left.isObj()) obj.ObjMap.cast(left.obj()) else null;
+                const right_map = if (right.isObj()) obj.ObjMap.cast(right.obj(gc)) else null;
+                const left_map = if (left.isObj()) obj.ObjMap.cast(left.obj(gc)) else null;
 
                 if (right_string) |rs| {
                     var new_string = std.ArrayList(u8).empty;
@@ -1078,14 +1079,14 @@ pub const Slice = struct {
         match_value: Value,
         condition: Node.Index,
     ) !bool {
-        const condition_type_def = self.nodes.items(.type_def)[condition].?;
+        const condition_type_def = gc.getTypeDef(self.nodes.items(.type_def)[condition].?);
         const condition_value = try self.toValue(condition, gc);
 
         if (!condition_type_def.optional and condition_type_def.def_type == .Range and
             (value_type_def.def_type == .Integer or value_type_def.def_type == .Double) and
             !value_type_def.optional)
         {
-            const range = obj.ObjRange.cast(condition_value.obj()).?;
+            const range = obj.ObjRange.cast(condition_value.obj(gc)).?;
             const number = if (match_value.isInteger())
                 @as(v.Double, @floatFromInt(match_value.integer()))
             else
@@ -1098,13 +1099,13 @@ pub const Slice = struct {
         } else if (!condition_type_def.optional and condition_type_def.def_type == .Type and
             (value_type_def.optional or value_type_def.def_type != .Type))
         {
-            return condition_value.is(match_value);
+            return condition_value.is(match_value, gc);
         } else if (!value_type_def.optional and value_type_def.def_type == .Type and
             (condition_type_def.optional or condition_type_def.def_type != .Type))
         {
-            return match_value.is(condition_value);
+            return match_value.is(condition_value, gc);
         } else {
-            return match_value.eql(condition_value);
+            return match_value.eql(condition_value, gc);
         }
     }
 
@@ -1136,7 +1137,7 @@ pub const Slice = struct {
         // const type_defs = self.nodes.items(.type_def);
         const components = self.nodes.items(.components);
 
-        if (value.* == null and try self.isConstant(gc.allocator, node)) {
+        if (value.* == null and try self.isConstant(gc.allocator, gc, node)) {
             value.* = switch (self.nodes.items(.tag)[node]) {
                 .AnonymousObjectType,
                 .FiberType,
@@ -1147,11 +1148,11 @@ pub const Slice = struct {
                 .MapType,
                 .SimpleType,
                 .UserType,
-                => self.nodes.items(.type_def)[node].?.toValue(),
-                .StringLiteral => components[node].StringLiteral.literal.toValue(),
+                => obj.ObjIdx.init(.Type, self.nodes.items(.type_def)[node].?.index).toValue(),
+                .StringLiteral => obj.ObjIdx.init(.String, components[node].StringLiteral.literal.index).toValue(),
                 .TypeOfExpression => (try (try self.toValue(components[node].TypeOfExpression, gc)).typeOf(gc)).toValue(),
-                .TypeExpression => self.nodes.items(.type_def)[components[node].TypeExpression].?.toValue(),
-                .Pattern => components[node].Pattern.toValue(),
+                .TypeExpression => obj.ObjIdx.init(.Type, self.nodes.items(.type_def)[components[node].TypeExpression].?.index).toValue(),
+                .Pattern => obj.ObjIdx.init(.Pattern, components[node].Pattern.index).toValue(),
                 .Void => Value.Void,
                 .Null => Value.Null,
                 .Double => Value.fromDouble(components[node].Double),
@@ -1159,14 +1160,12 @@ pub const Slice = struct {
                 .Boolean => Value.fromBoolean(components[node].Boolean),
                 .AnonymousEnumCase => enum_case: {
                     const components_ptr = &components[node].AnonymousEnumCase;
-                    const type_def = self.nodes.items(.type_def)[node] orelse return error.CantCompile;
+                    const type_def = gc.getTypeDef(self.nodes.items(.type_def)[node].?);
                     if (type_def.def_type != .EnumInstance) {
                         return error.CantCompile;
                     }
                     const case_name = self.tokens.items(.lexeme)[components_ptr.case_name];
-                    const enum_type_def = type_def.resolved_type.?.EnumInstance
-                        .of
-                        .resolved_type.?.Enum;
+                    const enum_type_def = gc.getTypeDef(type_def.resolved_type.?.EnumInstance.of).resolved_type.?.Enum;
 
                     for (enum_type_def.cases, 0..) |case, idx| {
                         if (std.mem.eql(u8, case, case_name)) {
@@ -1188,14 +1187,14 @@ pub const Slice = struct {
                     const is_components = components[node].Is;
                     break :is Value.fromBoolean(
                         (try self.toValue(is_components.constant, gc))
-                            .is(try self.toValue(is_components.left, gc)),
+                            .is(try self.toValue(is_components.left, gc), gc),
                     );
                 },
                 .Binary => try self.binaryValue(node, gc),
                 .Dot => dot: {
                     // Only Enum.case can be constant
                     const dot_components = components[node].Dot;
-                    const type_def = self.nodes.items(.type_def)[dot_components.callee].?;
+                    const type_def = gc.getTypeDef(self.nodes.items(.type_def)[dot_components.callee].?);
 
                     break :dot (try gc.allocateObject(
                         obj.ObjEnumInstance{
@@ -1225,7 +1224,7 @@ pub const Slice = struct {
                 },
                 .Match => match: {
                     const match_components = components[node].Match;
-                    const value_type_def = self.nodes.items(.type_def)[match_components.value].?;
+                    const value_type_def = gc.getTypeDef(self.nodes.items(.type_def)[match_components.value].?);
                     const match_value = try self.toValue(match_components.value, gc);
 
                     for (match_components.branches) |branch| {
@@ -1260,10 +1259,10 @@ pub const Slice = struct {
                     const list_components = components[node].List;
                     const type_def = self.nodes.items(.type_def)[node];
 
-                    std.debug.assert(type_def != null and type_def.?.def_type != .Placeholder);
+                    std.debug.assert(type_def != null and gc.getTypeDef(type_def.?).def_type != .Placeholder);
 
                     var list = try gc.allocateObject(
-                        try obj.ObjList.init(gc.allocator, type_def.?),
+                        try obj.ObjList.init(gc.allocator, gc.getTypeDef(type_def.?)),
                     );
 
                     for (list_components.items) |item| {
@@ -1279,10 +1278,10 @@ pub const Slice = struct {
                     const map_components = components[node].Map;
                     const type_def = self.nodes.items(.type_def)[node];
 
-                    std.debug.assert(type_def != null and type_def.?.def_type != .Placeholder);
+                    std.debug.assert(type_def != null and gc.getTypeDef(type_def.?).def_type != .Placeholder);
 
                     var map = try gc.allocateObject(
-                        try obj.ObjMap.init(gc.allocator, type_def.?),
+                        try obj.ObjMap.init(gc.allocator, gc.getTypeDef(type_def.?)),
                     );
 
                     for (map_components.entries) |entry| {
@@ -1302,7 +1301,7 @@ pub const Slice = struct {
                     defer string.deinit();
 
                     for (elements) |element| {
-                        try (try self.toValue(element, gc)).toString(&string.writer);
+                        try (try self.toValue(element, gc)).toString(&string.writer, gc);
                     }
 
                     break :string (try gc.copyString(string.written())).toValue();
@@ -1310,7 +1309,7 @@ pub const Slice = struct {
                 .Subscript => subscript: {
                     const subscript_components = components[node].Subscript;
 
-                    const subscriptable = (try self.toValue(subscript_components.subscripted, gc)).obj();
+                    const subscriptable = (try self.toValue(subscript_components.subscripted, gc)).obj(gc);
                     const key = try self.toValue(subscript_components.index, gc);
 
                     switch (subscriptable.obj_type) {
@@ -1441,14 +1440,14 @@ pub const Slice = struct {
     /// Terminal flow plus the merged type of reachable block-expression `out` values.
     pub const BlockExpressionFlow = struct {
         terminal: TerminalFlow = .{},
-        out_type: ?*obj.ObjTypeDef = null,
+        out_type: ?obj.ObjTypeDef.Idx = null,
 
         /// Merges an `out` expression type into this summary.
-        fn mergeOutType(self: *BlockExpressionFlow, gc: *GC, type_def: ?*obj.ObjTypeDef) Error!void {
+        fn mergeOutType(self: *BlockExpressionFlow, gc: *GC, type_def: ?obj.ObjTypeDef.Idx) Error!void {
             const incoming = type_def orelse return;
 
             if (self.out_type) |current| {
-                if (!current.eql(incoming)) {
+                if (!gc.getTypeDef(current).eql(gc.getTypeDef(incoming))) {
                     self.out_type = gc.type_registry.any_type;
                 }
             } else {
@@ -1614,11 +1613,12 @@ pub const Slice = struct {
         node: Node.Index,
     ) Error!?bool {
         const type_def = self.nodes.items(.type_def)[node] orelse return null;
-        if (type_def.optional or type_def.def_type != .Boolean) {
+        const type_def_ptr = gc.getTypeDef(type_def);
+        if (type_def_ptr.optional or type_def_ptr.def_type != .Boolean) {
             return null;
         }
 
-        if (!try self.isConstant(allocator, node)) {
+        if (!try self.isConstant(allocator, gc, node)) {
             return null;
         }
 
@@ -1879,7 +1879,7 @@ pub const Node = struct {
     /// Docblock if any
     docblock: ?TokenIndex = null,
     /// If null, either its a statement or its a reference to something unknown that should ultimately raise a compile error
-    type_def: ?*obj.ObjTypeDef = null,
+    type_def: ?obj.ObjTypeDef.Idx = null,
     /// Wether optional jumps must be patch before generate this node bytecode
     patch_opt_jumps: bool = false,
     /// Does this node closes a scope
@@ -2043,7 +2043,7 @@ pub const Node = struct {
         ObjectDeclaration: ObjectDeclaration,
         ObjectInit: ObjectInit,
         Out: Node.Index,
-        Pattern: *obj.ObjPattern,
+        Pattern: obj.ObjPattern.Idx,
         ProtocolDeclaration: ProtocolDeclaration,
         Range: Range,
         Resolve: Node.Index,
@@ -2242,7 +2242,7 @@ pub const Call = struct {
     is_async: bool,
     callee: Node.Index,
     // We need this because in a dot.call, callee is dot and its type will be == to call return type
-    callee_type_def: *obj.ObjTypeDef,
+    callee_type_def: obj.ObjTypeDef.Idx,
     arguments: []const Argument,
     catch_default: ?Node.Index,
     tail_call: bool = false,
@@ -2276,7 +2276,7 @@ pub const Dot = struct {
     member_kind: MemberKind,
     value_or_call_or_enum: Member,
     generic_resolve: ?Node.Index,
-    member_type_def: *obj.ObjTypeDef,
+    member_type_def: obj.ObjTypeDef.Idx,
 };
 
 pub const Enum = struct {
@@ -2353,8 +2353,8 @@ pub const Function = struct {
 
     // Set when the function is first generated
     // The JIT compiler can then reference it when creating its closure
-    native: ?*obj.ObjNative = null,
-    function: ?*obj.ObjFunction = null,
+    native: ?obj.ObjNative.Idx = null,
+    function: ?obj.ObjFunction.Idx = null,
 
     import_root: bool = false,
 
@@ -2528,7 +2528,7 @@ pub const Return = struct {
 
 pub const StringLiteral = struct {
     delimiter: u8,
-    literal: *obj.ObjString,
+    literal: obj.ObjString.Idx,
 };
 
 pub const Subscript = struct {
@@ -2564,7 +2564,7 @@ pub const Unary = struct {
 
 pub const Unwrap = struct {
     unwrapped: Node.Index,
-    original_type: *obj.ObjTypeDef,
+    original_type: obj.ObjTypeDef.Idx,
     start_opt_jumps: bool,
 };
 
@@ -2599,7 +2599,7 @@ pub const Zdef = struct {
 
     pub const ZdefElement = struct {
         fn_ptr: ?*anyopaque = null,
-        obj_native: ?*obj.ObjNative = null,
+        obj_native: ?obj.ObjNative.Idx = null,
         // TODO: On the stack, do we free it at some point?
         zdef: *const FFI.Zdef,
         slot: Slot,

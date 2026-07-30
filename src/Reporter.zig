@@ -6,6 +6,7 @@ const ObjTypeDef = o.ObjTypeDef;
 const PlaceholderDef = o.PlaceholderDef;
 const Scanner = @import("Scanner.zig");
 const Ast = @import("Ast.zig");
+const GC = @import("GC.zig");
 const builtin = @import("builtin");
 const is_wasm = builtin.cpu.arch.isWasm();
 const is_windows = builtin.os.tag == .windows;
@@ -964,13 +965,148 @@ pub fn reportTypeCheck(
     check_report.reportStderr(self) catch @panic("Could not report error");
 }
 
+pub fn reportTypeCheckWithGc(
+    self: *Self,
+    gc: *GC,
+    error_type: Error,
+    expected_location: ?Token,
+    expected_end_location: ?Token,
+    expected_type: *ObjTypeDef,
+    actual_location: Token,
+    actual_end_location: Token,
+    actual_type: *ObjTypeDef,
+    message: []const u8,
+) void {
+    @branchHint(.cold);
+
+    const actual_type_str = actual_type.toStringAlloc(self.allocator, false, gc) catch "<typedef>";
+    defer if (!std.mem.eql(u8, actual_type_str, "<typedef>")) self.allocator.free(actual_type_str);
+
+    const expected_type_str = expected_type.toStringAlloc(self.allocator, false, gc) catch "<typedef>";
+    defer if (!std.mem.eql(u8, expected_type_str, "<typedef>")) self.allocator.free(expected_type_str);
+
+    var actual_message = std.Io.Writer.Allocating.init(self.allocator);
+    defer {
+        if (!self.collect) {
+            actual_message.deinit();
+        }
+    }
+
+    actual_message.writer.print(
+        "{s}: got type `{s}`",
+        .{ message, actual_type_str },
+    ) catch @panic("Unable to report error");
+
+    var expected_message = std.Io.Writer.Allocating.init(self.allocator);
+    defer {
+        if (!self.collect) {
+            expected_message.deinit();
+        }
+    }
+
+    var following_message = if (expected_location != null)
+        &expected_message
+    else
+        &actual_message;
+
+    following_message.writer.print(
+        "expected `{s}`",
+        .{expected_type_str},
+    ) catch @panic("Unable to report error");
+
+    var full_message = if (expected_location == null)
+        actual_message
+    else
+        std.Io.Writer.Allocating.init(self.allocator);
+    defer {
+        if (!self.collect and expected_location != null) {
+            full_message.deinit();
+        }
+    }
+    if (expected_location != null) {
+        full_message.writer.print(
+            "{s}, {s}",
+            .{
+                actual_message.written(),
+                expected_message.written(),
+            },
+        ) catch @panic("Unable to report error");
+    }
+
+    var check_report = rpt: {
+        if (expected_location) |location| {
+            const items = [_]ReportItem{
+                .{
+                    .location = actual_location,
+                    .end_location = actual_end_location,
+                    .kind = .@"error",
+                    .message = actual_message.written(),
+                },
+                .{
+                    .location = location,
+                    .end_location = expected_end_location.?,
+                    .kind = .hint,
+                    .message = expected_message.written(),
+                },
+            };
+
+            break :rpt Report{
+                .message = full_message.written(),
+                .error_type = error_type,
+                .items = items: {
+                    if (!self.collect) {
+                        break :items &items;
+                    }
+
+                    var list = std.ArrayList(ReportItem)
+                        .initCapacity(self.allocator, items.len) catch @panic("Could not report error");
+                    list.appendSlice(self.allocator, &items) catch @panic("Could not report error");
+
+                    break :items list.items;
+                },
+            };
+        } else {
+            const items = [_]ReportItem{
+                .{
+                    .location = actual_location,
+                    .end_location = actual_end_location,
+                    .kind = .hint,
+                    .message = actual_message.written(),
+                },
+            };
+
+            break :rpt Report{
+                .message = full_message.written(),
+                .error_type = error_type,
+                .items = items: {
+                    if (!self.collect) {
+                        break :items &items;
+                    }
+
+                    var list = std.ArrayList(ReportItem)
+                        .initCapacity(self.allocator, items.len) catch @panic("Could not report error");
+                    list.appendSlice(self.allocator, &items) catch @panic("Could not report error");
+
+                    break :items list.items;
+                },
+            };
+        }
+    };
+
+    self.panic_mode = true;
+    self.last_error = error_type;
+
+    check_report.reportStderr(self) catch @panic("Could not report error");
+}
+
 // Got to the root placeholder and report it
-pub fn reportPlaceholder(self: *Self, ast: Ast.Slice, placeholder: PlaceholderDef) void {
+pub fn reportPlaceholder(self: *Self, ast: Ast.Slice, gc: anytype, placeholder: PlaceholderDef) void {
     @branchHint(.cold);
 
     if (placeholder.parent) |parent| {
-        if (parent.def_type == .Placeholder) {
-            self.reportPlaceholder(ast, parent.resolved_type.?.Placeholder);
+        const parent_type = gc.getTypeDef(parent);
+        if (parent_type.def_type == .Placeholder) {
+            self.reportPlaceholder(ast, gc, parent_type.resolved_type.?.Placeholder);
         } else if (BuildOptions.debug) {
             self.reportErrorFmt(
                 .runtime,
@@ -978,7 +1114,7 @@ pub fn reportPlaceholder(self: *Self, ast: Ast.Slice, placeholder: PlaceholderDe
                 ast.tokens.get(placeholder.where),
                 "Unresolved placeholder with resolved parent `{s}` relation {s}\n",
                 .{
-                    parent.toStringAlloc(self.allocator, false) catch unreachable,
+                    parent_type.toStringAlloc(self.allocator, false, gc) catch unreachable,
                     @tagName(placeholder.parent_relation.?),
                 },
             );

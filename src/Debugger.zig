@@ -15,6 +15,7 @@ const VM = v.VM;
 const Runner = @import("Runner.zig");
 const o = @import("obj.zig");
 const Value = @import("value.zig").Value;
+const GC = @import("GC.zig");
 const assert = std.debug.assert;
 
 const Debugger = @This();
@@ -270,7 +271,8 @@ pub fn start(
 }
 
 fn currentLine(self: *Debugger, current_frame: *v.CallFrame) u32 {
-    const location = current_frame.closure.function.chunk.locations.items[current_frame.ip];
+    const gc = &self.session.?.runner.gc;
+    const location = gc.getFunction(current_frame.closure.function).chunk.locations.items[current_frame.ip];
     return @intCast(self.session.?.runner.vm.current_ast.tokens.items(.line)[location] + 1);
 }
 
@@ -287,7 +289,7 @@ pub fn onDispatch(self: *Debugger) Error!bool {
             // We pause on the next line in the same frame
             if (current_frame != null and
                 (current_frame == step.frame or self.session.?.runner.vm.current_fiber.frame_count < step.frame_count) and
-                current_frame.?.ip < current_frame.?.closure.function.chunk.locations.items.len and
+                current_frame.?.ip < self.session.?.runner.gc.getFunction(current_frame.?.closure.function).chunk.locations.items.len and
                 self.currentLine(current_frame.?) != step.line)
             {
                 self.session.?.setState(.paused);
@@ -335,7 +337,7 @@ pub fn onDispatch(self: *Debugger) Error!bool {
             // We step when the frame or the line changes
             if (current_frame != null and
                 (current_frame != step.frame or
-                    (current_frame.?.ip < current_frame.?.closure.function.chunk.locations.items.len and
+                    (current_frame.?.ip < self.session.?.runner.gc.getFunction(current_frame.?.closure.function).chunk.locations.items.len and
                         self.currentLine(current_frame.?) != step.line)))
             {
                 self.session.?.setState(.paused);
@@ -359,9 +361,9 @@ pub fn onDispatch(self: *Debugger) Error!bool {
             const current_frame = self.session.?.runner.vm.currentFrame();
 
             if (current_frame != null and
-                current_frame.?.ip < current_frame.?.closure.function.chunk.locations.items.len)
+                current_frame.?.ip < self.session.?.runner.gc.getFunction(current_frame.?.closure.function).chunk.locations.items.len)
             {
-                const location = current_frame.?.closure.function.chunk.locations.items[current_frame.?.ip];
+                const location = self.session.?.runner.gc.getFunction(current_frame.?.closure.function).chunk.locations.items[current_frame.?.ip];
                 const line = self.session.?.runner.vm.current_ast.tokens.items(.line)[location] + 1;
                 const column = self.session.?.runner.vm.current_ast.tokens.items(.column)[location];
                 const script = self.session.?.runner.vm.current_ast.tokens.items(.script_name)[location];
@@ -643,8 +645,9 @@ pub fn @"continue"(self: *Debugger, _: Arguments(.@"continue")) Error!Response(.
     if (self.session) |*session| {
         session.skip_breakpoint = null;
         if (session.runner.vm.currentFrame()) |frame| {
-            if (frame.ip < frame.closure.function.chunk.locations.items.len) {
-                const location = frame.closure.function.chunk.locations.items[frame.ip];
+            const function = session.runner.gc.getFunction(frame.closure.function);
+            if (frame.ip < function.chunk.locations.items.len) {
+                const location = function.chunk.locations.items[frame.ip];
                 const line = session.runner.vm.current_ast.tokens.items(.line)[location] + 1;
                 const column = session.runner.vm.current_ast.tokens.items(.column)[location];
                 const script = session.runner.vm.current_ast.tokens.items(.script_name)[location];
@@ -684,14 +687,16 @@ pub fn threads(self: *Debugger, _: Arguments(.threads)) Error!Response(.threads)
 
         var fiber: ?*v.Fiber = session.runner.vm.current_fiber;
         while (fiber) |fb| : (fiber = fb.parent_fiber) {
+            const thread_name = if (fb.frames.items.len > 0) name: {
+                const function = session.runner.gc.getFunction(fb.frames.items[fb.frames.items.len - 1].closure.function);
+                const function_type = session.runner.gc.getTypeDef(function.type_def).resolved_type.?.Function;
+                break :name session.runner.gc.getString(function_type.name).string;
+            } else "thread";
             try thds.append(
                 self.allocator,
                 .{
                     .id = @intFromPtr(fb),
-                    .name = if (fb.frames.items.len > 0)
-                        fb.frames.items[fb.frames.items.len - 1].closure.function.type_def.resolved_type.?.Function.name.string
-                    else
-                        "thread",
+                    .name = thread_name,
                 },
             );
         }
@@ -717,22 +722,24 @@ pub fn stackTrace(self: *Debugger, arguments: Arguments(.stackTrace)) Error!Resp
             var i = if (fb.frame_count > 0) fb.frame_count - 1 else fb.frame_count;
             while (i >= 0) : (i -= 1) {
                 const frame = &fb.frames.items[i];
+                const function = session.runner.gc.getFunction(frame.closure.function);
+                const function_type = session.runner.gc.getTypeDef(function.type_def).resolved_type.?.Function;
                 const location = session.runner.vm.current_ast.tokens
-                    .get(frame.closure.function.chunk.locations.items[frame.ip]);
+                    .get(function.chunk.locations.items[frame.ip]);
 
                 try stack_frames.append(
                     self.allocator,
                     .{
                         .id = @intFromPtr(frame),
-                        .name = frame.closure.function.type_def.resolved_type.?.Function.name.string,
+                        .name = session.runner.gc.getString(function_type.name).string,
                         .line = location.line + 1,
                         .column = location.column,
                         .source = .{
-                            .name = if (std.mem.lastIndexOf(u8, frame.closure.function.type_def.resolved_type.?.Function.script_name.string, "/")) |slash|
-                                frame.closure.function.type_def.resolved_type.?.Function.script_name.string[slash + 1 ..]
+                            .name = if (std.mem.lastIndexOf(u8, session.runner.gc.getString(function_type.script_name).string, "/")) |slash|
+                                session.runner.gc.getString(function_type.script_name).string[slash + 1 ..]
                             else
-                                frame.closure.function.type_def.resolved_type.?.Function.script_name.string,
-                            .path = frame.closure.function.type_def.resolved_type.?.Function.script_name.string,
+                                session.runner.gc.getString(function_type.script_name).string,
+                            .path = session.runner.gc.getString(function_type.script_name).string,
                         },
                     },
                 );
@@ -876,7 +883,7 @@ pub fn variables(self: *Debugger, arguments: Arguments(.variables)) Error!Respon
                                     const name = fiber.locals_dbg.items[idx];
 
                                     // "Hidden" locals start with `$`
-                                    if (o.ObjString.cast(name.obj()).?.string[0] != '$') {
+                                    if (o.ObjString.cast(name.obj(&session.runner.gc)).?.string[0] != '$') {
                                         try result.append(
                                             self.allocator,
                                             try self.variable(
@@ -972,9 +979,9 @@ pub fn evaluate(self: *Debugger, args: Arguments(.evaluate)) Error!Response(.eva
         }
 
         return .{
-            .result = result.toStringAlloc(self.allocator) catch return error.OutOfMemory,
+            .result = result.toStringAlloc(self.allocator, &session.runner.gc) catch return error.OutOfMemory,
             .type = (result.typeOf(&session.runner.gc) catch return error.OutOfMemory)
-                .toStringAlloc(self.allocator, false) catch return error.OutOfMemory,
+                .toStringAlloc(self.allocator, false, &session.runner.gc) catch return error.OutOfMemory,
             .variablesReference = if (result.isObj())
                 session.variables.items.len - 1
             else
@@ -1012,20 +1019,21 @@ pub fn pause(self: *Debugger, _: Arguments(.pause)) Error!Response(.pause) {
 }
 
 fn variable(self: *Debugger, value: Value, name: Value, explicit_type_def: ?*o.ObjTypeDef) Error!ProtocolMessage.Variable {
+    const gc = &self.session.?.runner.gc;
     const indexed_count = self.valueIndexedChildren(value);
     const named_count = self.valueNamedChildren(value);
 
     const vbl = Variable{
         .value = val: {
             if (value.isObj()) {
-                break :val switch (value.obj().obj_type) {
+                break :val switch (value.obj(gc).obj_type) {
                     .Bound => .{
                         .bound_entry = .{
-                            .receiver = o.ObjBoundMethod.cast(value.obj()).?.receiver,
-                            .method = if (o.ObjBoundMethod.cast(value.obj()).?.closure) |cls|
-                                cls.toValue()
+                            .receiver = o.ObjBoundMethod.cast(value.obj(gc)).?.receiver,
+                            .method = if (o.ObjBoundMethod.cast(value.obj(gc)).?.closure) |cls|
+                                o.ObjIdx.init(.Closure, cls.index).toValue()
                             else
-                                o.ObjBoundMethod.cast(value.obj()).?.native.?.toValue(),
+                                o.ObjIdx.init(.Native, o.ObjBoundMethod.cast(value.obj(gc)).?.native.?.index).toValue(),
                         },
                     },
                     else => .{
@@ -1040,9 +1048,9 @@ fn variable(self: *Debugger, value: Value, name: Value, explicit_type_def: ?*o.O
         },
         .variable = .{
             .variable = .{
-                .name = name.obj().cast(o.ObjString, .String).?.string,
-                .evaluateName = name.obj().cast(o.ObjString, .String).?.string,
-                .value = value.toStringAlloc(self.allocator) catch "Could not get value",
+                .name = name.obj(gc).cast(o.ObjString, .String).?.string,
+                .evaluateName = name.obj(gc).cast(o.ObjString, .String).?.string,
+                .value = value.toStringAlloc(self.allocator, gc) catch "Could not get value",
                 .variablesReference = if (indexed_count + named_count > 0)
                     self.session.?.variables.items.len + 1
                 else
@@ -1051,11 +1059,13 @@ fn variable(self: *Debugger, value: Value, name: Value, explicit_type_def: ?*o.O
                     type_def.toStringAlloc(
                         self.allocator,
                         false,
+                        gc,
                     ) catch null
                 else if (value.typeOf(&self.session.?.runner.gc)) |type_def|
                     type_def.toStringAlloc(
                         self.allocator,
                         false,
+                        gc,
                     ) catch null
                 else |_|
                     null,
@@ -1070,10 +1080,11 @@ fn variable(self: *Debugger, value: Value, name: Value, explicit_type_def: ?*o.O
     return vbl.variable.variable;
 }
 
-fn valueIndexedChildren(_: *Debugger, value: Value) u64 {
+fn valueIndexedChildren(self: *Debugger, value: Value) u64 {
+    const gc = &self.session.?.runner.gc;
     if (value.isObj()) {
-        return switch (value.obj().obj_type) {
-            .List => o.ObjList.cast(value.obj()).?.items.items.len,
+        return switch (value.obj(gc).obj_type) {
+            .List => o.ObjList.cast(value.obj(gc)).?.items.items.len,
             else => 0,
         };
     }
@@ -1081,13 +1092,13 @@ fn valueIndexedChildren(_: *Debugger, value: Value) u64 {
     return 0;
 }
 
-fn valueNamedChildren(_: *Debugger, value: Value) u64 {
+fn valueNamedChildren(self: *Debugger, value: Value) u64 {
+    const gc = &self.session.?.runner.gc;
     if (value.isObj()) {
-        return switch (value.obj().obj_type) {
+        return switch (value.obj(gc).obj_type) {
             .Object => obj: {
-                const fields = o.ObjObject.cast(value.obj()).?
-                    .type_def.resolved_type.?.Object
-                    .fields.values();
+                const fields = gc.getTypeDef(o.ObjObject.cast(value.obj(gc)).?.type_def)
+                    .resolved_type.?.Object.fields.values();
                 var count: u64 = 0;
                 for (fields) |field| {
                     if (field.static and !field.method) {
@@ -1098,10 +1109,9 @@ fn valueNamedChildren(_: *Debugger, value: Value) u64 {
                 break :obj count;
             },
             .ObjectInstance => obj: {
-                const fields = o.ObjObjectInstance.cast(value.obj()).?
-                    .type_def.resolved_type.?.ObjectInstance.of
-                    .resolved_type.?.Object
-                    .fields.values();
+                const fields = gc.getTypeDef(
+                    gc.getTypeDef(o.ObjObjectInstance.cast(value.obj(gc)).?.type_def).resolved_type.?.ObjectInstance.of,
+                ).resolved_type.?.Object.fields.values();
                 var count: u64 = 0;
                 for (fields) |field| {
                     if (!field.static and !field.method) {
@@ -1111,11 +1121,11 @@ fn valueNamedChildren(_: *Debugger, value: Value) u64 {
 
                 break :obj count;
             },
-            .Enum => o.ObjEnum.cast(value.obj()).?.cases.len,
-            .ForeignContainer => o.ObjForeignContainer.cast(value.obj()).?
-                .type_def.resolved_type.?.ForeignContainer
-                .fields.count(),
-            .Map => o.ObjMap.cast(value.obj()).?.map.count(),
+            .Enum => o.ObjEnum.cast(value.obj(gc)).?.cases.len,
+            .ForeignContainer => gc.getTypeDef(
+                o.ObjForeignContainer.cast(value.obj(gc)).?.type_def,
+            ).resolved_type.?.ForeignContainer.fields.count(),
+            .Map => o.ObjMap.cast(value.obj(gc)).?.map.count(),
             .Bound => 2, // receiver, method
             else => 0,
         };
@@ -1125,8 +1135,9 @@ fn valueNamedChildren(_: *Debugger, value: Value) u64 {
 }
 
 fn valueChildren(self: *Debugger, value: Value, result: *std.ArrayList(ProtocolMessage.Variable)) Error!void {
+    const gc = &self.session.?.runner.gc;
     if (value.isObj()) {
-        switch (value.obj().obj_type) {
+        switch (value.obj(gc).obj_type) {
             // No children
             .String,
             .Pattern,
@@ -1141,8 +1152,8 @@ fn valueChildren(self: *Debugger, value: Value, result: *std.ArrayList(ProtocolM
             => {},
 
             .UpValue => try self.valueChildren(
-                o.ObjUpValue.cast(value.obj()).?.closed orelse
-                    o.ObjUpValue.cast(value.obj()).?.location.*,
+                o.ObjUpValue.cast(value.obj(gc)).?.closed orelse
+                    o.ObjUpValue.cast(value.obj(gc)).?.location.*,
                 result,
             ),
 
@@ -1150,8 +1161,8 @@ fn valueChildren(self: *Debugger, value: Value, result: *std.ArrayList(ProtocolM
             .Bound => unreachable,
 
             .ForeignContainer => {
-                const container = o.ObjForeignContainer.cast(value.obj()).?;
-                const def = container.type_def.resolved_type.?.ForeignContainer;
+                const container = o.ObjForeignContainer.cast(value.obj(gc)).?;
+                const def = gc.getTypeDef(container.type_def).resolved_type.?.ForeignContainer;
 
                 var it = def.fields.iterator();
                 while (it.next()) |kv| {
@@ -1163,31 +1174,31 @@ fn valueChildren(self: *Debugger, value: Value, result: *std.ArrayList(ProtocolM
                                 def.fields.getIndex(kv.key_ptr.*).?,
                             ),
                             (self.session.?.runner.gc.copyString(kv.key_ptr.*) catch return error.OutOfMemory).toValue(),
-                            def.buzz_type.get(kv.key_ptr.*).?,
+                            gc.getTypeDef(def.buzz_type.get(kv.key_ptr.*).?),
                         ),
                     );
                 }
             },
 
             .Enum => {
-                const enm = o.ObjEnum.cast(value.obj()).?;
+                const enm = o.ObjEnum.cast(value.obj(gc)).?;
 
-                for (enm.type_def.resolved_type.?.Enum.cases, 0..) |case_name, i| {
+                for (gc.getTypeDef(enm.type_def).resolved_type.?.Enum.cases, 0..) |case_name, i| {
                     try result.append(
                         self.allocator,
                         try self.variable(
                             enm.cases[i],
                             (self.session.?.runner.gc.copyString(case_name) catch return error.OutOfMemory).toValue(),
-                            enm.type_def.resolved_type.?.Enum.enum_type,
+                            gc.getTypeDef(gc.getTypeDef(enm.type_def).resolved_type.?.Enum.enum_type),
                         ),
                     );
                 }
             },
 
             .Object => {
-                const object = o.ObjObject.cast(value.obj()).?;
+                const object = o.ObjObject.cast(value.obj(gc)).?;
 
-                var it = object.type_def.resolved_type.?.Object.fields.iterator();
+                var it = gc.getTypeDef(object.type_def).resolved_type.?.Object.fields.iterator();
                 while (it.next()) |kv| {
                     if (!kv.value_ptr.method and kv.value_ptr.static) {
                         try result.append(
@@ -1195,7 +1206,7 @@ fn valueChildren(self: *Debugger, value: Value, result: *std.ArrayList(ProtocolM
                             try self.variable(
                                 object.fields[kv.value_ptr.index],
                                 (self.session.?.runner.gc.copyString(kv.key_ptr.*) catch return error.OutOfMemory).toValue(),
-                                kv.value_ptr.type_def,
+                                gc.getTypeDef(kv.value_ptr.type_def),
                             ),
                         );
                     }
@@ -1203,9 +1214,9 @@ fn valueChildren(self: *Debugger, value: Value, result: *std.ArrayList(ProtocolM
             },
 
             .ObjectInstance => {
-                const instance = o.ObjObjectInstance.cast(value.obj()).?;
+                const instance = o.ObjObjectInstance.cast(value.obj(gc)).?;
 
-                var it = instance.type_def.resolved_type.?.ObjectInstance.of.resolved_type.?.Object.fields.iterator();
+                var it = gc.getTypeDef(gc.getTypeDef(instance.type_def).resolved_type.?.ObjectInstance.of).resolved_type.?.Object.fields.iterator();
                 while (it.next()) |kv| {
                     if (!kv.value_ptr.method and !kv.value_ptr.static) {
                         try result.append(
@@ -1213,7 +1224,7 @@ fn valueChildren(self: *Debugger, value: Value, result: *std.ArrayList(ProtocolM
                             try self.variable(
                                 instance.fields[kv.value_ptr.index],
                                 (self.session.?.runner.gc.copyString(kv.key_ptr.*) catch return error.OutOfMemory).toValue(),
-                                kv.value_ptr.type_def,
+                                gc.getTypeDef(kv.value_ptr.type_def),
                             ),
                         );
                     }
@@ -1221,7 +1232,7 @@ fn valueChildren(self: *Debugger, value: Value, result: *std.ArrayList(ProtocolM
             },
 
             .List => {
-                const list = o.ObjList.cast(value.obj()).?;
+                const list = o.ObjList.cast(value.obj(gc)).?;
 
                 for (list.items.items, 0..) |val, i| {
                     var name = std.Io.Writer.Allocating.init(self.allocator);
@@ -1234,14 +1245,14 @@ fn valueChildren(self: *Debugger, value: Value, result: *std.ArrayList(ProtocolM
                             (self.session.?.runner.gc.copyString(
                                 try name.toOwnedSlice(),
                             ) catch return error.OutOfMemory).toValue(),
-                            list.type_def.resolved_type.?.List.item_type,
+                            gc.getTypeDef(list.type_def).resolved_type.?.List.item_type,
                         ),
                     );
                 }
             },
 
             .Map => {
-                const map = o.ObjMap.cast(value.obj()).?;
+                const map = o.ObjMap.cast(value.obj(gc)).?;
 
                 var it = map.map.iterator();
                 var count: usize = 0;
@@ -1252,7 +1263,7 @@ fn valueChildren(self: *Debugger, value: Value, result: *std.ArrayList(ProtocolM
                     const vbl = Variable{
                         .value = .{
                             .map_entry = .{
-                                .map_type = map.type_def,
+                                .map_type = gc.getTypeDef(map.type_def),
                                 .key = kv.key_ptr.*,
                                 .value = kv.value_ptr.*,
                             },

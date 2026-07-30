@@ -65,8 +65,10 @@ pub const Value = extern struct {
         return .{ .val = @as(u64, @bitCast(val)) };
     }
 
-    pub fn fromObj(val: *o.Obj) Value {
-        return .{ .val = PointerMask | @intFromPtr(val) };
+    pub fn fromObj(handle: o.ObjIdx) Value {
+        return .{
+            .val = PointerMask | @as(u64, handle.toBits()),
+        };
     }
 
     pub fn getTag(self: Value) Tag {
@@ -127,8 +129,12 @@ pub const Value = extern struct {
         return @bitCast(self.val);
     }
 
-    pub fn obj(self: Value) *o.Obj {
-        return @ptrFromInt(@as(usize, @truncate(self.val & ~PointerMask)));
+    pub fn objIdx(self: Value) o.ObjIdx {
+        return o.ObjIdx.fromBits(@as(u48, @intCast(self.val & ~PointerMask)));
+    }
+
+    pub fn obj(self: Value, gc: *GC) *o.Obj {
+        return gc.getObj(self.objIdx());
     }
 
     pub fn booleanOrNull(self: Value) ?bool {
@@ -143,55 +149,51 @@ pub const Value = extern struct {
         return if (self.isDouble()) self.double() else null;
     }
 
-    pub fn objOrNull(self: Value) ?*o.Obj {
-        return if (self.isObj()) self.obj() else null;
+    pub fn objOrNull(self: Value, gc: *GC) ?*o.Obj {
+        return if (self.isObj()) self.obj(gc) else null;
     }
 
     pub fn typeOf(self: Value, gc: *GC) !*o.ObjTypeDef {
         if (self.isObj()) {
-            return try self.obj().typeOf(gc);
+            return try self.obj(gc).typeOf(gc);
         }
 
         if (self.isDouble()) {
-            return gc.type_registry.double_type;
+            return gc.getTypeDef(gc.type_registry.double_type);
         }
 
         if (self.isInteger()) {
-            return gc.type_registry.int_type;
+            return gc.getTypeDef(gc.type_registry.int_type);
         }
 
         return switch (self.getTag()) {
-            TagBoolean => gc.type_registry.bool_type,
-            TagNull, TagVoid => gc.type_registry.void_type,
+            TagBoolean => gc.getTypeDef(gc.type_registry.bool_type),
+            TagNull, TagVoid => gc.getTypeDef(gc.type_registry.void_type),
             TagSentinel => unreachable,
-            else => gc.type_registry.double_type,
+            else => gc.getTypeDef(gc.type_registry.double_type),
         };
     }
 
     pub fn serialize(self: Value, vm: *VM, seen: *std.AutoHashMapUnmanaged(*o.Obj, void)) !Value {
         if (self.isObj()) {
-            return try self.obj().serialize(vm, seen);
+            return try self.obj(vm.gc).serialize(vm, seen);
         }
 
         return self;
     }
 
-    pub fn format(value: Value, w: *std.Io.Writer) std.Io.Writer.Error!void {
-        value.toString(w) catch return error.WriteFailed;
-    }
-
-    pub fn toStringAlloc(value: Value, allocator: Allocator) (Allocator.Error || std.fmt.BufPrintError || error{WriteFailed})![]const u8 {
+    pub fn toStringAlloc(value: Value, allocator: Allocator, gc: *GC) (Allocator.Error || std.fmt.BufPrintError || error{WriteFailed})![]const u8 {
         var str = std.Io.Writer.Allocating.init(allocator);
 
-        try value.toString(&str.writer);
+        try value.toString(&str.writer, gc);
 
         return try str.toOwnedSlice();
     }
 
     // FIXME: should be a std.io.Writer once it exists for ArrayLists
-    pub fn toString(self: Value, writer: *std.Io.Writer) (Allocator.Error || std.fmt.BufPrintError || error{WriteFailed})!void {
+    pub fn toString(self: Value, writer: *std.Io.Writer, gc: *GC) (Allocator.Error || std.fmt.BufPrintError || error{WriteFailed})!void {
         if (self.isObj()) {
-            try self.obj().toString(writer);
+            try self.obj(gc).toString(writer, gc);
 
             return;
         }
@@ -215,9 +217,9 @@ pub const Value = extern struct {
         }
     }
 
-    pub fn eql(a: Value, b: Value) bool {
+    pub fn eql(a: Value, b: Value, gc: *GC) bool {
         if (a.isObj() or b.isObj()) {
-            return a.isObj() and b.isObj() and a.obj().eql(b.obj());
+            return a.isObj() and b.isObj() and a.obj(gc).eql(b.obj(gc), gc);
         }
 
         if (a.isNumber() != b.isNumber() or
@@ -256,15 +258,15 @@ pub const Value = extern struct {
         };
     }
 
-    pub fn is(type_def_val: Value, value: Value) bool {
-        const type_def: *o.ObjTypeDef = o.ObjTypeDef.cast(type_def_val.obj()).?;
+    pub fn is(type_def_val: Value, value: Value, gc: *GC) bool {
+        const type_def: *o.ObjTypeDef = o.ObjTypeDef.cast(type_def_val.obj(gc)).?;
 
         if (type_def.def_type == .Any) {
             return true;
         }
 
         if (value.isObj()) {
-            return value.obj().is(type_def);
+            return value.obj(gc).is(type_def, gc);
         }
 
         if (value.isDouble()) {
@@ -285,9 +287,9 @@ pub const Value = extern struct {
         };
     }
 
-    pub fn typeEql(value: Value, type_def: *o.ObjTypeDef) bool {
+    pub fn typeEql(value: Value, type_def: *o.ObjTypeDef, gc: *GC) bool {
         if (value.isObj()) {
-            return value.obj().typeEql(type_def);
+            return value.obj(gc).typeEql(type_def, gc);
         }
 
         if (value.isDouble()) {

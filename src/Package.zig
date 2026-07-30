@@ -1,4 +1,5 @@
 const std = @import("std");
+const GC = @import("GC.zig");
 const Runner = @import("Runner.zig");
 const o = @import("obj.zig");
 const builtin = @import("builtin");
@@ -32,13 +33,13 @@ pub const ResolvedSource = struct {
     hash: []const u8,
 
     /// Parses a `ResolvedSource` buzz object value.
-    pub fn fromValue(value: v.Value) ResolvedSource {
-        const instance = value.obj().cast(o.ObjObjectInstance, .ObjectInstance).?;
+    pub fn fromValue(value: v.Value, gc: *GC) ResolvedSource {
+        const instance = value.obj(gc).cast(o.ObjObjectInstance, .ObjectInstance).?;
 
         return .{
-            .url = instance.get([]const u8, "url"),
-            .ref = instance.get(?[]const u8, "ref"),
-            .hash = instance.get([]const u8, "hash"),
+            .url = instance.get([]const u8, "url", gc),
+            .ref = instance.get(?[]const u8, "ref", gc),
+            .hash = instance.get([]const u8, "hash", gc),
         };
     }
 
@@ -83,28 +84,28 @@ pub const ManifestLock = struct {
     dev_dependencies: std.StringHashMapUnmanaged(ResolvedSource) = .empty,
 
     /// Parses a `ManifestLock` buzz object value.
-    pub fn fromValue(value: v.Value, allocator: std.mem.Allocator) !ManifestLock {
-        const instance = value.obj().cast(o.ObjObjectInstance, .ObjectInstance).?;
+    pub fn fromValue(value: v.Value, gc: *GC, allocator: std.mem.Allocator) !ManifestLock {
+        const instance = value.obj(gc).cast(o.ObjObjectInstance, .ObjectInstance).?;
 
-        const dependencies = instance.getFieldValue("dependencies").obj().cast(o.ObjMap, .Map).?;
+        const dependencies = instance.getFieldValue("dependencies", gc).obj(gc).cast(o.ObjMap, .Map).?;
         var dep_list = std.StringHashMapUnmanaged(ResolvedSource).empty;
         var it = dependencies.map.iterator();
         while (it.next()) |entry| {
             try dep_list.put(
                 allocator,
-                entry.key_ptr.*.obj().cast(o.ObjString, .String).?.string,
-                .fromValue(entry.value_ptr.*),
+                entry.key_ptr.*.obj(gc).cast(o.ObjString, .String).?.string,
+                .fromValue(entry.value_ptr.*, gc),
             );
         }
 
-        const dev_dependencies = instance.getFieldValue("devDependencies").obj().cast(o.ObjMap, .Map).?;
+        const dev_dependencies = instance.getFieldValue("devDependencies", gc).obj(gc).cast(o.ObjMap, .Map).?;
         var dev_dep_list = std.StringHashMapUnmanaged(ResolvedSource).empty;
         it = dev_dependencies.map.iterator();
         while (it.next()) |entry| {
             try dev_dep_list.put(
                 allocator,
-                entry.key_ptr.*.obj().cast(o.ObjString, .String).?.string,
-                .fromValue(entry.value_ptr.*),
+                entry.key_ptr.*.obj(gc).cast(o.ObjString, .String).?.string,
+                .fromValue(entry.value_ptr.*, gc),
             );
         }
 
@@ -558,46 +559,46 @@ pub const Manifest = struct {
         };
     }
 
-    pub fn fromValue(value: v.Value, allocator: std.mem.Allocator) !Manifest {
-        const instance = value.obj().cast(o.ObjObjectInstance, .ObjectInstance).?;
-        const version = instance.getFieldValue("version").obj().cast(o.ObjObjectInstance, .ObjectInstance).?;
+    pub fn fromValue(value: v.Value, gc: *GC, allocator: std.mem.Allocator) !Manifest {
+        const instance = value.obj(gc).cast(o.ObjObjectInstance, .ObjectInstance).?;
+        const version = instance.getFieldValue("version", gc).obj(gc).cast(o.ObjObjectInstance, .ObjectInstance).?;
 
-        const dependencies = instance.getFieldValue("dependencies").obj().cast(o.ObjMap, .Map).?;
+        const dependencies = instance.getFieldValue("dependencies", gc).obj(gc).cast(o.ObjMap, .Map).?;
         var dep_list = std.StringHashMapUnmanaged(Source).empty;
         var it = dependencies.map.iterator();
         while (it.next()) |entry| {
             try dep_list.put(
                 allocator,
-                entry.key_ptr.*.obj().cast(o.ObjString, .String).?.string,
-                .fromValue(entry.value_ptr.*),
+                entry.key_ptr.*.obj(gc).cast(o.ObjString, .String).?.string,
+                .fromValue(entry.value_ptr.*, gc),
             );
         }
 
-        const dev_dependencies = instance.getFieldValue("devDependencies").obj().cast(o.ObjMap, .Map).?;
+        const dev_dependencies = instance.getFieldValue("devDependencies", gc).obj(gc).cast(o.ObjMap, .Map).?;
         var dev_dep_list = std.StringHashMapUnmanaged(Source).empty;
         it = dev_dependencies.map.iterator();
         while (it.next()) |entry| {
             try dev_dep_list.put(
                 allocator,
-                entry.key_ptr.*.obj().cast(o.ObjString, .String).?.string,
-                .fromValue(entry.value_ptr.*),
+                entry.key_ptr.*.obj(gc).cast(o.ObjString, .String).?.string,
+                .fromValue(entry.value_ptr.*, gc),
             );
         }
 
-        var build = instance.getFieldValue("build").obj().cast(o.ObjMap, .Map).?;
+        var build = instance.getFieldValue("build", gc).obj(gc).cast(o.ObjMap, .Map).?;
         var build_map = std.StringArrayHashMapUnmanaged(BuildStep).empty;
         it = build.map.iterator();
         while (it.next()) |entry| {
-            const cmds = entry.value_ptr.*.obj().cast(o.ObjList, .List).?;
+            const cmds = entry.value_ptr.*.obj(gc).cast(o.ObjList, .List).?;
 
             var cmd_list = std.ArrayList(BuildCommand).empty;
             for (cmds.items.items) |cmd| {
-                const argv = cmd.obj().cast(o.ObjList, .List).?;
+                const argv = cmd.obj(gc).cast(o.ObjList, .List).?;
                 var argv_list = std.ArrayList([]const u8).empty;
                 for (argv.items.items) |item| {
                     try argv_list.append(
                         allocator,
-                        item.obj().cast(o.ObjString, .String).?.string,
+                        item.obj(gc).cast(o.ObjString, .String).?.string,
                     );
                 }
 
@@ -609,43 +610,43 @@ pub const Manifest = struct {
 
             try build_map.put(
                 allocator,
-                entry.key_ptr.*.obj().cast(o.ObjString, .String).?.string,
+                entry.key_ptr.*.obj(gc).cast(o.ObjString, .String).?.string,
                 try cmd_list.toOwnedSlice(allocator),
             );
         }
 
-        const authors = instance.getFieldValue("authors").obj().cast(o.ObjList, .List).?;
+        const authors = instance.getFieldValue("authors", gc).obj(gc).cast(o.ObjList, .List).?;
         var author_list = std.ArrayList([]const u8).empty;
         for (authors.items.items) |author| {
             try author_list.append(
                 allocator,
-                author.obj().cast(o.ObjString, .String).?.string,
+                author.obj(gc).cast(o.ObjString, .String).?.string,
             );
         }
 
-        const tags = instance.getFieldValue("tags").obj().cast(o.ObjList, .List).?;
+        const tags = instance.getFieldValue("tags", gc).obj(gc).cast(o.ObjList, .List).?;
         var tag_list = std.ArrayList([]const u8).empty;
         for (tags.items.items) |tag| {
             try tag_list.append(
                 allocator,
-                tag.obj().cast(o.ObjString, .String).?.string,
+                tag.obj(gc).cast(o.ObjString, .String).?.string,
             );
         }
 
         return .{
-            .name = instance.get([]const u8, "name"),
-            .description = instance.get(?[]const u8, "description"),
-            .license = instance.get(?[]const u8, "license"),
-            .homepage = instance.get(?[]const u8, "homepage"),
+            .name = instance.get([]const u8, "name", gc),
+            .description = instance.get(?[]const u8, "description", gc),
+            .license = instance.get(?[]const u8, "license", gc),
+            .homepage = instance.get(?[]const u8, "homepage", gc),
             .authors = try author_list.toOwnedSlice(allocator),
             .tags = try tag_list.toOwnedSlice(allocator),
             .version = .{
-                .major = @intCast(version.get(v.Integer, comptime "0")),
-                .minor = @intCast(version.get(v.Integer, comptime "1")),
-                .patch = @intCast(version.get(v.Integer, comptime "2")),
+                .major = @intCast(version.get(v.Integer, comptime "0", gc)),
+                .minor = @intCast(version.get(v.Integer, comptime "1", gc)),
+                .patch = @intCast(version.get(v.Integer, comptime "2", gc)),
             },
-            .root_dir = instance.get([]const u8, "rootDir"),
-            .source = .fromValue(instance.getFieldValue("source")),
+            .root_dir = instance.get([]const u8, "rootDir", gc),
+            .source = .fromValue(instance.getFieldValue("source", gc), gc),
             .dependencies = dep_list,
             .dev_dependencies = dev_dep_list,
             .build = build_map,
@@ -1204,24 +1205,24 @@ pub const Manifest = struct {
             }
         }
 
-        pub fn fromValue(value: v.Value) Source {
-            const instance = value.obj().cast(o.ObjObjectInstance, .ObjectInstance).?;
-            const version_value = instance.getFieldValue("version");
+        pub fn fromValue(value: v.Value, gc: *GC) Source {
+            const instance = value.obj(gc).cast(o.ObjObjectInstance, .ObjectInstance).?;
+            const version_value = instance.getFieldValue("version", gc);
             const version = if (version_value.isNull())
                 null
             else
-                version_value.obj().cast(o.ObjObjectInstance, .ObjectInstance).?;
+                version_value.obj(gc).cast(o.ObjObjectInstance, .ObjectInstance).?;
 
             return .{
-                .url = instance.get([]const u8, "url"),
-                .ref = instance.get(?[]const u8, "ref"),
+                .url = instance.get([]const u8, "url", gc),
+                .ref = instance.get(?[]const u8, "ref", gc),
                 .version = if (version) |version_instance| .{
-                    .major = @intCast(version_instance.get(v.Integer, comptime "1")),
-                    .minor = @intCast(version_instance.get(v.Integer, comptime "2")),
-                    .patch = @intCast(version_instance.get(v.Integer, comptime "3")),
+                    .major = @intCast(version_instance.get(v.Integer, comptime "1", gc)),
+                    .minor = @intCast(version_instance.get(v.Integer, comptime "2", gc)),
+                    .patch = @intCast(version_instance.get(v.Integer, comptime "3", gc)),
                 } else null,
                 .constraint = if (version) |version_instance|
-                    @enumFromInt(@as(u8, @intCast(version_instance.get(v.Integer, "0"))))
+                    @enumFromInt(@as(u8, @intCast(version_instance.get(v.Integer, "0", gc))))
                 else
                     .equalTo,
             };
@@ -1412,7 +1413,7 @@ pub fn loadManifest(process: std.process.Init, allocator: std.mem.Allocator, man
     );
 
     if (try runner.runManifest(manifest_source, "manifest")) |manifest| {
-        return try .fromValue(manifest, allocator);
+        return try .fromValue(manifest, &runner.gc, allocator);
     }
 
     return error.ManifestNotProduced;
@@ -1443,7 +1444,7 @@ pub fn loadManifestLock(process: std.process.Init, allocator: std.mem.Allocator,
     );
 
     if (try runner.runManifest(manifest_source, "manifestLock")) |manifest_lock| {
-        return try .fromValue(manifest_lock, allocator);
+        return try .fromValue(manifest_lock, &runner.gc, allocator);
     }
 
     return error.ManifestLockNotProduced;

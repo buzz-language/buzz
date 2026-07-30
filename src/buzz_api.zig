@@ -63,24 +63,24 @@ export fn bz_at(vm: *VM, at: u32) callconv(.c) v.Value {
 }
 
 /// Converts a value to a string
-export fn bz_valueToString(value: v.Value, len: *usize) callconv(.c) ?[*]const u8 {
-    if (!value.isObj() or value.obj().obj_type != .String) {
+export fn bz_valueToString(value: v.Value, len: *usize, vm: *VM) callconv(.c) ?[*]const u8 {
+    if (!value.isObj() or value.obj(vm.gc).obj_type != .String) {
         return null;
     }
 
-    const string = o.ObjString.cast(value.obj()).?.string;
+    const string = o.ObjString.cast(value.obj(vm.gc)).?.string;
 
     len.* = string.len;
 
     return if (string.len > 0) @as([*]const u8, @ptrCast(string)) else null;
 }
 
-export fn bz_valueToCString(value: v.Value) callconv(.c) ?[*:0]const u8 {
-    if (!value.isObj() or value.obj().obj_type != .String) {
+export fn bz_valueToCString(value: v.Value, vm: *VM) callconv(.c) ?[*:0]const u8 {
+    if (!value.isObj() or value.obj(vm.gc).obj_type != .String) {
         return null;
     }
 
-    return @ptrCast(o.ObjString.cast(value.obj()).?.string.ptr);
+    return @ptrCast(o.ObjString.cast(value.obj(vm.gc)).?.string.ptr);
 }
 
 fn valueDump(value: v.Value, vm: *VM, seen: *std.AutoHashMapUnmanaged(*o.Obj, void), depth: usize) void {
@@ -92,15 +92,15 @@ fn valueDump(value: v.Value, vm: *VM, seen: *std.AutoHashMapUnmanaged(*o.Obj, vo
 
     if (value.isNull()) {
         print(io, "null", .{});
-    } else if (!value.isObj() or seen.get(value.obj()) != null) {
-        const string = value.toStringAlloc(vm.gc.allocator) catch @panic("Out of memory");
+    } else if (!value.isObj() or seen.get(value.obj(vm.gc)) != null) {
+        const string = value.toStringAlloc(vm.gc.allocator, vm.gc) catch @panic("Out of memory");
         defer vm.gc.allocator.free(string);
 
         print(io, "{s}", .{string});
     } else {
-        seen.put(vm.gc.allocator, value.obj(), {}) catch unreachable;
+        seen.put(vm.gc.allocator, value.obj(vm.gc), {}) catch unreachable;
 
-        switch (value.obj().obj_type) {
+        switch (value.obj(vm.gc).obj_type) {
             .Type,
             .Closure,
             .Function,
@@ -110,38 +110,38 @@ fn valueDump(value: v.Value, vm: *VM, seen: *std.AutoHashMapUnmanaged(*o.Obj, vo
             .Fiber,
             .EnumInstance,
             => {
-                const string = value.toStringAlloc(vm.gc.allocator) catch @panic("Out of memory");
+                const string = value.toStringAlloc(vm.gc.allocator, vm.gc) catch @panic("Out of memory");
                 defer vm.gc.allocator.free(string);
 
                 print(io, "{s}", .{string});
             },
 
             .UpValue => {
-                const upvalue = o.ObjUpValue.cast(value.obj()).?;
+                const upvalue = o.ObjUpValue.cast(value.obj(vm.gc)).?;
 
                 valueDump(if (upvalue.closed != null) upvalue.closed.? else upvalue.location.*, vm, seen, depth);
             },
 
             .String => {
-                const string = o.ObjString.cast(value.obj()).?;
+                const string = o.ObjString.cast(value.obj(vm.gc)).?;
 
                 print(io, "\"{s}\"", .{string.string});
             },
 
             .Pattern => {
-                const pattern = o.ObjPattern.cast(value.obj()).?;
+                const pattern = o.ObjPattern.cast(value.obj(vm.gc)).?;
 
                 print(io, "$\"{s}\"", .{pattern.source});
             },
 
             .List => {
-                const list = o.ObjList.cast(value.obj()).?;
+                const list = o.ObjList.cast(value.obj(vm.gc)).?;
 
                 print(
                     io,
                     "{s}[ ",
                     .{
-                        if (list.type_def.resolved_type.?.List.mutable)
+                        if (vm.gc.getTypeDef(list.type_def).resolved_type.?.List.mutable)
                             "mut "
                         else
                             "",
@@ -155,19 +155,19 @@ fn valueDump(value: v.Value, vm: *VM, seen: *std.AutoHashMapUnmanaged(*o.Obj, vo
             },
 
             .Range => {
-                const range = o.ObjRange.cast(value.obj()).?;
+                const range = o.ObjRange.cast(value.obj(vm.gc)).?;
 
                 print(io, "{}..{}", .{ range.low, range.high });
             },
 
             .Map => {
-                const map = o.ObjMap.cast(value.obj()).?;
+                const map = o.ObjMap.cast(value.obj(vm.gc)).?;
 
                 print(
                     io,
                     "{s}{{ ",
                     .{
-                        if (map.type_def.resolved_type.?.Map.mutable)
+                        if (vm.gc.getTypeDef(map.type_def).resolved_type.?.Map.mutable)
                             "mut "
                         else
                             "",
@@ -186,15 +186,15 @@ fn valueDump(value: v.Value, vm: *VM, seen: *std.AutoHashMapUnmanaged(*o.Obj, vo
             },
 
             .Enum => {
-                const enumeration = o.ObjEnum.cast(value.obj()).?;
-                const enum_type_def = enumeration.type_def.resolved_type.?.Enum;
+                const enumeration = o.ObjEnum.cast(value.obj(vm.gc)).?;
+                const enum_type_def = vm.gc.getTypeDef(enumeration.type_def).resolved_type.?.Enum;
 
                 print(
                     io,
                     "enum({s}) {s} {{ ",
                     .{
-                        enum_type_def.name.string,
-                        enum_type_def.name.string,
+                        vm.gc.getString(enum_type_def.name).string,
+                        vm.gc.getString(enum_type_def.name).string,
                     },
                 );
                 for (enum_type_def.cases, 0..) |case, i| {
@@ -206,28 +206,27 @@ fn valueDump(value: v.Value, vm: *VM, seen: *std.AutoHashMapUnmanaged(*o.Obj, vo
             },
 
             .Object => {
-                const object = o.ObjObject.cast(value.obj()).?;
-                const object_def = object.type_def.resolved_type.?.Object;
+                const object = o.ObjObject.cast(value.obj(vm.gc)).?;
+                const object_def = vm.gc.getTypeDef(object.type_def).resolved_type.?.Object;
 
                 print(io, "object", .{});
                 if (object_def.conforms_to.count() > 0) {
                     print(io, "(", .{});
                     var it = object_def.conforms_to.iterator();
                     while (it.next()) |kv| {
-                        print(io, "{s}, ", .{kv.key_ptr.*.resolved_type.?.Protocol.name.string});
+                        print(io, "{s}, ", .{vm.gc.getString(vm.gc.getTypeDef(kv.key_ptr.*).resolved_type.?.Protocol.name).string});
                     }
                     print(io, ")", .{});
                 }
 
-                print(io, " {s} {{ ", .{object_def.name.string});
+                print(io, " {s} {{ ", .{vm.gc.getString(object_def.name).string});
 
                 {
                     var it = object_def.fields.iterator();
                     while (it.next()) |kv| {
                         const field = kv.value_ptr.*;
-                        const field_type_str = field
-                            .type_def
-                            .toStringAlloc(vm.gc.allocator, false) catch @panic("Out of memory");
+                        const field_type_str = vm.gc.getTypeDef(field.type_def)
+                            .toStringAlloc(vm.gc.allocator, false, vm.gc) catch @panic("Out of memory");
                         defer vm.gc.allocator.free(field_type_str);
 
                         if (!field.method) {
@@ -271,20 +270,21 @@ fn valueDump(value: v.Value, vm: *VM, seen: *std.AutoHashMapUnmanaged(*o.Obj, vo
             },
 
             .ObjectInstance => {
-                const object_instance = o.ObjObjectInstance.cast(value.obj()).?;
-                const object_def = object_instance.type_def.resolved_type.?.ObjectInstance.of
-                    .resolved_type.?.Object;
+                const object_instance = o.ObjObjectInstance.cast(value.obj(vm.gc)).?;
+                const object_def = vm.gc.getTypeDef(
+                    vm.gc.getTypeDef(object_instance.type_def).resolved_type.?.ObjectInstance.of,
+                ).resolved_type.?.Object;
 
                 print(
                     io,
                     "{s}{s}{{ ",
                     .{
-                        if (object_instance.type_def.resolved_type.?.ObjectInstance.mutable)
+                        if (vm.gc.getTypeDef(object_instance.type_def).resolved_type.?.ObjectInstance.mutable)
                             "mut "
                         else
                             "",
                         if (object_instance.object) |object|
-                            object.type_def.resolved_type.?.Object.name.string
+                            vm.gc.getString(vm.gc.getTypeDef(vm.gc.getObject(object).type_def).resolved_type.?.Object.name).string
                         else
                             ".",
                     },
@@ -306,13 +306,13 @@ fn valueDump(value: v.Value, vm: *VM, seen: *std.AutoHashMapUnmanaged(*o.Obj, vo
             },
 
             .ForeignContainer => {
-                const foreign = o.ObjForeignContainer.cast(value.obj()).?;
-                const foreign_def = foreign.type_def.resolved_type.?.ForeignContainer;
+                const foreign = o.ObjForeignContainer.cast(value.obj(vm.gc)).?;
+                const foreign_def = vm.gc.getTypeDef(foreign.type_def).resolved_type.?.ForeignContainer;
 
                 print(
                     io,
                     "{s}{{ ",
-                    .{foreign_def.name.string},
+                    .{vm.gc.getString(foreign_def.name).string},
                 );
 
                 var it = foreign_def.fields.iterator();
@@ -333,7 +333,7 @@ fn valueDump(value: v.Value, vm: *VM, seen: *std.AutoHashMapUnmanaged(*o.Obj, vo
             },
         }
 
-        _ = seen.remove(value.obj());
+        _ = seen.remove(value.obj(vm.gc));
     }
 }
 
@@ -345,8 +345,8 @@ pub export fn bz_valueDump(value: v.Value, vm: *VM) callconv(.c) void {
     valueDump(value, vm, &seen, 0);
 }
 
-export fn bz_valueToForeignContainerPtr(value: v.Value) callconv(.c) [*]u8 {
-    return o.ObjForeignContainer.cast(value.obj()).?.data.ptr;
+export fn bz_valueToForeignContainerPtr(value: v.Value, vm: *VM) callconv(.c) [*]u8 {
+    return o.ObjForeignContainer.cast(value.obj(vm.gc)).?.data.ptr;
 }
 
 /// Converts a c string to a *o.ObjString
@@ -369,14 +369,14 @@ export fn bz_stringToValueZ(vm: *VM, string: [*:0]const u8) callconv(.c) v.Value
 }
 
 export fn bz_stringConcat(obj_string: v.Value, other: v.Value, vm: *VM) callconv(.c) v.Value {
-    return (o.ObjString.cast(obj_string.obj()).?.concat(
+    return (o.ObjString.cast(obj_string.obj(vm.gc)).?.concat(
         vm,
-        o.ObjString.cast(other.obj()).?,
+        o.ObjString.cast(other.obj(vm.gc)).?,
     ) catch @panic("Could not concat strings")).toValue();
 }
 
 export fn bz_stringSubscript(obj_string: v.Value, index_value: v.Value, checked: bool, vm: *VM) callconv(.c) v.Value {
-    const str = o.ObjString.cast(obj_string.obj()).?;
+    const str = o.ObjString.cast(obj_string.obj(vm.gc)).?;
     const index = index_value.integer();
 
     if (index < 0) {
@@ -411,7 +411,7 @@ export fn bz_stringSubscript(obj_string: v.Value, index_value: v.Value, checked:
 }
 
 export fn bz_valueCastToString(value: v.Value, vm: *VM) callconv(.c) v.Value {
-    const str = value.toStringAlloc(vm.gc.allocator) catch
+    const str = value.toStringAlloc(vm.gc.allocator, vm.gc) catch
         @panic("Out of memory");
     defer vm.gc.allocator.free(str);
 
@@ -424,11 +424,11 @@ export fn bz_valueCastToString(value: v.Value, vm: *VM) callconv(.c) v.Value {
 
 /// Returns the [str] type
 export fn bz_stringType(vm: *VM) callconv(.c) v.Value {
-    return vm.gc.type_registry.str_type.toValue();
+    return vm.gc.getTypeDef(vm.gc.type_registry.str_type).toValue();
 }
 
 export fn bz_intType(vm: *VM) callconv(.c) v.Value {
-    return vm.gc.type_registry.int_type.toValue();
+    return vm.gc.getTypeDef(vm.gc.type_registry.int_type).toValue();
 }
 
 export fn bz_listType(vm: *VM, item_type: v.Value, mutable: bool) callconv(.c) v.Value {
@@ -437,8 +437,8 @@ export fn bz_listType(vm: *VM, item_type: v.Value, mutable: bool) callconv(.c) v
             .def_type = .List,
             .optional = false,
             .resolved_type = .{
-                .List = o.ObjList.ListDef.init(
-                    o.ObjTypeDef.cast(item_type.obj()).?,
+                    .List = o.ObjList.ListDef.init(
+                    o.ObjTypeDef.cast(item_type.obj(vm.gc)).?,
                     mutable,
                 ),
             },
@@ -455,9 +455,9 @@ export fn bz_mapType(vm: *VM, key_type: v.Value, value_type: v.Value, mutable: b
             .def_type = .Map,
             .optional = false,
             .resolved_type = .{
-                .Map = o.ObjMap.MapDef.init(
-                    o.ObjTypeDef.cast(key_type.obj()).?,
-                    o.ObjTypeDef.cast(value_type.obj()).?,
+                    .Map = o.ObjMap.MapDef.init(
+                    o.ObjTypeDef.cast(key_type.obj(vm.gc)).?,
+                    o.ObjTypeDef.cast(value_type.obj(vm.gc)).?,
                     mutable,
                 ),
             },
@@ -468,15 +468,15 @@ export fn bz_mapType(vm: *VM, key_type: v.Value, value_type: v.Value, mutable: b
     }).toValue();
 }
 
-export fn bz_containerTypeSize(type_def: v.Value) callconv(.c) usize {
-    return o.ObjTypeDef.cast(type_def.obj()).?
+export fn bz_containerTypeSize(type_def: v.Value, vm: *VM) callconv(.c) usize {
+    return o.ObjTypeDef.cast(type_def.obj(vm.gc)).?
         .resolved_type.?
         .ForeignContainer
         .zig_type.size();
 }
 
-export fn bz_containerTypeAlign(type_def: v.Value) callconv(.c) usize {
-    return o.ObjTypeDef.cast(type_def.obj()).?
+export fn bz_containerTypeAlign(type_def: v.Value, vm: *VM) callconv(.c) usize {
+    return o.ObjTypeDef.cast(type_def.obj(vm.gc)).?
         .resolved_type.?
         .ForeignContainer
         .zig_type.alignment();
@@ -491,29 +491,29 @@ export fn bz_collect(self: *VM) callconv(.c) void {
 }
 
 export fn bz_newRange(vm: *VM, low: i64, high: i64) callconv(.c) v.Value {
-    return v.Value.fromObj((vm.gc.allocateObject(
+    return (vm.gc.allocateObject(
         o.ObjRange{
             .low = @truncate(low),
             .high = @truncate(high),
         },
-    ) catch @panic("Could not create range")).toObj());
+    ) catch @panic("Could not create range")).toValue();
 }
 
 export fn bz_newList(vm: *VM, list_type: v.Value) callconv(.c) v.Value {
     return (vm.gc.allocateObject(
         o.ObjList.init(
             vm.gc.allocator,
-            o.ObjTypeDef.cast(list_type.obj()).?,
+            o.ObjTypeDef.cast(list_type.obj(vm.gc)).?,
         ) catch @panic("Out of memory"),
     ) catch @panic("Could not create list")).toValue();
 }
 
 export fn bz_listAppend(list: v.Value, value: v.Value, vm: *VM) callconv(.c) void {
-    o.ObjList.cast(list.obj()).?.rawAppend(vm.gc, value) catch @panic("Could not add element to list");
+    o.ObjList.cast(list.obj(vm.gc)).?.rawAppend(vm.gc, value) catch @panic("Could not add element to list");
 }
 
-export fn bz_listGet(self: v.Value, index: i64, checked: bool) callconv(.c) v.Value {
-    const list = o.ObjList.cast(self.obj()).?;
+export fn bz_listGet(self: v.Value, index: i64, checked: bool, vm: *VM) callconv(.c) v.Value {
+    const list = o.ObjList.cast(self.obj(vm.gc)).?;
 
     if (index < 0 or index >= list.items.items.len) {
         if (checked) {
@@ -527,20 +527,20 @@ export fn bz_listGet(self: v.Value, index: i64, checked: bool) callconv(.c) v.Va
 }
 
 export fn bz_listSet(self: v.Value, index: usize, value: v.Value, vm: *VM) callconv(.c) void {
-    o.ObjList.cast(self.obj()).?.set(
+    o.ObjList.cast(self.obj(vm.gc)).?.set(
         vm.gc,
         index,
         value,
     ) catch @panic("Could not set element in list");
 }
 
-export fn bz_listLen(self: v.Value) callconv(.c) usize {
-    return o.ObjList.cast(self.obj()).?.items.items.len;
+export fn bz_listLen(self: v.Value, vm: *VM) callconv(.c) usize {
+    return o.ObjList.cast(self.obj(vm.gc)).?.items.items.len;
 }
 
 export fn bz_listConcat(list: v.Value, other_list: v.Value, vm: *VM) callconv(.c) v.Value {
-    const left: *o.ObjList = o.ObjList.cast(list.obj()).?;
-    const right: *o.ObjList = o.ObjList.cast(other_list.obj()).?;
+    const left: *o.ObjList = o.ObjList.cast(list.obj(vm.gc)).?;
+    const right: *o.ObjList = o.ObjList.cast(other_list.obj(vm.gc)).?;
 
     var new_list = std.ArrayList(v.Value).empty;
     new_list.appendSlice(vm.gc.allocator, left.items.items) catch @panic("Could not concatenate lists");
@@ -556,8 +556,8 @@ export fn bz_listConcat(list: v.Value, other_list: v.Value, vm: *VM) callconv(.c
 }
 
 export fn bz_mapConcat(map: v.Value, other_map: v.Value, vm: *VM) callconv(.c) v.Value {
-    const left = o.ObjMap.cast(map.obj()).?;
-    const right = o.ObjMap.cast(other_map.obj()).?;
+    const left = o.ObjMap.cast(map.obj(vm.gc)).?;
+    const right = o.ObjMap.cast(other_map.obj(vm.gc)).?;
 
     var new_map = left.map.clone(vm.gc.allocator) catch @panic("Could not concatenate maps");
     var it = right.map.iterator();
@@ -587,8 +587,8 @@ export fn bz_newUserData(vm: *VM, userdata: u64) callconv(.c) v.Value {
     }).toValue();
 }
 
-export fn bz_getUserDataPtr(userdata: v.Value) callconv(.c) u64 {
-    return o.ObjUserData.cast(userdata.obj()).?.userdata;
+export fn bz_getUserDataPtr(userdata: v.Value, vm: *VM) callconv(.c) u64 {
+    return o.ObjUserData.cast(userdata.obj(vm.gc)).?.userdata;
 }
 
 export fn bz_newVM(host: *VM) callconv(.c) *VM {
@@ -663,8 +663,8 @@ export fn bz_run(
     return false;
 }
 
-fn calleeIsCompiled(value: v.Value) bool {
-    const obj: *o.Obj = value.obj();
+fn calleeIsCompiled(value: v.Value, vm: *VM) bool {
+    const obj: *o.Obj = value.obj(vm.gc);
     return switch (obj.obj_type) {
         .Bound => bound: {
             const bound = o.ObjBoundMethod.cast(obj).?;
@@ -674,12 +674,12 @@ fn calleeIsCompiled(value: v.Value) bool {
             }
 
             if (bound.closure) |cls| {
-                break :bound cls.function.native != null;
+                break :bound vm.gc.getFunction(vm.gc.getClosure(cls).function).native != null;
             }
 
             break :bound false;
         },
-        .Closure => o.ObjClosure.cast(obj).?.function.native != null,
+        .Closure => vm.gc.getFunction(o.ObjClosure.cast(obj).?.function).native != null,
         .Native => true,
         else => false,
     };
@@ -712,7 +712,7 @@ pub export fn bz_invoke(
     ) catch unreachable;
 
     // If not compiled, run it with the VM loop
-    if (!calleeIsCompiled(callee)) {
+    if (!calleeIsCompiled(callee, self)) {
         // TODO: catch properly
         self.run() catch unreachable;
     }
@@ -727,7 +727,7 @@ pub export fn bz_call(
     len: u8,
     catch_value: ?*v.Value,
 ) callconv(.c) bool {
-    std.debug.assert(closure_value.obj().obj_type == .Closure);
+    std.debug.assert(closure_value.obj(self.gc).obj_type == .Closure);
 
     self.push(closure_value);
     var i: usize = 0;
@@ -742,11 +742,11 @@ pub export fn bz_call(
     ) catch return false;
 
     // If not compiled, run it with the VM loop
-    if (closure_value.obj().access(
+    if (closure_value.obj(self.gc).access(
         o.ObjClosure,
         .Closure,
         self.gc,
-    ).?.function.native == null) {
+    ).?.getFunction(self.gc).native == null) {
         self.run() catch return false;
 
         return true;
@@ -756,13 +756,13 @@ pub export fn bz_call(
 }
 
 export fn bz_newQualifiedObjectInstance(self: *VM, qualified_name: [*]const u8, len: usize, mutable: bool) callconv(.c) v.Value {
-    const object = o.ObjObject.cast(bz_getQualified(self, qualified_name, len).obj()).?;
+    const object = o.ObjObject.cast(bz_getQualified(self, qualified_name, len).obj(self.gc)).?;
 
     const instance: *o.ObjObjectInstance = self.gc.allocateObject(
         o.ObjObjectInstance.init(
             self,
             object,
-            object.type_def.toInstance(
+            self.gc.getTypeDef(object.type_def).toInstance(
                 &self.gc.type_registry,
                 mutable,
             ) catch {
@@ -807,10 +807,10 @@ fn instanciateError(
     );
 
     if (message) |msg| {
-        const obj_instance = o.ObjObjectInstance.cast(instance.obj()).?;
-        const object_def = obj_instance.type_def.resolved_type.?.ObjectInstance.of
-            .resolved_type.?.Object
-            .fields;
+        const obj_instance = o.ObjObjectInstance.cast(instance.obj(vm.gc)).?;
+        const object_def = vm.gc.getTypeDef(
+            vm.gc.getTypeDef(obj_instance.type_def).resolved_type.?.ObjectInstance.of,
+        ).resolved_type.?.Object.fields;
 
         if (object_def.get("message")) |field| {
             obj_instance.fields[field.index] = (vm.gc.copyString(msg[0..mlen]) catch {
@@ -857,18 +857,18 @@ export fn bz_pushErrorEnum(self: *VM, qualified_name: [*]const u8, name_len: usi
 export fn bz_getQualified(self: *VM, qualified_name: [*]const u8, len: usize) callconv(.c) v.Value {
     for (self.globals.items) |global| {
         if (global.isObj()) {
-            switch (global.obj().obj_type) {
+            switch (global.obj(self.gc).obj_type) {
                 .Enum => {
-                    const obj_enum = o.ObjEnum.cast(global.obj()).?;
+                    const obj_enum = o.ObjEnum.cast(global.obj(self.gc)).?;
 
-                    if (std.mem.eql(u8, qualified_name[0..len], obj_enum.type_def.resolved_type.?.Enum.qualified_name.string)) {
+                    if (std.mem.eql(u8, qualified_name[0..len], self.gc.getString(self.gc.getTypeDef(obj_enum.type_def).resolved_type.?.Enum.qualified_name).string)) {
                         return global;
                     }
                 },
                 .Object => {
-                    const obj_enum = o.ObjObject.cast(global.obj()).?;
+                    const obj_enum = o.ObjObject.cast(global.obj(self.gc)).?;
 
-                    if (std.mem.eql(u8, qualified_name[0..len], obj_enum.type_def.resolved_type.?.Object.qualified_name.string)) {
+                    if (std.mem.eql(u8, qualified_name[0..len], self.gc.getString(self.gc.getTypeDef(obj_enum.type_def).resolved_type.?.Object.qualified_name).string)) {
                         return global;
                     }
                 },
@@ -881,8 +881,8 @@ export fn bz_getQualified(self: *VM, qualified_name: [*]const u8, len: usize) ca
 }
 
 export fn bz_newObjectInstance(vm: *VM, object_value: v.Value, typedef_value: v.Value) callconv(.c) v.Value {
-    const object = if (object_value.isObj()) o.ObjObject.cast(object_value.obj()).? else null;
-    const typedef = o.ObjTypeDef.cast(typedef_value.obj()).?;
+    const object = if (object_value.isObj()) o.ObjObject.cast(object_value.obj(vm.gc)).? else null;
+    const typedef = o.ObjTypeDef.cast(typedef_value.obj(vm.gc)).?;
 
     const instance = vm.gc.allocateObject(
         o.ObjObjectInstance.init(
@@ -912,12 +912,12 @@ export fn bz_newObjectInstance(vm: *VM, object_value: v.Value, typedef_value: v.
     return vm.pop();
 }
 
-export fn bz_getObjectField(object_value: v.Value, field_idx: usize) callconv(.c) v.Value {
-    return o.ObjObject.cast(object_value.obj()).?.fields[field_idx];
+export fn bz_getObjectField(object_value: v.Value, field_idx: usize, vm: *VM) callconv(.c) v.Value {
+    return o.ObjObject.cast(object_value.obj(vm.gc)).?.fields[field_idx];
 }
 
 export fn bz_setObjectField(object_value: v.Value, field_idx: usize, value: v.Value, vm: *VM) callconv(.c) void {
-    o.ObjObject.cast(object_value.obj()).?.setField(
+    o.ObjObject.cast(object_value.obj(vm.gc)).?.setField(
         vm.gc,
         field_idx,
         value,
@@ -925,22 +925,21 @@ export fn bz_setObjectField(object_value: v.Value, field_idx: usize, value: v.Va
 }
 
 export fn bz_setObjectInstanceProperty(instance_value: v.Value, field_idx: usize, value: v.Value, vm: *VM) callconv(.c) void {
-    o.ObjObjectInstance.cast(instance_value.obj()).?.setField(
+    o.ObjObjectInstance.cast(instance_value.obj(vm.gc)).?.setField(
         vm.gc,
         field_idx,
         value,
     ) catch @panic("Could not set instance field");
 }
 
-export fn bz_getObjectInstanceProperty(instance_value: v.Value, property_idx: usize) callconv(.c) v.Value {
-    return o.ObjObjectInstance.cast(instance_value.obj()).?
+export fn bz_getObjectInstanceProperty(instance_value: v.Value, property_idx: usize, vm: *VM) callconv(.c) v.Value {
+    return o.ObjObjectInstance.cast(instance_value.obj(vm.gc)).?
         .fields[property_idx];
 }
 
 export fn bz_getObjectInstanceMethod(instance_value: v.Value, method_idx: usize, bind: bool, vm: *VM) callconv(.c) v.Value {
-    const method = o.ObjObjectInstance.cast(instance_value.obj()).?
-        .object.?
-        .fields[method_idx];
+    const instance = o.ObjObjectInstance.cast(instance_value.obj(vm.gc)).?;
+    const method = vm.gc.getObject(instance.object.?).fields[method_idx];
 
     return if (bind)
         bz_bindMethod(
@@ -954,24 +953,24 @@ export fn bz_getObjectInstanceMethod(instance_value: v.Value, method_idx: usize,
 }
 
 export fn bz_getProtocolMethod(instance_value: v.Value, method_name: v.Value, vm: *VM) callconv(.c) v.Value {
-    const instance = instance_value.obj().access(
+    const instance = instance_value.obj(vm.gc).access(
         o.ObjObjectInstance,
         .ObjectInstance,
         vm.gc,
     ).?;
 
-    const name = method_name.obj()
+    const name = method_name.obj(vm.gc)
         .access(o.ObjString, .String, vm.gc).?
         .string;
 
-    const method_idx = instance.type_def.resolved_type.?.ObjectInstance.of
-        .resolved_type.?.Object
-        .fields.get(name).?.index;
+    const method_idx = vm.gc.getTypeDef(
+        vm.gc.getTypeDef(instance.type_def).resolved_type.?.ObjectInstance.of,
+    ).resolved_type.?.Object.fields.get(name).?.index;
 
     return bz_bindMethod(
         vm,
         instance_value,
-        instance.object.?.fields[method_idx],
+        vm.gc.getObject(instance.object.?).fields[method_idx],
         v.Value.Null,
     );
 }
@@ -980,18 +979,18 @@ export fn bz_bindMethod(vm: *VM, receiver: v.Value, method_value: v.Value, nativ
     return (vm.gc.allocateObject(
         o.ObjBoundMethod{
             .receiver = receiver,
-            .closure = if (method_value.isObj()) o.ObjClosure.cast(method_value.obj()).? else null,
-            .native = if (native_value.isObj()) o.ObjNative.cast(native_value.obj()).? else null,
+            .closure = if (method_value.isObj()) o.ObjClosure.cast(method_value.obj(vm.gc)).?.toIdx() else null,
+            .native = if (native_value.isObj()) o.ObjNative.cast(native_value.obj(vm.gc)).?.toIdx() else null,
         },
     ) catch @panic("Could not bind method")).toValue();
 }
 
 export fn bz_getEnumCase(enum_value: v.Value, case_name_value: v.Value, vm: *VM) callconv(.c) v.Value {
-    const self = o.ObjEnum.cast(enum_value.obj()).?;
-    const case = o.ObjString.cast(case_name_value.obj()).?.string;
+    const self = o.ObjEnum.cast(enum_value.obj(vm.gc)).?;
+    const case = o.ObjString.cast(case_name_value.obj(vm.gc)).?.string;
     var case_index: usize = 0;
 
-    for (self.type_def.resolved_type.?.Enum.cases, 0..) |enum_case, index| {
+    for (vm.gc.getTypeDef(self.type_def).resolved_type.?.Enum.cases, 0..) |enum_case, index| {
         if (std.mem.eql(u8, case, enum_case)) {
             case_index = index;
             break;
@@ -1000,43 +999,43 @@ export fn bz_getEnumCase(enum_value: v.Value, case_name_value: v.Value, vm: *VM)
 
     return (vm.gc.allocateObject(
         o.ObjEnumInstance{
-            .enum_ref = self,
+            .enum_ref = self.toIdx(),
             .case = @intCast(case_index),
         },
     ) catch @panic("Could not create enum case")).toValue();
 }
 
-export fn bz_getEnumInstanceValue(enum_instance_value: v.Value) callconv(.c) v.Value {
-    const instance = o.ObjEnumInstance.cast(enum_instance_value.obj()).?;
+export fn bz_getEnumInstanceValue(enum_instance_value: v.Value, vm: *VM) callconv(.c) v.Value {
+    const instance = o.ObjEnumInstance.cast(enum_instance_value.obj(vm.gc)).?;
 
-    return instance.enum_ref.cases[instance.case];
+    return vm.gc.getEnum(instance.enum_ref).cases[instance.case];
 }
 
 export fn bz_getEnumCaseFromValue(enum_value: v.Value, case_value: v.Value, vm: *VM) callconv(.c) v.Value {
-    const enum_ = o.ObjEnum.cast(enum_value.obj()).?;
+    const enum_ = o.ObjEnum.cast(enum_value.obj(vm.gc)).?;
 
     for (enum_.cases, 0..) |case, index| {
-        if (v.Value.eql(case, case_value)) {
+        if (v.Value.eql(case, case_value, vm.gc)) {
             var enum_case: *o.ObjEnumInstance = vm.gc.allocateObject(
                 o.ObjEnumInstance{
-                    .enum_ref = enum_,
+                    .enum_ref = enum_.toIdx(),
                     .case = @intCast(index),
                 },
             ) catch @panic("Could not create enum instance");
 
-            return v.Value.fromObj(enum_case.toObj());
+            return enum_case.toValue();
         }
     }
 
     return v.Value.Null;
 }
 
-export fn bz_valueEqual(self: v.Value, other: v.Value) callconv(.c) v.Value {
-    return v.Value.fromBoolean(self.eql(other));
+export fn bz_valueEqual(self: v.Value, other: v.Value, vm: *VM) callconv(.c) v.Value {
+    return v.Value.fromBoolean(self.eql(other, vm.gc));
 }
 
-export fn bz_rangeContains(range_value: v.Value, value: v.Value) callconv(.c) v.Value {
-    const range = o.ObjRange.cast(range_value.obj()).?;
+export fn bz_rangeContains(range_value: v.Value, value: v.Value, vm: *VM) callconv(.c) v.Value {
+    const range = o.ObjRange.cast(range_value.obj(vm.gc)).?;
     const number = if (value.isInteger())
         @as(v.Double, @floatFromInt(value.integer()))
     else
@@ -1063,8 +1062,8 @@ fn bz_patternMatchesWasm(_: *VM, _: v.Value, _: v.Value) v.Value {
 }
 
 fn bz_patternMatchesNative(vm: *VM, pattern_value: v.Value, subject_value: v.Value) v.Value {
-    const pattern = o.ObjPattern.cast(pattern_value.obj()).?;
-    const subject = o.ObjString.cast(subject_value.obj()).?;
+    const pattern = o.ObjPattern.cast(pattern_value.obj(vm.gc)).?;
+    const subject = o.ObjString.cast(subject_value.obj(vm.gc)).?;
 
     var offset: usize = 0;
     return v.Value.fromBoolean(
@@ -1091,27 +1090,27 @@ export fn bz_newMap(vm: *VM, map_type: v.Value) callconv(.c) v.Value {
     var map = vm.gc.allocateObject(
         o.ObjMap.init(
             vm.gc.allocator,
-            o.ObjTypeDef.cast(map_type.obj()).?,
+            o.ObjTypeDef.cast(map_type.obj(vm.gc)).?,
         ) catch @panic("Could not create map"),
     ) catch @panic("Could not create map");
 
-    return v.Value.fromObj(map.toObj());
+    return map.toValue();
 }
 
 export fn bz_mapSet(map: v.Value, key: v.Value, value: v.Value, vm: *VM) callconv(.c) void {
-    o.ObjMap.cast(map.obj()).?.set(
+    o.ObjMap.cast(map.obj(vm.gc)).?.set(
         vm.gc,
         key,
         value,
     ) catch @panic("Could not set map element");
 }
 
-export fn bz_mapGet(map: v.Value, key: v.Value) callconv(.c) v.Value {
-    return o.ObjMap.cast(map.obj()).?.map.get(key) orelse v.Value.Null;
+export fn bz_mapGet(map: v.Value, key: v.Value, vm: *VM) callconv(.c) v.Value {
+    return o.ObjMap.cast(map.obj(vm.gc)).?.map.get(key) orelse v.Value.Null;
 }
 
-export fn bz_valueIs(self: v.Value, type_def: v.Value) callconv(.c) v.Value {
-    return v.Value.fromBoolean(type_def.is(self));
+export fn bz_valueIs(self: v.Value, type_def: v.Value, vm: *VM) callconv(.c) v.Value {
+    return v.Value.fromBoolean(type_def.is(self, vm.gc));
 }
 
 export fn bz_setTryCtx(self: *VM) callconv(.c) *TryCtx {
@@ -1178,11 +1177,11 @@ export fn bz_closeUpValues(vm: *VM, last: *v.Value) callconv(.c) void {
 }
 
 export fn bz_getUpValue(ctx: *o.NativeCtx, slot: usize) callconv(.c) v.Value {
-    return ctx.upvalues[slot].location.*;
+    return ctx.getUpvalue(slot).location.*;
 }
 
 export fn bz_setUpValue(ctx: *o.NativeCtx, slot: usize, value: v.Value) callconv(.c) void {
-    ctx.upvalues[slot].location.* = value;
+    ctx.getUpvalue(slot).location.* = value;
 }
 
 export fn bz_callFromJit(ctx: *o.NativeCtx) callconv(.c) v.Value {
@@ -1196,7 +1195,7 @@ export fn bz_callFromJit(ctx: *o.NativeCtx) callconv(.c) v.Value {
 
     // If the callee is interpreted, run it until its return reaches the native
     // caller frame. The VM leaves the result on the stack; RawFn returns it.
-    if (!calleeIsCompiled(ctx.callee)) {
+    if (!calleeIsCompiled(ctx.callee, vm)) {
         vm.run() catch @panic("Failed running function from JIT");
     }
 
@@ -1211,26 +1210,26 @@ export fn bz_context(ctx: *o.NativeCtx, closure_value: v.Value, new_ctx: *o.Nati
         unreachable;
     }
 
-    const bound = if (closure_value.obj().obj_type == .Bound)
-        o.ObjBoundMethod.cast(closure_value.obj()).?
+    const bound = if (closure_value.obj(ctx.vm.gc).obj_type == .Bound)
+        o.ObjBoundMethod.cast(closure_value.obj(ctx.vm.gc)).?
     else
         null;
 
     const closure = if (bound) |bd|
-        bd.closure
+        if (bd.closure) |cls| ctx.vm.gc.getClosure(cls) else null
     else
-        o.ObjClosure.cast(closure_value.obj());
+        o.ObjClosure.cast(closure_value.obj(ctx.vm.gc));
 
     const native = if (closure == null and bound != null)
-        bound.?.native
+        if (bound.?.native) |nat| ctx.vm.gc.getNative(nat) else null
     else if (closure == null and bound == null)
-        o.ObjNative.cast(closure_value.obj()).?
+        o.ObjNative.cast(closure_value.obj(ctx.vm.gc)).?
     else
         null;
 
     if (BuildOptions.recursive_call_limit) |recursive_call_limit| {
         // If recursive call, update counter
-        ctx.vm.current_fiber.recursive_count = if (closure != null and closure.?.function == ctx.vm.current_fiber.current_compiled_function)
+        ctx.vm.current_fiber.recursive_count = if (closure != null and ctx.vm.gc.getFunction(closure.?.function) == ctx.vm.current_fiber.current_compiled_function)
             ctx.vm.current_fiber.recursive_count + 1
         else
             0;
@@ -1262,16 +1261,16 @@ export fn bz_context(ctx: *o.NativeCtx, closure_value: v.Value, new_ctx: *o.Nati
     };
 
     if (closure) |cls| {
-        if (cls.function.native_raw == null) {
+        if (ctx.vm.gc.getFunction(cls.function).native_raw == null) {
             ctx.vm.jit.?.compileFunctionSynchronously(cls) catch |err| switch (err) {
                 error.CantCompile => return @as(*anyopaque, @ptrFromInt(@intFromPtr(&bz_callFromJit))),
                 else => @panic("Failed compiling function"),
             };
         }
 
-        ctx.vm.current_fiber.current_compiled_function = cls.function;
+        ctx.vm.current_fiber.current_compiled_function = ctx.vm.gc.getFunction(cls.function);
 
-        return cls.function.native_raw orelse @as(*anyopaque, @ptrFromInt(@intFromPtr(&bz_callFromJit)));
+        return ctx.vm.gc.getFunction(cls.function).native_raw orelse @as(*anyopaque, @ptrFromInt(@intFromPtr(&bz_callFromJit)));
     }
 
     return native.?.native;
@@ -1288,7 +1287,7 @@ export fn bz_closure(
     }
 
     // Set native pointers in objfunction
-    var obj_function = ctx.vm.current_ast.nodes.items(.components)[function_node].Function.function.?;
+    const obj_function = ctx.vm.gc.getFunction(ctx.vm.current_ast.nodes.items(.components)[function_node].Function.function.?);
     obj_function.native = native;
     obj_function.native_raw = native_raw;
 
@@ -1312,7 +1311,7 @@ export fn bz_closure(
         const index = kv.key_ptr.*;
 
         if (is_local) {
-            closure.upvalues[i] = ctx.vm.captureUpvalue(&(ctx.base[index])) catch @panic("Could not instanciate closure");
+            closure.upvalues[i] = (ctx.vm.captureUpvalue(&(ctx.base[index])) catch @panic("Could not instanciate closure")).toIdx();
         } else {
             closure.upvalues[i] = ctx.upvalues[index];
         }
@@ -1378,7 +1377,7 @@ export fn bz_getFiberProperty(vm: *VM, fiber_value: v.Value, property_idx: usize
 }
 
 export fn bz_getListProperty(vm: *VM, list_value: v.Value, property_idx: usize, bind: bool) callconv(.c) v.Value {
-    const method = o.ObjList.cast(list_value.obj()).?
+    const method = o.ObjList.cast(list_value.obj(vm.gc)).?
         .member(vm, property_idx) catch @panic("Could not get list method");
 
     return if (bind)
@@ -1407,7 +1406,7 @@ export fn bz_getRangeProperty(vm: *VM, range_value: v.Value, property_idx: usize
 }
 
 export fn bz_getMapProperty(vm: *VM, map_value: v.Value, property_idx: usize, bind: bool) callconv(.c) v.Value {
-    const method = o.ObjMap.cast(map_value.obj()).?
+    const method = o.ObjMap.cast(map_value.obj(vm.gc)).?
         .member(vm, property_idx) catch @panic("Could not get map method");
 
     return if (bind)
@@ -1422,7 +1421,7 @@ export fn bz_getMapProperty(vm: *VM, map_value: v.Value, property_idx: usize, bi
 }
 
 export fn bz_stringNext(string_value: v.Value, index: *v.Value, vm: *VM) callconv(.c) v.Value {
-    const string = o.ObjString.cast(string_value.obj()).?;
+    const string = o.ObjString.cast(string_value.obj(vm.gc)).?;
 
     if (string.next(
         vm,
@@ -1437,8 +1436,8 @@ export fn bz_stringNext(string_value: v.Value, index: *v.Value, vm: *VM) callcon
     return v.Value.Sentinel;
 }
 
-export fn bz_listNext(list_value: v.Value, index: *v.Value, _: *VM) callconv(.c) v.Value {
-    const list = o.ObjList.cast(list_value.obj()).?;
+export fn bz_listNext(list_value: v.Value, index: *v.Value, vm: *VM) callconv(.c) v.Value {
+    const list = o.ObjList.cast(list_value.obj(vm.gc)).?;
 
     if (list.rawNext(
         if (index.isNull()) null else index.integer(),
@@ -1451,8 +1450,8 @@ export fn bz_listNext(list_value: v.Value, index: *v.Value, _: *VM) callconv(.c)
     return v.Value.Sentinel;
 }
 
-export fn bz_rangeNext(range_value: v.Value, index_slot: v.Value) callconv(.c) v.Value {
-    const range = o.ObjRange.cast(range_value.obj()).?;
+export fn bz_rangeNext(range_value: v.Value, index_slot: v.Value, vm: *VM) callconv(.c) v.Value {
+    const range = o.ObjRange.cast(range_value.obj(vm.gc)).?;
 
     if (index_slot.integerOrNull()) |index| {
         if (range.low < range.high) {
@@ -1471,8 +1470,8 @@ export fn bz_rangeNext(range_value: v.Value, index_slot: v.Value) callconv(.c) v
     return v.Value.fromInteger(range.low);
 }
 
-export fn bz_mapNext(map_value: v.Value, key: *v.Value) callconv(.c) v.Value {
-    const map = o.ObjMap.cast(map_value.obj()).?;
+export fn bz_mapNext(map_value: v.Value, key: *v.Value, vm: *VM) callconv(.c) v.Value {
+    const map = o.ObjMap.cast(map_value.obj(vm.gc)).?;
     const map_keys = map.map.keys();
 
     // Sentinel is the external start/end marker here so real `null` keys stay iterable.
@@ -1499,7 +1498,7 @@ export fn bz_mapForeachNext(
     index: *v.Value,
     vm: *VM,
 ) callconv(.c) void {
-    const map = o.ObjMap.cast(map_value.obj()).?;
+    const map = o.ObjMap.cast(map_value.obj(vm.gc)).?;
 
     std.debug.assert(index.*.isDouble());
 
@@ -1529,11 +1528,11 @@ export fn bz_mapForeachNext(
 }
 
 export fn bz_enumNext(enum_value: v.Value, case: v.Value, vm: *VM) callconv(.c) v.Value {
-    const enum_ = o.ObjEnum.cast(enum_value.obj()).?;
+    const enum_ = o.ObjEnum.cast(enum_value.obj(vm.gc)).?;
 
     if (enum_.rawNext(
         vm,
-        if (case.isNull()) null else o.ObjEnumInstance.cast(case.obj()),
+        if (case.isNull()) null else o.ObjEnumInstance.cast(case.obj(vm.gc)),
     ) catch @panic("Could not iterate over enum")) |new_case| {
         return new_case.toValue();
     }
@@ -1553,7 +1552,7 @@ export fn bz_zigType(vm: *VM, ztype: [*]const u8, len: usize, expected_type: *v.
     const zdef = vm.ffi.parseTypeExpr(ztype[0..len]) catch return null;
 
     if (zdef) |uzdef| {
-        expected_type.* = uzdef.type_def.toValue();
+        expected_type.* = vm.gc.getTypeDef(uzdef.type_def).toValue();
 
         return &uzdef.zig_type;
     }
@@ -1562,9 +1561,9 @@ export fn bz_zigType(vm: *VM, ztype: [*]const u8, len: usize, expected_type: *v.
 }
 
 export fn bz_foreignContainerGet(value: v.Value, field_idx: usize, vm: *VM) callconv(.c) v.Value {
-    const container = o.ObjForeignContainer.cast(value.obj()).?;
+    const container = o.ObjForeignContainer.cast(value.obj(vm.gc)).?;
 
-    return container.type_def.resolved_type.?
+    return vm.gc.getTypeDef(container.type_def).resolved_type.?
         .ForeignContainer
         .fields.values()[field_idx]
         .getter(
@@ -1574,9 +1573,9 @@ export fn bz_foreignContainerGet(value: v.Value, field_idx: usize, vm: *VM) call
 }
 
 export fn bz_foreignContainerSet(value: v.Value, field_idx: usize, new_value: v.Value, vm: *VM) callconv(.c) void {
-    const container = o.ObjForeignContainer.cast(value.obj()).?;
+    const container = o.ObjForeignContainer.cast(value.obj(vm.gc)).?;
     // Oh right that's beautiful enough...
-    return container.type_def.resolved_type.?.ForeignContainer
+    return vm.gc.getTypeDef(container.type_def).resolved_type.?.ForeignContainer
         .fields.values()[field_idx]
         .setter(
         vm,
@@ -1589,7 +1588,7 @@ export fn bz_newForeignContainerInstance(vm: *VM, typedef_value: v.Value) callco
     return (vm.gc.allocateObject(
         o.ObjForeignContainer.init(
             vm,
-            o.ObjTypeDef.cast(typedef_value.obj()).?,
+            o.ObjTypeDef.cast(typedef_value.obj(vm.gc)).?,
         ) catch {
             vm.panic("Out of memory");
             unreachable;
@@ -1600,22 +1599,22 @@ export fn bz_newForeignContainerInstance(vm: *VM, typedef_value: v.Value) callco
     }).toValue();
 }
 
-export fn bz_foreignContainerSlice(container_value: v.Value, len: *usize) callconv(.c) [*]u8 {
-    const container = o.ObjForeignContainer.cast(container_value.obj()).?;
+export fn bz_foreignContainerSlice(container_value: v.Value, len: *usize, vm: *VM) callconv(.c) [*]u8 {
+    const container = o.ObjForeignContainer.cast(container_value.obj(vm.gc)).?;
 
     len.* = container.data.len;
 
     return container.data.ptr;
 }
 
-export fn bz_valueIsForeignContainer(value: v.Value) callconv(.c) bool {
-    return value.isObj() and value.obj().obj_type == .ForeignContainer;
+export fn bz_valueIsForeignContainer(value: v.Value, vm: *VM) callconv(.c) bool {
+    return value.isObj() and value.obj(vm.gc).obj_type == .ForeignContainer;
 }
 
 export fn bz_newForeignContainerFromSlice(vm: *VM, type_def: v.Value, ptr: [*]u8, len: usize) callconv(.c) v.Value {
     var container = (vm.gc.allocateObject(
         o.ObjForeignContainer{
-            .type_def = o.ObjTypeDef.cast(type_def.obj()).?,
+            .type_def = o.ObjTypeDef.cast(type_def.obj(vm.gc)).?.toIdx(),
             .data = ptr[0..len],
         },
     ) catch {
@@ -1883,7 +1882,7 @@ export fn bz_writeZigValueToBuffer(
         .Int => {
             switch (ztype.Int.bits) {
                 64 => {
-                    const unwrapped = o.ObjUserData.cast(value.obj()).?.userdata;
+                    const unwrapped = o.ObjUserData.cast(value.obj(vm.gc)).?.userdata;
                     const bytes = std.mem.asBytes(&unwrapped);
 
                     buffer.replaceRange(vm.gc.allocator, at, bytes.len, bytes) catch {
@@ -1939,7 +1938,7 @@ export fn bz_writeZigValueToBuffer(
         .Fn,
         .Opaque,
         => {
-            const unwrapped = o.ObjUserData.cast(value.obj()).?.userdata;
+            const unwrapped = o.ObjUserData.cast(value.obj(vm.gc)).?.userdata;
             const bytes = std.mem.asBytes(&unwrapped);
 
             buffer.replaceRange(vm.gc.allocator, at, bytes.len, bytes) catch {

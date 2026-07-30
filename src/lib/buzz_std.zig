@@ -45,7 +45,7 @@ pub export fn random(ctx: *api.NativeCtx) callconv(.c) c_int {
 
 pub export fn print(ctx: *api.NativeCtx) callconv(.c) c_int {
     var len: usize = 0;
-    const string = ctx.vm.bz_peek(0).bz_valueToString(&len);
+    const string = ctx.vm.bz_peek(0).bz_valueToString(&len, ctx.vm);
 
     if (len == 0) {
         return 0;
@@ -101,7 +101,7 @@ pub export fn parseInt(ctx: *api.NativeCtx) callconv(.c) c_int {
     const string_value = ctx.vm.bz_peek(0);
 
     var len: usize = 0;
-    const string = string_value.bz_valueToString(&len);
+    const string = string_value.bz_valueToString(&len, ctx.vm);
 
     if (len == 0) {
         ctx.vm.bz_push(api.Value.Null);
@@ -126,7 +126,7 @@ pub export fn parseUd(ctx: *api.NativeCtx) callconv(.c) c_int {
     const string_value = ctx.vm.bz_peek(0);
 
     var len: usize = 0;
-    const string = string_value.bz_valueToString(&len);
+    const string = string_value.bz_valueToString(&len, ctx.vm);
 
     if (len == 0) {
         ctx.vm.bz_push(api.Value.Null);
@@ -156,7 +156,7 @@ pub export fn parseDouble(ctx: *api.NativeCtx) callconv(.c) c_int {
     const string_value = ctx.vm.bz_peek(0);
 
     var len: usize = 0;
-    const string = string_value.bz_valueToString(&len);
+    const string = string_value.bz_valueToString(&len, ctx.vm);
 
     if (len == 0) {
         ctx.vm.bz_push(api.Value.Null);
@@ -205,7 +205,7 @@ pub export fn assert(ctx: *api.NativeCtx) callconv(.c) c_int {
     if (!condition_value.boolean()) {
         if (message_value.isObj()) {
             var len: usize = 0;
-            const message = api.Value.bz_valueToString(message_value, &len).?;
+            const message = api.Value.bz_valueToString(message_value, &len, ctx.vm).?;
             writer.interface.print(
                 "Assert failed: {s}\n",
                 .{
@@ -232,7 +232,7 @@ pub export fn currentFiber(ctx: *api.NativeCtx) callconv(.c) c_int {
 
 pub export fn buzzPanic(ctx: *api.NativeCtx) callconv(.c) c_int {
     var len: usize = 0;
-    const message = api.Value.bz_valueToString(ctx.vm.bz_peek(0), &len).?;
+    const message = api.Value.bz_valueToString(ctx.vm.bz_peek(0), &len, ctx.vm).?;
 
     ctx.vm.bz_panic(message, len);
 

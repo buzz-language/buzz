@@ -119,7 +119,7 @@ pub export fn getStdErr(ctx: *api.NativeCtx) callconv(.c) c_int {
 }
 
 pub export fn FileIsTTY(ctx: *api.NativeCtx) callconv(.c) c_int {
-    const file = File.fromUserData(ctx.vm.bz_peek(0).bz_getUserDataPtr());
+    const file = File.fromUserData(ctx.vm.bz_peek(0).bz_getUserDataPtr(ctx.vm));
 
     ctx.vm.bz_push(
         .fromBoolean(
@@ -191,7 +191,7 @@ fn openReadFile(ctx: *api.NativeCtx, filename: []const u8) !std.Io.File {
 pub export fn FileOpen(ctx: *api.NativeCtx) callconv(.c) c_int {
     const mode: u8 = @intCast(ctx.vm.bz_peek(0).integer());
     var len: usize = 0;
-    const filename = ctx.vm.bz_peek(1).bz_valueToString(&len);
+    const filename = ctx.vm.bz_peek(1).bz_valueToString(&len, ctx.vm);
     const filename_slice = filename.?[0..len];
     const io = ctx.getIo();
 
@@ -239,7 +239,7 @@ pub export fn FileOpen(ctx: *api.NativeCtx) callconv(.c) c_int {
 
 pub export fn FileClose(ctx: *api.NativeCtx) callconv(.c) c_int {
     File.fromUserData(
-        ctx.vm.bz_peek(0).bz_getUserDataPtr(),
+        ctx.vm.bz_peek(0).bz_getUserDataPtr(ctx.vm),
     ).deinit(ctx.getIo(), api.VM.allocator);
 
     return 0;
@@ -273,7 +273,7 @@ fn handleFileReadWriteError(ctx: *api.NativeCtx, err: anytype) void {
 pub export fn FileReadAll(ctx: *api.NativeCtx) callconv(.c) c_int {
     const max_size = ctx.vm.bz_peek(0);
 
-    const file = File.fromUserData(ctx.vm.bz_peek(1).bz_getUserDataPtr());
+    const file = File.fromUserData(ctx.vm.bz_peek(1).bz_getUserDataPtr(ctx.vm));
     const reader = file.getOrCreateReader(
         ctx.getIo(),
         api.VM.allocator,
@@ -312,7 +312,7 @@ pub export fn FileReadAll(ctx: *api.NativeCtx) callconv(.c) c_int {
 pub export fn FileReadLine(ctx: *api.NativeCtx) callconv(.c) c_int {
     const max_size = ctx.vm.bz_peek(0);
 
-    const file = File.fromUserData(ctx.vm.bz_peek(1).bz_getUserDataPtr());
+    const file = File.fromUserData(ctx.vm.bz_peek(1).bz_getUserDataPtr(ctx.vm));
     const reader = file.getOrCreateReader(
         ctx.getIo(),
         api.VM.allocator,
@@ -358,7 +358,7 @@ pub export fn FileRead(ctx: *api.NativeCtx) callconv(.c) c_int {
         return -1;
     }
 
-    const file = File.fromUserData(ctx.vm.bz_peek(1).bz_getUserDataPtr());
+    const file = File.fromUserData(ctx.vm.bz_peek(1).bz_getUserDataPtr(ctx.vm));
     const reader = file.getOrCreateReader(ctx.getIo(), api.VM.allocator, null) catch {
         ctx.vm.bz_panic("Out of memory", "Out of memory".len);
         unreachable;
@@ -393,10 +393,10 @@ pub export fn FileRead(ctx: *api.NativeCtx) callconv(.c) c_int {
 }
 
 pub export fn FileWrite(ctx: *api.NativeCtx) callconv(.c) c_int {
-    const file = File.fromUserData(ctx.vm.bz_peek(1).bz_getUserDataPtr());
+    const file = File.fromUserData(ctx.vm.bz_peek(1).bz_getUserDataPtr(ctx.vm));
 
     var len: usize = 0;
-    var value = ctx.vm.bz_peek(0).bz_valueToString(&len);
+    var value = ctx.vm.bz_peek(0).bz_valueToString(&len, ctx.vm);
 
     if (len == 0) {
         return 0;
@@ -454,7 +454,7 @@ const FilePoller = struct {
 };
 
 pub export fn FileGetPoller(ctx: *api.NativeCtx) callconv(.c) c_int {
-    const file = File.fromUserData(ctx.vm.bz_peek(0).bz_getUserDataPtr());
+    const file = File.fromUserData(ctx.vm.bz_peek(0).bz_getUserDataPtr(ctx.vm));
 
     const poller = api.VM.allocator.create(FilePoller) catch {
         ctx.vm.bz_panic("Out of memory", "Out of memory".len);
@@ -478,7 +478,7 @@ fn pollerFromUserData(userdata: u64) *FilePoller {
 
 pub export fn PollerPoll(ctx: *api.NativeCtx) callconv(.c) c_int {
     const poller = pollerFromUserData(
-        ctx.vm.bz_peek(1).bz_getUserDataPtr(),
+        ctx.vm.bz_peek(1).bz_getUserDataPtr(ctx.vm),
     );
     const timeout_value = ctx.vm.bz_peek(0);
     const timeout = if (timeout_value.isInteger())
@@ -518,7 +518,7 @@ pub export fn PollerPoll(ctx: *api.NativeCtx) callconv(.c) c_int {
 
 pub export fn PollerDeinit(ctx: *api.NativeCtx) callconv(.c) c_int {
     const poller = pollerFromUserData(
-        ctx.vm.bz_peek(0).bz_getUserDataPtr(),
+        ctx.vm.bz_peek(0).bz_getUserDataPtr(ctx.vm),
     );
 
     poller.deinit();
@@ -554,7 +554,7 @@ fn handleWindowsPollError(ctx: *api.NativeCtx, err: anytype) void {
 pub export fn runFile(ctx: *api.NativeCtx) callconv(.c) c_int {
     // Read file
     var len: usize = 0;
-    const filename_string = ctx.vm.bz_peek(0).bz_valueToString(&len);
+    const filename_string = ctx.vm.bz_peek(0).bz_valueToString(&len, ctx.vm);
 
     const filename: []const u8 = filename_string.?[0..len];
     const filename_slice: []const u8 = std.mem.sliceTo(filename, 0);
