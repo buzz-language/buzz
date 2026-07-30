@@ -10,12 +10,16 @@ pub const Integer = i48;
 const Tag = u3;
 
 pub const Value = extern struct {
+    /// Largest integer magnitude for which every `f64` integer value remains exact.
+    pub const MaxExactDoubleInteger: u64 = 1 << 53;
+
     pub const TagBoolean: Tag = 0;
     pub const TagInteger: Tag = 1;
     pub const TagNull: Tag = 2;
     pub const TagVoid: Tag = 3;
     pub const TagObj: Tag = 4;
     pub const TagError: Tag = 5;
+    pub const TagSentinel: Tag = 6;
 
     /// Most significant bit.
     pub const SignMask: u64 = 1 << 63;
@@ -34,6 +38,7 @@ pub const Value = extern struct {
     pub const NullMask: u64 = TaggedValueMask | (@as(u64, TagNull) << 32);
     pub const VoidMask: u64 = TaggedValueMask | (@as(u64, TagVoid) << 32);
     pub const ErrorMask: u64 = TaggedValueMask | (@as(u64, TagError) << 32);
+    pub const SentinelMask: u64 = TaggedValueMask | (@as(u64, TagSentinel) << 32);
 
     pub const TagMask: u32 = (1 << 3) - 1;
     pub const TaggedPrimitiveMask = TaggedValueMask | (@as(u64, TagMask) << 32) | IntegerMask;
@@ -46,6 +51,7 @@ pub const Value = extern struct {
     pub const False = Value{ .val = FalseMask };
     // We only need this so that an NativeFn can see the error returned by its raw function
     pub const Error = Value{ .val = ErrorMask };
+    pub const Sentinel = Value{ .val = SentinelMask };
 
     pub fn fromBoolean(val: bool) Value {
         return if (val) True else False;
@@ -76,7 +82,13 @@ pub const Value = extern struct {
     }
 
     pub fn isDouble(self: Value) bool {
-        return !self.isBool() and !self.isError() and !self.isInteger() and !self.isNull() and !self.isObj() and !self.isVoid();
+        return !self.isBool() and
+            !self.isError() and
+            !self.isInteger() and
+            !self.isNull() and
+            !self.isObj() and
+            !self.isSentinel() and
+            !self.isVoid();
     }
 
     pub fn isNumber(self: Value) bool {
@@ -97,6 +109,10 @@ pub const Value = extern struct {
 
     pub fn isError(self: Value) bool {
         return self.val == ErrorMask;
+    }
+
+    pub fn isSentinel(self: Value) bool {
+        return self.val == SentinelMask;
     }
 
     pub fn boolean(self: Value) bool {
@@ -147,6 +163,7 @@ pub const Value = extern struct {
         return switch (self.getTag()) {
             TagBoolean => gc.type_registry.bool_type,
             TagNull, TagVoid => gc.type_registry.void_type,
+            TagSentinel => unreachable,
             else => gc.type_registry.double_type,
         };
     }
@@ -192,6 +209,7 @@ pub const Value = extern struct {
         switch (self.getTag()) {
             TagBoolean => try writer.print("{}", .{self.boolean()}),
             TagNull => try writer.print("null", .{}),
+            TagSentinel => try writer.print("sentinel", .{}),
             TagVoid => try writer.print("void", .{}),
             else => try writer.print("{d}", .{self.double()}),
         }
@@ -232,6 +250,7 @@ pub const Value = extern struct {
         return switch (a.getTag()) {
             TagBoolean => a.boolean() == b.boolean(),
             TagNull => true,
+            TagSentinel => true,
             TagVoid => true,
             else => unreachable,
         };
@@ -260,6 +279,7 @@ pub const Value = extern struct {
             TagBoolean => type_def.def_type == .Boolean,
             // TODO: this one is ambiguous at runtime, is it the `null` constant? or an optional local with a null value?
             TagNull => type_def.def_type == .Void or type_def.optional,
+            TagSentinel => unreachable,
             TagVoid => type_def.def_type == .Void,
             else => type_def.def_type == .Double,
         };
@@ -282,6 +302,7 @@ pub const Value = extern struct {
             TagBoolean => type_def.def_type == .Boolean,
             // TODO: this one is ambiguous at runtime, is it the `null` constant? or an optional local with a null value?
             TagNull => type_def.def_type == .Void or type_def.optional,
+            TagSentinel => unreachable,
             TagVoid => type_def.def_type == .Void,
             else => type_def.def_type == .Double,
         };

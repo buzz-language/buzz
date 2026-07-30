@@ -43,6 +43,7 @@ pub fn addConstant(self: *Self, vm: ?*VM, value: Value) !u24 {
 pub const OpCode = enum(u8) {
     OP_CONSTANT,
     OP_NULL,
+    OP_SENTINEL,
     OP_VOID,
     OP_TRUE,
     OP_FALSE,

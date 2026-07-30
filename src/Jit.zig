@@ -5371,11 +5371,12 @@ fn generateForEach(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
     }
 
     const iterable = if (self.state.?.ast_node != node) regular: {
-        // key, value and iterable are locals of the foreach scope
+        // key, value, hidden state, and iterable are locals of the foreach scope
         // var declaration so will push value on stack
         _ = try self.generateNode(components.key);
         // var declaration so will push value on stack
         _ = try self.generateNode(components.value);
+        _ = try self.generateNode(components.map_index);
         const iterable = (try self.generateNode(components.iterable)).?;
         try self.buildPush(iterable);
 
@@ -5395,8 +5396,19 @@ fn generateForEach(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
         break :hotspot iterable;
     };
 
-    const key_ptr = try self.buildStackPtr(2);
-    const value_ptr = try self.buildStackPtr(1);
+    const is_map_foreach = iterable_type_def.?.def_type == .Map;
+    const key_ptr = try self.buildStackPtr(3);
+    const value_ptr = try self.buildStackPtr(2);
+    const map_index_ptr = try self.buildStackPtr(1);
+
+    if (self.state.?.ast_node != node and is_map_foreach) {
+        // Mirror bytecode foreach setup: start the hidden index at -1 so the
+        // first iteration advances to key slot 0.
+        self.MOV(
+            try self.LOAD(map_index_ptr),
+            m.MIR_new_uint_op(self.ctx, Value.fromDouble(-1).val),
+        );
+    }
 
     const cond_label = m.MIR_new_label(self.ctx);
     const out_label = m.MIR_new_label(self.ctx);
@@ -5434,11 +5446,11 @@ fn generateForEach(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
             },
         );
 
-        // If next key is null stop, otherwise do loop
+        // If next value is the sentinel stop, otherwise do loop
         self.BEQ(
             m.MIR_new_label_op(self.ctx, out_label),
             try self.LOAD(value_ptr),
-            m.MIR_new_uint_op(self.ctx, Value.Null.val),
+            m.MIR_new_uint_op(self.ctx, Value.Sentinel.val),
         );
     } else if (iterable_type_def.?.def_type == .Range) {
         try self.buildExternApiCall(
@@ -5454,7 +5466,7 @@ fn generateForEach(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
         self.BEQ(
             m.MIR_new_label_op(self.ctx, out_label),
             try self.LOAD(value_ptr),
-            m.MIR_new_uint_op(self.ctx, Value.Null.val),
+            m.MIR_new_uint_op(self.ctx, Value.Sentinel.val),
         );
     } else {
         // The `next` method will store the new key in the key local
@@ -5462,30 +5474,33 @@ fn generateForEach(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
             switch (iterable_type_def.?.def_type) {
                 .String => .bz_stringNext,
                 .List => .bz_listNext,
-                .Map => .bz_mapNext,
+                .Map => .bz_mapForeachNext,
                 else => unreachable,
             },
-            try self.LOAD(value_ptr),
+            if (is_map_foreach) null else try self.LOAD(value_ptr),
             if (iterable_type_def.?.def_type == .Map)
                 &.{
                     iterable,
-                    // Pass ptr so the method can put he new key in it
+                    // Pass ptrs so the helper can update key, value, and the hidden index.
                     key_ptr,
+                    value_ptr,
+                    map_index_ptr,
+                    m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
                 }
             else
                 &.{
                     iterable,
-                    // Pass ptr so the method can put he new key in it
+                    // Pass ptr so the method can put the new key in it.
                     key_ptr,
                     m.MIR_new_reg_op(self.ctx, self.state.?.vm_reg.?),
                 },
         );
 
-        // If next key is null stop, otherwise loop
+        // If the iteration state slot is the sentinel stop, otherwise loop
         self.BEQ(
             m.MIR_new_label_op(self.ctx, out_label),
             try self.LOAD(key_ptr),
-            m.MIR_new_uint_op(self.ctx, Value.Null.val),
+            m.MIR_new_uint_op(self.ctx, Value.Sentinel.val),
         );
     }
 

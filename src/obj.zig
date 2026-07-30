@@ -2190,11 +2190,6 @@ pub const ObjList = struct {
             .doc = "Returns a list made from applying the callback to each item.",
         },
         .{
-            .name = "next",
-            .native = buzz_builtin.list.next,
-            .doc = "Returns the next iteration index, or null at the end.",
-        },
-        .{
             .name = "pop",
             .native = buzz_builtin.list.pop,
             .doc = "Removes and returns the last item, or null when the list is empty.",
@@ -2285,15 +2280,10 @@ pub const ObjList = struct {
     }
 
     // Used also by the VM
-    pub fn rawNext(self: *Self, vm: *VM, list_index: ?Integer) !?Integer {
+    pub fn rawNext(self: *Self, list_index: ?Integer) !?Integer {
         if (list_index) |index| {
             if (index < 0 or index >= @as(Integer, @intCast(self.items.items.len))) {
-                try vm.throw(
-                    VM.Error.OutOfBound,
-                    (try vm.gc.copyString("Out of bound access to list")).toValue(),
-                    null,
-                    null,
-                );
+                return null;
             }
 
             return if (index + 1 >= @as(Integer, @intCast(self.items.items.len)))
@@ -2453,57 +2443,6 @@ pub const ObjList = struct {
                 try self.methods.put(
                     parser.gc.allocator,
                     "len",
-                    member_def,
-                );
-
-                return member_def;
-            } else if (mem.eql(u8, method, "next")) {
-                var parameters = std.AutoArrayHashMapUnmanaged(*ObjString, *ObjTypeDef){};
-
-                // We omit first arg: it'll be OP_SWAPed in and we already parsed it
-                // It's always the list.
-
-                // `key` arg is number
-                try parameters.put(
-                    parser.gc.allocator,
-                    try parser.gc.copyString("key"),
-                    try parser.gc.type_registry.getTypeDef(
-                        ObjTypeDef{
-                            .def_type = .Integer,
-                            .optional = true,
-                        },
-                    ),
-                );
-                const native_type = try parser.gc.type_registry.getTypeDef(
-                    .{
-                        .def_type = .Function,
-                        .resolved_type = .{
-                            .Function = .{
-                                .id = ObjFunction.FunctionDef.nextId(),
-                                .script_name = try parser.gc.copyString("builtin"),
-                                .name = try parser.gc.copyString("next"),
-                                .parameters = parameters,
-                                // When reached end of list, returns null
-                                .return_type = try parser.gc.type_registry.getTypeDef(
-                                    ObjTypeDef{
-                                        .def_type = .Integer,
-                                        .optional = true,
-                                    },
-                                ),
-                                .yield_type = parser.gc.type_registry.void_type,
-                                .function_type = .Extern,
-                            },
-                        },
-                    },
-                );
-
-                const member_def = Method{
-                    .type_def = native_type,
-                    .mutable = false,
-                };
-                try self.methods.put(
-                    parser.gc.allocator,
-                    "next",
                     member_def,
                 );
 
@@ -3564,22 +3503,6 @@ pub const ObjMap = struct {
         }
 
         try gc.markObj(@constCast(self.type_def.toObj()));
-    }
-
-    pub fn rawNext(self: *Self, key: ?Value) ?Value {
-        const map_keys: []Value = self.map.keys();
-
-        if (key) |ukey| {
-            const index: usize = self.map.getIndex(ukey).?;
-
-            if (index < map_keys.len - 1) {
-                return map_keys[index + 1];
-            } else {
-                return null;
-            }
-        } else {
-            return if (map_keys.len > 0) map_keys[0] else null;
-        }
     }
 
     pub fn deinit(self: *Self, allocator: Allocator) void {
@@ -4784,7 +4707,10 @@ pub const ObjTypeDef = struct {
                         type_registry,
                         allocator,
                         visited_ptr,
-                    )).cloneOptional(type_registry),
+                    )).toInstance(
+                        type_registry,
+                        self.resolved_type.?.Fiber.yield_type.isMutable(),
+                    ),
                 };
 
                 const resolved = ObjTypeDef.TypeUnion{ .Fiber = new_fiber_def };
@@ -5025,7 +4951,7 @@ pub const ObjTypeDef = struct {
                         type_registry,
                         old_fun_def.return_type.isMutable(),
                     ),
-                    .yield_type = try (try (try old_fun_def.yield_type.populateGenerics(
+                    .yield_type = try (try old_fun_def.yield_type.populateGenerics(
                         where,
                         origin,
                         generics,
@@ -5036,8 +4962,7 @@ pub const ObjTypeDef = struct {
                         .toInstance(
                         type_registry,
                         old_fun_def.yield_type.isMutable(),
-                    ))
-                        .cloneOptional(type_registry),
+                    ),
                     .error_types = if (error_types) |*types| try types.toOwnedSlice(type_registry.gc.allocator) else null,
                     .parameters = parameters,
                     .defaults = old_fun_def.defaults,
@@ -5552,21 +5477,21 @@ pub const ObjTypeDef = struct {
 
                 try writer.writeAll(")");
 
-                if (function_def.yield_type.def_type != .Void) {
-                    try writer.writeAll(" > ");
-                    try function_def.yield_type.toStringRaw(
-                        writer,
-                        qualified,
-                        show_unresolved,
-                    );
-                }
-
                 try writer.writeAll(" > ");
                 try function_def.return_type.toStringRaw(
                     writer,
                     qualified,
                     show_unresolved,
                 );
+
+                if (function_def.yield_type.def_type != .Void) {
+                    try writer.writeAll(" *> ");
+                    try function_def.yield_type.toStringRaw(
+                        writer,
+                        qualified,
+                        show_unresolved,
+                    );
+                }
 
                 if (function_def.error_types != null and function_def.error_types.?.len > 0) {
                     try writer.writeAll(" !> ");

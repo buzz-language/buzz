@@ -80,7 +80,7 @@ test "generic return" {
     );
 }
 
-fun fiber::<T>(data: [T]) > void *> T? {
+fun fiber::<T>(data: [T]) > void *> T {
     foreach (element in data) {
         _ = yield element;
     }

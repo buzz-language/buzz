@@ -2792,6 +2792,7 @@ pub const Renderer = struct {
     fn renderForEach(self: *Self, node: Ast.Node.Index, space: Space) Error!void {
         const locations = self.ast.nodes.items(.location);
         const end_locations = self.ast.nodes.items(.end_location);
+        const utility_tokens = self.ast.tokens.items(.utility_token);
         const components = self.ast.nodes.items(.components)[node].ForEach;
 
         // foreach
@@ -2835,8 +2836,11 @@ pub const Renderer = struct {
         try self.renderNode(components.iterable, .None);
 
         // )
+        const tags = self.ast.tokens.items(.tag);
+        var right_paren = end_locations[components.iterable];
+        while (utility_tokens[right_paren] or tags[right_paren] != .RightParen) : (right_paren += 1) {}
         try self.renderExpectedToken(
-            end_locations[components.iterable] + 1,
+            right_paren,
             .RightParen,
             .Space,
         );

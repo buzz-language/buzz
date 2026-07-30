@@ -3448,16 +3448,6 @@ fn parseFiberType(self: *Self, generic_types: ?std.AutoArrayHashMapUnmanaged(*ob
     try self.consume(.Comma, "Expected `,` after fiber return type");
     const yield_type = try self.parseTypeDef(generic_types, true);
 
-    const yield_type_def = self.ast.nodes.items(.type_def)[yield_type].?;
-    if (!yield_type_def.optional and yield_type_def.def_type != .Void) {
-        self.reportErrorAtNode(
-            .yield_type,
-            yield_type,
-            "Expected optional type or void",
-            .{},
-        );
-    }
-
     try self.consume(.Greater, "Expected `>` after fiber yield type");
 
     return self.ast.appendNode(
@@ -6939,18 +6929,7 @@ fn function(
             function_typedef.resolved_type.?.Function.generic_types,
             true,
         );
-        const yield_type = self.ast.nodes.items(.type_def)[yield_type_node].?;
-
-        if (!yield_type.optional and yield_type.def_type != .Void) {
-            self.reportErrorAtNode(
-                .yield_type,
-                yield_type_node,
-                "Expected optional type or void",
-                .{},
-            );
-        }
-
-        function_typedef.resolved_type.?.Function.yield_type = yield_type;
+        function_typedef.resolved_type.?.Function.yield_type = self.ast.nodes.items(.type_def)[yield_type_node].?;
 
         break :yield yield_type_node;
     } else null;
@@ -7355,8 +7334,8 @@ fn resumeFiber(self: *Self, _: bool) Error!Ast.Node.Index {
         } else {
             const fiber = fiber_type.?.resolved_type.?.Fiber;
 
-            // Resume returns null if nothing was yielded and/or fiber reached its return statement
-            self.ast.nodes.items(.type_def)[node] = fiber.yield_type;
+            // Resume returns null if nothing was yielded after the fiber was resumed.
+            self.ast.nodes.items(.type_def)[node] = try fiber.yield_type.cloneOptional(&self.gc.type_registry);
         }
     }
 
@@ -10627,7 +10606,16 @@ fn forEachStatement(self: *Self) Error!Ast.Node.Index {
 
     try self.consume(.In, "Expected `in` after `foreach` variables.");
 
-    // Local not usable by user but needed so that locals are correct
+    // Hidden foreach state always occupies the third slot. It is only read for
+    // map iteration, but keeping a fixed layout avoids per-iterable variants.
+    const map_index = try self.implicitVarDeclaration(
+        try self.insertUtilityToken(Token.identifier("$map_index"), true),
+        self.gc.type_registry.double_type,
+        false,
+        false,
+    );
+
+    // Local not usable by user but needed so that locals are correct.
     const iterable_slot = try self.addLocal(
         @intCast(node_slot),
         try self.insertUtilityToken(Token.identifier("$iterable"), true),
@@ -10738,6 +10726,7 @@ fn forEachStatement(self: *Self) Error!Ast.Node.Index {
                 .ForEach = .{
                     .key = key,
                     .value = value.?,
+                    .map_index = map_index,
                     .iterable = iterable,
                     .body = undefined,
                     .key_omitted = key_omitted,

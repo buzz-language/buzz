@@ -1081,8 +1081,8 @@ fn generateCall(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!Gener
         switch (current_function_type) {
             // Even though a function can call a yieldable function without wrapping it in a fiber, the function itself could be called in a fiber
             .Function, .Method, .Anonymous => {
-                // `void?` is used by inferred function types but does not carry a yielded value.
-                const compatible_void_yield = current_function_yield_type.def_type == .Void and yield_type.def_type == .Void;
+                // Non-yielding callees are always valid inside a yielding function.
+                const compatible_void_yield = yield_type.def_type == .Void;
 
                 if (!compatible_void_yield and !current_function_yield_type.strictEql(yield_type)) {
                     self.reporter.reportTypeCheck(
@@ -1994,10 +1994,24 @@ fn generateForEach(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!Ge
             }
         }
     }
-
     _ = try self.generateNode(components.key, breaks);
     _ = try self.generateNode(components.value, breaks);
+    _ = try self.generateNode(components.map_index, breaks);
     _ = try self.generateNode(components.iterable, breaks);
+
+    if (iterable_type_def.def_type == .Map) {
+        // Map foreach uses a hidden local to track the current key index. Start
+        // at -1 so the first iteration advances to index 0.
+        try self.emitConstant(
+            locations[node],
+            Value.fromDouble(-1),
+        );
+        try self.OP_SET_LOCAL(
+            locations[node],
+            @intCast(node_components[components.map_index].VarDeclaration.slot),
+        );
+        try self.OP_POP(locations[node]);
+    }
 
     const loop_start: usize = self.currentCode();
     const jit_jump = if (!is_wasm) try self.emitJump(locations[node], .OP_HOTSPOT) else {};
@@ -2020,7 +2034,7 @@ fn generateForEach(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!Ge
         },
     );
 
-    // If next key is null, exit loop
+    // If the iteration state slot is the sentinel, exit the loop
     try self.OP_GET_LOCAL(
         locations[node],
         @intCast(
@@ -2030,7 +2044,7 @@ fn generateForEach(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!Ge
             },
         ),
     );
-    try self.OP_NULL(locations[node]);
+    try self.OP_SENTINEL(locations[node]);
     try self.OP_EQUAL(locations[node]);
     try self.OP_NOT(locations[node]);
     const exit_jump: usize = try self.OP_JUMP_IF_FALSE(locations[node]);
@@ -2057,9 +2071,10 @@ fn generateForEach(self: *Self, node: Ast.Node.Index, breaks: ?*Breaks) Error!Ge
     );
 
     try self.patchOptJumps(node);
-    // Should have key, [value,] iterable to pop
+    // Foreach always reserves key, value, hidden state, and iterable slots.
     std.debug.assert(
-        self.ast.nodes.items(.ends_scope)[node] != null and self.ast.nodes.items(.ends_scope)[node].?.len == 3,
+        self.ast.nodes.items(.ends_scope)[node] != null and
+            self.ast.nodes.items(.ends_scope)[node].?.len == 4,
     );
     try self.endScope(node);
 
@@ -3861,6 +3876,10 @@ fn OP_HOTSPOT(self: *Self, location: Ast.TokenIndex) !usize {
 
 fn OP_NULL(self: *Self, location: Ast.TokenIndex) !void {
     try self.emitOpCode(location, .OP_NULL);
+}
+
+fn OP_SENTINEL(self: *Self, location: Ast.TokenIndex) !void {
+    try self.emitOpCode(location, .OP_SENTINEL);
 }
 
 fn OP_VOID(self: *Self, location: Ast.TokenIndex) !void {

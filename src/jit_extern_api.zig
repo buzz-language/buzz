@@ -60,6 +60,7 @@ pub const ExternApi = enum {
     bz_stringNext,
     bz_listNext,
     bz_mapNext,
+    bz_mapForeachNext,
     bz_enumNext,
     bz_rangeNext,
     bz_clone,
@@ -808,6 +809,40 @@ pub const ExternApi = enum {
                     },
                 },
             ),
+            .bz_mapForeachNext => m.MIR_new_proto_arr(
+                ctx,
+                self.pname(),
+                0,
+                null,
+                5,
+                &.{
+                    .{
+                        .type = m.MIR_T_U64,
+                        .name = "iterable",
+                        .size = undefined,
+                    },
+                    .{
+                        .type = m.MIR_T_P,
+                        .name = "key",
+                        .size = undefined,
+                    },
+                    .{
+                        .type = m.MIR_T_P,
+                        .name = "value",
+                        .size = undefined,
+                    },
+                    .{
+                        .type = m.MIR_T_P,
+                        .name = "index",
+                        .size = undefined,
+                    },
+                    .{
+                        .type = m.MIR_T_P,
+                        .name = "vm",
+                        .size = undefined,
+                    },
+                },
+            ),
             .bz_rangeNext => m.MIR_new_proto_arr(
                 ctx,
                 self.pname(),
@@ -1176,6 +1211,7 @@ pub const ExternApi = enum {
             .bz_mapGet => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.Value.bz_mapGet))),
             .bz_mapSet => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.Value.bz_mapSet))),
             .bz_mapNext => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.Value.bz_mapNext))),
+            .bz_mapForeachNext => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.Value.bz_mapForeachNext))),
             .bz_mapConcat => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.Value.bz_mapConcat))),
             .bz_valueEqual => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.Value.bz_valueEqual))),
             .bz_rangeContains => @as(*anyopaque, @ptrFromInt(@intFromPtr(&api.Value.bz_rangeContains))),

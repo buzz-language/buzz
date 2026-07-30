@@ -88,7 +88,7 @@ pub export fn toUd(ctx: *api.NativeCtx) callconv(.c) c_int {
     ctx.vm.bz_push(
         ctx.vm.bz_newUserData(if (value.isInteger())
             @intCast(value.integer())
-        else if (value.isFloat())
+        else if (value.isDouble())
             @intFromFloat(value.double())
         else
             0),

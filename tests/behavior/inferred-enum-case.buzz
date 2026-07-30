@@ -31,7 +31,7 @@ fun failLocale() > Locale !> str {
     throw "no locale";
 }
 
-fun localeFiber() > void *> Locale? {
+fun localeFiber() > void *> Locale {
     _ = yield .en;
 }
 

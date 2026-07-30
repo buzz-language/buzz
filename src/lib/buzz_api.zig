@@ -28,6 +28,7 @@ pub const Double = f64;
 pub const Integer = i48;
 
 // FIXME: can we avoid duplicating this code from value.zig?
+// Internal runtime-only tagged immediates may exist without being surfaced here.
 const Tag = u3;
 const TagBoolean: Tag = 0;
 const TagInteger: Tag = 1;
@@ -35,6 +36,7 @@ const TagNull: Tag = 2;
 const TagVoid: Tag = 3;
 const TagObj: Tag = 4;
 const TagError: Tag = 5;
+const TagSentinel: Tag = 6;
 
 /// Most significant bit.
 const SignMask: u64 = 1 << 63;
@@ -54,6 +56,7 @@ const IntegerMask: u64 = TaggedValueMask | (@as(u64, TagInteger) << 49);
 const NullMask: u64 = TaggedValueMask | (@as(u64, TagNull) << 32);
 const VoidMask: u64 = TaggedValueMask | (@as(u64, TagVoid) << 32);
 const ErrorMask: u64 = TaggedValueMask | (@as(u64, TagError) << 32);
+const SentinelMask: u64 = TaggedValueMask | (@as(u64, TagSentinel) << 32);
 
 const TagMask: u32 = (1 << 3) - 1;
 const TaggedPrimitiveMask = TaggedValueMask | (@as(u64, TagMask) << 32) | IntegerMask;
@@ -67,6 +70,7 @@ pub const Value = extern struct {
     pub const False = Value{ .val = FalseMask };
     // We only need this so that an NativeFn can see the error returned by its raw function
     pub const Error = Value{ .val = ErrorMask };
+    pub const Sentinel = Value{ .val = SentinelMask };
 
     pub fn fromBoolean(val: bool) Value {
         return if (val) True else False;
@@ -96,12 +100,12 @@ pub const Value = extern struct {
         return self.val & (TaggedUpperValueMask | SignMask) == IntegerMask;
     }
 
-    pub fn isFloat(self: Value) bool {
+    pub fn isDouble(self: Value) bool {
         return self.val & TaggedValueMask != TaggedValueMask;
     }
 
     pub fn isNumber(self: Value) bool {
-        return self.isFloat() or self.isInteger();
+        return self.isDouble() or self.isInteger();
     }
 
     pub fn isObj(self: Value) bool {
@@ -118,6 +122,10 @@ pub const Value = extern struct {
 
     pub fn isError(self: Value) bool {
         return self.val == ErrorMask;
+    }
+
+    pub fn isSentinel(self: Value) bool {
+        return self.val == SentinelMask;
     }
 
     pub fn boolean(self: Value) bool {
@@ -165,6 +173,7 @@ pub const Value = extern struct {
     pub extern fn bz_mapGet(map: Value, key: Value) callconv(.c) Value;
     pub extern fn bz_mapConcat(map: Value, other_map: Value, vm: *VM) callconv(.c) Value;
     pub extern fn bz_mapNext(map_value: Value, index: *Value) callconv(.c) Value;
+    pub extern fn bz_mapForeachNext(map_value: Value, key: *Value, value: *Value, index: *Value, vm: *VM) callconv(.c) void;
     pub extern fn bz_setObjectInstanceProperty(instance_value: Value, property_idx: usize, value: Value, vm: *VM) callconv(.c) void;
     pub extern fn bz_getObjectInstanceProperty(instance_value: Value, property_idx: usize) callconv(.c) Value;
     pub extern fn bz_getObjectInstanceMethod(instance_value: Value, method_idx: usize, bind: bool, vm: *VM) callconv(.c) Value;

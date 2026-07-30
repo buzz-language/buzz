@@ -1,6 +1,6 @@
 import "buzz:std";
 
-fun fibonacci(n: int) > void *> int? {
+fun fibonacci(n: int) > void *> int {
     var n1 = 0;
     var n2 = 1;
     var next: int? = null;
@@ -24,7 +24,7 @@ test "finobacci generator" {
 }
 
 object Hello {
-    fun getRange() > [int] *> int? {
+    fun getRange() > [int] *> int {
         final list: mut [int] = mut [];
         foreach (i in 0..10) {
             _ = yield i;
@@ -42,4 +42,28 @@ test "dot async call" {
     foreach (i in &hello.getRange()) {
         std\print("i {i}");
     }
+}
+
+fun yieldNullableValues() > void *> int? {
+    _ = yield null;
+    _ = yield 1;
+}
+
+test "foreach on fiber can yield null" {
+    var saw_null = false;
+    var sum = 0;
+
+    foreach (value in &yieldNullableValues()) {
+        if (value == null) {
+            saw_null = true;
+        } else {
+            sum = sum + value!;
+        }
+    }
+
+    std\assert(saw_null, message: "foreach should keep a null fiber yield as data");
+    std\assert(
+        sum == 1,
+        message: "foreach should continue after a null fiber yield"
+    );
 }

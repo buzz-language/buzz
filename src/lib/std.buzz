@@ -50,7 +50,7 @@ export extern fun char(byte: int) > str;
 export extern fun random(min: int? = null, max: int? = null) > int;
 
 /// @return Current fiber
-export extern fun currentFiber() > fib<any, any?>;
+export extern fun currentFiber() > fib<any, any>;
 
 /// Print message and exit program
 extern fun buzzPanic(message: str) > void;

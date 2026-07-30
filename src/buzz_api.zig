@@ -1433,23 +1433,22 @@ export fn bz_stringNext(string_value: v.Value, index: *v.Value, vm: *VM) callcon
         return (vm.gc.copyString(&[_]u8{string.string[@as(usize, @intCast(new_index))]}) catch @panic("Could not iterate on string")).toValue();
     }
 
-    index.* = v.Value.Null;
-    return v.Value.Null;
+    index.* = v.Value.Sentinel;
+    return v.Value.Sentinel;
 }
 
-export fn bz_listNext(list_value: v.Value, index: *v.Value, vm: *VM) callconv(.c) v.Value {
+export fn bz_listNext(list_value: v.Value, index: *v.Value, _: *VM) callconv(.c) v.Value {
     const list = o.ObjList.cast(list_value.obj()).?;
 
     if (list.rawNext(
-        vm,
         if (index.isNull()) null else index.integer(),
     ) catch @panic("Could not get next list index")) |new_index| {
         index.* = v.Value.fromInteger(new_index);
         return list.items.items[@as(usize, @intCast(new_index))];
     }
 
-    index.* = v.Value.Null;
-    return v.Value.Null;
+    index.* = v.Value.Sentinel;
+    return v.Value.Sentinel;
 }
 
 export fn bz_rangeNext(range_value: v.Value, index_slot: v.Value) callconv(.c) v.Value {
@@ -1458,12 +1457,12 @@ export fn bz_rangeNext(range_value: v.Value, index_slot: v.Value) callconv(.c) v
     if (index_slot.integerOrNull()) |index| {
         if (range.low < range.high) {
             return if (index + 1 >= range.high)
-                v.Value.Null
+                v.Value.Sentinel
             else
                 v.Value.fromInteger(index + 1);
         } else {
             return if (index - 1 <= range.high)
-                v.Value.Null
+                v.Value.Sentinel
             else
                 v.Value.fromInteger(index - 1);
         }
@@ -1474,15 +1473,59 @@ export fn bz_rangeNext(range_value: v.Value, index_slot: v.Value) callconv(.c) v
 
 export fn bz_mapNext(map_value: v.Value, key: *v.Value) callconv(.c) v.Value {
     const map = o.ObjMap.cast(map_value.obj()).?;
+    const map_keys = map.map.keys();
 
-    if (map.rawNext(if (key.isNull()) null else key.*)) |new_key| {
-        key.* = new_key;
+    // Sentinel is the external start/end marker here so real `null` keys stay iterable.
+    const next_key = if (key.isSentinel())
+        if (map_keys.len > 0) map_keys[0] else v.Value.Sentinel
+    else next: {
+        const index = map.map.getIndex(key.*) orelse break :next v.Value.Sentinel;
+        break :next if (index + 1 < map_keys.len) map_keys[index + 1] else v.Value.Sentinel;
+    };
 
-        return map.map.get(new_key) orelse v.Value.Null;
+    key.* = next_key;
+
+    if (!next_key.isSentinel()) {
+        return map.map.get(next_key) orelse v.Value.Null;
     }
 
-    key.* = v.Value.Null;
-    return v.Value.Null;
+    return v.Value.Sentinel;
+}
+
+export fn bz_mapForeachNext(
+    map_value: v.Value,
+    key: *v.Value,
+    value: *v.Value,
+    index: *v.Value,
+    vm: *VM,
+) callconv(.c) void {
+    const map = o.ObjMap.cast(map_value.obj()).?;
+
+    std.debug.assert(index.*.isDouble());
+
+    const current_index: i64 = @intFromFloat(index.*.double());
+    const next_index: i64 = current_index + 1;
+    std.debug.assert(next_index >= 0);
+
+    if (@as(u64, @intCast(next_index)) >= v.Value.MaxExactDoubleInteger) {
+        bz_throw(
+            vm,
+            (vm.gc.copyString("Map foreach index exceeded maximum exact double integer (2^53)") catch {
+                vm.panic("Out of memory");
+                unreachable;
+            }).toValue(),
+        );
+    }
+
+    const next_index_usize: usize = @intCast(next_index);
+    if (next_index_usize >= map.map.count()) {
+        key.* = v.Value.Sentinel;
+        return;
+    }
+
+    key.* = map.map.keys()[next_index_usize];
+    value.* = map.map.values()[next_index_usize];
+    index.* = v.Value.fromDouble(@floatFromInt(next_index));
 }
 
 export fn bz_enumNext(enum_value: v.Value, case: v.Value, vm: *VM) callconv(.c) v.Value {
@@ -1495,7 +1538,7 @@ export fn bz_enumNext(enum_value: v.Value, case: v.Value, vm: *VM) callconv(.c) 
         return new_case.toValue();
     }
 
-    return v.Value.Null;
+    return v.Value.Sentinel;
 }
 
 export fn bz_clone(vm: *VM, value: v.Value) callconv(.c) v.Value {

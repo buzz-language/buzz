@@ -1,15 +1,8 @@
-// Type mismatch: got type `str`, expected `void`
-import "buzz:std";
-
-fun one() > void *> str? {
+// Bad function yield type: got type `str`, expected `void`
+fun one() > void *> str {
     _ = yield "hello";
 }
 
 fun two() > void {
     one();
-}
-
-test "Deep yield" {
-    final fiber = &two();
-    std\print(resume fiber ?? "nope");
 }
