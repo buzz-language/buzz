@@ -28,3 +28,66 @@ test "hash" {
         message: "sha3-256",
     );
 }
+
+test "randomBytes returns correct length" {
+    final len = 16;
+    final bytes = randomBytes(len);
+    std\assert(
+        bytes.len() == len,
+        message: "randomBytes should return a string of the requested length"
+    );
+}
+
+test "randomBytes returns different values" {
+    final b1 = randomBytes(8);
+    final b2 = randomBytes(8);
+    std\assert(
+        b1 != b2,
+        message: "randomBytes should return different values"
+    );
+}
+
+test "argon2 hashes and verifies" {
+    final password = "my-secure-password";
+    final hash = argon2(password) catch from {
+        std\assert(
+            false,
+            message: "argon2 failed"
+        );
+        return;
+    };
+    final valid = verifyArgon2(password, hash) catch from {
+        std\assert(
+            false,
+            message: "verifyArgon2 failed"
+        );
+        return;
+    };
+    std\assert(
+        valid,
+        message: "argon2 verification should succeed for correct password"
+    );
+}
+
+test "argon2 fails for wrong password" {
+    final password = "my-secure-password";
+    final wrong = "wrong-password";
+    final hash = argon2(password) catch from {
+        std\assert(
+            false,
+            message: "argon2 failed"
+        );
+        return;
+    };
+    final valid = verifyArgon2(wrong, hash) catch from {
+        std\assert(
+            false,
+            message: "verifyArgon2 failed"
+        );
+        return;
+    };
+    std\assert(
+        !valid,
+        message: "argon2 verification should fail for wrong password"
+    );
+}

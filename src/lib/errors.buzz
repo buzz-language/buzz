@@ -187,3 +187,8 @@ export object UnderflowError {
 export object UnexpectedError {
     message: str = "UnexpectedError",
 }
+
+/// Error raised when an authentication process failed
+export object AuthenticationFailed {
+    message: str = "AuthenticationFailed",
+}
