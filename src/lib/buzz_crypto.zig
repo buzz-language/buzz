@@ -118,9 +118,10 @@ pub export fn argon2(ctx: *api.NativeCtx) callconv(.c) c_int {
     const password = pass_ptr.?[0..pass_len];
     var hash_buf: [256]u8 = undefined;
     const io = ctx.getIo();
+    const params = std.crypto.pwhash.argon2.Params.owasp_2id;
     const hash_r = std.crypto.pwhash.argon2.strHash(password, .{
         .allocator = api.VM.allocator,
-        .params = .{ .t = 2, .m = 19 * 1024, .p = 1 },
+        .params = params,
     }, &hash_buf, io) catch {
         ctx.vm.pushError("errors.AuthenticationFailed", "argon2 failed");
         return -1;
