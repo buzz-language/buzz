@@ -19,7 +19,7 @@ This release brings a lot of useful tools to write buzz code: LSP, formatter and
 - `match` statement/expression for value matching with type-specific condition semantics (https://github.com/buzz-language/buzz/issues/80)
 - Enum name can be omitted if it can be inferred (`final list: [Locale] = [ .fr, .it, .en ]`) (https://github.com/buzz-language/buzz/issues/360)
 - Object initialization name can be omitted if it can be inferred (`final payload: Payload = .{ data "..." };`) (https://github.com/buzz-language/buzz/issues/373)
-- When function call as one anonymous object literal argument, the parentheses can be omitted (`callMe{.{ data = "..." }}` becomes `callMe .{ data = "..." }`) (https://github.com/buzz-language/buzz/issues/372)
+- When function call as one anonymous object literal argument, the parentheses can be omitted (`callMe(.{ data = "..." })` becomes `callMe .{ data = "..." }`) (https://github.com/buzz-language/buzz/issues/372)
 - File polling API: `File.getPoller`, `FilePoller` (see example https://github.com/buzz-language/buzz/blob/main/tests/manual/007-fd-poller.buzz)
 - _Shortcut_ operators: `+=`, `-=`, `*=`, etc. (https://github.com/buzz-language/buzz/issues/78)
 - `rg.contains`
@@ -35,7 +35,6 @@ This release brings a lot of useful tools to write buzz code: LSP, formatter and
     - `buzz -t <script.buzz>` becomes `buzz test <script.buzz>`
     - `buzz -f <script.buzz>` becomes `buzz format <script.buzz>`
     - `buzz <directory>` runs `src/main.buzz` from a buzz package directory
-    - `buzz run` and `buzz run-script` were removed
     - `buzz init` and `buzz fetch` manage package scaffolding and dependencies
     - `buzz` will start the REPL
 - Extern libraries now must expose only one function which will be called by the compiler to lookup the functions of the library
@@ -48,18 +47,18 @@ This release brings a lot of useful tools to write buzz code: LSP, formatter and
 - Removed `map.next`
 
 ### Imports
-- Import do rely on searchers any more, instead the import path provides a deterministic way of finding the imported script
+- Import don't rely on searchers any more, instead the import path provides a deterministic way of finding the imported script
     - `buzz:<name>` will look for a buzz's standard library `<name>`
     - `pkg:<name>/path/to/<script.buzz>` will look for the script under `vendors/<name>/src/path/to/<script.buzz>`
 - Selective import erases the imported namespace: `import print from "buzz:std"; ... print("hello world");`
-- Common part of imported namespace gets erased: il imported file as namespace `a\b\c` and importing script has namespace `a\b`, only `c\` remains
+- Common part of imported namespace gets erased: if imported file as namespace `a\b\c` and importing script has namespace `a\b`, only `c\` remains
 
 ## Internal
 
 - JIT compiler works in a separate thread
 - Better JIT thresholds based of functions/hotspots complexity scores
 - The standard librairies are now statically loaded which gives a small speed boost
-- `-Dshow_perf` now shows detailed rundown of the time spent in each component of buzz
+- Build option `-Dshow_perf` now shows detailed rundown of the time spent in each component of buzz
 
 # 0.5.0 (01-24-2025)
 

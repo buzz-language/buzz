@@ -268,8 +268,8 @@ pub fn runManifest(self: *Runner, source: []const u8, name: []const u8) !?Value 
     return null;
 }
 
-pub fn frameTop(self: *Runner, fiber: *Fiber, frame: *CallFrame) [*]Value {
-    return if (self.vm.currentFrame() == frame)
+pub fn frameTop(_: *Runner, fiber: *Fiber, frame: *CallFrame) [*]Value {
+    return if (fiber.frame_count > 0 and &fiber.frames.items[fiber.frame_count - 1] == frame)
         fiber.stack_top
     else top: {
         var idx: ?usize = 0;
@@ -280,7 +280,7 @@ pub fn frameTop(self: *Runner, fiber: *Fiber, frame: *CallFrame) [*]Value {
             }
         }
 
-        std.debug.assert(idx != null and idx.? < fiber.frames.items.len);
+        std.debug.assert(idx != null and idx.? < fiber.frame_count);
 
         break :top fiber.frames.items[idx.? + 1].slots;
     };

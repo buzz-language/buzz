@@ -827,8 +827,64 @@ fn buildFunction(self: *Self, ast: Ast.Slice, closure: ?*o.ObjClosure, ast_node:
     }
 }
 
+const Generator = *const fn (self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t;
+
+const generators = std.EnumArray(Ast.Node.Tag, Generator).initDefault(
+    shouldNotBeGenerated,
+    .{
+        .Boolean = generateBoolean,
+        .Double = generateDouble,
+        .Integer = generateInteger,
+        .StringLiteral = generateStringLiteral,
+        .Null = generateNull,
+        .Void = generateVoid,
+        .String = generateString,
+        .Expression = generateExpression,
+        .GenericResolve = generateGenericResolve,
+        .Grouping = generateGrouping,
+        .Function = generateFunction,
+        .FunDeclaration = generateFunDeclaration,
+        .VarDeclaration = generateVarDeclaration,
+        .Block = generateBlock,
+        .BlockExpression = generateBlockExpression,
+        .Out = generateOut,
+        .Call = generateCall,
+        .NamedVariable = generateNamedVariable,
+        .Return = generateReturn,
+        .If = generateIf,
+        .Binary = generateBinary,
+        .While = generateWhile,
+        .DoUntil = generateDoUntil,
+        .For = generateFor,
+        .Break = generateBreak,
+        .Continue = generateContinue,
+        .List = generateList,
+        .Range = generateRange,
+        .Dot = generateDot,
+        .Subscript = generateSubscript,
+        .Map = generateMap,
+        .Match = generateMatch,
+        .Is = generateIs,
+        .As = generateAs,
+        .Try = generateTry,
+        .Throw = generateThrow,
+        .Unwrap = generateUnwrap,
+        .ObjectInit = generateObjectInit,
+        .ForceUnwrap = generateForceUnwrap,
+        .Unary = generateUnary,
+        .Pattern = generatePattern,
+        .ForEach = generateForEach,
+        .TypeExpression = generateTypeExpression,
+        .TypeOfExpression = generateTypeOfExpression,
+        .AnonymousEnumCase = generateAnonymousEnumCase,
+        .AsyncCall = cantCompile,
+        .Resume = cantCompile,
+        .Resolve = cantCompile,
+        .Yield = cantCompile,
+    },
+);
+
 fn generateNode(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
-    const components = self.state.?.ast.nodes.items(.components);
     const tag = self.state.?.ast.nodes.items(.tag)[node];
     const constant = if (!BuildOptions.jit_always_on) // If jit always on, we avoid constant folding to check that every path works once jit compiled
         self.state.?.ast.nodes.items(.value)[node] orelse
@@ -842,81 +898,8 @@ fn generateNode(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
 
     var value = if (constant != null)
         m.MIR_new_uint_op(self.ctx, constant.?.val)
-    else switch (tag) { // FIXME: should be an array like we do in CodeGen and TypeChecker
-        .Boolean => m.MIR_new_uint_op(
-            self.ctx,
-            Value.fromBoolean(components[node].Boolean).val,
-        ),
-        .Double => m.MIR_new_uint_op(
-            self.ctx,
-            Value.fromDouble(components[node].Double).val,
-        ),
-        .Integer => m.MIR_new_uint_op(
-            self.ctx,
-            Value.fromInteger(components[node].Integer).val,
-        ),
-        .StringLiteral => m.MIR_new_uint_op(
-            self.ctx,
-            components[node].StringLiteral.literal.toValue().val,
-        ),
-        .Null => m.MIR_new_uint_op(
-            self.ctx,
-            Value.Null.val,
-        ),
-        .Void => m.MIR_new_uint_op(
-            self.ctx,
-            Value.Void.val,
-        ),
-        .String => try self.generateString(node),
-        .Expression => try self.generateNode(components[node].Expression),
-        .GenericResolve => try self.generateNode(components[node].GenericResolve.expression),
-        .Grouping => try self.generateNode(components[node].Grouping),
-        .Function => try self.generateFunction(node),
-        .FunDeclaration => try self.generateFunDeclaration(node),
-        .VarDeclaration => try self.generateVarDeclaration(node),
-        .Block => try self.generateBlock(node),
-        .BlockExpression => try self.generateBlockExpression(node),
-        .Out => try self.generateOut(node),
-        .Call => try self.generateCall(node),
-        .NamedVariable => try self.generateNamedVariable(node),
-        .Return => try self.generateReturn(node),
-        .If => try self.generateIf(node),
-        .Binary => try self.generateBinary(node),
-        .While => try self.generateWhile(node),
-        .DoUntil => try self.generateDoUntil(node),
-        .For => try self.generateFor(node),
-        .Break => try self.generateBreak(node),
-        .Continue => try self.generateContinue(node),
-        .List => try self.generateList(node),
-        .Range => try self.generateRange(node),
-        .Dot => try self.generateDot(node),
-        .Subscript => try self.generateSubscript(node),
-        .Map => try self.generateMap(node),
-        .Match => try self.generateMatch(node),
-        .Is => try self.generateIs(node),
-        .As => try self.generateAs(node),
-        .Try => try self.generateTry(node),
-        .Throw => try self.generateThrow(node),
-        .Unwrap => try self.generateUnwrap(node),
-        .ObjectInit => try self.generateObjectInit(node),
-        .ForceUnwrap => try self.generateForceUnwrap(node),
-        .Unary => try self.generateUnary(node),
-        .Pattern => try self.generatePattern(node),
-        .ForEach => try self.generateForEach(node),
-        .TypeExpression => try self.generateTypeExpression(node),
-        .TypeOfExpression => try self.generateTypeOfExpression(node),
-        .AnonymousEnumCase => try self.generateAnonymousEnumCase(node),
-        .AsyncCall,
-        .Resume,
-        .Resolve,
-        .Yield,
-        => return Error.CantCompile,
-
-        else => {
-            bz_io.print(self.process.io, "{} NYI\n", .{tag});
-            unreachable;
-        },
-    };
+    else
+        try generators.get(tag)(self, node);
 
     if (tag != .Break and tag != .Continue and tag != .Out) {
         // Patch opt jumps if needed
@@ -2089,6 +2072,68 @@ fn buildExternApiCall(self: *Self, method: ExternApi, dest: ?m.MIR_op_t, args: [
             off + args.len,
             &self.state.?.args_buffer,
         ),
+    );
+}
+
+fn cantCompile(_: *Self, _: Ast.Node.Index) Error!?m.MIR_op_t {
+    return Error.CantCompile;
+}
+
+fn shouldNotBeGenerated(_: *Self, _: Ast.Node.Index) Error!?m.MIR_op_t {
+    unreachable;
+}
+
+fn generateBoolean(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
+    return m.MIR_new_uint_op(
+        self.ctx,
+        Value.fromBoolean(self.state.?.ast.nodes.items(.components)[node].Boolean).val,
+    );
+}
+
+fn generateDouble(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
+    return m.MIR_new_uint_op(
+        self.ctx,
+        Value.fromDouble(self.state.?.ast.nodes.items(.components)[node].Double).val,
+    );
+}
+
+fn generateInteger(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
+    return m.MIR_new_uint_op(
+        self.ctx,
+        Value.fromInteger(self.state.?.ast.nodes.items(.components)[node].Integer).val,
+    );
+}
+
+fn generateStringLiteral(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
+    return m.MIR_new_uint_op(
+        self.ctx,
+        self.state.?.ast.nodes.items(.components)[node].StringLiteral.literal.toValue().val,
+    );
+}
+
+fn generateNull(self: *Self, _: Ast.Node.Index) Error!?m.MIR_op_t {
+    return m.MIR_new_uint_op(
+        self.ctx,
+        Value.Null.val,
+    );
+}
+
+fn generateExpression(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
+    return self.generateNode(self.state.?.ast.nodes.items(.components)[node].Expression);
+}
+
+fn generateGenericResolve(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
+    return self.generateNode(self.state.?.ast.nodes.items(.components)[node].GenericResolve.expression);
+}
+
+fn generateGrouping(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
+    return self.generateNode(self.state.?.ast.nodes.items(.components)[node].Grouping);
+}
+
+fn generateVoid(self: *Self, _: Ast.Node.Index) Error!?m.MIR_op_t {
+    return m.MIR_new_uint_op(
+        self.ctx,
+        Value.Void.val,
     );
 }
 

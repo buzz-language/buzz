@@ -23,8 +23,6 @@ fun itemCheck(tree: Node) > int {
     } else {
         return 1;
     }
-
-    return 0;
 }
 
 fun btree(N: int) > void {

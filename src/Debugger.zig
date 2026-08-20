@@ -45,6 +45,8 @@ pub fn logFn(
             @tagName(level),
         } ++ args,
     ) catch {};
+
+    writer.flush() catch {};
 }
 
 const log = std.log.scoped(.buzz_debugger);
@@ -145,8 +147,15 @@ const DebugSession = struct {
 
     pub const Step = struct {
         line: u32,
+        fiber: *v.Fiber,
         frame: *v.CallFrame,
         frame_count: usize,
+    };
+
+    pub const StepOut = struct {
+        /// Index of the frame that was paused, we pause when that frame_count is inferior to it
+        frame_count: usize,
+        fiber: *v.Fiber,
     };
 
     pub const RunState = union(enum) {
@@ -154,8 +163,7 @@ const DebugSession = struct {
         /// Should stop at the next line after this value
         step_over: Step,
         step_in: Step,
-        /// Index of the frame that was paused, we pause when that frame_count is inferior to it
-        step_out: usize,
+        step_out: StepOut,
         terminated: void,
         resumed: void,
     };
@@ -282,11 +290,12 @@ pub fn onDispatch(self: *Debugger) Error!bool {
         .paused => {},
         .terminated => return true,
         .step_over => |step| {
+            const current_fiber = self.session.?.runner.vm.current_fiber;
             const current_frame = self.session.?.runner.vm.currentFrame();
 
             // We pause on the next line in the same frame
             if (current_frame != null and
-                (current_frame == step.frame or self.session.?.runner.vm.current_fiber.frame_count < step.frame_count) and
+                (current_frame == step.frame or (current_fiber == step.fiber and self.session.?.runner.vm.current_fiber.frame_count < step.frame_count)) and
                 current_frame.?.ip < current_frame.?.closure.function.chunk.locations.items.len and
                 self.currentLine(current_frame.?) != step.line)
             {
@@ -306,12 +315,14 @@ pub fn onDispatch(self: *Debugger) Error!bool {
                 );
             }
         },
-        .step_out => |frame_count| {
+        .step_out => |step| {
+            const current_fiber = self.session.?.runner.vm.current_fiber;
             const current_frame = self.session.?.runner.vm.currentFrame();
 
             // We pause when we got out of the frame
             if (current_frame != null and
-                self.session.?.runner.vm.current_fiber.frame_count < frame_count)
+                current_fiber == step.fiber and
+                self.session.?.runner.vm.current_fiber.frame_count < step.frame_count)
             {
                 self.session.?.setState(.paused);
 
@@ -585,6 +596,7 @@ pub fn next(self: *Debugger, _: Arguments(.next)) Error!Response(.next) {
             .{
                 .step_over = .{
                     .frame_count = session.runner.vm.current_fiber.frame_count,
+                    .fiber = session.runner.vm.current_fiber,
                     .frame = session.runner.vm.currentFrame().?,
                     .line = self.currentLine(session.runner.vm.currentFrame().?),
                 },
@@ -608,6 +620,7 @@ pub fn stepIn(self: *Debugger, _: Arguments(.stepIn)) Error!Response(.stepIn) {
             .{
                 .step_in = .{
                     .frame_count = session.runner.vm.current_fiber.frame_count,
+                    .fiber = session.runner.vm.current_fiber,
                     .frame = session.runner.vm.currentFrame().?,
                     .line = self.currentLine(session.runner.vm.currentFrame().?),
                 },
@@ -629,7 +642,10 @@ pub fn stepOut(self: *Debugger, _: Arguments(.stepOut)) Error!Response(.stepOut)
 
         session.setState(
             .{
-                .step_out = session.runner.vm.current_fiber.frame_count,
+                .step_out = .{
+                    .fiber = session.runner.vm.current_fiber,
+                    .frame_count = session.runner.vm.current_fiber.frame_count,
+                },
             },
         );
 
