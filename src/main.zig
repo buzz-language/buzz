@@ -72,7 +72,6 @@ const check_params = clap.parseParamsComptime(
 );
 
 const format_params = clap.parseParamsComptime(
-    \\-i, --in-place          overwrites file
     \\--line-width <u8>       Formatter line width (defaults to 80)
     \\-L, --library <str>...  Add search path for external libraries
     \\-r, --root-dir <str>    Root dir for package resolution
@@ -550,7 +549,6 @@ fn run(
         sub_res.args.@"root-dir",
         sub_res.positionals[0] orelse &.{},
         if (sub_res.positionals.len > 1) sub_res.positionals[1] else &.{},
-        sub_res.args.@"in-place" == 1,
     ) catch {
         return 1;
     };
