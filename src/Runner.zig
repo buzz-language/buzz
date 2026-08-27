@@ -168,7 +168,7 @@ pub fn runFile(
         bz_io.print(runner.process.io, "File not found", .{});
         return 1;
     };
-    defer file.close(runner.process.io);
+    file.close(runner.process.io);
 
     var absolute_file_path_buffer: [std.Io.Dir.max_path_bytes]u8 = undefined;
     const absolute_file_path_len = try file.realPath(runner.process.io, &absolute_file_path_buffer);
@@ -203,11 +203,17 @@ pub fn runFile(
         } else {
             var arena = std.heap.ArenaAllocator.init(runner.gc.allocator);
             defer arena.deinit();
-
-            var stdout = bz_io.stdoutWriter(runner.process.io);
+            //used filez to prevent overshadow ig
+            var filez = if (std.fs.path.isAbsolute(file_name))
+                try std.Io.Dir.openFileAbsolute(runner.process.io, file_name, .{ .mode = .write_only })
+            else
+                try std.Io.Dir.cwd().openFile(runner.process.io, file_name, .{ .mode = .write_only });
+            defer filez.close(runner.process.io);
+            var buffer: [255]u8 = undefined;
+            var file_writer = filez.writer(runner.process.io, &buffer);
             try Renderer.render(
                 arena.allocator(),
-                &stdout.interface,
+                &file_writer.interface,
                 ast,
                 runner.renderer_options,
             );
