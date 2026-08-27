@@ -114,25 +114,25 @@ const SortContext = struct {
     sort_closure: v.Value,
     ctx: *o.NativeCtx,
     had_error: bool = false,
-};
 
-fn lessThan(context: *SortContext, lhs: v.Value, rhs: v.Value) bool {
-    var args = [_]*const v.Value{ &lhs, &rhs };
+    pub fn lessThan(self: *SortContext, lhs: v.Value, rhs: v.Value) bool {
+        var args = [_]*const v.Value{ &lhs, &rhs };
 
-    if (!buzz_api.bz_call(
-        context.ctx.vm,
-        context.sort_closure,
-        @ptrCast(&args),
-        @intCast(args.len),
-        null,
-    )) {
-        context.had_error = true;
+        if (!buzz_api.bz_call(
+            self.ctx.vm,
+            self.sort_closure,
+            @ptrCast(&args),
+            @intCast(args.len),
+            null,
+        )) {
+            self.had_error = true;
 
-        return false;
+            return false;
+        }
+
+        return self.ctx.vm.pop().boolean();
     }
-
-    return context.ctx.vm.pop().boolean();
-}
+};
 
 pub fn sort(ctx: *o.NativeCtx) callconv(.c) c_int {
     var self = o.ObjList.cast(ctx.vm.peek(1).obj()).?;
@@ -147,7 +147,7 @@ pub fn sort(ctx: *o.NativeCtx) callconv(.c) c_int {
         v.Value,
         self.items.items,
         &context,
-        lessThan,
+        SortContext.lessThan,
     );
 
     if (context.had_error) {

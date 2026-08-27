@@ -19,7 +19,7 @@ A small/lightweight statically typed scripting language written in Zig
 
 ## Features
 
-- Small in size and complexity (just a bit more than Lua though)
+- Small in size and complexity
 - Statically typed
 - Unambiguous
 - No nonsense coercion
@@ -38,7 +38,7 @@ A small/lightweight statically typed scripting language written in Zig
 ### Requirements
 - Zig 0.16.0
 - Since this is built with Zig, you should be able to build buzz on a wide variety of architectures even though this has only been tested on x86/M1.
-- Linux or macOS (Windows support [is coming](https://github.com/buzz-language/buzz/issues/74))
+- Supports linux, macOS or windows
 - libc
 
 ### Build
@@ -64,3 +64,8 @@ sudo zig build -Doptimize=ReleaseSafe install -p /usr/local
 If you're usage if performance critical (game dev for example), you can build using `-Doptimize=ReleaseFast`.
 
 Remember to modify PATH to include the `bin` directory where it is installed. For example, `export PATH=PATH:/home/xxx/.local/bin`. You can then run buzz with `buzz <myscript.buzz>` or `buzz <directory>`. Or you can simply run `buzz` to start the REPL.
+
+# AI policy
+
+The fact that this repo as a AGENTS.md file is not an invitation to submit AI generated code. I make a important distinction between, "AI assisted coding" where AI is used as a helper to better understand, debug and improve your code vs "AI generated code" where the understanding of the author ends at the prompt.
+**Blatant slope PRs will be rejected**.
