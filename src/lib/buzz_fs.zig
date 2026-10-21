@@ -4,7 +4,10 @@ const api = @import("buzz_api.zig");
 /// Maps current-directory lookup failures to Buzz errors.
 fn handleCurrentDirectoryError(ctx: *api.NativeCtx, err: std.process.CurrentPathAllocError) void {
     switch (err) {
-        error.Canceled => ctx.vm.pushErrorEnum("errors.FileSystemError", @errorName(err)),
+        error.Canceled,
+        error.NameTooLong,
+        error.PathExceedsLimit,
+        => ctx.vm.pushErrorEnum("errors.FileSystemError", @errorName(err)),
         error.CurrentDirUnlinked => ctx.vm.pushErrorEnum("errors.FileSystemError", "BadPathName"),
         error.Unexpected => ctx.vm.pushError("errors.UnexpectedError", null),
         error.OutOfMemory => {

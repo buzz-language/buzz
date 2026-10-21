@@ -1,7 +1,7 @@
 const std = @import("std");
 
-// std.builtin.Type can't be used at runtime, so we make our own non-comptime types
-// We use std.builtin things when we can
+// std.lang.Type can't be used at runtime, so we make our own non-comptime types
+// We use std.lang things when we can
 
 pub const Type = union(enum) {
     Type: void,
@@ -122,7 +122,7 @@ pub const Type = union(enum) {
     /// This data structure is used by the Zig language code generation and
     /// therefore must be kept in sync with the compiler implementation.
     pub const IntType = struct {
-        signedness: std.builtin.Signedness,
+        signedness: std.lang.Signedness,
         bits: u16,
     };
 
@@ -135,11 +135,11 @@ pub const Type = union(enum) {
     /// This data structure is used by the Zig language code generation and
     /// therefore must be kept in sync with the compiler implementation.
     pub const PointerType = struct {
-        size: std.builtin.Type.Pointer.Size,
+        size: std.lang.Type.Pointer.Size,
         is_const: bool,
         is_volatile: bool,
         alignment: u16,
-        address_space: std.builtin.AddressSpace,
+        address_space: std.lang.AddressSpace,
         child: *const Type,
         is_allowzero: bool,
 
@@ -174,7 +174,7 @@ pub const Type = union(enum) {
     /// This data structure is used by the Zig language code generation and
     /// therefore must be kept in sync with the compiler implementation.
     pub const StructType = struct {
-        layout: std.builtin.Type.ContainerLayout,
+        layout: std.lang.Type.ContainerLayout,
         /// Only valid if layout is .Packed
         backing_integer: ?*const Type = null,
         fields: []const StructField,
@@ -232,7 +232,7 @@ pub const Type = union(enum) {
     /// This data structure is used by the Zig language code generation and
     /// therefore must be kept in sync with the compiler implementation.
     pub const UnionType = struct {
-        layout: std.builtin.Type.ContainerLayout,
+        layout: std.lang.Type.ContainerLayout,
         tag_type: ?*const Type,
         fields: []const UnionField,
         decls: []const Declaration,
@@ -241,7 +241,7 @@ pub const Type = union(enum) {
     /// This data structure is used by the Zig language code generation and
     /// therefore must be kept in sync with the compiler implementation.
     pub const FnType = struct {
-        calling_convention: std.builtin.CallingConvention,
+        calling_convention: std.lang.CallingConvention,
         alignment: u16,
         is_generic: bool,
         is_var_args: bool,

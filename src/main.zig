@@ -670,8 +670,8 @@ fn help(init: Init, stderr: *std.Io.Writer, subcommand_opt: ?[]const u8) u8 {
         io.print(init.io, "\n\n", .{});
 
         io.print(init.io, "Commands:\n", .{});
-        inline for (std.meta.fields(@TypeOf(command_summaries))) |field| {
-            const command = @field(command_summaries, field.name);
+        inline for (@typeInfo(@TypeOf(command_summaries)).@"struct".field_names) |field_name| {
+            const command = @field(command_summaries, field_name);
             io.print(init.io, "  {s:<11} {s}\n", .{
                 command.name,
                 command.description,

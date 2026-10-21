@@ -20,7 +20,7 @@ comptime {
 /// Note that this matches the definition of `__lehf2`, `__eqhf2`, `__nehf2`, `__cmphf2`,
 /// and `__lthf2`.
 fn __cmphf2(a: f16, b: f16) callconv(.c) i32 {
-    return @intFromEnum(comparef.cmpf2(f16, comparef.LE, a, b));
+    return @backingInt(comparef.cmpf2(f16, comparef.LE, a, b));
 }
 
 /// "These functions return a value less than or equal to zero if neither argument is NaN,

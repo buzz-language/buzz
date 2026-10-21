@@ -157,12 +157,12 @@ pub const Renderer = struct {
 
     /// Returns the stricter of two minimum break priorities.
     fn stricterBreakPriority(left: BreakPriority, right: BreakPriority) BreakPriority {
-        return if (@intFromEnum(left) > @intFromEnum(right)) left else right;
+        return if (@backingInt(left) > @backingInt(right)) left else right;
     }
 
     /// Returns true when `priority` is allowed to introduce a width-based break.
     fn canBreakAt(self: *Self, priority: BreakPriority) bool {
-        return @intFromEnum(priority) >= @intFromEnum(self.minimum_break_priority);
+        return @backingInt(priority) >= @backingInt(self.minimum_break_priority);
     }
 
     /// Returns the width-break priority for a binary operator.
@@ -471,7 +471,7 @@ pub const Renderer = struct {
     }
 
     fn renderExpectedToken(self: *Self, token: Ast.TokenIndex, expected: Token.Tag, space: Space) Error!void {
-        if (builtin.mode == .Debug and self.ast.tokens.items(.tag)[token] != expected) {
+        if (builtin.mode == .debug and self.ast.tokens.items(.tag)[token] != expected) {
             std.debug.print(
                 "\nExpected {s} got {s} at {} `{s}`\n",
                 .{
@@ -575,7 +575,7 @@ pub const Renderer = struct {
         if (space == .Semicolon or space == .Comma) self.ais.enableSpaceMode(space);
         defer self.ais.disableSpaceMode();
 
-        if (builtin.mode == .Debug and has_next_token and offsets[next_token] < offsets[token] + lexeme_len) {
+        if (builtin.mode == .debug and has_next_token and offsets[next_token] < offsets[token] + lexeme_len) {
             std.debug.print(
                 "\nToken overlap: {s}#{} at {}-{} {} `{s}` and {s}#{} at {}-{} {} `{s}`\n{s}\n",
                 .{

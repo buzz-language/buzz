@@ -15,7 +15,7 @@ const NodeCheck = *const fn (
     node: Ast.Node.Index,
 ) error{OutOfMemory}!bool;
 
-const checkers = [@typeInfo(Ast.Node.Tag).@"enum".fields.len]?NodeCheck{
+const checkers = [@typeInfo(Ast.Node.Tag).@"enum".field_names.len]?NodeCheck{
     null, // AnonymousObjectType
     null, // AnonymousEnumCase
     null, // As
@@ -85,7 +85,7 @@ const checkers = [@typeInfo(Ast.Node.Tag).@"enum".fields.len]?NodeCheck{
 
 /// Typecheck the node (but does not typecheck its leaf)
 pub fn check(ast: Ast.Slice, reporter: *Reporter, gc: *GC, current_function_node: ?Ast.Node.Index, node: Ast.Node.Index) error{OutOfMemory}!bool {
-    return if (checkers[@intFromEnum(ast.nodes.items(.tag)[node])]) |checker|
+    return if (checkers[@backingInt(ast.nodes.items(.tag)[node])]) |checker|
         try checker(ast, reporter, gc, current_function_node, node)
     else
         false;

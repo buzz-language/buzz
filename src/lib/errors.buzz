@@ -27,6 +27,7 @@ export enum FileSystemError {
     IsDir,
     LinkQuotaExceeded,
     NameTooLong,
+    PathExceedsLimit,
     NetworkSubsystemFailed,
     NetworkNotFound,
     NoDevice,

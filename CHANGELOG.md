@@ -3,7 +3,7 @@
 This release brings a lot of useful tools to write buzz code: LSP, formatter and DAP support.
 
 > [!NOTE]
-> This release builds with zig 0.16.0. We will only use tagged version of zig from now on.
+> This release builds with zig 0.17.0. We will only use tagged version of zig from now on.
 
 ## Added
 

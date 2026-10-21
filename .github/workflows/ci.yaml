@@ -12,13 +12,13 @@ jobs:
         fail-fast: false
         matrix:
           zig-version:
-              - "0.16.0"
+              - "0.17.0"
           operating-system: [ ubuntu-latest, macos-latest, windows-latest ]
           optimize:
-            - "Debug"
-            - "ReleaseSafe"
-            - "ReleaseFast"
-            - "ReleaseSmall"
+            - "debug"
+            - "safe"
+            - "fast"
+            - "small"
           options:
             - ""
             - "-Djit_always_on -Djit_asynchronous=false"
@@ -50,9 +50,9 @@ jobs:
       - name: Setup nightly Zig
         uses: mlugg/setup-zig@v2.2.1
         with:
-          version: ${{ matrix.zig-version }}
+          version: "0.17.0"
       - name: Build for wasm
-        run: zig build -Dtarget=wasm32-freestanding -Doptimize=ReleaseSmall
+        run: zig build -Dtarget=wasm32-freestanding -Doptimize=small
 
   lint:
     runs-on: macos-latest
@@ -61,5 +61,5 @@ jobs:
       - name: Setup Zig
         uses: mlugg/setup-zig@v2.2.1
         with:
-          version: ${{ matrix.zig-version }}
+          version: "0.17.0"
       - run: zig fmt --check src/*.zig src/**/*.zig

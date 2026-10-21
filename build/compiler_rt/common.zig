@@ -6,7 +6,7 @@ const ofmt_c = builtin.object_format == .c;
 /// For now, we prefer weak linkage because some of the routines we implement here may also be
 /// provided by system/dynamic libc. Eventually we should be more disciplined about this on a
 /// per-symbol, per-target basis: https://github.com/ziglang/zig/issues/11883
-pub const linkage: std.builtin.GlobalLinkage = if (builtin.is_test)
+pub const linkage: std.lang.GlobalLinkage = if (builtin.is_test)
     .internal
 else if (ofmt_c)
     .strong
@@ -16,7 +16,7 @@ else
 /// Determines the symbol's visibility to other objects.
 /// For WebAssembly this allows the symbol to be resolved to other modules, but will not
 /// export it to the host runtime.
-pub const visibility: std.builtin.SymbolVisibility = if (linkage == .internal or builtin.link_mode == .dynamic)
+pub const visibility: std.lang.SymbolVisibility = if (linkage == .internal or builtin.link_mode == .dynamic)
     .default
 else
     .hidden;

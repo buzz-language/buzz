@@ -65,7 +65,7 @@ const WindowsDynLib = struct {
 
     /// Opens a Windows DLL at `path`.
     pub fn open(allocator: std.mem.Allocator, path: []const u8) !WindowsDynLib {
-        const path_z = try allocator.dupeZ(u8, path);
+        const path_z = try allocator.dupeSentinel(u8, path, 0);
         defer allocator.free(path_z);
 
         return .{
@@ -94,7 +94,7 @@ pub const Dlib = struct {
 
     pub fn lookup(self: *Dlib, gc: *GC, symbol: []const u8) !?*obj.ObjNative {
         return self.symbols.get(symbol) orelse load: {
-            const ssymbol = try gc.allocator.dupeZ(u8, symbol);
+            const ssymbol = try gc.allocator.dupeSentinel(u8, symbol, 0);
             defer gc.allocator.free(ssymbol);
 
             if (self.lookup_fn(ssymbol)) |resolved| {
@@ -1349,8 +1349,8 @@ fn beginFrame(self: *Self, function_type: obj.ObjFunction.FunctionType, function
     const enclosing = self.current;
     const frame = try self.gc.allocator.create(Frame);
     frame.* = Frame{
-        .locals = [_]Local{undefined} ** 255,
-        .upvalues = [_]UpValue{undefined} ** 255,
+        .locals = @splat(undefined),
+        .upvalues = @splat(undefined),
         .enclosing = enclosing,
         .function_node = function_node,
     };
@@ -1607,15 +1607,15 @@ fn parsePrecedence(self: *Self, precedence: Precedence, hanging: bool) Error!Ast
         return CompileError.Unrecoverable;
     }
 
-    const canAssign = @intFromEnum(precedence) <= @intFromEnum(Precedence.Assignment);
+    const canAssign = @backingInt(precedence) <= @backingInt(Precedence.Assignment);
     var node = try prefixRule.?(self, canAssign);
 
-    while (@intFromEnum(rules.get(self.ast.tokens.items(.tag)[self.current_token.?]).precedence) >= @intFromEnum(precedence)) {
+    while (@backingInt(rules.get(self.ast.tokens.items(.tag)[self.current_token.?]).precedence) >= @backingInt(precedence)) {
         // Patch optional jumps
         if (self.opt_jumps) |*jumps| {
             std.debug.assert(jumps.items.len > 0);
             // If precedence is less than the precedence that started the nullable chain, stop the chain there
-            if (@intFromEnum(rules.get(self.ast.tokens.items(.tag)[self.current_token.?]).precedence) < @intFromEnum(jumps.items[0])) {
+            if (@backingInt(rules.get(self.ast.tokens.items(.tag)[self.current_token.?]).precedence) < @backingInt(jumps.items[0])) {
                 jumps.deinit(self.gc.allocator);
                 self.opt_jumps = null;
 
@@ -2048,7 +2048,7 @@ fn addGlobal(
 
             // A function declares a global with an incomplete typedef so that it can handle recursion
             // The placeholder resolution occurs after we parsed the functions body in `funDeclaration`
-            if (global_type.resolved_type != null or @intFromEnum(global_type.def_type) < @intFromEnum(obj.ObjTypeDef.Type.ObjectInstance)) {
+            if (global_type.resolved_type != null or @backingInt(global_type.def_type) < @backingInt(obj.ObjTypeDef.Type.ObjectInstance)) {
                 if (BuildOptions.debug_placeholders) {
                     print(
                         self.process.io,
@@ -7527,7 +7527,7 @@ fn binary(self: *Self, _: bool, left: Ast.Node.Index) Error!Ast.Node.Index {
     const rule = rules.get(operator);
 
     const right = try self.parsePrecedence(
-        @enumFromInt(@intFromEnum(rule.precedence) + 1),
+        @fromBackingInt(@intCast(@backingInt(rule.precedence) + 1)),
         false,
     );
 
@@ -9717,7 +9717,7 @@ fn openNativeLibraryAt(self: *Self, library_path: []const u8, library_name: []co
     var lib = DynLib.open(self.gc.allocator, library_path) catch return null;
     errdefer lib.close();
 
-    const name = try self.gc.allocator.dupeZ(u8, library_name);
+    const name = try self.gc.allocator.dupeSentinel(u8, library_name, 0);
     defer self.gc.allocator.free(name);
 
     if (lib.lookup(Dlib.LookupFn, name)) |lookup_fn| {
@@ -10134,7 +10134,7 @@ fn zdefStatement(self: *Self) Error!Ast.Node.Index {
 
                 if (lib) |*dlib| {
                     // Convert symbol names to zig slices
-                    const symbol = try self.gc.allocator.dupeZ(u8, zdef.name);
+                    const symbol = try self.gc.allocator.dupeSentinel(u8, zdef.name, 0);
                     defer self.gc.allocator.free(symbol);
 
                     // Lookup symbol
