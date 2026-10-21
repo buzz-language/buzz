@@ -314,7 +314,7 @@ pub const Obj = struct {
 
                 var it = container_def.fields.iterator();
                 while (it.next()) |kv| {
-                    const dupped = try vm.gc.allocator.dupeZ(u8, kv.key_ptr.*);
+                    const dupped = try vm.gc.allocator.dupeSentinel(u8, kv.key_ptr.*, 0);
                     defer vm.gc.allocator.free(dupped);
 
                     try serialized_instance.set(

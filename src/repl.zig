@@ -37,7 +37,7 @@ pub fn printBanner(out: *std.Io.Writer, full: bool) void {
             .{
                 builtin.zig_version,
                 @tagName(builtin.mode),
-                if (builtin.mode == .Debug or is_wasm)
+                if (builtin.mode == .debug or is_wasm)
                     "gpa"
                 else if (BuildOptions.mimalloc)
                     "mimalloc"

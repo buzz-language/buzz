@@ -330,7 +330,7 @@ pub const Report = struct {
                     main_item.end_location.column,
                     main_item.kind.color(),
                     main_item.kind.prefix(),
-                    @intFromEnum(self.error_type),
+                    @backingInt(self.error_type),
                     if (reporter.error_prefix) |prefix|
                         prefix
                     else
@@ -350,7 +350,7 @@ pub const Report = struct {
                     main_item.end_location.line + 1,
                     main_item.end_location.column,
                     main_item.kind.prefix(),
-                    @intFromEnum(self.error_type),
+                    @backingInt(self.error_type),
                     if (reporter.error_prefix) |prefix|
                         prefix
                     else

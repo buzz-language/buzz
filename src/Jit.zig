@@ -939,7 +939,7 @@ fn patchOptJumps(self: *Self, node: Ast.Node.Index, value: m.MIR_op_t) !m.MIR_op
             current_insn,
             m.MIR_new_insn_arr(
                 self.ctx,
-                @intFromEnum(m.MIR_Instruction.BEQ),
+                @backingInt(m.MIR_Instruction.BEQ),
                 3,
                 &.{
                     m.MIR_new_label_op(self.ctx, out_label),
@@ -2068,7 +2068,7 @@ fn buildExternApiCall(self: *Self, method: ExternApi, dest: ?m.MIR_op_t, args: [
     self.append(
         m.MIR_new_insn_arr(
             self.ctx,
-            @intFromEnum(m.MIR_Instruction.CALL),
+            @backingInt(m.MIR_Instruction.CALL),
             off + args.len,
             &self.state.?.args_buffer,
         ),
@@ -2672,7 +2672,7 @@ fn generateCall(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
     self.append(
         m.MIR_new_insn_arr(
             self.ctx,
-            @intFromEnum(m.MIR_Instruction.CALL),
+            @backingInt(m.MIR_Instruction.CALL),
             4,
             &.{
                 m.MIR_new_ref_op(
@@ -5117,7 +5117,7 @@ fn generateUnwrap(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
 
     const current_insn = m.MIR_new_insn_arr(
         self.ctx,
-        @intFromEnum(m.MIR_Instruction.MOV),
+        @backingInt(m.MIR_Instruction.MOV),
         2,
         &.{
             m.MIR_new_reg_op(
@@ -5702,7 +5702,7 @@ fn generateFunction(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t {
     }
 
     // FIXME: I don't get why we need this: a simple constant becomes rubbish as soon as we enter MIR_new_func_arr if we don't
-    const ctx_name = try self.gc.allocator.dupeZ(u8, "ctx");
+    const ctx_name = try self.gc.allocator.dupeSentinel(u8, "ctx", 0);
     defer self.gc.allocator.free(ctx_name);
     const function = m.MIR_new_func_arr(
         self.ctx,
@@ -5784,7 +5784,7 @@ fn generateHotspotFunction(self: *Self, node: Ast.Node.Index) Error!?m.MIR_op_t 
     const qualified_name = try self.getQualifiedName(node, false);
     defer self.gc.allocator.free(qualified_name);
 
-    const ctx_name = try self.gc.allocator.dupeZ(u8, "ctx");
+    const ctx_name = try self.gc.allocator.dupeSentinel(u8, "ctx", 0);
     defer self.gc.allocator.free(ctx_name);
     const function = m.MIR_new_func_arr(
         self.ctx,
@@ -5927,7 +5927,7 @@ fn generateNativeFn(self: *Self, node: Ast.Node.Index, raw_fn: m.MIR_item_t) !m.
     defer self.gc.allocator.free(nativefn_qualified_name);
 
     // FIXME: I don't get why we need this: a simple constant becomes rubbish as soon as we enter MIR_new_func_arr if we don't
-    const ctx_name = try self.gc.allocator.dupeZ(u8, "ctx");
+    const ctx_name = try self.gc.allocator.dupeSentinel(u8, "ctx", 0);
     defer self.gc.allocator.free(ctx_name);
     const function = m.MIR_new_func_arr(
         self.ctx,
@@ -6044,7 +6044,7 @@ fn generateNativeFn(self: *Self, node: Ast.Node.Index, raw_fn: m.MIR_item_t) !m.
         function,
         m.MIR_new_insn_arr(
             self.ctx,
-            @intFromEnum(m.MIR_Instruction.CALL),
+            @backingInt(m.MIR_Instruction.CALL),
             4,
             &.{
                 m.MIR_new_ref_op(self.ctx, try ExternApi.RawFn.declare(self)),
@@ -6365,7 +6365,7 @@ pub fn compileZdef(self: *Self, gc: *GC, buzz_ast: Ast.Slice, zdef: Ast.Zdef.Zde
 
     try wrapper_name.writer.print("zdef_{s}\x00", .{zdef.zdef.name});
 
-    const dupped_symbol = try self.gc.allocator.dupeZ(u8, zdef.zdef.name);
+    const dupped_symbol = try self.gc.allocator.dupeSentinel(u8, zdef.zdef.name, 0);
     defer self.gc.allocator.free(dupped_symbol);
 
     const module = m.MIR_new_module(self.ctx, @ptrCast(wrapper_name.written().ptr));
@@ -6479,11 +6479,11 @@ fn buildZdefWrapper(self: *Self, zdef_element: Ast.Zdef.ZdefElement) Error!m.MIR
 
     try wrapper_protocol_name.writer.print("p_zdef_{s}\x00", .{zdef_element.zdef.name});
 
-    const dupped_symbol = try self.gc.allocator.dupeZ(u8, zdef_element.zdef.name);
+    const dupped_symbol = try self.gc.allocator.dupeSentinel(u8, zdef_element.zdef.name, 0);
     defer self.gc.allocator.free(dupped_symbol);
 
     // FIXME: I don't get why we need this: a simple constant becomes rubbish as soon as we enter MIR_new_func_arr if we don't
-    const ctx_name = try self.gc.allocator.dupeZ(u8, "ctx");
+    const ctx_name = try self.gc.allocator.dupeSentinel(u8, "ctx", 0);
     defer self.gc.allocator.free(ctx_name);
     const function = m.MIR_new_func_arr(
         self.ctx,
@@ -6639,7 +6639,7 @@ fn buildZdefWrapper(self: *Self, zdef_element: Ast.Zdef.ZdefElement) Error!m.MIR
     self.append(
         m.MIR_new_insn_arr(
             self.ctx,
-            @intFromEnum(m.MIR_Instruction.CALL),
+            @backingInt(m.MIR_Instruction.CALL),
             full_args.items.len,
             full_args.items.ptr,
         ),
@@ -6691,9 +6691,9 @@ fn buildZdefUnionGetter(
     );
 
     // FIXME: I don't get why we need this: a simple constant becomes rubbish as soon as we enter MIR_new_func_arr if we don't
-    const vm_name = try self.gc.allocator.dupeZ(u8, "vm");
+    const vm_name = try self.gc.allocator.dupeSentinel(u8, "vm", 0);
     defer self.gc.allocator.free(vm_name);
-    const data_name = try self.gc.allocator.dupeZ(u8, "data");
+    const data_name = try self.gc.allocator.dupeSentinel(u8, "data", 0);
     defer self.gc.allocator.free(data_name);
     const function = m.MIR_new_func_arr(
         self.ctx,
@@ -6795,11 +6795,11 @@ fn buildZdefUnionSetter(
     );
 
     // FIXME: I don't get why we need this: a simple constant becomes rubbish as soon as we enter MIR_new_func_arr if we don't
-    const vm_name = try self.gc.allocator.dupeZ(u8, "vm");
+    const vm_name = try self.gc.allocator.dupeSentinel(u8, "vm", 0);
     defer self.gc.allocator.free(vm_name);
-    const data_name = try self.gc.allocator.dupeZ(u8, "data");
+    const data_name = try self.gc.allocator.dupeSentinel(u8, "data", 0);
     defer self.gc.allocator.free(data_name);
-    const new_value_name = try self.gc.allocator.dupeZ(u8, "new_value");
+    const new_value_name = try self.gc.allocator.dupeSentinel(u8, "new_value", 0);
     defer self.gc.allocator.free(new_value_name);
     const function = m.MIR_new_func_arr(
         self.ctx,
@@ -6902,9 +6902,9 @@ fn buildZdefContainerGetter(
     );
 
     // FIXME: I don't get why we need this: a simple constant becomes rubbish as soon as we enter MIR_new_func_arr if we don't
-    const vm_name = try self.gc.allocator.dupeZ(u8, "vm");
+    const vm_name = try self.gc.allocator.dupeSentinel(u8, "vm", 0);
     defer self.gc.allocator.free(vm_name);
-    const data_name = try self.gc.allocator.dupeZ(u8, "data");
+    const data_name = try self.gc.allocator.dupeSentinel(u8, "data", 0);
     defer self.gc.allocator.free(data_name);
     const function = m.MIR_new_func_arr(
         self.ctx,
@@ -6990,11 +6990,11 @@ fn buildZdefContainerSetter(
     );
 
     // FIXME: I don't get why we need this: a simple constant becomes rubbish as soon as we enter MIR_new_func_arr if we don't
-    const vm_name = try self.gc.allocator.dupeZ(u8, "vm");
+    const vm_name = try self.gc.allocator.dupeSentinel(u8, "vm", 0);
     defer self.gc.allocator.free(vm_name);
-    const data_name = try self.gc.allocator.dupeZ(u8, "data");
+    const data_name = try self.gc.allocator.dupeSentinel(u8, "data", 0);
     defer self.gc.allocator.free(data_name);
-    const new_value_name = try self.gc.allocator.dupeZ(u8, "new_value");
+    const new_value_name = try self.gc.allocator.dupeSentinel(u8, "new_value", 0);
     defer self.gc.allocator.free(new_value_name);
     const function = m.MIR_new_func_arr(
         self.ctx,
@@ -7092,7 +7092,7 @@ inline fn MOV(self: *Self, dest: m.MIR_op_t, value: m.MIR_op_t) void {
     self.append(
         m.MIR_new_insn_arr(
             self.ctx,
-            @intFromEnum(m.MIR_Instruction.MOV),
+            @backingInt(m.MIR_Instruction.MOV),
             2,
             &.{
                 dest,
@@ -7106,7 +7106,7 @@ inline fn DMOV(self: *Self, dest: m.MIR_op_t, value: m.MIR_op_t) void {
     self.append(
         m.MIR_new_insn_arr(
             self.ctx,
-            @intFromEnum(m.MIR_Instruction.DMOV),
+            @backingInt(m.MIR_Instruction.DMOV),
             2,
             &.{
                 dest,
@@ -7120,7 +7120,7 @@ inline fn FMOV(self: *Self, dest: m.MIR_op_t, value: m.MIR_op_t) void {
     self.append(
         m.MIR_new_insn_arr(
             self.ctx,
-            @intFromEnum(m.MIR_Instruction.FMOV),
+            @backingInt(m.MIR_Instruction.FMOV),
             2,
             &.{
                 dest,
@@ -7134,7 +7134,7 @@ inline fn EQ(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t)
     self.append(
         m.MIR_new_insn_arr(
             self.ctx,
-            @intFromEnum(m.MIR_Instruction.EQ),
+            @backingInt(m.MIR_Instruction.EQ),
             3,
             &.{
                 dest,
@@ -7149,7 +7149,7 @@ inline fn EQS(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t
     self.append(
         m.MIR_new_insn_arr(
             self.ctx,
-            @intFromEnum(m.MIR_Instruction.EQS),
+            @backingInt(m.MIR_Instruction.EQS),
             3,
             &.{
                 dest,
@@ -7164,7 +7164,7 @@ inline fn DEQ(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t
     self.append(
         m.MIR_new_insn_arr(
             self.ctx,
-            @intFromEnum(m.MIR_Instruction.DEQ),
+            @backingInt(m.MIR_Instruction.DEQ),
             3,
             &.{
                 dest,
@@ -7179,7 +7179,7 @@ inline fn GT(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t)
     self.append(
         m.MIR_new_insn_arr(
             self.ctx,
-            @intFromEnum(m.MIR_Instruction.GT),
+            @backingInt(m.MIR_Instruction.GT),
             3,
             &.{
                 dest,
@@ -7194,7 +7194,7 @@ inline fn GTS(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t
     self.append(
         m.MIR_new_insn_arr(
             self.ctx,
-            @intFromEnum(m.MIR_Instruction.GTS),
+            @backingInt(m.MIR_Instruction.GTS),
             3,
             &.{
                 dest,
@@ -7209,7 +7209,7 @@ inline fn DGT(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t
     self.append(
         m.MIR_new_insn_arr(
             self.ctx,
-            @intFromEnum(m.MIR_Instruction.DGT),
+            @backingInt(m.MIR_Instruction.DGT),
             3,
             &.{
                 dest,
@@ -7224,7 +7224,7 @@ inline fn LT(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t)
     self.append(
         m.MIR_new_insn_arr(
             self.ctx,
-            @intFromEnum(m.MIR_Instruction.LT),
+            @backingInt(m.MIR_Instruction.LT),
             3,
             &.{
                 dest,
@@ -7239,7 +7239,7 @@ inline fn LTS(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t
     self.append(
         m.MIR_new_insn_arr(
             self.ctx,
-            @intFromEnum(m.MIR_Instruction.LTS),
+            @backingInt(m.MIR_Instruction.LTS),
             3,
             &.{
                 dest,
@@ -7254,7 +7254,7 @@ inline fn DLT(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t
     self.append(
         m.MIR_new_insn_arr(
             self.ctx,
-            @intFromEnum(m.MIR_Instruction.DLT),
+            @backingInt(m.MIR_Instruction.DLT),
             3,
             &.{
                 dest,
@@ -7269,7 +7269,7 @@ inline fn GE(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t)
     self.append(
         m.MIR_new_insn_arr(
             self.ctx,
-            @intFromEnum(m.MIR_Instruction.GE),
+            @backingInt(m.MIR_Instruction.GE),
             3,
             &.{
                 dest,
@@ -7284,7 +7284,7 @@ inline fn GES(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t
     self.append(
         m.MIR_new_insn_arr(
             self.ctx,
-            @intFromEnum(m.MIR_Instruction.GES),
+            @backingInt(m.MIR_Instruction.GES),
             3,
             &.{
                 dest,
@@ -7299,7 +7299,7 @@ inline fn DGE(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t
     self.append(
         m.MIR_new_insn_arr(
             self.ctx,
-            @intFromEnum(m.MIR_Instruction.DGE),
+            @backingInt(m.MIR_Instruction.DGE),
             3,
             &.{
                 dest,
@@ -7314,7 +7314,7 @@ inline fn LE(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t)
     self.append(
         m.MIR_new_insn_arr(
             self.ctx,
-            @intFromEnum(m.MIR_Instruction.LE),
+            @backingInt(m.MIR_Instruction.LE),
             3,
             &.{
                 dest,
@@ -7329,7 +7329,7 @@ inline fn LES(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t
     self.append(
         m.MIR_new_insn_arr(
             self.ctx,
-            @intFromEnum(m.MIR_Instruction.LES),
+            @backingInt(m.MIR_Instruction.LES),
             3,
             &.{
                 dest,
@@ -7344,7 +7344,7 @@ inline fn DLE(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t
     self.append(
         m.MIR_new_insn_arr(
             self.ctx,
-            @intFromEnum(m.MIR_Instruction.DLE),
+            @backingInt(m.MIR_Instruction.DLE),
             3,
             &.{
                 dest,
@@ -7359,7 +7359,7 @@ inline fn NE(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t)
     self.append(
         m.MIR_new_insn_arr(
             self.ctx,
-            @intFromEnum(m.MIR_Instruction.NE),
+            @backingInt(m.MIR_Instruction.NE),
             3,
             &.{
                 dest,
@@ -7374,7 +7374,7 @@ inline fn NES(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t
     self.append(
         m.MIR_new_insn_arr(
             self.ctx,
-            @intFromEnum(m.MIR_Instruction.NES),
+            @backingInt(m.MIR_Instruction.NES),
             3,
             &.{
                 dest,
@@ -7389,7 +7389,7 @@ inline fn DNE(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t
     self.append(
         m.MIR_new_insn_arr(
             self.ctx,
-            @intFromEnum(m.MIR_Instruction.DNE),
+            @backingInt(m.MIR_Instruction.DNE),
             3,
             &.{
                 dest,
@@ -7404,7 +7404,7 @@ inline fn BEQ(self: *Self, label: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_
     self.append(
         m.MIR_new_insn_arr(
             self.ctx,
-            @intFromEnum(m.MIR_Instruction.BEQ),
+            @backingInt(m.MIR_Instruction.BEQ),
             3,
             &.{
                 label,
@@ -7419,7 +7419,7 @@ inline fn BLT(self: *Self, label: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_
     self.append(
         m.MIR_new_insn_arr(
             self.ctx,
-            @intFromEnum(m.MIR_Instruction.BLT),
+            @backingInt(m.MIR_Instruction.BLT),
             3,
             &.{
                 label,
@@ -7434,7 +7434,7 @@ inline fn BGT(self: *Self, label: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_
     self.append(
         m.MIR_new_insn_arr(
             self.ctx,
-            @intFromEnum(m.MIR_Instruction.BGT),
+            @backingInt(m.MIR_Instruction.BGT),
             3,
             &.{
                 label,
@@ -7449,7 +7449,7 @@ inline fn BNE(self: *Self, label: m.MIR_insn_t, left: m.MIR_op_t, right: m.MIR_o
     self.append(
         m.MIR_new_insn_arr(
             self.ctx,
-            @intFromEnum(m.MIR_Instruction.BNE),
+            @backingInt(m.MIR_Instruction.BNE),
             3,
             &.{
                 m.MIR_new_label_op(self.ctx, label),
@@ -7464,7 +7464,7 @@ inline fn JMP(self: *Self, label: m.MIR_insn_t) void {
     self.append(
         m.MIR_new_insn_arr(
             self.ctx,
-            @intFromEnum(m.MIR_Instruction.JMP),
+            @backingInt(m.MIR_Instruction.JMP),
             1,
             &.{
                 m.MIR_new_label_op(self.ctx, label),
@@ -7477,7 +7477,7 @@ inline fn ADD(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t
     self.append(
         m.MIR_new_insn_arr(
             self.ctx,
-            @intFromEnum(m.MIR_Instruction.ADD),
+            @backingInt(m.MIR_Instruction.ADD),
             3,
             &.{
                 dest,
@@ -7492,7 +7492,7 @@ inline fn DADD(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_
     self.append(
         m.MIR_new_insn_arr(
             self.ctx,
-            @intFromEnum(m.MIR_Instruction.DADD),
+            @backingInt(m.MIR_Instruction.DADD),
             3,
             &.{
                 dest,
@@ -7507,7 +7507,7 @@ inline fn ADDS(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_
     self.append(
         m.MIR_new_insn_arr(
             self.ctx,
-            @intFromEnum(m.MIR_Instruction.ADDS),
+            @backingInt(m.MIR_Instruction.ADDS),
             3,
             &.{
                 dest,
@@ -7522,7 +7522,7 @@ inline fn SUB(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t
     self.append(
         m.MIR_new_insn_arr(
             self.ctx,
-            @intFromEnum(m.MIR_Instruction.SUB),
+            @backingInt(m.MIR_Instruction.SUB),
             3,
             &.{
                 dest,
@@ -7537,7 +7537,7 @@ inline fn SUBS(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_
     self.append(
         m.MIR_new_insn_arr(
             self.ctx,
-            @intFromEnum(m.MIR_Instruction.SUBS),
+            @backingInt(m.MIR_Instruction.SUBS),
             3,
             &.{
                 dest,
@@ -7552,7 +7552,7 @@ inline fn DSUB(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_
     self.append(
         m.MIR_new_insn_arr(
             self.ctx,
-            @intFromEnum(m.MIR_Instruction.DSUB),
+            @backingInt(m.MIR_Instruction.DSUB),
             3,
             &.{
                 dest,
@@ -7567,7 +7567,7 @@ inline fn MUL(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t
     self.append(
         m.MIR_new_insn_arr(
             self.ctx,
-            @intFromEnum(m.MIR_Instruction.MUL),
+            @backingInt(m.MIR_Instruction.MUL),
             3,
             &.{
                 dest,
@@ -7582,7 +7582,7 @@ inline fn MULS(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_
     self.append(
         m.MIR_new_insn_arr(
             self.ctx,
-            @intFromEnum(m.MIR_Instruction.MULS),
+            @backingInt(m.MIR_Instruction.MULS),
             3,
             &.{
                 dest,
@@ -7597,7 +7597,7 @@ inline fn DMUL(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_
     self.append(
         m.MIR_new_insn_arr(
             self.ctx,
-            @intFromEnum(m.MIR_Instruction.DMUL),
+            @backingInt(m.MIR_Instruction.DMUL),
             3,
             &.{
                 dest,
@@ -7612,7 +7612,7 @@ inline fn DIV(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t
     self.append(
         m.MIR_new_insn_arr(
             self.ctx,
-            @intFromEnum(m.MIR_Instruction.DIV),
+            @backingInt(m.MIR_Instruction.DIV),
             3,
             &.{
                 dest,
@@ -7627,7 +7627,7 @@ inline fn DIVS(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_
     self.append(
         m.MIR_new_insn_arr(
             self.ctx,
-            @intFromEnum(m.MIR_Instruction.DIVS),
+            @backingInt(m.MIR_Instruction.DIVS),
             3,
             &.{
                 dest,
@@ -7642,7 +7642,7 @@ inline fn DDIV(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_
     self.append(
         m.MIR_new_insn_arr(
             self.ctx,
-            @intFromEnum(m.MIR_Instruction.DDIV),
+            @backingInt(m.MIR_Instruction.DDIV),
             3,
             &.{
                 dest,
@@ -7657,7 +7657,7 @@ inline fn MOD(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t
     self.append(
         m.MIR_new_insn_arr(
             self.ctx,
-            @intFromEnum(m.MIR_Instruction.MOD),
+            @backingInt(m.MIR_Instruction.MOD),
             3,
             &.{
                 dest,
@@ -7672,7 +7672,7 @@ inline fn MODS(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_
     self.append(
         m.MIR_new_insn_arr(
             self.ctx,
-            @intFromEnum(m.MIR_Instruction.MODS),
+            @backingInt(m.MIR_Instruction.MODS),
             3,
             &.{
                 dest,
@@ -7687,7 +7687,7 @@ inline fn AND(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t
     self.append(
         m.MIR_new_insn_arr(
             self.ctx,
-            @intFromEnum(m.MIR_Instruction.AND),
+            @backingInt(m.MIR_Instruction.AND),
             3,
             &.{
                 dest,
@@ -7702,7 +7702,7 @@ inline fn ANDS(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_
     self.append(
         m.MIR_new_insn_arr(
             self.ctx,
-            @intFromEnum(m.MIR_Instruction.ANDS),
+            @backingInt(m.MIR_Instruction.ANDS),
             3,
             &.{
                 dest,
@@ -7717,7 +7717,7 @@ inline fn OR(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t)
     self.append(
         m.MIR_new_insn_arr(
             self.ctx,
-            @intFromEnum(m.MIR_Instruction.OR),
+            @backingInt(m.MIR_Instruction.OR),
             3,
             &.{
                 dest,
@@ -7732,7 +7732,7 @@ inline fn ORS(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t
     self.append(
         m.MIR_new_insn_arr(
             self.ctx,
-            @intFromEnum(m.MIR_Instruction.ORS),
+            @backingInt(m.MIR_Instruction.ORS),
             3,
             &.{
                 dest,
@@ -7747,7 +7747,7 @@ inline fn XOR(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t
     self.append(
         m.MIR_new_insn_arr(
             self.ctx,
-            @intFromEnum(m.MIR_Instruction.XOR),
+            @backingInt(m.MIR_Instruction.XOR),
             3,
             &.{
                 dest,
@@ -7762,7 +7762,7 @@ inline fn SHL(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t
     self.append(
         m.MIR_new_insn_arr(
             self.ctx,
-            @intFromEnum(m.MIR_Instruction.LSH),
+            @backingInt(m.MIR_Instruction.LSH),
             3,
             &.{
                 dest,
@@ -7777,7 +7777,7 @@ inline fn SHR(self: *Self, dest: m.MIR_op_t, left: m.MIR_op_t, right: m.MIR_op_t
     self.append(
         m.MIR_new_insn_arr(
             self.ctx,
-            @intFromEnum(m.MIR_Instruction.RSH),
+            @backingInt(m.MIR_Instruction.RSH),
             3,
             &.{
                 dest,
@@ -7792,7 +7792,7 @@ inline fn NOT(self: *Self, dest: m.MIR_op_t, value: m.MIR_op_t) void {
     self.append(
         m.MIR_new_insn_arr(
             self.ctx,
-            @intFromEnum(m.MIR_Instruction.XOR),
+            @backingInt(m.MIR_Instruction.XOR),
             3,
             &.{
                 dest,
@@ -7807,7 +7807,7 @@ inline fn NOTS(self: *Self, dest: m.MIR_op_t, value: m.MIR_op_t) void {
     self.append(
         m.MIR_new_insn_arr(
             self.ctx,
-            @intFromEnum(m.MIR_Instruction.XORS),
+            @backingInt(m.MIR_Instruction.XORS),
             3,
             &.{
                 dest,
@@ -7822,7 +7822,7 @@ inline fn I2D(self: *Self, dest: m.MIR_op_t, value: m.MIR_op_t) void {
     self.append(
         m.MIR_new_insn_arr(
             self.ctx,
-            @intFromEnum(m.MIR_Instruction.I2D),
+            @backingInt(m.MIR_Instruction.I2D),
             2,
             &.{
                 dest,
@@ -7836,7 +7836,7 @@ inline fn UI2D(self: *Self, dest: m.MIR_op_t, value: m.MIR_op_t) void {
     self.append(
         m.MIR_new_insn_arr(
             self.ctx,
-            @intFromEnum(m.MIR_Instruction.UI2D),
+            @backingInt(m.MIR_Instruction.UI2D),
             2,
             &.{
                 dest,
@@ -7850,7 +7850,7 @@ inline fn D2I(self: *Self, dest: m.MIR_op_t, value: m.MIR_op_t) void {
     self.append(
         m.MIR_new_insn_arr(
             self.ctx,
-            @intFromEnum(m.MIR_Instruction.D2I),
+            @backingInt(m.MIR_Instruction.D2I),
             2,
             &.{
                 dest,
@@ -7864,7 +7864,7 @@ inline fn NEG(self: *Self, dest: m.MIR_op_t, value: m.MIR_op_t) void {
     self.append(
         m.MIR_new_insn_arr(
             self.ctx,
-            @intFromEnum(m.MIR_Instruction.NEG),
+            @backingInt(m.MIR_Instruction.NEG),
             2,
             &.{
                 dest,
@@ -7878,7 +7878,7 @@ inline fn DNEG(self: *Self, dest: m.MIR_op_t, value: m.MIR_op_t) void {
     self.append(
         m.MIR_new_insn_arr(
             self.ctx,
-            @intFromEnum(m.MIR_Instruction.DNEG),
+            @backingInt(m.MIR_Instruction.DNEG),
             2,
             &.{
                 dest,
@@ -7892,7 +7892,7 @@ inline fn RET(self: *Self, return_value: m.MIR_op_t) void {
     self.append(
         m.MIR_new_insn_arr(
             self.ctx,
-            @intFromEnum(m.MIR_Instruction.RET),
+            @backingInt(m.MIR_Instruction.RET),
             1,
             &.{
                 return_value,
@@ -7905,7 +7905,7 @@ inline fn ALLOCA(self: *Self, reg: m.MIR_reg_t, size: usize) void {
     self.append(
         m.MIR_new_insn_arr(
             self.ctx,
-            @intFromEnum(m.MIR_Instruction.ALLOCA),
+            @backingInt(m.MIR_Instruction.ALLOCA),
             2,
             &.{
                 m.MIR_new_reg_op(self.ctx, reg),
@@ -7919,7 +7919,7 @@ inline fn BSTART(self: *Self, into: m.MIR_reg_t) void {
     self.append(
         m.MIR_new_insn_arr(
             self.ctx,
-            @intFromEnum(m.MIR_Instruction.BSTART),
+            @backingInt(m.MIR_Instruction.BSTART),
             1,
             &.{
                 m.MIR_new_reg_op(self.ctx, into),
@@ -7932,7 +7932,7 @@ inline fn BEND(self: *Self, from: m.MIR_reg_t) void {
     self.append(
         m.MIR_new_insn_arr(
             self.ctx,
-            @intFromEnum(m.MIR_Instruction.BEND),
+            @backingInt(m.MIR_Instruction.BEND),
             1,
             &.{
                 m.MIR_new_reg_op(self.ctx, from),

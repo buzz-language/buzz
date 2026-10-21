@@ -153,13 +153,13 @@ const Document = struct {
         errdefer arena.deinit();
 
         const allocator = arena.allocator();
-        const owned_src = try allocator.dupeZ(u8, src);
+        const owned_src = try allocator.dupeSentinel(u8, src, 0);
         const owned_uri = try allocator.dupe(u8, uri);
         const package_document_kind = try packageDocumentKind(allocator, owned_uri, owned_src);
         const parse_src = if (package_document_kind) |kind|
             switch (kind) {
-                .manifest => try allocator.dupeZ(u8, try Package.wrapManifest(allocator, owned_src)),
-                .manifest_lock => try allocator.dupeZ(u8, try Package.wrapManifestLock(allocator, owned_src)),
+                .manifest => try allocator.dupeSentinel(u8, try Package.wrapManifest(allocator, owned_src), 0),
+                .manifest_lock => try allocator.dupeSentinel(u8, try Package.wrapManifestLock(allocator, owned_src), 0),
             }
         else
             owned_src;
@@ -1544,7 +1544,7 @@ const Document = struct {
 extern fn getpid() std.os.linux.pid_t;
 
 pub fn main(init: std.process.Init) !void {
-    const allocator: std.mem.Allocator = if (builtin.mode == .Debug or is_wasm)
+    const allocator: std.mem.Allocator = if (builtin.mode == .debug or is_wasm)
         init.gpa
     else if (BuildOptions.mimalloc)
         @import("mimalloc.zig").mim_allocator
@@ -1553,7 +1553,7 @@ pub fn main(init: std.process.Init) !void {
 
     log.debug("Buzz LSP started with PID {}", .{getpid()});
 
-    var read_buffer = [_]u8{0} ** 256;
+    var read_buffer: [256]u8 = @splat(0);
     var stdio_transport = lsp.Transport.Stdio.init(
         read_buffer[0..],
         std.Io.File.stdin(),
@@ -1810,7 +1810,7 @@ const Handler = struct {
                                     .warning => .Warning,
                                     .hint => .Hint,
                                 },
-                                .message = item.message,
+                                .message = .{ .string = item.message },
                                 .tags = tags,
                             },
                         );
@@ -1886,8 +1886,17 @@ const Handler = struct {
         allocator: std.mem.Allocator,
         notification: lsp.types.notifications.get("textDocument/didChange").?.Params.?,
     ) !void {
-        errdefer |e| log.err("changeDocument failed: {any}", .{e});
+        return self.changeDocument(allocator, notification) catch |err| {
+            log.err("changeDocument failed: {any}", .{err});
+            return err;
+        };
+    }
 
+    fn changeDocument(
+        self: *Handler,
+        allocator: std.mem.Allocator,
+        notification: lsp.types.notifications.get("textDocument/didChange").?.Params.?,
+    ) !void {
         if (notification.contentChanges.len == 0) {
             return;
         }

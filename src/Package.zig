@@ -1221,7 +1221,7 @@ pub const Manifest = struct {
                     .patch = @intCast(version_instance.get(v.Integer, comptime "3")),
                 } else null,
                 .constraint = if (version) |version_instance|
-                    @enumFromInt(@as(u8, @intCast(version_instance.get(v.Integer, "0"))))
+                    @fromBackingInt(@intCast(@as(u8, @intCast(version_instance.get(v.Integer, "0")))))
                 else
                     .equalTo,
             };

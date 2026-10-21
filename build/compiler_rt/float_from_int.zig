@@ -62,7 +62,7 @@ inline fn limb(limbs: []const u32, index: usize) u32 {
     };
 }
 
-pub inline fn floatFromBigInt(comptime T: type, comptime signedness: std.builtin.Signedness, x: []const u32) T {
+pub inline fn floatFromBigInt(comptime T: type, comptime signedness: std.lang.Signedness, x: []const u32) T {
     switch (x.len) {
         0 => return 0,
         inline 1...4 => |limbs_len| return @floatFromInt(@as(
@@ -98,7 +98,7 @@ pub inline fn floatFromBigInt(comptime T: type, comptime signedness: std.builtin
         if (limb(x, limb_index) != 0) break true;
     } else limb(x, exponent_limb) & ((@as(u32, 1) << @truncate(exponent)) - 1) != 0;
     return math.ldexp(@as(T, @floatFromInt(
-        std.mem.readPackedIntNative(I, std.mem.sliceAsBytes(x), exponent) | @intFromBool(sticky),
+        std.mem.readPackedInt(I, std.mem.sliceAsBytes(x), exponent, endian) | @intFromBool(sticky),
     )), @intCast(exponent));
 }
 
