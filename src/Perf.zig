@@ -44,7 +44,7 @@ pub const Scope = struct {
     }
 };
 
-const component_count = @typeInfo(Component).@"enum".fields.len;
+const component_count = @typeInfo(Component).@"enum".field_names.len;
 const default_order = defaultOrder();
 const max_stack = 64;
 
@@ -63,8 +63,8 @@ const StackState = if (builtin.cpu.arch.isWasm()) struct {
 io: bz_io.Io,
 started_at: std.Io.Clock.Timestamp,
 mutex: std.Io.Mutex = .init,
-totals: [component_count]i128 = [_]i128{0} ** component_count,
-children: [component_count][component_count]i128 = [_][component_count]i128{[_]i128{0} ** component_count} ** component_count,
+totals: [component_count]i128 = @splat(0),
+children: [component_count][component_count]i128 = @splat(@splat(0)),
 
 pub fn init(io: bz_io.Io) Self {
     return .{
@@ -141,7 +141,7 @@ pub fn report(self: *Self) void {
             continue;
         }
 
-        const component: Component = @enumFromInt(component_index);
+        const component: Component = @fromBackingInt(@intCast(component_index));
         const percent: u128 = @intCast(@divTrunc(duration * 100, elapsed));
         var duration_buffer: [32]u8 = undefined;
         const duration_string = formatDuration(&duration_buffer, duration) catch return;
@@ -174,7 +174,7 @@ fn recordDuration(self: *Self, component: Component, parent: ?Component, duratio
         return;
     }
 
-    const component_index = @intFromEnum(component);
+    const component_index = @backingInt(component);
 
     self.mutex.lockUncancelable(self.io);
     defer self.mutex.unlock(self.io);
@@ -182,7 +182,7 @@ fn recordDuration(self: *Self, component: Component, parent: ?Component, duratio
     self.totals[component_index] += duration;
 
     if (parent) |p| {
-        self.children[@intFromEnum(p)][component_index] += duration;
+        self.children[@backingInt(p)][component_index] += duration;
     }
 }
 
@@ -256,7 +256,7 @@ fn tryPrintChildren(out: *std.Io.Writer, component_children: [component_count]i1
             try out.writeAll(", ");
         }
 
-        try out.print("{s} ", .{label(@enumFromInt(index))});
+        try out.print("{s} ", .{label(@fromBackingInt(@intCast(index)))});
         try printDuration(out, duration);
     }
 }

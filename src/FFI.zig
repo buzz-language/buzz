@@ -245,9 +245,10 @@ pub fn parseTypeExpr(self: *Self, ztype: []const u8) !?*Zdef {
 
 pub fn parse(self: *Self, parser: ?*Parser, source: Ast.TokenIndex, type_expr: ?[]const u8) !?[]*Zdef {
     // TODO: maybe an Arena allocator for those kinds of things that can live for the whole process lifetime
-    const duped = self.gc.allocator.dupeZ(
+    const duped = self.gc.allocator.dupeSentinel(
         u8,
         type_expr orelse parser.?.ast.tokens.items(.literal)[source].String,
+        0,
     ) catch @panic("Out of memory");
     // defer self.gc.allocator.free(duped);
 
@@ -272,7 +273,7 @@ pub fn parse(self: *Self, parser: ?*Parser, source: Ast.TokenIndex, type_expr: ?
         .ast = Ast.parse(
             self.gc.allocator,
             duped,
-            .zig,
+            .{ .mode = .zig },
         ) catch @panic("Could not parse zdef"),
     };
     defer {

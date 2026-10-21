@@ -35,7 +35,7 @@ pub export fn env(ctx: *api.NativeCtx) callconv(.c) c_int {
         return 1;
     }
 
-    const key_slice = api.VM.allocator.dupeZ(u8, key.?[0..len]) catch {
+    const key_slice = api.VM.allocator.dupeSentinel(u8, key.?[0..len], 0) catch {
         ctx.vm.bz_panic("Out of memory", "Out of memory".len);
         unreachable;
     };
@@ -252,7 +252,6 @@ pub export fn execute(ctx: *api.NativeCtx) callconv(.c) c_int {
         ctx.getIo(),
         .{
             .argv = command.items,
-            .disable_aslr = builtin.target.os.tag.isDarwin(),
         },
     ) catch |err| {
         handleSpawnError(ctx, err);
@@ -266,7 +265,7 @@ pub export fn execute(ctx: *api.NativeCtx) callconv(.c) c_int {
         return -1;
     };
 
-    ctx.vm.bz_push(.fromInteger(@intFromEnum(term)));
+    ctx.vm.bz_push(.fromInteger(@backingInt(term)));
 
     return 1;
 }
@@ -318,6 +317,7 @@ fn handleConnectUnixError(ctx: *api.NativeCtx, err: std.Io.net.UnixAddress.Conne
         error.ProtocolUnsupportedBySystem,
         error.SocketModeUnsupported,
         error.Canceled,
+        error.ConnectionRefused,
         => ctx.vm.pushErrorEnum("errors.SocketError", @errorName(err)),
 
         error.AccessDenied,
@@ -656,6 +656,7 @@ pub export fn SocketServerStart(ctx: *api.NativeCtx) callconv(.c) c_int {
         },
     ) catch |err| {
         switch (err) {
+            error.AccessDenied,
             error.Canceled,
             error.SystemResources,
             error.ProcessFdQuotaExceeded,

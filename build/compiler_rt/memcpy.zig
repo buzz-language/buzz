@@ -5,7 +5,7 @@ const builtin = @import("builtin");
 
 comptime {
     if (builtin.object_format != .c) {
-        const export_options: std.builtin.ExportOptions = .{
+        const export_options: std.lang.ExportOptions = .{
             .name = "memcpy",
             .linkage = common.linkage,
             .visibility = common.visibility,

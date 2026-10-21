@@ -142,7 +142,7 @@ fn testCompileErrors(process: std.process.Init, allocator: std.mem.Allocator, fa
                 file_name.written(),
                 .{ .mode = .read_only },
             );
-            var buffer = [_]u8{0} ** 255;
+            var buffer: [255]u8 = @splat(0);
             var file_reader = test_file.reader(process.io, buffer[0..]);
             var reader = bz_io.AllocatedReader.init(
                 allocator,
@@ -325,8 +325,8 @@ fn printFileStatus(io: std.Io, file_name: []const u8, status: Status) void {
 
 pub fn main(init: std.process.Init) !u8 {
     // DebugAllocator recently got super slow, will put this back on once its fixed
-    // var gpa = std.heap.DebugAllocator(.{ .safety = builtin.mode == .Debug }){};
-    // const allocator = if (builtin.mode == .Debug or is_wasm)
+    // var gpa = std.heap.DebugAllocator(.{ .safety = builtin.mode == .debug }){};
+    // const allocator = if (builtin.mode == .debug or is_wasm)
     //     gpa.allocator()
     // else
     const allocator = if (BuildOptions.mimalloc)

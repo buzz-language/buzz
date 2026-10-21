@@ -26,7 +26,7 @@ comptime {
 /// Note that this matches the definition of `__lesf2`, `__eqsf2`, `__nesf2`, `__cmpsf2`,
 /// and `__ltsf2`.
 fn __cmpsf2(a: f32, b: f32) callconv(.c) i32 {
-    return @intFromEnum(comparef.cmpf2(f32, comparef.LE, a, b));
+    return @backingInt(comparef.cmpf2(f32, comparef.LE, a, b));
 }
 
 /// "These functions return a value less than or equal to zero if neither argument is NaN,

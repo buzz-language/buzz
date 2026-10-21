@@ -23,7 +23,7 @@ var log_file: std.Io.File = undefined;
 var log_mutex = std.Io.Mutex.init;
 
 pub const std_options: std.Options = .{
-    .log_level = if (builtin.mode == .Debug) .debug else .info,
+    .log_level = if (builtin.mode == .debug) .debug else .info,
     .logFn = logFn,
 };
 
@@ -1295,7 +1295,7 @@ fn valueChildren(self: *Debugger, value: Value, result: *std.ArrayList(ProtocolM
 }
 
 pub fn main(init: std.process.Init) !u8 {
-    const allocator: std.mem.Allocator = if (builtin.mode == .Debug)
+    const allocator: std.mem.Allocator = if (builtin.mode == .debug)
         init.gpa
     else if (BuildOptions.mimalloc)
         @import("mimalloc.zig").mim_allocator

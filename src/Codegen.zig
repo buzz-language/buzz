@@ -235,7 +235,7 @@ pub fn emitTwo(self: *Self, location: Ast.TokenIndex, a: u8, b: u24) !void {
 pub fn emitCodeArg(self: *Self, location: Ast.TokenIndex, code: Chunk.OpCode, arg: u24) !void {
     try self.emit(
         location,
-        (@as(u32, @intCast(@intFromEnum(code))) << 24) | @as(u32, @intCast(arg)),
+        (@as(u32, @intCast(@backingInt(code))) << 24) | @as(u32, @intCast(arg)),
     );
 }
 
@@ -243,12 +243,12 @@ pub fn emitCodeArg(self: *Self, location: Ast.TokenIndex, code: Chunk.OpCode, ar
 pub fn emitCodeArgs(self: *Self, location: Ast.TokenIndex, code: Chunk.OpCode, a: u8, b: u16) !void {
     try self.emit(
         location,
-        (@as(u32, @intCast(@intFromEnum(code))) << 24) | (@as(u32, @intCast(a)) << 16) | (@as(u32, @intCast(b))),
+        (@as(u32, @intCast(@backingInt(code))) << 24) | (@as(u32, @intCast(a)) << 16) | (@as(u32, @intCast(b))),
     );
 }
 
 pub fn emitOpCode(self: *Self, location: Ast.TokenIndex, code: Chunk.OpCode) !void {
-    try self.emit(location, @as(u32, @intCast(@intFromEnum(code))) << 24);
+    try self.emit(location, @as(u32, @intCast(@backingInt(code))) << 24);
 }
 
 pub fn emitLoop(self: *Self, location: Ast.TokenIndex, loop_start: usize) !void {
@@ -269,7 +269,7 @@ pub fn emitJump(self: *Self, location: Ast.TokenIndex, instruction: Chunk.OpCode
 pub fn patchJumpOrLoop(self: *Self, offset: usize, loop_start: ?usize) !void {
     const original = self.current.?.function.?.chunk.code.items[offset];
     const instruction: u8 = @intCast(original >> 24);
-    const code: Chunk.OpCode = @enumFromInt(instruction);
+    const code: Chunk.OpCode = @fromBackingInt(@intCast(instruction));
 
     if (code == .OP_LOOP) { // Patching a continue statement
         std.debug.assert(loop_start != null);
@@ -494,7 +494,7 @@ fn hasLoopJump(self: *Self, jumps: *const Breaks, loop_node: Ast.Node.Index, kin
         const is_continue = is_it: {
             const original = self.current.?.function.?.chunk.code.items[jump.ip];
             const instruction: u8 = @intCast(original >> 24);
-            break :is_it @as(Chunk.OpCode, @enumFromInt(instruction)) == .OP_LOOP;
+            break :is_it @as(Chunk.OpCode, @fromBackingInt(@intCast(instruction))) == .OP_LOOP;
         };
         const matches_kind = switch (kind) {
             .@"break" => !is_continue,

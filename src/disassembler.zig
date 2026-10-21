@@ -225,7 +225,7 @@ pub fn disassembleInstruction(chunk: *Chunk, offset: usize) usize {
     }
 
     const full_instruction: u32 = chunk.code.items[offset];
-    const instruction: OpCode = @enumFromInt(@as(u8, @intCast(full_instruction >> 24)));
+    const instruction: OpCode = @fromBackingInt(@intCast(@as(u8, @intCast(full_instruction >> 24))));
     const arg: u24 = @intCast(0x00ffffff & full_instruction);
     return switch (instruction) {
         .OP_NULL,

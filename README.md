@@ -36,7 +36,7 @@ A small/lightweight statically typed scripting language written in Zig
 ## How to build and install
 
 ### Requirements
-- Zig 0.16.0
+- Zig 0.17.0
 - Since this is built with Zig, you should be able to build buzz on a wide variety of architectures even though this has only been tested on x86/M1.
 - Supports linux, macOS or windows
 - libc

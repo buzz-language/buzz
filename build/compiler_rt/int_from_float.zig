@@ -1,4 +1,5 @@
 const std = @import("std");
+const endian = @import("builtin").cpu.arch.endian();
 const Int = std.meta.Int;
 const math = std.math;
 const Log2Int = math.Log2Int;
@@ -51,7 +52,7 @@ pub inline fn intFromFloat(comptime I: type, a: anytype) I {
     return result;
 }
 
-pub inline fn bigIntFromFloat(comptime signedness: std.builtin.Signedness, result: []u32, a: anytype) void {
+pub inline fn bigIntFromFloat(comptime signedness: std.lang.Signedness, result: []u32, a: anytype) void {
     switch (result.len) {
         0 => return,
         inline 1...4 => |limbs_len| {
@@ -99,7 +100,7 @@ pub inline fn bigIntFromFloat(comptime signedness: std.builtin.Signedness, resul
         },
         .unsigned => @memset(result, 0),
     }
-    std.mem.writePackedIntNative(I, std.mem.sliceAsBytes(result), exponent, int);
+    std.mem.writePackedInt(I, std.mem.sliceAsBytes(result), exponent, int, endian);
 }
 
 test {

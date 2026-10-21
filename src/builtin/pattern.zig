@@ -151,7 +151,7 @@ pub fn rawMatch(self: *o.ObjPattern, vm: *VM, subject: *o.ObjString, offset: *us
     );
 
     switch (rc) {
-        @intFromEnum(pcre.MatchingError.DFA_UINVALID_UTF)...@intFromEnum(pcre.MatchingError.NOMATCH) => {},
+        @backingInt(pcre.MatchingError.DFA_UINVALID_UTF)...@backingInt(pcre.MatchingError.NOMATCH) => {},
         // TODO: handle ouptut_vector too small
         0 => {
             vm.panic("Could not match pattern");
@@ -294,7 +294,7 @@ fn rawReplace(self: *o.ObjPattern, vm: *VM, subject: *o.ObjString, replacement: 
     );
 
     switch (rc) {
-        @intFromEnum(pcre.MatchingError.DFA_UINVALID_UTF)...@intFromEnum(pcre.MatchingError.NOMATCH) => return subject,
+        @backingInt(pcre.MatchingError.DFA_UINVALID_UTF)...@backingInt(pcre.MatchingError.NOMATCH) => return subject,
         // TODO: handle ouptut_vector too small
         0 => {
             vm.panic("Could not match pattern");

@@ -26,7 +26,7 @@ comptime {
 /// Note that this matches the definition of `__ledf2`, `__eqdf2`, `__nedf2`, `__cmpdf2`,
 /// and `__ltdf2`.
 fn __cmpdf2(a: f64, b: f64) callconv(.c) i32 {
-    return @intFromEnum(comparef.cmpf2(f64, comparef.LE, a, b));
+    return @backingInt(comparef.cmpf2(f64, comparef.LE, a, b));
 }
 
 /// "These functions return a value less than or equal to zero if neither argument is NaN,

@@ -51,6 +51,8 @@ fn innerHttpClientNew(ctx: *api.NativeCtx) !c_int {
 pub export fn HttpClientNew(ctx: *api.NativeCtx) callconv(.c) c_int {
     return innerHttpClientNew(ctx) catch |err| {
         switch (err) {
+            error.Canceled,
+            error.NameTooLong,
             error.InvalidHostName,
             error.UriMissingHost,
             error.UnexpectedCharacter,
@@ -270,7 +272,7 @@ fn innerHttpRequestWait(ctx: *api.NativeCtx) !c_int {
     // Set status
     response.bz_setObjectInstanceProperty(
         3,
-        api.Value.fromInteger(@intFromEnum(http_response.head.status)),
+        api.Value.fromInteger(@backingInt(http_response.head.status)),
         ctx.vm,
     );
 
@@ -379,6 +381,7 @@ pub export fn HttpRequestWait(ctx: *api.NativeCtx) callconv(.c) c_int {
             error.HttpChunkTruncated,
             error.HttpHeadersOversize,
             error.HttpRequestTruncated,
+            error.InvalidHostName,
             error.HttpConnectionClosing,
             error.TlsInitializationFailed,
             error.UnsupportedUriScheme,

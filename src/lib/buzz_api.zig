@@ -241,10 +241,10 @@ pub const ZigType = opaque {
 
 pub const VM = opaque {
     var gpa = std.heap.DebugAllocator(.{
-        .safety = builtin.mode == .Debug,
+        .safety = builtin.mode == .debug,
     }){};
 
-    pub const allocator = if (builtin.mode == .Debug or is_wasm)
+    pub const allocator = if (builtin.mode == .debug or is_wasm)
         gpa.allocator()
     else if (BuildOptions.mimalloc)
         @import("mimalloc.zig").mim_allocator

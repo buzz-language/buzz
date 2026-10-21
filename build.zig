@@ -76,7 +76,7 @@ pub fn build(b: *Build) !void {
         },
     );
     if (is_wasm) {
-        exe.global_base = 6560;
+        exe.global_base = std.wasm.page_size;
         exe.entry = .disabled;
         exe.rdynamic = true;
         exe.import_memory = true;
@@ -95,9 +95,7 @@ pub fn build(b: *Build) !void {
 
     const run_exe = b.addRunArtifact(exe);
     run_exe.step.dependOn(install_step);
-    if (b.args) |args| {
-        run_exe.addArgs(args);
-    }
+    run_exe.addPassthruArgs();
     b.step("run", "run buzz").dependOn(&run_exe.step);
 
     // buzz_behavior
@@ -123,9 +121,7 @@ pub fn build(b: *Build) !void {
         b.installArtifact(behavior_exe.?);
         run_behavior = b.addRunArtifact(behavior_exe.?);
         run_behavior.?.step.dependOn(install_step);
-        if (b.args) |args| {
-            run_behavior.?.addArgs(args);
-        }
+        run_behavior.?.addPassthruArgs();
         b.step("test-behavior", "Test behavior").dependOn(&run_behavior.?.step);
     }
 
@@ -180,9 +176,7 @@ pub fn build(b: *Build) !void {
         b.installArtifact(lsp_exe.?);
         const run_lsp_exe = b.addRunArtifact(lsp_exe.?);
         run_lsp_exe.step.dependOn(install_step);
-        if (b.args) |args| {
-            run_lsp_exe.addArgs(args);
-        }
+        run_lsp_exe.addPassthruArgs();
         b.step("lsp", "run buzz lsp").dependOn(&run_lsp_exe.step);
     }
     const lsp_tests = if (!is_wasm and target.result.os.tag != .windows)
@@ -245,9 +239,7 @@ pub fn build(b: *Build) !void {
         },
     );
     const run_update_std_docs = b.addRunArtifact(update_std_docs_exe);
-    if (b.args) |args| {
-        run_update_std_docs.addArgs(args);
-    }
+    run_update_std_docs.addPassthruArgs();
     b.step("update-std-docs", "Regenerate standard library reference docs").dependOn(&run_update_std_docs.step);
 
     // Building buzz api library
@@ -321,7 +313,7 @@ pub fn build(b: *Build) !void {
     const test_step = b.step("test", "Run all the tests");
     const run_tests = b.addRunArtifact(tests);
     run_tests.cwd = b.path(".");
-    run_tests.setEnvironmentVariable("BUZZ_PATH", b.graph.environ_map.get("BUZZ_PATH") orelse std.fs.path.dirname(b.exe_dir).?);
+    run_tests.setEnvironmentVariable("BUZZ_PATH", b.graph.environ_map.get("BUZZ_PATH") orelse "zig-out");
     run_tests.step.dependOn(install_step); // wait for libraries to be installed
     test_step.dependOn(&run_tests.step);
     if (lsp_tests) |lsp_test_exe| {
@@ -384,14 +376,7 @@ pub fn build(b: *Build) !void {
 
 /// Creates an internal step that installs all Buzz std headers.
 fn createBuzzHeaderInstallStep(b: *Build) *Build.Step {
-    const step = b.allocator.create(Build.Step) catch @panic("OOM");
-    step.* = Build.Step.init(
-        .{
-            .id = .custom,
-            .name = "install buzz headers",
-            .owner = b,
-        },
-    );
+    const step = b.step("install-buzz-headers", "Install buzz headers");
 
     for (static_headers.all) |header| {
         const install_header = b.addInstallLibFile(
@@ -412,7 +397,7 @@ fn createBuzzHeaderInstallStep(b: *Build) *Build.Step {
     return step;
 }
 
-pub fn buildPcre2(b: *Build, target: Build.ResolvedTarget, optimize: std.builtin.OptimizeMode) !*Build.Step.Compile {
+pub fn buildPcre2(b: *Build, target: Build.ResolvedTarget, optimize: std.lang.Optimize) !*Build.Step.Compile {
     const copyFiles = b.addWriteFiles();
     _ = copyFiles.addCopyFile(
         b.path("vendors/pcre2/src/config.h.generic"),
@@ -494,7 +479,7 @@ pub fn buildPcre2(b: *Build, target: Build.ResolvedTarget, optimize: std.builtin
     return lib;
 }
 
-pub fn buildMimalloc(b: *Build, target: Build.ResolvedTarget, optimize: std.builtin.OptimizeMode) !*Build.Step.Compile {
+pub fn buildMimalloc(b: *Build, target: Build.ResolvedTarget, optimize: std.lang.Optimize) !*Build.Step.Compile {
     const lib = b.addLibrary(
         .{
             .name = "mimalloc",
@@ -533,7 +518,7 @@ pub fn buildMimalloc(b: *Build, target: Build.ResolvedTarget, optimize: std.buil
                 "./vendors/mimalloc/src/stats.c",
                 "./vendors/mimalloc/src/prim/prim.c",
             },
-            .flags = if (lib.root_module.optimize != .Debug)
+            .flags = if (lib.root_module.optimize != .debug)
                 &.{
                     "-DNDEBUG=1",
                     "-DMI_SECURE=0",
@@ -557,7 +542,7 @@ pub fn buildMimalloc(b: *Build, target: Build.ResolvedTarget, optimize: std.buil
     return lib;
 }
 
-pub fn buildLinenoise(b: *Build, target: Build.ResolvedTarget, optimize: std.builtin.OptimizeMode) !*Build.Step.Compile {
+pub fn buildLinenoise(b: *Build, target: Build.ResolvedTarget, optimize: std.lang.Optimize) !*Build.Step.Compile {
     const lib = b.addLibrary(
         .{
             .name = "linenoise",
@@ -594,7 +579,7 @@ pub fn buildLinenoise(b: *Build, target: Build.ResolvedTarget, optimize: std.bui
 fn buildTestLibraries(
     b: *Build,
     target: Build.ResolvedTarget,
-    optimize: std.builtin.OptimizeMode,
+    optimize: std.lang.Optimize,
     build_option_module: *Build.Module,
     buzz_lib: *Build.Step.Compile,
 ) *Build.Step {
@@ -695,8 +680,8 @@ pub fn buildWasmReplDemo(b: *Build, exe: *Build.Step.Compile) void {
 
     const esbuild = b.addSystemCommand(
         &.{
-            b.pathFromRoot("node_modules/.bin/esbuild"),
-            b.pathFromRoot("src/wasm.ts"),
+            b.pathJoin(&.{"node_modules/.bin/esbuild"}),
+            b.pathJoin(&.{"src/wasm.ts"}),
             "--bundle",
             "--format=esm",
             // This replaces all occurrences of '__WASM_ARTIFACT_FILENAME' in TypeScript source files
@@ -709,7 +694,7 @@ pub fn buildWasmReplDemo(b: *Build, exe: *Build.Step.Compile) void {
             b.fmt(
                 "--outdir={s}",
                 .{
-                    b.getInstallPath(.bin, ""),
+                    b.pathJoin(&.{"zig-out/bin"}),
                 },
             ),
         },
@@ -725,7 +710,7 @@ pub fn buildWasmReplDemo(b: *Build, exe: *Build.Step.Compile) void {
     b.getInstallStep().dependOn(&copyRepl.step);
 }
 
-pub fn buildMir(b: *Build, target: Build.ResolvedTarget, optimize: std.builtin.OptimizeMode) !*Build.Step.Compile {
+pub fn buildMir(b: *Build, target: Build.ResolvedTarget, optimize: std.lang.Optimize) !*Build.Step.Compile {
     const lib = b.addLibrary(
         .{
             .name = "mir",
@@ -773,7 +758,7 @@ pub fn buildMir(b: *Build, target: Build.ResolvedTarget, optimize: std.builtin.O
 pub fn buildFuzz(
     b: *Build,
     target: Build.ResolvedTarget,
-    optimize: std.builtin.OptimizeMode,
+    optimize: std.lang.Optimize,
     ext_deps: []const *std.Build.Step.Compile,
 ) *Build.Step.Compile {
     // Define a step for generating fuzzing tooling:
@@ -807,24 +792,18 @@ pub fn buildFuzz(
         }) orelse return null;
 
         const install_tools = b.addInstallDirectory(.{
-            .source_dir = std.Build.LazyPath{
-                .cwd_relative = afl.builder.install_path,
-            },
+            .source_dir = afl.path("zig-out"),
             .install_dir = .prefix,
             .install_subdir = "AFLplusplus",
         });
 
         install_tools.step.dependOn(afl.builder.getInstallStep());
-        run_afl_cc = b.addSystemCommand(&.{
-            b.pathJoin(&.{ afl.builder.exe_dir, "afl-cc" }),
-            "-O3",
-            "-o",
-        });
+        run_afl_cc = b.addRunFile(afl.path("zig-out/bin/afl-cc"));
+        run_afl_cc.addArgs(&.{ "-O3", "-o" });
         for (ext_deps) |dep| {
             run_afl_cc.addArg("-L");
-            run_afl_cc.addFileArg(dep.getEmittedBin());
+            run_afl_cc.addFileArg2(dep.getEmittedBin(), .{});
         }
-        run_afl_cc.step.dependOn(&afl.builder.top_level_steps.get("llvm_exes").?.step);
         run_afl_cc.step.dependOn(&install_tools.step);
     } else {
         run_afl_cc = b.addSystemCommand(
@@ -836,7 +815,7 @@ pub fn buildFuzz(
         _ = afl_obj.getEmittedBin(); // hack around build system bug
 
         for (ext_deps) |dep| {
-            run_afl_cc.addFileArg(dep.getEmittedBin());
+            run_afl_cc.addFileArg2(dep.getEmittedBin(), .{});
         }
 
         // On darwin we need compiler-rt
@@ -857,7 +836,7 @@ pub fn buildFuzz(
                 },
             );
 
-            run_afl_cc.addFileArg(compiler_rt.getEmittedBin());
+            run_afl_cc.addFileArg2(compiler_rt.getEmittedBin(), .{});
         }
 
         run_afl_cc.addArgs(
@@ -868,9 +847,9 @@ pub fn buildFuzz(
         );
     }
 
-    const fuzz_exe = run_afl_cc.addOutputFileArg(afl_obj.name);
-    run_afl_cc.addFileArg(b.path("src/afl.c"));
-    run_afl_cc.addFileArg(afl_obj.getEmittedLlvmBc());
+    const fuzz_exe = run_afl_cc.addOutputFileArg2(afl_obj.name, .{});
+    run_afl_cc.addFileArg2(b.path("src/afl.c"), .{});
+    run_afl_cc.addFileArg2(afl_obj.getEmittedLlvmBc(), .{});
 
     // Install it
     fuzz.dependOn(&b.addInstallBinFile(fuzz_exe, "fuzz_afl").step);

@@ -13,7 +13,7 @@ const JIT = if (!is_wasm) @import("Jit.zig") else void;
 const Token = @import("Token.zig");
 const Reporter = @import("Reporter.zig");
 const FFI = if (!is_wasm) @import("FFI.zig") else void;
-const dispatch_call_modifier: std.builtin.CallModifier = if (!is_wasm) .always_tail else .auto;
+const dispatch_call_modifier: std.lang.CallModifier = if (!is_wasm) .always_tail else .auto;
 const print = @import("io.zig").print;
 const Debugger = if (!is_wasm) @import("Debugger.zig") else void;
 const TypeRegistry = @import("TypeRegistry.zig");
@@ -655,11 +655,11 @@ pub const VM = struct {
     }
 
     pub fn getCode(instruction: u32) Chunk.OpCode {
-        return @enumFromInt(@as(u8, @intCast(instruction >> 24)));
+        return @fromBackingInt(@intCast(@as(u8, @intCast(instruction >> 24))));
     }
 
     fn replaceCode(instruction: u32, new_code: Chunk.OpCode) u32 {
-        return (@as(u32, @intCast(@intFromEnum(new_code))) << 24) | @as(u32, @intCast(getArg(instruction)));
+        return (@as(u32, @intCast(@backingInt(new_code))) << 24) | @as(u32, @intCast(getArg(instruction)));
     }
 
     fn getArg(instruction: u32) u24 {
@@ -5596,8 +5596,8 @@ pub const VM = struct {
         // In order to not fuck up any other ip absolute instructions (like OP_JUMP, etc.), we only put the revelant
         // new bytecode at the end of the range and jump to it.
         const hotspot_call = [_]u32{
-            (@as(u32, @intCast(@intFromEnum(Chunk.OpCode.OP_CONSTANT))) << 24) | @as(u32, @intCast(constant)),
-            (@as(u32, @intCast(@intFromEnum(Chunk.OpCode.OP_HOTSPOT_CALL))) << 24),
+            (@as(u32, @intCast(@backingInt(Chunk.OpCode.OP_CONSTANT))) << 24) | @as(u32, @intCast(constant)),
+            (@as(u32, @intCast(@backingInt(Chunk.OpCode.OP_HOTSPOT_CALL))) << 24),
         };
 
         try chunk.code.replaceRange(
@@ -5620,14 +5620,14 @@ pub const VM = struct {
         const hotspot_call_start = to - hotspot_call.len;
 
         // In the event that we are in a nested loop, we put a jump instruction in place of OP_HOTSPOT
-        chunk.code.items[frame.ip - 2] = (@as(u32, @intCast(@intFromEnum(Chunk.OpCode.OP_JUMP))) << 24) | @as(
+        chunk.code.items[frame.ip - 2] = (@as(u32, @intCast(@backingInt(Chunk.OpCode.OP_JUMP))) << 24) | @as(
             u32,
             @intCast(
                 hotspot_call_start - (frame.ip - 2) - 1, // -2 because OP_HOTSPOT has one more instruction for the node index
             ),
         );
         // To avoid the disassembler being lost we replace the OP_HOTSPOT's node index instruction with OP_VOID
-        chunk.code.items[frame.ip - 1] = (@as(u32, @intCast(@intFromEnum(Chunk.OpCode.OP_VOID))) << 24);
+        chunk.code.items[frame.ip - 1] = (@as(u32, @intCast(@backingInt(Chunk.OpCode.OP_VOID))) << 24);
 
         // Jump to it
         frame.ip = hotspot_call_start;
