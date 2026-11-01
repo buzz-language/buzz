@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const mem = std.mem;
 const Allocator = mem.Allocator;
 const Token = @import("Token.zig");
@@ -778,8 +779,8 @@ pub fn highlight(self: *Self, out: *std.Io.Writer, true_color: bool) void {
                 out.print(
                     "{s}{s}{s}{s}",
                     .{
-                        Color.dim,
-                        Color.black,
+                        if (builtin.os.tag == .windows) Color.bright_black else Color.dim,
+                        if (builtin.os.tag == .windows) "" else Color.black,
                         self.source[previous_offset..token.offset],
                         Color.reset,
                     },
@@ -881,7 +882,12 @@ pub fn highlight(self: *Self, out: *std.Io.Writer, true_color: bool) void {
                     .PercentEqual,
                     .AmpersandEqual,
                     .Match,
-                    => if (true_color) Color.keyword else Color.magenta,
+                    => if (true_color)
+                        Color.keyword
+                    else if (builtin.os.tag == .windows)
+                        Color.bright_magenta
+                    else
+                        Color.magenta,
                     // Punctuation
                     .LeftBracket,
                     .RightBracket,
@@ -905,7 +911,12 @@ pub fn highlight(self: *Self, out: *std.Io.Writer, true_color: bool) void {
                     => if (true_color) Color.number else Color.yellow,
                     .String, .Pattern => if (true_color) Color.string else Color.green,
                     .Identifier => "",
-                    .Docblock => if (true_color) Color.comment else Color.dim,
+                    .Docblock => if (true_color)
+                        Color.comment
+                    else if (builtin.os.tag == .windows)
+                        Color.bright_black
+                    else
+                        Color.dim,
                     .Eof, .Error => unreachable,
                 },
                 source_lexeme,

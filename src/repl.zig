@@ -24,9 +24,14 @@ pub const MULTILINE_PROMPT = "... ";
 const linenoise_max_line = 4096;
 
 pub fn printBanner(out: *std.Io.Writer, full: bool) void {
+    // Windows console hosts do not consistently render the banner's ZWJ
+    // emoji sequence, even when the surrounding text is written as UTF-16.
+    // Omit the emoji on Windows rather than showing a host-dependent rendering.
+    const banner_prefix = if (builtin.os.tag == .windows) "" else "👨‍🚀 ";
     out.print(
-        "👨‍🚀 buzz {f} Copyright (C) 2021-present Benoit Giannangeli\n",
+        "{s}buzz {f} Copyright (C) 2021-present Benoit Giannangeli\n",
         .{
+            banner_prefix,
             BuildOptions.version,
         },
     ) catch unreachable;
@@ -175,7 +180,7 @@ fn rewriteSubmittedSource(
 ) !void {
     try out.print(
         if (builtin.os.tag == .windows)
-            "{s}"
+            "\r\x1b[2K{s}"
         else
             "\x1b[1A\r\x1b[2K{s}",
         .{prompt},
@@ -192,7 +197,9 @@ fn rewriteSubmittedSource(
 
 pub fn repl(process: std.process.Init, allocator: std.mem.Allocator) !void {
     const colorterm = process.environ_map.get("COLORTERM");
-    const true_color = if (colorterm) |ct|
+    const true_color = if (builtin.os.tag == .windows)
+        false
+    else if (colorterm) |ct|
         std.mem.eql(u8, ct, "24bit") or std.mem.eql(u8, ct, "truecolor")
     else
         false;
@@ -210,22 +217,25 @@ pub fn repl(process: std.process.Init, allocator: std.mem.Allocator) !void {
     );
     defer runner.deinit();
 
-    var stdout = io.stdoutWriter(process.io);
-    var stderr = io.stderrWriter(process.io);
+    var stdout = if (builtin.os.tag == .windows)
+        WindowsReplWriter.init(runner.gc.allocator, process.io, std.Io.File.stdout())
+    else
+        io.stdoutWriter(process.io);
+    var stderr = if (builtin.os.tag == .windows)
+        WindowsReplWriter.init(runner.gc.allocator, process.io, std.Io.File.stderr())
+    else
+        io.stderrWriter(process.io);
+    defer if (builtin.os.tag == .windows) stdout.deinit();
+    defer if (builtin.os.tag == .windows) stderr.deinit();
     printBanner(&stdout.interface, false);
 
-    var buzz_history_path = std.Io.Writer.Allocating.init(allocator);
-    defer buzz_history_path.deinit();
-
-    try buzz_history_path.writer.print(
-        "{s}/.buzz_history\x00",
-        .{process.environ_map.get("HOME") orelse "."},
-    );
+    const buzz_history_path = try getBuzzHistoryPath(allocator, process);
+    defer allocator.free(buzz_history_path);
 
     // Setup linenoise
     if (ln != void) {
         _ = ln.linenoiseHistorySetMaxLen(100);
-        _ = ln.linenoiseHistoryLoad(@ptrCast(buzz_history_path.written().ptr));
+        _ = ln.linenoiseHistoryLoad(@ptrCast(buzz_history_path.ptr));
     }
 
     // Import std and debug as commodity
@@ -240,9 +250,33 @@ pub fn repl(process: std.process.Init, allocator: std.mem.Allocator) !void {
     var previous_globals = try runner.vm.globals.clone(allocator);
     var previous_type_registry = try runner.gc.type_registry.registry.clone(allocator);
     var previous_input: ?[]u8 = null;
+    var windows_history = std.ArrayList([]u8).empty;
+    defer {
+        for (windows_history.items) |entry| runner.gc.allocator.free(entry);
+        windows_history.deinit(runner.gc.allocator);
+    }
+    if (builtin.os.tag == .windows) {
+        loadWindowsHistory(
+            process.io,
+            runner.gc.allocator,
+            &windows_history,
+            buzz_history_path,
+        ) catch {};
+    }
 
     var reader_buffer = [_]u8{0};
-    var stdin_reader = std.Io.File.stdin().reader(process.io, reader_buffer[0..]);
+    var stdin_file = std.Io.File.stdin();
+    var windows_stdin_is_console = isWindowsConsole(stdin_file);
+    var owns_windows_stdin = false;
+    if (builtin.os.tag == .windows and !windows_stdin_is_console) {
+        if (openWindowsConsoleFile(windows_repl_api.GENERIC_READ, "CONIN$")) |console_input| {
+            stdin_file = console_input;
+            windows_stdin_is_console = true;
+            owns_windows_stdin = true;
+        }
+    }
+    defer closeWindowsConsoleFile(stdin_file, owns_windows_stdin);
+    var stdin_reader = stdin_file.reader(process.io, reader_buffer[0..]);
     var reader = io.AllocatedReader.init(
         allocator,
         &stdin_reader.interface,
@@ -269,6 +303,17 @@ pub fn repl(process: std.process.Init, allocator: std.mem.Allocator) !void {
                 prompt,
                 true_color,
             )
+        else if (windows_stdin_is_console)
+            readWindowsLine(
+                runner.gc.allocator,
+                &stdout.interface,
+                stdin_file,
+                std.mem.span(prompt),
+                &windows_history,
+            ) catch |err| switch (err) {
+                error.Interrupted => std.process.exit(130),
+                else => @panic("Could not read stdin"),
+            }
         else // FIXME: in that case, at least use an arena?
             reader.readUntilDelimiterOrEof('\n') catch @panic("Could not read stdin");
 
@@ -278,6 +323,8 @@ pub fn repl(process: std.process.Init, allocator: std.mem.Allocator) !void {
 
         var source = if (builtin.os.tag == .windows) read_source.? else std.mem.span(read_source.?);
         const original_source = source;
+        defer if (windows_stdin_is_console)
+            runner.gc.allocator.free(@constCast(read_source.?[0..original_source.len]));
         const submitted_prompt = std.mem.span(prompt);
         const continued_submission = previous_input != null;
 
@@ -380,9 +427,17 @@ pub fn repl(process: std.process.Init, allocator: std.mem.Allocator) !void {
             };
 
             if (runner.parser.reporter.last_error == null and runner.codegen.reporter.last_error == null) {
-                if (ln != void) {
+                if (builtin.os.tag == .windows) {
+                    addWindowsHistory(runner.gc.allocator, &windows_history, source);
+                    saveWindowsHistory(
+                        process.io,
+                        runner.gc.allocator,
+                        buzz_history_path,
+                        &windows_history,
+                    ) catch {};
+                } else if (ln != void) {
                     _ = ln.linenoiseHistoryAdd(source);
-                    _ = ln.linenoiseHistorySave(@ptrCast(buzz_history_path.written().ptr));
+                    _ = ln.linenoiseHistorySave(@ptrCast(buzz_history_path.ptr));
                 }
                 // FIXME: why can't I deinit those?
                 // previous_parser_globals.deinit();
@@ -445,9 +500,17 @@ pub fn repl(process: std.process.Init, allocator: std.mem.Allocator) !void {
                 if (runner.parser.reporter.last_error == .unclosed) {
                     previous_input = runner.gc.allocator.alloc(u8, source.len) catch @panic("Out of memory");
                     std.mem.copyForwards(u8, previous_input.?, source);
+                } else if (builtin.os.tag == .windows) {
+                    addWindowsHistory(runner.gc.allocator, &windows_history, source);
+                    saveWindowsHistory(
+                        process.io,
+                        runner.gc.allocator,
+                        buzz_history_path,
+                        &windows_history,
+                    ) catch {};
                 } else if (ln != void) {
                     _ = ln.linenoiseHistoryAdd(source);
-                    _ = ln.linenoiseHistorySave(@ptrCast(buzz_history_path.written().ptr));
+                    _ = ln.linenoiseHistorySave(@ptrCast(buzz_history_path.ptr));
                 }
             }
 
@@ -457,4 +520,466 @@ pub fn repl(process: std.process.Init, allocator: std.mem.Allocator) !void {
             runner.codegen.reporter.panic_mode = false;
         }
     }
+}
+
+/// Returns the platform-specific location used to persist REPL history.
+fn getBuzzHistoryPath(allocator: std.mem.Allocator, process: std.process.Init) ![:0]u8 {
+    const base = if (builtin.os.tag == .windows)
+        process.environ_map.get("APPDATA") orelse
+            process.environ_map.get("USERPROFILE") orelse
+            process.environ_map.get("HOME") orelse
+            "."
+    else
+        process.environ_map.get("HOME") orelse ".";
+
+    const joined = try std.fs.path.join(allocator, &.{ base, ".buzz_history" });
+    defer allocator.free(joined);
+    return allocator.dupeSentinel(u8, joined, 0);
+}
+
+/// Loads one UTF-8 history entry per line from the Windows REPL history file.
+fn loadWindowsHistory(
+    process_io: std.Io,
+    allocator: std.mem.Allocator,
+    history: *std.ArrayList([]u8),
+    path: []const u8,
+) !void {
+    var file = (if (std.fs.path.isAbsolute(path))
+        std.Io.Dir.openFileAbsolute(process_io, path, .{})
+    else
+        std.Io.Dir.cwd().openFile(process_io, path, .{})) catch return;
+    defer file.close(process_io);
+
+    var file_reader = file.reader(process_io, &.{});
+    const contents = file_reader.interface.allocRemaining(allocator, .unlimited) catch return;
+    defer allocator.free(contents);
+
+    var entries = std.mem.splitScalar(u8, contents, '\n');
+    while (entries.next()) |entry| {
+        const without_cr = std.mem.trimEnd(u8, entry, "\r");
+        if (without_cr.len > 0) addWindowsHistory(allocator, history, without_cr);
+    }
+}
+
+/// Persists the current Windows REPL history as UTF-8 text.
+fn saveWindowsHistory(
+    process_io: std.Io,
+    allocator: std.mem.Allocator,
+    path: []const u8,
+    history: *const std.ArrayList([]u8),
+) !void {
+    var contents = std.Io.Writer.Allocating.init(allocator);
+    defer contents.deinit();
+
+    for (history.items, 0..) |entry, index| {
+        if (index != 0) try contents.writer.writeByte('\n');
+        try contents.writer.writeAll(entry);
+    }
+
+    if (std.fs.path.isAbsolute(path)) {
+        var file = try std.Io.Dir.createFileAbsolute(process_io, path, .{});
+        defer file.close(process_io);
+        try file.writeStreamingAll(process_io, contents.written());
+    } else {
+        try std.Io.Dir.cwd().writeFile(process_io, .{
+            .sub_path = path,
+            .data = contents.written(),
+        });
+    }
+}
+
+/// Windows API entry points used to write Unicode text to an interactive console.
+const windows_repl_api = if (builtin.os.tag == .windows) struct {
+    const windows = std.os.windows;
+
+    const KeyEventRecord = extern struct {
+        key_down: windows.BOOL,
+        repeat_count: windows.WORD,
+        virtual_key_code: windows.WORD,
+        virtual_scan_code: windows.WORD,
+        unicode_char: windows.WCHAR,
+        control_key_state: windows.DWORD,
+    };
+
+    const InputRecord = extern struct {
+        event_type: windows.WORD,
+        event: extern union {
+            key_event: KeyEventRecord,
+        },
+    };
+
+    const ENABLE_PROCESSED_INPUT: windows.DWORD = 0x0001;
+    const ENABLE_LINE_INPUT: windows.DWORD = 0x0002;
+    const ENABLE_ECHO_INPUT: windows.DWORD = 0x0004;
+    const ENABLE_QUICK_EDIT_MODE: windows.DWORD = 0x0040;
+    const ENABLE_EXTENDED_FLAGS: windows.DWORD = 0x0080;
+    const KEY_EVENT: windows.WORD = 0x0001;
+    const LEFT_CTRL_PRESSED: windows.DWORD = 0x0008;
+    const RIGHT_CTRL_PRESSED: windows.DWORD = 0x0004;
+    const GENERIC_READ: windows.DWORD = 0x80000000;
+    const GENERIC_WRITE: windows.DWORD = 0x40000000;
+    const FILE_SHARE_READ: windows.DWORD = 0x00000001;
+    const FILE_SHARE_WRITE: windows.DWORD = 0x00000002;
+    const OPEN_EXISTING: windows.DWORD = 3;
+
+    const VK_BACK: windows.WORD = 0x08;
+    const VK_C: windows.WORD = 0x43;
+    const VK_RETURN: windows.WORD = 0x0d;
+    const VK_ESCAPE: windows.WORD = 0x1b;
+    const VK_UP: windows.WORD = 0x26;
+    const VK_DOWN: windows.WORD = 0x28;
+
+    extern "kernel32" fn WriteConsoleW(
+        handle: windows.HANDLE,
+        buffer: [*]const windows.WCHAR,
+        length: windows.DWORD,
+        written: ?*windows.DWORD,
+        reserved: ?*anyopaque,
+    ) callconv(.winapi) windows.BOOL;
+
+    extern "kernel32" fn GetConsoleMode(
+        handle: windows.HANDLE,
+        mode: *windows.DWORD,
+    ) callconv(.winapi) windows.BOOL;
+
+    extern "kernel32" fn SetConsoleMode(
+        handle: windows.HANDLE,
+        mode: windows.DWORD,
+    ) callconv(.winapi) windows.BOOL;
+
+    extern "kernel32" fn ReadConsoleInputW(
+        handle: windows.HANDLE,
+        records: [*]InputRecord,
+        length: windows.DWORD,
+        read: *windows.DWORD,
+    ) callconv(.winapi) windows.BOOL;
+
+    extern "kernel32" fn CreateFileW(
+        name: [*:0]const windows.WCHAR,
+        desired_access: windows.DWORD,
+        share_mode: windows.DWORD,
+        security_attributes: ?*anyopaque,
+        creation_disposition: windows.DWORD,
+        flags_and_attributes: windows.DWORD,
+        template_file: ?windows.HANDLE,
+    ) callconv(.winapi) windows.HANDLE;
+
+    extern "kernel32" fn CloseHandle(handle: windows.HANDLE) callconv(.winapi) windows.BOOL;
+} else void;
+
+/// Writes REPL-owned text using the representation expected by the host terminal.
+const WindowsReplWriter = if (builtin.os.tag == .windows) struct {
+    allocator: std.mem.Allocator,
+    process_io: std.Io,
+    file: std.Io.File,
+    owns_file: bool,
+    is_console: bool,
+    ansi_enabled: bool,
+    interface: std.Io.Writer,
+
+    /// Initializes a writer for a Windows stdout or stderr handle.
+    pub fn init(
+        allocator: std.mem.Allocator,
+        process_io: std.Io,
+        file: std.Io.File,
+    ) @This() {
+        var output_file = file;
+        var owns_file = false;
+        var is_console = isWindowsConsole(file);
+        if (!is_console) {
+            if (openWindowsConsoleFile(windows_repl_api.GENERIC_WRITE, "CONOUT$")) |console_output| {
+                output_file = console_output;
+                owns_file = true;
+                is_console = true;
+            }
+        }
+        var ansi_enabled = false;
+        if (is_console) {
+            if (output_file.enableAnsiEscapeCodes(process_io)) |_| {
+                ansi_enabled = true;
+            } else |_| {}
+        }
+
+        return .{
+            .allocator = allocator,
+            .process_io = process_io,
+            .file = output_file,
+            .owns_file = owns_file,
+            .is_console = is_console,
+            .ansi_enabled = ansi_enabled,
+            .interface = .{
+                .buffer = &.{},
+                .vtable = &.{
+                    .drain = drain,
+                },
+            },
+        };
+    }
+
+    /// Closes a console handle opened through CONOUT$.
+    pub fn deinit(self: *@This()) void {
+        if (self.owns_file) _ = windows_repl_api.CloseHandle(self.file.handle);
+    }
+
+    /// Writes one logical writer drain to either the console or the raw handle.
+    fn drain(
+        writer: *std.Io.Writer,
+        data: []const []const u8,
+        splat: usize,
+    ) std.Io.Writer.Error!usize {
+        const self: *@This() = @alignCast(@fieldParentPtr("interface", writer));
+
+        var output = std.Io.Writer.Allocating.init(self.allocator);
+        defer output.deinit();
+
+        const header = writer.buffered();
+        output.writer.writeAll(header) catch return error.WriteFailed;
+        for (data[0 .. data.len - 1]) |bytes| {
+            output.writer.writeAll(bytes) catch return error.WriteFailed;
+        }
+        for (0..splat) |_| {
+            output.writer.writeAll(data[data.len - 1]) catch return error.WriteFailed;
+        }
+
+        const input_len = output.written().len;
+        const bytes = if (self.is_console) blk: {
+            const console_bytes = if (self.ansi_enabled)
+                output.written()
+            else
+                stripAnsiEscapeCodes(output.written());
+            break :blk console_bytes;
+        } else output.written();
+
+        if (!self.is_console) {
+            std.Io.File.writeStreamingAll(self.file, self.process_io, bytes) catch return error.WriteFailed;
+            return input_len;
+        }
+
+        const utf16 = std.unicode.utf8ToUtf16LeAlloc(self.allocator, bytes) catch return error.WriteFailed;
+        defer self.allocator.free(utf16);
+
+        var offset: usize = 0;
+        while (offset < utf16.len) {
+            const count = @min(utf16.len - offset, std.math.maxInt(std.os.windows.DWORD));
+            var written: std.os.windows.DWORD = 0;
+            if (!windows_repl_api.WriteConsoleW(
+                self.file.handle,
+                utf16[offset..].ptr,
+                @intCast(count),
+                &written,
+                null,
+            ).toBool() or written == 0) {
+                return error.WriteFailed;
+            }
+            offset += written;
+        }
+
+        return input_len;
+    }
+} else void;
+
+/// Removes CSI escape sequences when a legacy Windows console cannot interpret them.
+fn stripAnsiEscapeCodes(bytes: []u8) []u8 {
+    var read: usize = 0;
+    var write: usize = 0;
+
+    while (read < bytes.len) {
+        if (bytes[read] == 0x1b and read + 1 < bytes.len and bytes[read + 1] == '[') {
+            read += 2;
+            while (read < bytes.len and !(bytes[read] >= 0x40 and bytes[read] <= 0x7e)) {
+                read += 1;
+            }
+            if (read < bytes.len) read += 1;
+            continue;
+        }
+
+        bytes[write] = bytes[read];
+        write += 1;
+        read += 1;
+    }
+
+    return bytes[0..write];
+}
+
+/// Checks whether a Windows handle is backed by a console screen or input buffer.
+fn isWindowsConsole(file: std.Io.File) bool {
+    if (builtin.os.tag != .windows) return false;
+
+    var mode: std.os.windows.DWORD = undefined;
+    return windows_repl_api.GetConsoleMode(file.handle, &mode).toBool();
+}
+
+/// Opens the process console directly when a shell has supplied pipe handles.
+fn openWindowsConsoleFile(
+    desired_access: std.os.windows.DWORD,
+    comptime console_name_utf8: []const u8,
+) ?std.Io.File {
+    if (builtin.os.tag != .windows) return null;
+
+    const console_name = std.unicode.utf8ToUtf16LeStringLiteral(console_name_utf8);
+    const handle = windows_repl_api.CreateFileW(
+        console_name,
+        desired_access,
+        windows_repl_api.FILE_SHARE_READ | windows_repl_api.FILE_SHARE_WRITE,
+        null,
+        windows_repl_api.OPEN_EXISTING,
+        0,
+        null,
+    );
+    if (handle == std.os.windows.INVALID_HANDLE_VALUE) return null;
+    return .{
+        .handle = handle,
+        .flags = .{ .nonblocking = false },
+    };
+}
+
+/// Closes a console file only when this REPL opened its handle.
+fn closeWindowsConsoleFile(file: std.Io.File, owned: bool) void {
+    if (builtin.os.tag == .windows and owned) {
+        _ = windows_repl_api.CloseHandle(file.handle);
+    }
+}
+
+/// Redraws the current Windows console input line after an editing action.
+fn refreshWindowsInput(
+    allocator: std.mem.Allocator,
+    out: *std.Io.Writer,
+    prompt: []const u8,
+    line: []const u16,
+) !void {
+    const utf8 = try std.unicode.utf16LeToUtf8Alloc(allocator, line);
+    defer allocator.free(utf8);
+
+    try out.writeAll("\r\x1b[2K");
+    try out.writeAll(prompt);
+    try out.writeAll(utf8);
+}
+
+/// Echoes only the newly completed UTF-16 character while the user types.
+fn echoWindowsInputCharacter(
+    allocator: std.mem.Allocator,
+    out: *std.Io.Writer,
+    line: []const u16,
+) !void {
+    if (line.len == 0 or std.unicode.utf16IsHighSurrogate(line[line.len - 1])) return;
+
+    const start = if (std.unicode.utf16IsLowSurrogate(line[line.len - 1]) and
+        line.len > 1 and
+        std.unicode.utf16IsHighSurrogate(line[line.len - 2]))
+        line.len - 2
+    else
+        line.len - 1;
+    const utf8 = try std.unicode.utf16LeToUtf8Alloc(allocator, line[start..]);
+    defer allocator.free(utf8);
+    try out.writeAll(utf8);
+}
+
+/// Reads one line from a Windows console and handles basic editing and history navigation.
+fn readWindowsLine(
+    allocator: std.mem.Allocator,
+    out: *std.Io.Writer,
+    input: std.Io.File,
+    prompt: []const u8,
+    history: *std.ArrayList([]u8),
+) !?[]u8 {
+    const windows = std.os.windows;
+    var mode: windows.DWORD = undefined;
+    if (!windows_repl_api.GetConsoleMode(input.handle, &mode).toBool()) {
+        return error.InputOutput;
+    }
+    defer _ = windows_repl_api.SetConsoleMode(input.handle, mode);
+
+    const input_mode = (mode | windows_repl_api.ENABLE_EXTENDED_FLAGS) &
+        ~(windows_repl_api.ENABLE_PROCESSED_INPUT | windows_repl_api.ENABLE_LINE_INPUT |
+            windows_repl_api.ENABLE_ECHO_INPUT | windows_repl_api.ENABLE_QUICK_EDIT_MODE);
+    if (!windows_repl_api.SetConsoleMode(input.handle, input_mode).toBool()) {
+        return error.InputOutput;
+    }
+
+    var line = std.array_list.Managed(u16).init(allocator);
+    defer line.deinit();
+    var history_index: ?usize = null;
+
+    while (true) {
+        var record: windows_repl_api.InputRecord = undefined;
+        var read: windows.DWORD = 0;
+        if (!windows_repl_api.ReadConsoleInputW(input.handle, @ptrCast(&record), 1, &read).toBool()) {
+            return error.InputOutput;
+        }
+        if (read == 0 or record.event_type != windows_repl_api.KEY_EVENT) continue;
+
+        const key = record.event.key_event;
+        if (!key.key_down.toBool()) continue;
+
+        if ((key.control_key_state &
+            (windows_repl_api.LEFT_CTRL_PRESSED | windows_repl_api.RIGHT_CTRL_PRESSED)) != 0 and
+            key.virtual_key_code == windows_repl_api.VK_C)
+        {
+            try out.writeAll("^C\r\n");
+            return error.Interrupted;
+        }
+
+        switch (key.virtual_key_code) {
+            windows_repl_api.VK_RETURN => {
+                const result = try std.unicode.utf16LeToUtf8Alloc(allocator, line.items);
+                return result;
+            },
+            windows_repl_api.VK_BACK => {
+                if (line.items.len > 0) {
+                    line.items.len -= 1;
+                    if (line.items.len > 0 and
+                        line.items[line.items.len - 1] >= 0xdc00 and
+                        line.items[line.items.len - 1] <= 0xdfff)
+                    {
+                        line.items.len -= 1;
+                    }
+                    try refreshWindowsInput(allocator, out, prompt, line.items);
+                }
+            },
+            windows_repl_api.VK_ESCAPE => {
+                line.clearRetainingCapacity();
+                history_index = null;
+                try refreshWindowsInput(allocator, out, prompt, line.items);
+            },
+            windows_repl_api.VK_UP => {
+                if (history.items.len > 0) {
+                    history_index = if (history_index) |index|
+                        if (index > 0) index - 1 else 0
+                    else
+                        history.items.len - 1;
+                    line.clearRetainingCapacity();
+                    try std.unicode.utf8ToUtf16LeArrayList(&line, history.items[history_index.?]);
+                    try refreshWindowsInput(allocator, out, prompt, line.items);
+                }
+            },
+            windows_repl_api.VK_DOWN => {
+                if (history_index) |index| {
+                    if (index + 1 < history.items.len) {
+                        history_index = index + 1;
+                        line.clearRetainingCapacity();
+                        try std.unicode.utf8ToUtf16LeArrayList(&line, history.items[history_index.?]);
+                    } else {
+                        history_index = null;
+                        line.clearRetainingCapacity();
+                    }
+                    try refreshWindowsInput(allocator, out, prompt, line.items);
+                }
+            },
+            else => if (key.unicode_char >= 0x20) {
+                try line.append(key.unicode_char);
+                history_index = null;
+                try echoWindowsInputCharacter(allocator, out, line.items);
+            },
+        }
+    }
+}
+
+/// Stores a Windows REPL input in the session history.
+fn addWindowsHistory(
+    allocator: std.mem.Allocator,
+    history: *std.ArrayList([]u8),
+    source: []const u8,
+) void {
+    const copy = allocator.dupe(u8, source) catch @panic("Out of memory");
+    history.append(allocator, copy) catch @panic("Out of memory");
 }
