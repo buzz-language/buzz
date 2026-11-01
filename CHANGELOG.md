@@ -1,4 +1,4 @@
-# Unreleased: Gearing it up!
+# 0.6.0 10-01-2026
 
 This release brings a lot of useful tools to write buzz code (LSP, formatter and
 DAP support) along with Windows support.

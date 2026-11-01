@@ -875,20 +875,20 @@ const BuildOptions = struct {
                 .major = 0,
                 .minor = 6,
                 .patch = 0,
-                .pre = "dev",
-                .build = b.graph.environ_map.get("GIT_SHA") orelse
-                    b.graph.environ_map.get("GITHUB_SHA") orelse std.mem.trim(
-                    u8,
-                    b.run(
-                        &.{
-                            "git",
-                            "rev-parse",
-                            "--short",
-                            "HEAD",
-                        },
-                    ),
-                    "\n \t",
-                ),
+                // .pre = "dev",
+                // .build = b.graph.environ_map.get("GIT_SHA") orelse
+                //     b.graph.environ_map.get("GITHUB_SHA") orelse std.mem.trim(
+                //     u8,
+                //     b.run(
+                //         &.{
+                //             "git",
+                //             "rev-parse",
+                //             "--short",
+                //             "HEAD",
+                //         },
+                //     ),
+                //     "\n \t",
+                // ),
             },
             .cycle_limit = b.option(
                 usize,
