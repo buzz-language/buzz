@@ -1,0 +1,29 @@
+import "buzz:std";
+import "buzz:time";
+import "buzz:os" as os;
+
+test "now returns a positive number" {
+    final now = time\now();
+    std\assert(
+        now > 0,
+        message: "now should be greater than 0"
+    );
+}
+
+test "monotonic increases" {
+    final start = time\monotonic();
+    os\sleep(12.0);
+    final end = time\monotonic();
+    std\assert(
+        end > start,
+        message: "monotonic should increase after sleep"
+    );
+}
+
+test "cpu returns a positive number" {
+    final cpu = time\cpu();
+    std\assert(
+        cpu >= 0,
+        message: "cpu time should be >= 0"
+    );
+}

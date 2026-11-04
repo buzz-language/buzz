@@ -1,0 +1,12 @@
+namespace time;
+
+import "buzz:errors";
+
+/// Real-time (wall-clock) in milliseconds since Unix epoch
+export extern fun now() > double;
+
+/// Monotonic clock in milliseconds (never goes backwards for intervals)
+export extern fun monotonic() > double;
+
+/// Cpu time used by the current process in milliseconds
+export extern fun cpu() > double !> errors\UnexpectedError;
